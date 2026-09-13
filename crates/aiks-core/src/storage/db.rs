@@ -4,7 +4,8 @@ use std::path::Path;
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags};
 
-const SCHEMA_SQL: &str = include_str!("../../migrations/001_init.sql");
+const SCHEMA_V1_SQL: &str = include_str!("../../migrations/001_init.sql");
+const SCHEMA_V3_SQL: &str = include_str!("../../migrations/002_v3_pipeline.sql");
 
 /// AIKS state database.
 ///
@@ -55,8 +56,11 @@ impl StateDb {
 
     fn run_migrations(&self) -> anyhow::Result<()> {
         self.conn
-            .execute_batch(SCHEMA_SQL)
-            .context("run migrations")?;
+            .execute_batch(SCHEMA_V1_SQL)
+            .context("run V1 migrations")?;
+        self.conn
+            .execute_batch(SCHEMA_V3_SQL)
+            .context("run V3 pipeline migrations")?;
         Ok(())
     }
 
@@ -117,6 +121,7 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let db = StateDb::open(&db_path).unwrap();
 
+        // V1 tables
         let count: i64 = db
             .conn()
             .query_row(
@@ -125,8 +130,18 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-
         assert_eq!(count, 4);
+
+        // V3 pipeline tables
+        let v3_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('pipeline_run','pipeline_stage_run','knowledge_item','knowledge_chunk','embedding_record','session_chunk')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(v3_count, 6);
     }
 
     #[test]

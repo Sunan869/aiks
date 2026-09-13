@@ -78,6 +78,7 @@ dependencies = [
  "aiks-core",
  "anyhow",
  "dirs 5.0.1",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",

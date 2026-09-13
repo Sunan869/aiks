@@ -26,6 +26,7 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
 dirs.workspace = true
+rusqlite.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle, XCircle, RefreshCw } from "lucide-react";
-import type { FullStatus } from "../App";
+import { getApi } from "../api/client";
+import type { FullStatus } from "../api/types";
 
 interface Props {
   fullStatus: FullStatus | null;
@@ -28,8 +28,8 @@ export default function SourcesPage({ fullStatus }: Props) {
     setSyncing(s => ({ ...s, [source]: true }));
     setMsgs(m => ({ ...m, [source]: "" }));
     try {
-      const r = await invoke<any>("sync_and_extract", { source: srcKey });
-      setMsgs(m => ({ ...m, [source]: `同步完成：+${r.new_count} 新增，${r.updated_count} 更新` }));
+      const r = await getApi().syncAndExtract(srcKey);
+      setMsgs(m => ({ ...m, [source]: `扫描完成：+${r.new_count} 新增，${r.updated_count} 更新` }));
     } catch (e) {
       setMsgs(m => ({ ...m, [source]: `错误：${e}` }));
     } finally { setSyncing(s => ({ ...s, [source]: false })); }

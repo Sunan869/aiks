@@ -80,6 +80,13 @@ pub fn run() {
             // V2.5: Unified status + sync-with-extraction
             commands::get_full_status,
             commands::sync_and_extract,
+            // V3: Pipeline + Knowledge + Search
+            commands::list_pipeline_runs,
+            commands::get_pipeline_detail,
+            commands::get_pipeline_stats,
+            commands::list_sessions_v3,
+            commands::list_knowledge,
+            commands::search_knowledge,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

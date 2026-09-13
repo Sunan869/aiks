@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { RefreshCw, CheckCircle, Cpu, Zap } from "lucide-react";
-import type { FullStatus, AiStatus } from "../App";
+import { getApi } from "../api/client";
+import type { FullStatus, AiStatus } from "../api/types";
 
 interface Props {
   fullStatus: FullStatus | null;
@@ -18,8 +18,8 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
     setSyncing(true);
     setSyncMsg(null);
     try {
-      const r = await invoke<any>("sync_and_extract", { source: null });
-      setSyncMsg(`同步完成：+${r.new_count} 新增，${r.updated_count} 更新，跳过 ${r.skipped_count}`);
+      const r = await getApi().syncAndExtract();
+      setSyncMsg(`扫描完成：+${r.new_count} 新增，${r.updated_count} 更新`);
       setTimeout(onRefresh, 500);
     } catch (e) {
       setSyncMsg(`错误：${e}`);
@@ -27,10 +27,10 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   };
 
   const stats = [
-    { label: "历史对话", value: fullStatus?.scan_total ?? 0, icon: "💬" },
-    { label: "已连数据源", value: fullStatus ? Object.values(fullStatus.scan_by_source).filter(v => v > 0).length : 0, icon: "🔗" },
-    { label: "精炼知识", value: fullStatus?.extraction_success ?? 0, icon: "✨" },
-    { label: "待整理", value: fullStatus?.extraction_pending ?? 0, icon: "⏳" },
+    { label: "工作记录", value: fullStatus?.scan_total ?? 0, icon: "📝" },
+    { label: "知识条目", value: fullStatus?.extraction_success ?? 0, icon: "✨" },
+    { label: "数据源", value: fullStatus ? Object.values(fullStatus.scan_by_source).filter(v => v > 0).length : 0, icon: "🔗" },
+    { label: "待处理", value: fullStatus?.extraction_pending ?? 0, icon: "⏳" },
   ];
 
   const isSyncing = syncing || syncInProgress;

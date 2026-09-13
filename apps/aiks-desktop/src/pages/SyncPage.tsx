@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCw } from "lucide-react";
-import type { FullStatus } from "../App";
+import type { FullStatus } from "../api/types";
 
 interface Props {
   fullStatus: FullStatus | null;

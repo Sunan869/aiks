@@ -449,3 +449,279 @@ pub async fn sync_and_extract(
         "extraction_queued": stats.extraction_candidates.len()
     }))
 }
+
+// ===== V3 Pipeline Commands =====
+
+/// List pipeline runs for the Processing Center page
+#[tauri::command]
+pub async fn list_pipeline_runs(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let orchestrator = aiks_core::PipelineOrchestrator::new(db);
+    let runs = orchestrator.list_runs(limit.unwrap_or(200)).map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(runs).map_err(|e| e.to_string())?)
+}
+
+/// Get pipeline run detail (with stage trace)
+#[tauri::command]
+pub async fn get_pipeline_detail(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let orchestrator = aiks_core::PipelineOrchestrator::new(db);
+    match orchestrator.get_run_detail(&run_id).map_err(|e| e.to_string())? {
+        Some(detail) => Ok(serde_json::to_value(detail).map_err(|e| e.to_string())?),
+        None => Err(format!("Pipeline run not found: {}", run_id)),
+    }
+}
+
+/// Get pipeline processing stats
+#[tauri::command]
+pub async fn get_pipeline_stats(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let orchestrator = aiks_core::PipelineOrchestrator::new(db);
+    let stats = orchestrator.get_stats().map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(stats).map_err(|e| e.to_string())?)
+}
+
+/// List sessions (V3 version — from DB with pipeline status)
+#[tauri::command]
+pub async fn list_sessions_v3(
+    source: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
+
+    let source_filter = source.as_deref().unwrap_or("");
+    let rows: Vec<serde_json::Value> = if source_filter.is_empty() {
+        let mut stmt = conn.prepare(
+            "SELECT ss.id, ss.source, ss.external_session_id, ss.title, ss.project_name, ss.project_path,
+                    ss.source_updated_at, ss.content_hash,
+                    pr.id as run_id, pr.status as pipeline_status, pr.current_stage
+             FROM source_session ss
+             LEFT JOIN pipeline_run pr ON pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+             ORDER BY ss.source_updated_at DESC
+             LIMIT ?1 OFFSET ?2"
+        ).map_err(|e| e.to_string())?;
+        let mapped = stmt.query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, i64>(0)?,
+                "source": row.get::<_, String>(1)?,
+                "session_id": row.get::<_, String>(2)?,
+                "title": row.get::<_, Option<String>>(3)?,
+                "project_name": row.get::<_, Option<String>>(4)?,
+                "project_path": row.get::<_, Option<String>>(5)?,
+                "updated_at": row.get::<_, Option<String>>(6)?,
+                "content_hash": row.get::<_, Option<String>>(7)?,
+                "run_id": row.get::<_, Option<String>>(8)?,
+                "pipeline_status": row.get::<_, Option<String>>(9)?,
+                "current_stage": row.get::<_, Option<String>>(10)?
+            }))
+        }).map_err(|e| e.to_string())?;
+        let result: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        result
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT ss.id, ss.source, ss.external_session_id, ss.title, ss.project_name, ss.project_path,
+                    ss.source_updated_at, ss.content_hash,
+                    pr.id as run_id, pr.status as pipeline_status, pr.current_stage
+             FROM source_session ss
+             LEFT JOIN pipeline_run pr ON pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+             WHERE ss.source = ?1
+             ORDER BY ss.source_updated_at DESC
+             LIMIT ?2 OFFSET ?3"
+        ).map_err(|e| e.to_string())?;
+        let mapped = stmt.query_map(rusqlite::params![source_filter, limit as i64, offset as i64], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, i64>(0)?,
+                "source": row.get::<_, String>(1)?,
+                "session_id": row.get::<_, String>(2)?,
+                "title": row.get::<_, Option<String>>(3)?,
+                "project_name": row.get::<_, Option<String>>(4)?,
+                "project_path": row.get::<_, Option<String>>(5)?,
+                "updated_at": row.get::<_, Option<String>>(6)?,
+                "content_hash": row.get::<_, Option<String>>(7)?,
+                "run_id": row.get::<_, Option<String>>(8)?,
+                "pipeline_status": row.get::<_, Option<String>>(9)?,
+                "current_stage": row.get::<_, Option<String>>(10)?
+            }))
+        }).map_err(|e| e.to_string())?;
+        let result: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        result
+    };
+
+    let total: i64 = if source_filter.is_empty() {
+        conn.query_row("SELECT COUNT(*) FROM source_session", [], |r| r.get(0)).unwrap_or(0)
+    } else {
+        conn.query_row("SELECT COUNT(*) FROM source_session WHERE source = ?1",
+            rusqlite::params![source_filter], |r| r.get(0)).unwrap_or(0)
+    };
+
+    Ok(serde_json::json!({
+        "items": rows,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }))
+}
+
+/// List knowledge items
+#[tauri::command]
+pub async fn list_knowledge(
+    project: Option<String>,
+    category: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
+
+    // Check if table exists (new DB may not have it yet)
+    let table_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
+        [], |row| row.get::<_, i64>(0),
+    ).unwrap_or(0) > 0;
+
+    if !table_exists {
+        return Ok(serde_json::json!({"items": [], "total": 0}));
+    }
+
+    let rows: Vec<serde_json::Value> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_session_id, project_name, title, category, summary, tags, confidence, created_at, updated_at
+             FROM knowledge_item
+             ORDER BY updated_at DESC
+             LIMIT ?1 OFFSET ?2"
+        ).map_err(|e| e.to_string())?;
+
+        let mapped = stmt.query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "session_id": row.get::<_, i64>(1)?,
+                "project_name": row.get::<_, Option<String>>(2)?,
+                "title": row.get::<_, String>(3)?,
+                "category": row.get::<_, String>(4)?,
+                "summary": row.get::<_, String>(5)?,
+                "tags": row.get::<_, String>(6)?,
+                "confidence": row.get::<_, f64>(7)?,
+                "created_at": row.get::<_, String>(8)?,
+                "updated_at": row.get::<_, String>(9)?
+            }))
+        }).map_err(|e| e.to_string())?;
+        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        r
+    };
+
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM knowledge_item", [], |r| r.get(0)
+    ).unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "items": rows,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }))
+}
+
+/// Search knowledge (FTS5 + fallback to LIKE)
+#[tauri::command]
+pub async fn search_knowledge(
+    query: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let limit = limit.unwrap_or(20);
+
+    // Check if FTS table exists
+    let fts_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_fts'",
+        [], |row| row.get::<_, i64>(0),
+    ).unwrap_or(0) > 0;
+
+    let ki_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
+        [], |row| row.get::<_, i64>(0),
+    ).unwrap_or(0) > 0;
+
+    if !ki_exists {
+        return Ok(serde_json::json!({"results": [], "query": query, "total": 0}));
+    }
+
+    let results: Vec<serde_json::Value> = if fts_exists {
+        // FTS5 search
+        let mut stmt = conn.prepare(
+            "SELECT ki.id, ki.title, ki.category, ki.summary, ki.project_name, ki.tags, ki.confidence
+             FROM knowledge_fts kf
+             JOIN knowledge_item ki ON ki.id = kf.knowledge_id
+             WHERE knowledge_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2"
+        ).map_err(|e| e.to_string())?;
+
+        let mapped = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "summary": row.get::<_, String>(3)?,
+                "project_name": row.get::<_, Option<String>>(4)?,
+                "tags": row.get::<_, String>(5)?,
+                "confidence": row.get::<_, f64>(6)?,
+                "match_type": "fts"
+            }))
+        }).map_err(|e| e.to_string())?;
+        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        r
+    } else {
+        // Fallback: LIKE search
+        let pattern = format!("%{}%", query);
+        let mut stmt = conn.prepare(
+            "SELECT id, title, category, summary, project_name, tags, confidence
+             FROM knowledge_item
+             WHERE title LIKE ?1 OR summary LIKE ?1 OR content LIKE ?1
+             ORDER BY updated_at DESC
+             LIMIT ?2"
+        ).map_err(|e| e.to_string())?;
+
+        let mapped = stmt.query_map(rusqlite::params![pattern, limit as i64], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "summary": row.get::<_, String>(3)?,
+                "project_name": row.get::<_, Option<String>>(4)?,
+                "tags": row.get::<_, String>(5)?,
+                "confidence": row.get::<_, f64>(6)?,
+                "match_type": "like"
+            }))
+        }).map_err(|e| e.to_string())?;
+        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        r
+    };
+
+    Ok(serde_json::json!({
+        "results": results,
+        "query": query,
+        "total": results.len()
+    }))
+}
