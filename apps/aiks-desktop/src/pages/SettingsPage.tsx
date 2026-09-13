@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle } from "lucide-react";
+import { getApi, shouldUseMock } from "../api/client";
 
 interface Settings {
   startup: boolean;
@@ -23,14 +23,40 @@ export default function SettingsPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [aiBaseUrl, setAiBaseUrl] = useState("http://10.10.23.16:18000/v1");
   const [aiModel, setAiModel] = useState("Qwen3.8-27B");
+  const [aiHealthy, setAiHealthy] = useState<boolean | null>(null);
+  const isMock = shouldUseMock();
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setSettings).catch(console.error);
-  }, []);
+    if (isMock) {
+      setSettings({
+        startup: true, sync_enabled: true, scan_interval_seconds: 300,
+        include_thinking: false, include_tool_calls: true, max_tool_result_chars: 10000,
+        redact_secrets: true, ai_enabled: true, ai_auto_extract: true,
+        ai_extract_tags: true, ai_extract_problems: true, ai_extract_decisions: true,
+      });
+      return;
+    }
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<Settings>("get_settings").then(setSettings).catch(console.error);
+    });
+  }, [isMock]);
+
+  const testAiConnection = async () => {
+    setAiHealthy(null);
+    try {
+      const ok = await getApi().testAiConnection();
+      setAiHealthy(ok);
+    } catch {
+      setAiHealthy(false);
+    }
+  };
 
   const save = async () => {
     if (!settings) return;
-    await invoke("save_settings", { settings });
+    if (!isMock) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_settings", { settings });
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -119,6 +145,19 @@ export default function SettingsPage() {
                 onChange={e => setAiModel(e.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={testAiConnection}
+                className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                测试 AI 连接
+              </button>
+              {aiHealthy !== null && (
+                <span className={`text-xs ${aiHealthy ? "text-green-600" : "text-red-500"}`}>
+                  {aiHealthy ? "✓ 连接正常" : "✕ 连接失败"}
+                </span>
+              )}
             </div>
           </div>
         )}

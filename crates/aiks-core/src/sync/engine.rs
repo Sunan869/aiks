@@ -416,4 +416,47 @@ impl SyncEngine {
         }
         Ok(marked)
     }
+
+    /// B09: Enqueue all sessions in the DB into the V3 pipeline.
+    ///
+    /// Used after sync to create pipeline_run records for sessions that
+    /// were discovered but don't yet have a pipeline run (or have a failed one).
+    pub fn enqueue_all_pending_for_pipeline(&self, db: &StateDb) -> anyhow::Result<usize> {
+        use crate::pipeline::repo::PipelineRepo;
+
+        // Step 1: Collect sessions needing pipeline runs (hold lock briefly, then release)
+        let rows: Vec<(i64, Option<String>)> = {
+            let conn = db.conn();
+            let mut stmt = conn.prepare(
+                "SELECT ss.id, ss.content_hash
+                 FROM source_session ss
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM pipeline_run pr
+                     WHERE pr.session_id = ss.id
+                       AND pr.pipeline_version = 'v3'
+                       AND pr.status NOT IN ('FAILED', 'DISCOVERED')
+                 )
+                 ORDER BY ss.updated_at DESC"
+            )?;
+            let result: Vec<(i64, Option<String>)> = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            result
+            // conn MutexGuard dropped here ─────────────────────────────────────
+        };
+
+        let count = rows.len();
+
+        // Step 2: Create pipeline_run records (separate DB lock acquisition)
+        let pipeline_repo = PipelineRepo::new(db);
+        for (session_id, content_hash) in rows {
+            let _ = pipeline_repo.upsert_pipeline_run(session_id, content_hash.as_deref(), "v3");
+        }
+
+        if count > 0 {
+            info!("[PIPELINE] Enqueued {} sessions into pipeline", count);
+        }
+        Ok(count)
+    }
 }

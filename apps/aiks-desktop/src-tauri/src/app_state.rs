@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use aiks_core::AiksEngine;
+use aiks_core::watcher::WatcherHandle;
 use tokio::sync::Mutex;
 
 /// State shared across all Tauri commands.
+/// All fields must be Send + Sync since Tauri's State<T> requires T: Send + Sync.
 pub struct AppState {
     /// None if SiYuan failed to start (control center still works)
     pub engine: Option<Arc<AiksEngine>>,
@@ -13,6 +15,9 @@ pub struct AppState {
     pub siyuan_url: Arc<Mutex<Option<String>>>,
     /// User data directory
     pub data_dir: PathBuf,
+    /// B08: Watcher handle — wrapped in Mutex to satisfy Sync bound for Tauri State.
+    /// Only needs to stay alive; never actually accessed after creation.
+    pub _watcher_handle: Mutex<Option<WatcherHandle>>,
 }
 
 impl AppState {
@@ -26,10 +31,13 @@ impl AppState {
 }
 
 /// Resolve the user data directory.
-///
-/// Spec §10, §23: %LOCALAPPDATA%\AIKnowledgeSync on Windows.
 pub fn data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
         .join("AIKnowledgeSync")
+}
+
+/// Resolve the app config file path.
+pub fn config_file_path() -> PathBuf {
+    data_dir().join("config").join("aiks.toml")
 }

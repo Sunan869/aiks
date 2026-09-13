@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
 
 use crate::ai::config::AiModelConfig;
@@ -36,17 +36,30 @@ pub struct PipelineWorker {
 }
 
 impl PipelineWorker {
-    /// Start the background pipeline worker
+    /// Start the background pipeline worker with default concurrency (max_concurrent from ai_config)
     pub fn start(
         db: Arc<StateDb>,
         registry: Arc<ProviderRegistry>,
         ai_config: AiModelConfig,
         embedding_config: EmbeddingConfig,
     ) -> Self {
+        let max_concurrent = ai_config.max_concurrent.max(1);
+        Self::start_with_limit(db, registry, ai_config, embedding_config, max_concurrent)
+    }
+
+    /// Start with an explicit concurrency limit (B13)
+    pub fn start_with_limit(
+        db: Arc<StateDb>,
+        registry: Arc<ProviderRegistry>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        max_concurrent: usize,
+    ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
+        let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
 
         tokio::spawn(async move {
-            run_worker(rx, db, registry, ai_config, embedding_config).await;
+            run_worker(rx, db, registry, ai_config, embedding_config, semaphore).await;
         });
 
         Self { tx }
@@ -64,6 +77,7 @@ async fn run_worker(
     registry: Arc<ProviderRegistry>,
     ai_config: AiModelConfig,
     embedding_config: EmbeddingConfig,
+    semaphore: Arc<Semaphore>,  // B13: concurrency limit
 ) {
     info!("[PIPELINE] Worker started");
 
@@ -72,9 +86,13 @@ async fn run_worker(
         let registry = Arc::clone(&registry);
         let ai = ai_config.clone();
         let emb = embedding_config.clone();
+        let sem = Arc::clone(&semaphore);
 
-        // Process in a spawned task to avoid blocking the worker loop
+        // B13: Acquire semaphore permit before spawning — limits concurrency
         tokio::spawn(async move {
+            // Acquire permit (blocks if at concurrency limit)
+            let _permit = sem.acquire().await.expect("Semaphore closed");
+
             if let Err(e) = run_pipeline(&db, &registry, &ai, &emb, &job).await {
                 error!(
                     run_id = %job.pipeline_run_id,
@@ -82,15 +100,12 @@ async fn run_worker(
                     error = %e,
                     "[PIPELINE] Job failed"
                 );
-                // B12: Ensure the pipeline run is marked FAILED (safety net in case
-                // the error escaped before an explicit mark_failed call)
+                // B12: Safety net mark_failed
                 let repo = PipelineRepo::new(&db);
                 let _ = repo.mark_failed(&job.pipeline_run_id, "UNKNOWN", &e.to_string());
             }
+            // _permit dropped here → releases semaphore slot
         });
-
-        // Small delay to avoid hammering the AI API
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     info!("[PIPELINE] Worker stopped");

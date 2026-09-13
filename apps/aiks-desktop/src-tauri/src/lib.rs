@@ -8,11 +8,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use aiks_core::runtime::SiyuanRuntime;
-use aiks_core::runtime::SiyuanRuntimeConfig;
 use tauri::{Manager, WindowEvent};
 use tracing_subscriber::EnvFilter;
-
-use app_state::data_dir;
 
 pub fn run() {
     tracing_subscriber::fmt()
@@ -21,13 +18,10 @@ pub fn run() {
         .compact()
         .init();
 
-    // Create a placeholder runtime that we'll replace after bootstrap
-    // We need to manage it before setup because commands reference it
-    let placeholder_runtime = SiyuanRuntime::new(SiyuanRuntimeConfig::new(
-        std::path::PathBuf::from("."),
-        std::path::PathBuf::from("."),
-        &data_dir(),
-    ));
+    // B07: Manage a single Option<SiyuanRuntime> container.
+    // lifecycle::startup fills it; commands::restart_siyuan and shutdown use it.
+    // No placeholder runtime needed — the container starts empty (None).
+    let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -36,7 +30,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .manage(Arc::new(Mutex::new(placeholder_runtime)))
+        .manage(runtime_container)
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -95,7 +89,6 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Minimize to tray instead of closing (spec §69)
                 window.hide().ok();
                 api.prevent_close();
             }

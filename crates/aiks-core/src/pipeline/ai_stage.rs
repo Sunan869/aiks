@@ -132,12 +132,26 @@ impl AiStage {
     }
 }
 
-fn parse_v3_result(response: &str) -> V3ExtractionResult {
+/// B17: Parse V3 result — returns Ok(result) or Err if JSON is invalid/malformed.
+/// This separates "no knowledge" (valid skip) from "AI output broken" (error).
+/// Public for testing.
+pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let clean = clean_json(response);
-    match serde_json::from_str::<V3ExtractionResult>(&clean) {
+    if clean.is_empty() || (!clean.starts_with('{')) {
+        anyhow::bail!("AI response is not a JSON object: {:?}", &response[..response.len().min(100)]);
+    }
+    serde_json::from_str::<V3ExtractionResult>(&clean)
+        .map_err(|e| anyhow::anyhow!("AI JSON parse failed: {} (response length: {})", e, response.len()))
+}
+
+fn parse_v3_result(response: &str) -> V3ExtractionResult {
+    match parse_v3_result_typed(response) {
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, "[AI] Failed to parse V3 response, returning skip");
+            // B17: We still return skip to not crash the pipeline, but callers
+            // should check if this was due to parse failure vs real "no knowledge"
+            // TODO M2: Return typed error instead of silent skip
             V3ExtractionResult::skip("解析失败")
         }
     }

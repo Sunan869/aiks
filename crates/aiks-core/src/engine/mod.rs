@@ -476,9 +476,19 @@ impl AiksEngine {
         &self,
         opts: SyncOptions,
     ) -> anyhow::Result<SyncStats> {
-        let stats = self.sync(opts).await?;
+        let stats = self.sync(opts.clone()).await?;
 
-        // Enqueue new/updated sessions into V3 pipeline
+        // B15: After a successful scan (no source_filter = full scan),
+        // mark sessions that are no longer visible in any provider as MISSING.
+        if opts.source_filter.is_none() && !opts.dry_run {
+            match self.sync_engine.mark_missing_sessions(&self.db, &self.registry).await {
+                Ok(n) if n > 0 => info!("[SYNC] Marked {} sessions as MISSING (source removed)", n),
+                Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
+                _ => {}
+            }
+        }
+
+        // B09: Enqueue new/updated sessions into V3 pipeline
         if !stats.extraction_candidates.is_empty() {
             info!(
                 count = stats.extraction_candidates.len(),
@@ -487,26 +497,27 @@ impl AiksEngine {
 
             let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
 
-            // Query DB to find session rows matching the candidate IDs
             for ext_id in &stats.extraction_candidates {
-                let conn = self.db.conn();
-                // Search across all sources (simple: any source)
-                let result = conn.query_row(
-                    "SELECT id, source, external_session_id, title, project_name, content_hash
-                     FROM source_session WHERE external_session_id = ?1
-                     ORDER BY updated_at DESC LIMIT 1",
-                    rusqlite::params![ext_id],
-                    |row| Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                    )),
-                );
+                // Collect data while holding conn, then release before submitting
+                let session_data: Option<(i64, String, String, Option<String>, Option<String>, Option<String>)> = {
+                    let conn = self.db.conn();
+                    conn.query_row(
+                        "SELECT id, source, external_session_id, title, project_name, content_hash
+                         FROM source_session WHERE external_session_id = ?1
+                         ORDER BY updated_at DESC LIMIT 1",
+                        rusqlite::params![ext_id],
+                        |row| Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                        )),
+                    ).ok()
+                };
 
-                if let Ok((db_id, source, session_ext_id, title, project_name, content_hash)) = result {
+                if let Some((db_id, source, session_ext_id, title, project_name, content_hash)) = session_data {
                     if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
                         self.pipeline_worker.submit(PipelineJob {
                             pipeline_run_id: run_id,

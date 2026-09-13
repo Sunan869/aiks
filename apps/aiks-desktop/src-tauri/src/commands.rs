@@ -106,21 +106,27 @@ pub struct SessionDto {
 
 // ── Commands ───────────────────────────────────────────────────────────────────
 
+/// get_status — returns app status. Runtime info comes from AppState.
 #[tauri::command]
 pub async fn get_status(
     state: State<'_, AppState>,
-    runtime: State<'_, Arc<Mutex<SiyuanRuntime>>>,
+    runtime: State<'_, Arc<Mutex<Option<SiyuanRuntime>>>>,
 ) -> Result<StatusResponse, String> {
-    // Runtime info
-    let health = runtime.lock().await.health().await;
-    let runtime_dto = Some(RuntimeStatusDto {
-        state: format!("{:?}", health.state),
-        port: health.port,
-        version: health.version,
-        mode: "Embedded".to_string(),
-    });
+    let runtime_dto = {
+        let lock = runtime.lock().await;
+        if let Some(rt) = lock.as_ref() {
+            let health = rt.health().await;
+            Some(RuntimeStatusDto {
+                state: format!("{:?}", health.state),
+                port: health.port,
+                version: health.version,
+                mode: "Embedded".to_string(),
+            })
+        } else {
+            None
+        }
+    };
 
-    // App status
     if let Some(engine) = state.engine() {
         engine
             .status()
@@ -136,13 +142,8 @@ pub async fn get_status(
             .map_err(|e| e.to_string())
     } else {
         Ok(StatusResponse {
-            total_sessions: 0,
-            synced: 0,
-            pending: 0,
-            conflict: 0,
-            failed: 0,
-            last_sync_at: None,
-            runtime: runtime_dto,
+            total_sessions: 0, synced: 0, pending: 0, conflict: 0, failed: 0,
+            last_sync_at: None, runtime: runtime_dto,
         })
     }
 }
@@ -211,15 +212,46 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
     }
 }
 
+/// B10: save_settings also writes a TOML config file so the engine can load it on restart.
 #[tauri::command]
 pub async fn save_settings(
     settings: AppSettings,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    // Save JSON for UI consumption
     let settings_file = state.data_dir.join("config").join("app.json");
     std::fs::create_dir_all(settings_file.parent().unwrap()).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_file, json).map_err(|e| e.to_string())
+    std::fs::write(&settings_file, json).map_err(|e| e.to_string())?;
+
+    // B10: Also write aiks.toml so engine reads correct config on next startup
+    let toml_file = state.data_dir.join("config").join("aiks.toml");
+    let toml_content = format!(
+        r#"# AIKS configuration (auto-generated from Settings UI)
+[ai]
+enabled = {}
+auto_extract = {}
+
+[sync]
+scan_interval_seconds = {}
+watch_enabled = {}
+
+[security]
+redact_secrets = {}
+
+[content]
+include_tool_calls = {}
+"#,
+        settings.ai_enabled,
+        settings.ai_auto_extract,
+        settings.scan_interval_seconds,
+        settings.sync_enabled,
+        settings.redact_secrets,
+        settings.include_tool_calls,
+    );
+    std::fs::write(&toml_file, toml_content).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -236,15 +268,14 @@ pub async fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn restart_siyuan(
-    runtime: State<'_, Arc<Mutex<SiyuanRuntime>>>,
+    runtime: State<'_, Arc<Mutex<Option<SiyuanRuntime>>>>,
 ) -> Result<u16, String> {
-    runtime
-        .lock()
-        .await
-        .restart()
-        .await
-        .map(|info| info.port)
-        .map_err(|e| e.to_string())
+    let mut lock = runtime.lock().await;
+    if let Some(rt) = lock.as_mut() {
+        rt.restart().await.map(|info| info.port).map_err(|e| e.to_string())
+    } else {
+        Err("SiYuan runtime not initialized".to_string())
+    }
 }
 
 #[tauri::command]
