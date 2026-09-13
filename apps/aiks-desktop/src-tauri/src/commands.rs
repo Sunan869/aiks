@@ -577,7 +577,7 @@ pub async fn list_sessions_v3(
     }))
 }
 
-/// List knowledge items
+/// List knowledge items with proper project/category filtering (B21 fix)
 #[tauri::command]
 pub async fn list_knowledge(
     project: Option<String>,
@@ -592,7 +592,6 @@ pub async fn list_knowledge(
     let limit = limit.unwrap_or(50);
     let offset = offset.unwrap_or(0);
 
-    // Check if table exists (new DB may not have it yet)
     let table_exists: bool = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
         [], |row| row.get::<_, i64>(0),
@@ -602,35 +601,61 @@ pub async fn list_knowledge(
         return Ok(serde_json::json!({"items": [], "total": 0}));
     }
 
+    // Build dynamic WHERE clause
+    let mut where_parts: Vec<&str> = Vec::new();
+    let has_project = project.as_deref().map(|p| !p.is_empty()).unwrap_or(false);
+    let has_category = category.as_deref().map(|c| !c.is_empty()).unwrap_or(false);
+
+    if has_project { where_parts.push("project_name = ?3"); }
+    if has_category { where_parts.push("category = ?4"); }
+
+    let where_clause = if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_parts.join(" AND "))
+    };
+
     let rows: Vec<serde_json::Value> = {
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT id, source_session_id, project_name, title, category, summary, tags, confidence, created_at, updated_at
              FROM knowledge_item
+             {}
              ORDER BY updated_at DESC
-             LIMIT ?1 OFFSET ?2"
+             LIMIT ?1 OFFSET ?2",
+            where_clause
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let proj_str = project.as_deref().unwrap_or("");
+        let cat_str = category.as_deref().unwrap_or("");
+        let mapped = stmt.query_map(
+            rusqlite::params![limit as i64, offset as i64, proj_str, cat_str],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "session_id": row.get::<_, i64>(1)?,
+                    "project_name": row.get::<_, Option<String>>(2)?,
+                    "title": row.get::<_, String>(3)?,
+                    "category": row.get::<_, String>(4)?,
+                    "summary": row.get::<_, String>(5)?,
+                    "tags": row.get::<_, String>(6)?,
+                    "confidence": row.get::<_, f64>(7)?,
+                    "created_at": row.get::<_, String>(8)?,
+                    "updated_at": row.get::<_, String>(9)?
+                }))
+            }
         ).map_err(|e| e.to_string())?;
-
-        let mapped = stmt.query_map(rusqlite::params![limit as i64, offset as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "session_id": row.get::<_, i64>(1)?,
-                "project_name": row.get::<_, Option<String>>(2)?,
-                "title": row.get::<_, String>(3)?,
-                "category": row.get::<_, String>(4)?,
-                "summary": row.get::<_, String>(5)?,
-                "tags": row.get::<_, String>(6)?,
-                "confidence": row.get::<_, f64>(7)?,
-                "created_at": row.get::<_, String>(8)?,
-                "updated_at": row.get::<_, String>(9)?
-            }))
-        }).map_err(|e| e.to_string())?;
         let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         r
     };
 
-    let total: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM knowledge_item", [], |r| r.get(0)
-    ).unwrap_or(0);
+    // B21: Use same WHERE predicate for total count
+    let total: i64 = {
+        let count_sql = format!("SELECT COUNT(*) FROM knowledge_item {}", where_clause);
+        let proj_str = project.as_deref().unwrap_or("");
+        let cat_str = category.as_deref().unwrap_or("");
+        conn.query_row(&count_sql, rusqlite::params![0i64, 0i64, proj_str, cat_str], |r| r.get(0))
+            .unwrap_or(0)
+    };
 
     Ok(serde_json::json!({
         "items": rows,

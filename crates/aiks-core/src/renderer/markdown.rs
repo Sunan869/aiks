@@ -147,7 +147,7 @@ impl MarkdownRenderer {
                         content.len(),
                         self.config.max_tool_result_chars
                     );
-                    let trunc = &content[..self.config.max_tool_result_chars];
+                    let trunc = crate::util::truncate_chars(content.as_str(), self.config.max_tool_result_chars);
                     format!("{}{}", trunc, truncation_msg)
                 } else {
                     content.clone()
@@ -172,8 +172,10 @@ impl MarkdownRenderer {
                 out.push_str("*[未知内容块 / Unknown content block]*\n\n");
                 if !raw.is_null() {
                     let raw_str = serde_json::to_string_pretty(raw).unwrap_or_default();
+                    // Sanitize before writing — Unknown blocks may contain secrets
+                    let sanitized = self.sanitize(&raw_str);
                     out.push_str("```json\n");
-                    out.push_str(&raw_str);
+                    out.push_str(&sanitized);
                     out.push_str("\n```\n\n");
                 }
             }

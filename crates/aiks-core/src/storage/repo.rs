@@ -184,7 +184,8 @@ impl<'a> SourceSessionRepo<'a> {
     }
 
     pub fn list_all(&self) -> anyhow::Result<Vec<SourceSession>> {
-        let mut stmt = self.db.conn().prepare(
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
             "SELECT id, source, external_session_id, source_path, project_path, project_name,
                     title, source_updated_at, content_hash, parser_version,
                     last_seen_at, is_missing, created_at, updated_at
@@ -208,7 +209,8 @@ impl<'a> SourceSessionRepo<'a> {
                 updated_at: row.get(13)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        let result: Vec<SourceSession> = rows.filter_map(|r| r.ok()).collect();
+        Ok(result)
     }
 }
 
@@ -326,7 +328,8 @@ impl<'a> SyncTargetRepo<'a> {
     }
 
     pub fn list_pending(&self, sink: &str) -> anyhow::Result<Vec<SyncTarget>> {
-        let mut stmt = self.db.conn().prepare(
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
             "SELECT id, session_id, sink, target_id, target_path, synced_hash, target_hash,
                     last_synced_at, status, last_error, retry_count
              FROM sync_target

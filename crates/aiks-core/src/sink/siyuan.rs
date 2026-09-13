@@ -141,48 +141,24 @@ impl SiYuanSink {
             .ok_or_else(|| anyhow::anyhow!("No notebook ID in response"))
     }
 
-    /// Find a managed document by its AIKS session ID.
+    /// Find a managed document by its target_id saved in the local sync_target table.
+    /// This replaces the non-existent /api/search/searchAttr endpoint.
+    /// Callers should use the locally saved target_id from the DB directly
+    /// rather than searching SiYuan by attribute.
     pub async fn find_document_by_session(
         &self,
-        source: &str,
-        session_id: &str,
+        _source: &str,
+        _session_id: &str,
     ) -> anyhow::Result<Option<DocumentInfo>> {
-        let url = format!("{}/api/search/searchAttr", self.base_url);
-        let resp: ApiResponse<SearchAttrResult> = self
-            .request_builder(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({
-                "name": ATTR_SESSION_ID,
-                "value": session_id
-            }))
-            .send()
-            .await
-            .context("search by session attr")?
-            .json()
-            .await
-            .context("parse search attr response")?;
-
-        if resp.code != 0 {
-            return Ok(None);
-        }
-
-        let blocks = resp.data.map(|d| d.blocks).unwrap_or_default();
-        for block in blocks {
-            if let Some(attrs) = self.get_block_attrs(&block.id).await.ok() {
-                if attrs.get(ATTR_SOURCE).map(|s| s.as_str()) == Some(source) {
-                    return Ok(Some(DocumentInfo {
-                        id: block.id,
-                        path: block.path,
-                        content_hash: attrs.get(ATTR_CONTENT_HASH).cloned(),
-                        parser_version: attrs.get(ATTR_PARSER_VERSION).cloned(),
-                    }));
-                }
-            }
-        }
-
+        // Note: SiYuan v3.8.3 does not have /api/search/searchAttr.
+        // Document lookup should use the locally persisted target_id from sync_target.
+        // This method is kept for interface compatibility; callers should prefer
+        // finding the target_id in the local DB first.
         Ok(None)
     }
 
     /// Create a new document with Markdown content.
+    /// SiYuan v3.8.3: createDocWithMd returns data as a plain string ID.
     pub async fn create_document(
         &self,
         notebook_id: &str,
@@ -190,7 +166,9 @@ impl SiYuanSink {
         markdown: &str,
     ) -> anyhow::Result<String> {
         let url = format!("{}/api/filetree/createDocWithMd", self.base_url);
-        let resp: ApiResponse<CreateDocResult> = self
+        // The API returns: {"code":0,"msg":"","data":"20260913000000-blockid"}
+        // where data is a string, not an object.
+        let resp: ApiResponse<serde_json::Value> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({
                 "notebook": notebook_id,
@@ -205,12 +183,22 @@ impl SiYuanSink {
             .context("parse create document response")?;
 
         if resp.code != 0 {
-            anyhow::bail!("SiYuan createDocWithMd error: {}", resp.msg);
+            anyhow::bail!("SiYuan createDocWithMd error {}: {}", resp.code, resp.msg);
         }
 
-        resp.data
-            .and_then(|d| d.id)
-            .ok_or_else(|| anyhow::anyhow!("No document ID in create response"))
+        // data is a string ID directly (v3.8.3 contract)
+        match resp.data {
+            Some(serde_json::Value::String(id)) if !id.is_empty() => Ok(id),
+            Some(serde_json::Value::Object(obj)) => {
+                // Fallback: older versions may return {id: "..."}
+                obj.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| anyhow::anyhow!("createDocWithMd: no id in object response"))
+            }
+            Some(other) => anyhow::bail!("createDocWithMd: unexpected data type: {:?}", other),
+            None => anyhow::bail!("createDocWithMd: no data in response"),
+        }
     }
 
     /// Update the content of an existing document.
@@ -238,12 +226,13 @@ impl SiYuanSink {
     }
 
     /// Set attributes on a block (document).
+    /// SiYuan v3.8.3: /api/attr/setBlockAttrs
     pub async fn set_block_attrs(
         &self,
         block_id: &str,
         attrs: &HashMap<String, String>,
     ) -> anyhow::Result<()> {
-        let url = format!("{}/api/block/setBlockAttrs", self.base_url);
+        let url = format!("{}/api/attr/setBlockAttrs", self.base_url);
         let resp: ApiResponse<serde_json::Value> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({
@@ -258,18 +247,19 @@ impl SiYuanSink {
             .context("parse set attrs response")?;
 
         if resp.code != 0 {
-            anyhow::bail!("SiYuan setBlockAttrs error: {}", resp.msg);
+            anyhow::bail!("SiYuan setBlockAttrs error {}: {}", resp.code, resp.msg);
         }
 
         Ok(())
     }
 
     /// Get attributes of a block.
+    /// SiYuan v3.8.3: /api/attr/getBlockAttrs
     pub async fn get_block_attrs(
         &self,
         block_id: &str,
     ) -> anyhow::Result<HashMap<String, String>> {
-        let url = format!("{}/api/block/getBlockAttrs", self.base_url);
+        let url = format!("{}/api/attr/getBlockAttrs", self.base_url);
         let resp: ApiResponse<HashMap<String, String>> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({"id": block_id}))
@@ -281,7 +271,7 @@ impl SiYuanSink {
             .context("parse get attrs response")?;
 
         if resp.code != 0 {
-            anyhow::bail!("SiYuan getBlockAttrs error: {}", resp.msg);
+            anyhow::bail!("SiYuan getBlockAttrs error {}: {}", resp.code, resp.msg);
         }
 
         Ok(resp.data.unwrap_or_default())

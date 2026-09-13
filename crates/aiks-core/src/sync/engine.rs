@@ -259,23 +259,34 @@ impl SyncEngine {
             .map(|e| e.parser_version.as_deref() != Some(parser_version))
             .unwrap_or(false);
 
+        // B03 fix: UNCHANGED only when content hash matches AND we have a confirmed SYNCED target.
+        // This prevents "failure then UNCHANGED" syndrome where a failed sync poisons the hash.
         if !is_new && !hash_changed && !parser_changed {
-            // Update last_seen_at only
-            let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
-            let _ = source_session_repo.upsert(
-                source, session_id,
-                session.source_path.as_ref().and_then(|p| p.to_str()),
-                session.project_path.as_deref(),
-                session.project_name.as_deref(),
-                session.title.as_deref(),
-                source_updated_at.as_deref(),
-                Some(&content_hash),
-                Some(parser_version),
-            );
-            return SyncOutcome::Unchanged;
+            let db_session_id_check = existing.as_ref().map(|e| e.id).unwrap_or(0);
+            let has_synced_target = match SyncTargetRepo::new(db).find(db_session_id_check, "siyuan") {
+                Ok(Some(ref t)) => matches!(t.status, SyncStatus::Synced | SyncStatus::Unchanged),
+                _ => false,
+            };
+
+            if has_synced_target {
+                let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
+                let _ = source_session_repo.upsert(
+                    source, session_id,
+                    session.source_path.as_ref().and_then(|p| p.to_str()),
+                    session.project_path.as_deref(),
+                    session.project_name.as_deref(),
+                    session.title.as_deref(),
+                    source_updated_at.as_deref(),
+                    Some(&content_hash),
+                    Some(parser_version),
+                );
+                return SyncOutcome::Unchanged;
+            }
+            // No synced target → fall through and retry
         }
 
-        // Upsert source_session record
+        // Persist session metadata. The content_hash here is the observed hash.
+        // SYNCED status is only set in sync_target after confirmed remote write.
         let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
         let db_session_id = match source_session_repo.upsert(
             source, session_id,
@@ -293,7 +304,7 @@ impl SyncEngine {
             }
         };
 
-        // dry-run: no SiYuan writes needed
+        // dry-run: report intent but make NO changes to sync_target or SiYuan
         if opts.dry_run {
             return if is_new {
                 SyncOutcome::Created { doc_id: "[dry-run]".to_string() }

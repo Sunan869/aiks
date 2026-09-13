@@ -39,6 +39,10 @@ fn estimate_tokens(text: &str) -> usize {
 /// Render a message slice to text for AI consumption
 fn render_messages(messages: &[&NormalizedMessage]) -> String {
     use crate::model::{ContentBlock, MessageRole};
+    use crate::util::{truncate_chars};
+
+    const MAX_TOOL_CALL_CHARS: usize = 500;
+    const MAX_TOOL_RESULT_CHARS: usize = 2000;
 
     let mut parts = Vec::new();
     for msg in messages {
@@ -55,12 +59,13 @@ fn render_messages(messages: &[&NormalizedMessage]) -> String {
                 ContentBlock::Text { text } if !text.is_empty() => content.push(text.clone()),
                 ContentBlock::ToolCall { name, input, .. } => {
                     let inp = serde_json::to_string(input).unwrap_or_default();
-                    let inp = &inp[..inp.len().min(500)];
-                    content.push(format!("[{}] {}", name, inp));
+                    let inp_trunc = truncate_chars(&inp, MAX_TOOL_CALL_CHARS);
+                    content.push(format!("[{}] {}", name, inp_trunc));
                 }
                 ContentBlock::ToolResult { content: c, is_error, .. } => {
                     let prefix = if *is_error { "[错误]" } else { "[结果]" };
-                    content.push(format!("{} {}", prefix, &c[..c.len().min(2000)]));
+                    let trunc = truncate_chars(c.as_str(), MAX_TOOL_RESULT_CHARS);
+                    content.push(format!("{} {}", prefix, trunc));
                 }
                 _ => {}
             }
@@ -98,7 +103,21 @@ pub fn chunk_for_llm(
         }
 
         let slice: Vec<&NormalizedMessage> = messages[chunk_start..chunk_end].iter().collect();
-        let content = render_messages(&slice);
+        let raw_content = render_messages(&slice);
+
+        // B23: If a single chunk exceeds the token limit, truncate to keep it manageable.
+        // Use TARGET_TOKENS as the limit to leave headroom for the truncation message overhead.
+        const MAX_CHUNK_TOKENS: usize = TARGET_TOKENS; // 20k tokens; test requires <= 25k
+        let content = if estimate_tokens(&raw_content) > MAX_CHUNK_TOKENS {
+            use crate::util::truncate_chars;
+            // Leave room for "...[内容超长已截断]..." footer (~8 tokens)
+            let max_chars = ((MAX_CHUNK_TOKENS - 50) as f64 * CHARS_PER_TOKEN) as usize;
+            let head = truncate_chars(&raw_content, max_chars);
+            format!("{}\n...[内容超长已截断]...", head)
+        } else {
+            raw_content
+        };
+
         let token_count = estimate_tokens(&content);
 
         chunks.push(SessionChunk {

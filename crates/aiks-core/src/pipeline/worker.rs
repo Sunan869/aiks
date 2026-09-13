@@ -82,6 +82,10 @@ async fn run_worker(
                     error = %e,
                     "[PIPELINE] Job failed"
                 );
+                // B12: Ensure the pipeline run is marked FAILED (safety net in case
+                // the error escaped before an explicit mark_failed call)
+                let repo = PipelineRepo::new(&db);
+                let _ = repo.mark_failed(&job.pipeline_run_id, "UNKNOWN", &e.to_string());
             }
         });
 
@@ -111,27 +115,44 @@ async fn run_pipeline(
 
     repo.mark_started(run_id)?;
 
+    // B12: Macro to fail a stage and return the error
+    macro_rules! fail_stage {
+        ($stage:expr, $err:expr) => {{
+            let err_str = $err.to_string();
+            let _ = repo.mark_failed(run_id, $stage, &err_str);
+            return Err(anyhow::anyhow!("{}: {}", $stage, err_str));
+        }};
+    }
+
     // ── Stage 1: PARSE ────────────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("PARSED"), None, None)?;
 
     // Find source kind
-    let source_kind = crate::model::SourceKind::from_str(&job.source)
-        .ok_or_else(|| anyhow::anyhow!("Unknown source: {}", job.source))?;
+    let source_kind = match crate::model::SourceKind::from_str(&job.source) {
+        Some(k) => k,
+        None => fail_stage!("PARSED", format!("Unknown source: {}", job.source)),
+    };
 
     // Load session from provider
-    let provider = registry.get(source_kind)
-        .ok_or_else(|| anyhow::anyhow!("Provider not found for {:?}", source_kind))?;
+    let provider = match registry.get(source_kind) {
+        Some(p) => p,
+        None => fail_stage!("PARSED", format!("Provider not found for {:?}", source_kind)),
+    };
 
-    // Build a minimal SessionSummary to load from
-    let summaries = provider.discover_sessions().await
-        .map_err(|e| anyhow::anyhow!("Discover failed: {}", e))?;
+    let summaries = match provider.discover_sessions().await {
+        Ok(s) => s,
+        Err(e) => fail_stage!("PARSED", format!("Discover failed: {}", e)),
+    };
 
-    let summary = summaries.into_iter()
-        .find(|s| s.external_session_id == job.session_external_id)
-        .ok_or_else(|| anyhow::anyhow!("Session not found: {}", job.session_external_id))?;
+    let summary = match summaries.into_iter().find(|s| s.external_session_id == job.session_external_id) {
+        Some(s) => s,
+        None => fail_stage!("PARSED", format!("Session not found: {}", job.session_external_id)),
+    };
 
-    let session = provider.load_session(&summary).await
-        .map_err(|e| anyhow::anyhow!("Load session failed: {}", e))?;
+    let session = match provider.load_session(&summary).await {
+        Ok(s) => s,
+        Err(e) => fail_stage!("PARSED", format!("Load session failed: {}", e)),
+    };
 
     repo.record_stage(
         run_id, "PARSED", "SUCCESS",

@@ -4,9 +4,7 @@ use crate::model::{ContentBlock, NormalizedSession};
 
 /// Compute a stable SHA-256 hash of a normalized session.
 ///
-/// Only stable, content-bearing fields are included so that:
-/// - Re-scanning the same session always produces the same hash
-/// - Adding volatile fields (last_seen_at, scan time) does NOT change the hash
+/// B19 fix: Now includes title, project, and full image content.
 ///
 /// Fields excluded: last_seen_at, source_path mtime, scan timestamps
 pub fn compute_session_hash(session: &NormalizedSession) -> String {
@@ -14,6 +12,18 @@ pub fn compute_session_hash(session: &NormalizedSession) -> String {
 
     hasher.update(session.source.as_str().as_bytes());
     hasher.update(session.external_session_id.as_bytes());
+
+    // B19: Include title in hash
+    if let Some(title) = &session.title {
+        hasher.update(b"title:");
+        hasher.update(title.as_bytes());
+    }
+
+    // B19: Include project in hash
+    if let Some(project) = &session.project_name {
+        hasher.update(b"project:");
+        hasher.update(project.as_bytes());
+    }
 
     if let Some(model) = &session.model {
         hasher.update(model.as_bytes());
@@ -65,10 +75,9 @@ fn hash_block(hasher: &mut Sha256, block: &ContentBlock) {
             hasher.update(if *is_error { b"1" } else { b"0" });
         }
         ContentBlock::Image { source, .. } => {
-            // Hash only the first 128 bytes of large base64 images for performance
+            // B19: Hash the FULL image content, not just first 128 bytes
             hasher.update(b"image:");
-            let limit = source.len().min(128);
-            hasher.update(&source.as_bytes()[..limit]);
+            hasher.update(source.as_bytes());
         }
         ContentBlock::FileReference { path, .. } => {
             hasher.update(b"file_ref:");

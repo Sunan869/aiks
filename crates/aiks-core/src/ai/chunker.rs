@@ -78,12 +78,18 @@ pub fn render_session_for_ai(
 }
 
 fn truncate_tool_result(content: &str) -> String {
+    use crate::util::{truncate_chars, truncate_utf8_bytes};
     if content.len() <= MAX_TOOL_RESULT_CHARS {
         return content.to_string();
     }
-    let head = &content[..TOOL_RESULT_HEAD.min(content.len())];
-    let tail_start = content.len().saturating_sub(TOOL_RESULT_TAIL);
-    let tail = &content[tail_start..];
+    let head = truncate_utf8_bytes(content, TOOL_RESULT_HEAD);
+    let tail_start_bytes = content.len().saturating_sub(TOOL_RESULT_TAIL);
+    // Walk forward to valid char boundary
+    let mut ts = tail_start_bytes;
+    while ts < content.len() && !content.is_char_boundary(ts) {
+        ts += 1;
+    }
+    let tail = &content[ts..];
     format!("{}\n...[中间内容已截断]...\n{}", head, tail)
 }
 

@@ -14,7 +14,8 @@ pub struct KnowledgeRepo<'a> {
 impl<'a> KnowledgeRepo<'a> {
     pub fn new(db: &'a StateDb) -> Self { Self { db } }
 
-    /// Save all extracted knowledge items for a session
+    /// Save all extracted knowledge items for a session.
+    /// B11: Uses proper cascade delete order in a transaction to avoid FK constraint failures.
     pub fn save_items(
         &self,
         session_id: i64,
@@ -24,36 +25,78 @@ impl<'a> KnowledgeRepo<'a> {
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
 
-        // Delete old items for this session
-        conn.execute("DELETE FROM knowledge_item WHERE source_session_id = ?1", params![session_id])?;
+        // Cascade delete in dependency order within a transaction
+        // embedding_record → knowledge_chunk → knowledge_item → knowledge_fts
+        conn.execute_batch("BEGIN")?;
+        let result_res: anyhow::Result<Vec<String>> = (|| {
+            // Get existing knowledge IDs for this session
+            let existing_ids: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM knowledge_item WHERE source_session_id = ?1"
+                )?;
+                let rows: Vec<String> = stmt
+                    .query_map(params![session_id], |r| r.get(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                rows
+            };
 
-        let mut item_ids = Vec::new();
-        for item in &result.items {
-            let id = Uuid::new_v4().to_string();
-            let tags_json = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
+            // Delete in dependency order
+            for kid in &existing_ids {
+                // 1. embedding_record references knowledge_chunk
+                conn.execute(
+                    "DELETE FROM embedding_record WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
+                    params![kid],
+                )?;
+                // 2. knowledge_chunk references knowledge_item
+                conn.execute("DELETE FROM knowledge_chunk WHERE knowledge_id = ?1", params![kid])?;
+                // 3. FTS entries
+                conn.execute("DELETE FROM knowledge_fts WHERE knowledge_id = ?1", params![kid])?;
+            }
+            // 4. knowledge_item
+            conn.execute("DELETE FROM knowledge_item WHERE source_session_id = ?1", params![session_id])?;
 
-            conn.execute(
-                "INSERT INTO knowledge_item
-                 (id, source_session_id, project_name, title, category, summary, content,
-                  tags, confidence, worth_extracting, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
-                params![
-                    id, session_id, project_name,
-                    item.title, item.category, item.summary, build_content(item),
-                    tags_json, item.confidence, 1i32, now
-                ],
-            )?;
+            // Insert new items
+            let mut item_ids = Vec::new();
+            for item in &result.items {
+                let id = Uuid::new_v4().to_string();
+                let tags_json = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
+                let content = build_content(item);
 
-            // Insert into FTS index
-            let _ = conn.execute(
-                "INSERT OR REPLACE INTO knowledge_fts (knowledge_id, title, summary, content, tags)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, item.title, item.summary, build_content(item), tags_json],
-            );
+                conn.execute(
+                    "INSERT INTO knowledge_item
+                     (id, source_session_id, project_name, title, category, summary, content,
+                      tags, confidence, worth_extracting, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+                    params![
+                        id, session_id, project_name,
+                        item.title, item.category, item.summary, content,
+                        tags_json, item.confidence, 1i32, now
+                    ],
+                )?;
 
-            item_ids.push(id);
+                // FTS insert
+                conn.execute(
+                    "INSERT INTO knowledge_fts (knowledge_id, title, summary, content, tags)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, item.title, item.summary, content, tags_json],
+                )?;
+
+                item_ids.push(id);
+            }
+            Ok(item_ids)
+        })();
+
+        match result_res {
+            Ok(ids) => {
+                conn.execute_batch("COMMIT")?;
+                Ok(ids)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
         }
-        Ok(item_ids)
     }
 
     /// Get all knowledge items for a session

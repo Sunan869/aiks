@@ -139,7 +139,8 @@ impl AiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("AI API error {}: {}", status, &body[..body.len().min(200)]);
+            let preview = crate::util::truncate_chars(&body, 200);
+            anyhow::bail!("AI API error {}: {}", status, preview);
         }
 
         let body: ChatResponse = resp.json().await.context("parse AI response")?;
