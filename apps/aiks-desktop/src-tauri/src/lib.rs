@@ -87,6 +87,11 @@ pub fn run() {
             commands::list_sessions_v3,
             commands::list_knowledge,
             commands::search_knowledge,
+            // V3: Detail views + triggers
+            commands::get_session_detail,
+            commands::get_knowledge_detail,
+            commands::run_pipeline_for_session,
+            commands::hybrid_search,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

@@ -16,7 +16,9 @@ function parseTags(tags: string): string[] {
   try { return JSON.parse(tags); } catch { return tags ? [tags] : []; }
 }
 
-export default function SearchPage() {
+interface Props { onViewKnowledge?: (id: string) => void; }
+
+export default function SearchPage({ onViewKnowledge }: Props) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -86,7 +88,10 @@ export default function SearchPage() {
               {result.results.map((item: SearchResult) => {
                 const tags = parseTags(item.tags);
                 return (
-                  <div key={item.id} className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer">
+                  <div key={item.id}
+                    className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer"
+                    onClick={() => onViewKnowledge?.(item.id)}
+                  >
                     <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</h3>

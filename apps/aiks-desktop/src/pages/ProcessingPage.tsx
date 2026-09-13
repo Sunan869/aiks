@@ -40,7 +40,9 @@ function StageCell({ stage, stageRuns }: { stage: string; stageRuns: { stage: st
   );
 }
 
-export default function ProcessingPage() {
+interface Props { onViewDetail?: (runId: string) => void; }
+
+export default function ProcessingPage({ onViewDetail }: Props) {
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [filter, setFilter] = useState<string>("all");
@@ -149,7 +151,10 @@ export default function ProcessingPage() {
               {filtered.map((run: PipelineSummary) => {
                 const cfg = STATUS_CONFIG[run.status] ?? { color: "text-gray-500", label: run.status, icon: "·" };
                 return (
-                  <tr key={run.run_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
+                  <tr key={run.run_id}
+                    className={`hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
+                    onClick={() => onViewDetail?.(run.run_id)}
+                  >
                     <td className="px-4 py-2.5">
                       <div className="text-gray-900 dark:text-gray-100 truncate max-w-[200px]">
                         {run.session_title || run.run_id}

@@ -13,9 +13,10 @@ use crate::config::Config;
 use crate::knowledge::service::{extract_session, get_extraction_stats, ExtractionService};
 use crate::knowledge::model::ExtractionStats;
 use crate::model::SourceKind;
+use crate::pipeline::{EmbeddingConfig, PipelineOrchestrator, PipelineWorker, PipelineJob};
 use crate::providers::{build_registry, ProviderRegistry, SessionSummary};
 use crate::sink::SiYuanSink;
-use crate::storage::StateDb;
+use crate::storage::{StateDb, SourceSessionRepo};
 use crate::sync::{SyncEngine, SyncOptions, SyncStats};
 use crate::watcher::{FileWatcher, WatchEvent};
 
@@ -135,6 +136,8 @@ pub struct AiksEngine {
     siyuan_base_url: String,
     /// Optional token — None = embedded mode
     siyuan_token: Option<String>,
+    /// V3 pipeline worker (started on init)
+    pipeline_worker: Arc<PipelineWorker>,
 }
 
 impl AiksEngine {
@@ -167,6 +170,14 @@ impl AiksEngine {
         let registry = Arc::new(build_registry(&config));
         let sync_engine = Arc::new(SyncEngine::new(config.clone()));
 
+        // Start V3 pipeline worker
+        let pipeline_worker = Arc::new(PipelineWorker::start(
+            Arc::clone(&db),
+            Arc::clone(&registry),
+            config.ai.clone(),
+            config.embedding.clone(),
+        ));
+
         Ok(Self {
             config,
             registry,
@@ -174,6 +185,7 @@ impl AiksEngine {
             sync_engine,
             siyuan_base_url,
             siyuan_token,
+            pipeline_worker,
         })
     }
 
@@ -350,6 +362,45 @@ impl AiksEngine {
         &self.config.ai
     }
 
+    /// Get embedding config
+    pub fn embedding_config(&self) -> &EmbeddingConfig {
+        &self.config.embedding
+    }
+
+    /// Manually enqueue a specific session for V3 pipeline processing
+    pub fn enqueue_pipeline_for_session(
+        &self,
+        session_id: i64,
+        session_external_id: String,
+        source: String,
+        session_title: Option<String>,
+        project_name: Option<String>,
+    ) -> anyhow::Result<String> {
+        let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
+        let run_id = orchestrator.enqueue(session_id, None)?;
+        self.pipeline_worker.submit(PipelineJob {
+            pipeline_run_id: run_id.clone(),
+            session_id,
+            session_external_id,
+            source,
+            session_title,
+            project_name,
+        });
+        Ok(run_id)
+    }
+
+    /// Get hybrid search results
+    pub async fn search_knowledge(&self, query: &str, limit: usize) -> Vec<crate::pipeline::search::SearchHit> {
+        let embedding_config = if self.config.embedding.enabled {
+            Some(&self.config.embedding)
+        } else {
+            None
+        };
+        crate::pipeline::hybrid_search(&self.db, query, limit, embedding_config)
+            .await
+            .unwrap_or_default()
+    }
+
     /// Check AI model health
     pub async fn ai_health_check(&self) -> bool {
         if !self.config.ai.enabled {
@@ -417,25 +468,57 @@ impl AiksEngine {
         }
     }
 
-    /// Run sync and optionally enqueue successful sessions for AI extraction.
+    /// Run sync and submit new/updated sessions to the V3 pipeline worker.
     ///
     /// This is the main sync entry point for both startup and user-triggered syncs.
-    /// AI extraction runs AFTER Raw Sync succeeds, never blocking it.
+    /// Pipeline processing runs AFTER Raw Sync succeeds, never blocking it.
     pub async fn sync_and_enqueue_extraction(
         &self,
         opts: SyncOptions,
     ) -> anyhow::Result<SyncStats> {
         let stats = self.sync(opts).await?;
 
-        // After successful Raw Sync, enqueue extraction for new/updated sessions
-        if self.config.ai.enabled && !stats.extraction_candidates.is_empty() {
+        // Enqueue new/updated sessions into V3 pipeline
+        if !stats.extraction_candidates.is_empty() {
             info!(
                 count = stats.extraction_candidates.len(),
-                "[EXTRACT] Queuing sessions for AI extraction"
+                "[PIPELINE] Enqueueing new/updated sessions"
             );
-            // Enqueue in background — non-blocking
-            // The actual extraction happens via ExtractionService worker
-            // For now, log the intent; full queue integration in service.rs
+
+            let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
+
+            // Query DB to find session rows matching the candidate IDs
+            for ext_id in &stats.extraction_candidates {
+                let conn = self.db.conn();
+                // Search across all sources (simple: any source)
+                let result = conn.query_row(
+                    "SELECT id, source, external_session_id, title, project_name, content_hash
+                     FROM source_session WHERE external_session_id = ?1
+                     ORDER BY updated_at DESC LIMIT 1",
+                    rusqlite::params![ext_id],
+                    |row| Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    )),
+                );
+
+                if let Ok((db_id, source, session_ext_id, title, project_name, content_hash)) = result {
+                    if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
+                        self.pipeline_worker.submit(PipelineJob {
+                            pipeline_run_id: run_id,
+                            session_id: db_id,
+                            session_external_id: session_ext_id,
+                            source,
+                            session_title: title,
+                            project_name,
+                        });
+                    }
+                }
+            }
         }
 
         Ok(stats)

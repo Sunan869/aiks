@@ -121,6 +121,18 @@ impl<'a> PipelineRepo<'a> {
         Ok(id)
     }
 
+    /// Mark a stage as failed and set pipeline to FAILED state
+    pub fn mark_failed(
+        &self,
+        run_id: &str,
+        stage: &str,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        self.update_status(run_id, "FAILED", Some(stage), Some(stage), Some(error))?;
+        tracing::warn!(run_id, stage, error, "[PIPELINE] Stage failed");
+        Ok(())
+    }
+
     /// Get all pipeline runs with summary
     pub fn list_runs(&self, limit: usize) -> anyhow::Result<Vec<PipelineStatus>> {
         let conn = self.db.conn();

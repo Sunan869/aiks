@@ -3,8 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import Sidebar from "./components/Sidebar";
 import OverviewPage from "./pages/OverviewPage";
 import SessionsPage from "./pages/SessionsPage";
+import SessionDetailPage from "./pages/SessionDetailPage";
 import KnowledgeBasePageV3 from "./pages/KnowledgeBasePageV3";
+import KnowledgeDetailPage from "./pages/KnowledgeDetailPage";
 import ProcessingPage from "./pages/ProcessingPage";
+import ProcessingDetailPage from "./pages/ProcessingDetailPage";
 import SearchPage from "./pages/SearchPage";
 import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -15,8 +18,15 @@ import type { FullStatus, AiStatus } from "./api/types";
 
 export type Page = "overview" | "sessions" | "knowledge" | "processing" | "search" | "sources" | "settings" | "diagnostics";
 
+interface NavState {
+  page: Page;
+  sessionDetailId?: number;
+  knowledgeDetailId?: string;
+  pipelineDetailRunId?: string;
+}
+
 export default function App() {
-  const [page, setPage] = useState<Page>("overview");
+  const [nav, setNav] = useState<NavState>({ page: "overview" });
   const [fullStatus, setFullStatus] = useState<FullStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [startupStep, setStartupStep] = useState<string>("正在初始化 AIKS...");
@@ -39,14 +49,12 @@ export default function App() {
 
   useEffect(() => {
     if (isMock) {
-      // Mock mode: skip Tauri event listeners, show immediately
       setIsReady(true);
       refreshStatus();
       const interval = setInterval(refreshStatus, 30000);
       return () => clearInterval(interval);
     }
 
-    // Tauri mode: listen for startup events
     const unlisten1 = listen<{ step: string; message: string }>("startup-progress", (e) => {
       setStartupStep(e.payload.message);
       if (e.payload.step === "ready") setTimeout(() => setIsReady(true), 400);
@@ -62,7 +70,6 @@ export default function App() {
     });
     const unlisten5 = listen("sync-error", () => { setSyncInProgress(false); });
 
-    // Try to get status immediately
     getApi().getFullStatus().then(s => { setFullStatus(s); setIsReady(true); }).catch(() => {});
     refreshStatus();
 
@@ -81,9 +88,48 @@ export default function App() {
   const knowledgeCount = fullStatus?.extraction_success ?? 0;
   const isHealthy = fullStatus ? fullStatus.db_failed === 0 && fullStatus.db_conflict === 0 : true;
 
+  const navigate = (page: Page) => setNav({ page });
+  const viewSessionDetail = (id: number) => setNav({ page: "sessions", sessionDetailId: id });
+  const viewKnowledgeDetail = (id: string) => setNav({ page: "knowledge", knowledgeDetailId: id });
+  const viewPipelineDetail = (runId: string) => setNav({ page: "processing", pipelineDetailRunId: runId });
+
+  const renderMain = () => {
+    if (nav.page === "sessions" && nav.sessionDetailId != null) {
+      return <SessionDetailPage
+        sessionId={nav.sessionDetailId}
+        onBack={() => setNav({ page: "sessions" })}
+        onViewKnowledge={viewKnowledgeDetail}
+        onViewPipeline={viewPipelineDetail}
+      />;
+    }
+    if (nav.page === "knowledge" && nav.knowledgeDetailId) {
+      return <KnowledgeDetailPage
+        knowledgeId={nav.knowledgeDetailId}
+        onBack={() => setNav({ page: "knowledge" })}
+        onViewSession={viewSessionDetail}
+      />;
+    }
+    if (nav.page === "processing" && nav.pipelineDetailRunId) {
+      return <ProcessingDetailPage
+        runId={nav.pipelineDetailRunId}
+        onBack={() => setNav({ page: "processing" })}
+      />;
+    }
+
+    switch (nav.page) {
+      case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
+      case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
+      case "knowledge": return <KnowledgeBasePageV3 onViewDetail={viewKnowledgeDetail} />;
+      case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
+      case "search": return <SearchPage onViewKnowledge={viewKnowledgeDetail} />;
+      case "sources": return <SourcesPage fullStatus={fullStatus} />;
+      case "settings": return <SettingsPage />;
+      case "diagnostics": return <DiagnosticsPage />;
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-4 h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-blue-600 dark:text-blue-400 text-sm">AIKS</span>
@@ -107,33 +153,23 @@ export default function App() {
               <span>扫描中...</span>
             </div>
           )}
-          {fullStatus && !syncInProgress && (
-            <span>{fullStatus.scan_total} 条工作记录</span>
-          )}
+          {fullStatus && !syncInProgress && <span>{fullStatus.scan_total} 条工作记录</span>}
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
-          page={page}
-          onNavigate={setPage}
+          page={nav.page}
+          onNavigate={navigate}
           sessionCount={sessionCount}
           knowledgeCount={knowledgeCount}
           aiHealthy={aiStatus?.healthy ?? false}
         />
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">
-          {page === "overview" && <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />}
-          {page === "sessions" && <SessionsPage />}
-          {page === "knowledge" && <KnowledgeBasePageV3 />}
-          {page === "processing" && <ProcessingPage />}
-          {page === "search" && <SearchPage />}
-          {page === "sources" && <SourcesPage fullStatus={fullStatus} />}
-          {page === "settings" && <SettingsPage />}
-          {page === "diagnostics" && <DiagnosticsPage />}
+          {renderMain()}
         </main>
       </div>
 
-      {/* Status bar */}
       <div className="px-4 h-7 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 text-xs text-gray-400 flex-shrink-0">
         {fullStatus && (
           <>

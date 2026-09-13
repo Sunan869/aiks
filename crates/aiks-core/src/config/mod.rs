@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::AiModelConfig;
+use crate::pipeline::EmbeddingConfig;
 
 /// Full AIKS configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,7 @@ pub struct Config {
     pub archive: ArchiveConfig,
     pub extractor: ExtractorConfig,
     pub ai: AiModelConfig,
+    pub embedding: EmbeddingConfig,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
             archive: ArchiveConfig::default(),
             extractor: ExtractorConfig::default(),
             ai: AiModelConfig::default(),
+            embedding: EmbeddingConfig::default(),
         }
     }
 }

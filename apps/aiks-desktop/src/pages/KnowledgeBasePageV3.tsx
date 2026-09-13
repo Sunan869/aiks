@@ -54,7 +54,9 @@ function KnowledgeCard({ item }: { item: KnowledgeSummary }) {
   );
 }
 
-export default function KnowledgeBasePageV3() {
+interface Props { onViewDetail?: (id: string) => void; }
+
+export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
   const [data, setData] = useState<KnowledgePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,10 +113,12 @@ export default function KnowledgeBasePageV3() {
           <p className="text-xs mt-1">请先处理工作记录以提炼知识</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-          {data?.items.map((item: KnowledgeSummary) => (
-            <KnowledgeCard key={item.id} item={item} />
-          ))}
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {data?.items.map((item: KnowledgeSummary) => (
+              <div key={item.id} onClick={() => onViewDetail?.(item.id)}>
+                <KnowledgeCard item={item} />
+              </div>
+            ))}
         </div>
       )}
 

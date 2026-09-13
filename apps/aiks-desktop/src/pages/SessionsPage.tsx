@@ -18,14 +18,13 @@ const PIPELINE_STATUS_COLORS: Record<string, string> = {
 };
 
 const PIPELINE_STATUS_LABELS: Record<string, string> = {
-  READY: "完成",
-  PROCESSING: "处理中",
-  FAILED: "失败",
-  RAW_ONLY: "原始",
-  DISCOVERED: "已发现",
+  READY: "完成", PROCESSING: "处理中", FAILED: "失败",
+  RAW_ONLY: "原始", DISCOVERED: "已发现",
 };
 
-export default function SessionsPage() {
+interface Props { onViewDetail?: (sessionId: number) => void; }
+
+export default function SessionsPage({ onViewDetail }: Props) {
   const [data, setData] = useState<SessionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +94,10 @@ export default function SessionsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {data?.items.map((item: SessionItem) => (
-                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                <tr key={item.id}
+                  className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
+                  onClick={() => onViewDetail?.(item.id)}
+                >
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-xs">
                       {item.title || item.session_id}

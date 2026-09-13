@@ -725,3 +725,188 @@ pub async fn search_knowledge(
         "total": results.len()
     }))
 }
+
+// ===== V3 Detail Commands =====
+
+/// Get session detail with raw messages
+#[tauri::command]
+pub async fn get_session_detail(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+
+    // Session info
+    let session = conn.query_row(
+        "SELECT id, source, external_session_id, title, project_name, project_path,
+                source_updated_at, content_hash
+         FROM source_session WHERE id = ?1",
+        rusqlite::params![session_id],
+        |row| Ok(serde_json::json!({
+            "id": row.get::<_, i64>(0)?,
+            "source": row.get::<_, String>(1)?,
+            "session_id": row.get::<_, String>(2)?,
+            "title": row.get::<_, Option<String>>(3)?,
+            "project_name": row.get::<_, Option<String>>(4)?,
+            "project_path": row.get::<_, Option<String>>(5)?,
+            "updated_at": row.get::<_, Option<String>>(6)?,
+            "content_hash": row.get::<_, Option<String>>(7)?
+        })),
+    ).map_err(|e| e.to_string())?;
+
+    // Pipeline run
+    let pipeline_run: Option<serde_json::Value> = conn.query_row(
+        "SELECT id, status, current_stage, pipeline_version, started_at, finished_at, error_stage, error_message
+         FROM pipeline_run WHERE session_id = ?1 ORDER BY updated_at DESC LIMIT 1",
+        rusqlite::params![session_id],
+        |row| Ok(serde_json::json!({
+            "run_id": row.get::<_, String>(0)?,
+            "status": row.get::<_, String>(1)?,
+            "current_stage": row.get::<_, Option<String>>(2)?,
+            "pipeline_version": row.get::<_, String>(3)?,
+            "started_at": row.get::<_, Option<String>>(4)?,
+            "finished_at": row.get::<_, Option<String>>(5)?,
+            "error_stage": row.get::<_, Option<String>>(6)?,
+            "error_message": row.get::<_, Option<String>>(7)?
+        })),
+    ).ok();
+
+    // Session chunks
+    let mut chunk_stmt = conn.prepare(
+        "SELECT chunk_index, message_start, message_end, token_count FROM session_chunk WHERE session_id = ?1 ORDER BY chunk_index"
+    ).map_err(|e| e.to_string())?;
+    let chunks: Vec<serde_json::Value> = {
+        let mapped = chunk_stmt.query_map(rusqlite::params![session_id], |row| {
+            Ok(serde_json::json!({
+                "index": row.get::<_, i32>(0)?,
+                "message_start": row.get::<_, i32>(1)?,
+                "message_end": row.get::<_, i32>(2)?,
+                "token_count": row.get::<_, i32>(3)?
+            }))
+        }).map_err(|e| e.to_string())?;
+        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        r
+    };
+
+    // Knowledge items
+    let mut ki_stmt = conn.prepare(
+        "SELECT id, title, category, summary, confidence, created_at FROM knowledge_item WHERE source_session_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    let knowledge: Vec<serde_json::Value> = {
+        let mapped = ki_stmt.query_map(rusqlite::params![session_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "summary": row.get::<_, String>(3)?,
+                "confidence": row.get::<_, f64>(4)?,
+                "created_at": row.get::<_, String>(5)?
+            }))
+        }).map_err(|e| e.to_string())?;
+        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
+        r
+    };
+
+    Ok(serde_json::json!({
+        "session": session,
+        "pipeline_run": pipeline_run,
+        "chunks": chunks,
+        "knowledge": knowledge
+    }))
+}
+
+/// Get knowledge item detail
+#[tauri::command]
+pub async fn get_knowledge_detail(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let knowledge_repo = aiks_core::KnowledgeRepo::new(&db);
+
+    match knowledge_repo.get_by_id(&knowledge_id).map_err(|e| e.to_string())? {
+        Some(detail) => {
+            let chunks: Vec<serde_json::Value> = detail.chunks.iter().map(|c| serde_json::json!({
+                "id": c.id,
+                "heading": c.heading,
+                "chunk_index": c.chunk_index,
+                "token_count": c.token_count,
+                "text": &c.text[..c.text.len().min(500)],
+                "has_embedding": c.has_embedding
+            })).collect();
+
+            Ok(serde_json::json!({
+                "id": detail.id,
+                "session_id": detail.session_id,
+                "project_name": detail.project_name,
+                "title": detail.title,
+                "category": detail.category,
+                "summary": detail.summary,
+                "content": detail.content,
+                "tags": detail.tags,
+                "confidence": detail.confidence,
+                "created_at": detail.created_at,
+                "updated_at": detail.updated_at,
+                "source": detail.source,
+                "session_external_id": detail.session_external_id,
+                "session_title": detail.session_title,
+                "chunks": chunks
+            }))
+        }
+        None => Err(format!("Knowledge item not found: {}", knowledge_id)),
+    }
+}
+
+/// Manually trigger pipeline for a specific session
+#[tauri::command]
+pub async fn run_pipeline_for_session(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+
+    let result = conn.query_row(
+        "SELECT source, external_session_id, title, project_name FROM source_session WHERE id = ?1",
+        rusqlite::params![session_id],
+        |row| Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        )),
+    ).map_err(|e| format!("Session not found: {}", e))?;
+
+    let (source, ext_id, title, project) = result;
+
+    engine.enqueue_pipeline_for_session(session_id, ext_id, source, title, project)
+        .map_err(|e| e.to_string())
+}
+
+/// Get hybrid search results (FTS5 + vector)
+#[tauri::command]
+pub async fn hybrid_search(
+    query: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let results = engine.search_knowledge(&query, limit.unwrap_or(20)).await;
+
+    let items: Vec<serde_json::Value> = results.into_iter().map(|hit| serde_json::json!({
+        "knowledge_id": hit.knowledge_id,
+        "chunk_text": hit.chunk_text,
+        "score": hit.score,
+        "match_type": hit.match_type
+    })).collect();
+
+    Ok(serde_json::json!({
+        "results": items,
+        "query": query,
+        "total": items.len()
+    }))
+}
