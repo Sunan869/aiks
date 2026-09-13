@@ -1,0 +1,94 @@
+# ──────────────────────────────────────────────
+# Rust / Cargo
+# ──────────────────────────────────────────────
+/target/
+debug/
+*.pdb
+
+# Cargo lock for applications is committed; for libraries it's optional
+# Keep Cargo.lock for this workspace (binary apps)
+
+# ──────────────────────────────────────────────
+# Node.js / npm
+# ──────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# ──────────────────────────────────────────────
+# Tauri
+# ──────────────────────────────────────────────
+apps/aiks-desktop/src-tauri/target/
+apps/aiks-desktop/src-tauri/WixTools/
+apps/aiks-desktop/src-tauri/gen/
+
+# Bundled SiYuan runtime (large binary, set up via setup-siyuan.ps1)
+apps/aiks-desktop/src-tauri/resources/siyuan/
+
+# ──────────────────────────────────────────────
+# Project-specific runtime data
+# ──────────────────────────────────────────────
+# Reference repos cloned for analysis
+/references/*/
+
+# User config (has secrets)
+/config.toml
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Runtime logs
+/logs/
+/archive/
+
+# ──────────────────────────────────────────────
+# Environment / secrets
+# ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ──────────────────────────────────────────────
+# Build artifacts
+# ──────────────────────────────────────────────
+/build/
+/.build/
+
+# ──────────────────────────────────────────────
+# IDE / editor
+# ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ──────────────────────────────────────────────
+# TypeScript
+# ──────────────────────────────────────────────
+*.tsbuildinfo
+
+# ──────────────────────────────────────────────
+# Test / coverage
+# ──────────────────────────────────────────────
+/coverage/
+*.lcov
+
+# ──────────────────────────────────────────────
+# Temp files
+# ──────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig

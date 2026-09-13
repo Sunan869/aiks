@@ -1,0 +1,7 @@
+{"timestamp":"2024-02-01T09:00:00.000Z","type":"session_meta","payload":{"id":"codex-fixture-1","cwd":"/home/user/project"}}
+{"timestamp":"2024-02-01T09:00:01.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"Refactor this function to use async/await"}]}}}
+{"timestamp":"2024-02-01T09:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will refactor the function to use async/await pattern."}]}}
+{"timestamp":"2024-02-01T09:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-ccc1","name":"exec","input":"const result = await tools.exec_command({cmd: 'cat main.py'})"}}
+{"timestamp":"2024-02-01T09:00:07.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-ccc1","output":[{"type":"input_text","text":"def fetch_data():\n    return requests.get(url)\n"}]}}
+{"timestamp":"2024-02-01T09:00:10.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is the async version using aiohttp."}]}}
+{"timestamp":"2024-02-01T09:00:11.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"output_tokens":100},"total_token_usage":{"total_tokens":300}}}}

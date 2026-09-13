@@ -1,0 +1,31 @@
+[package]
+name = "aiks-desktop"
+version.workspace = true
+edition.workspace = true
+description = "AIKS Desktop — Tauri 2 application"
+
+[lib]
+name = "aiks_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "aiks-desktop"
+path = "src/main.rs"
+
+[dependencies]
+aiks-core = { path = "../../../crates/aiks-core" }
+tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-window-state = "2"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+dirs.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

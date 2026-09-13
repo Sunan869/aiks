@@ -1,92 +1,85 @@
-# Aisk
+# AI Knowledge Sync (AIKS)
 
+AI Knowledge Sync 是一个本地优先的 AI Session 自动知识沉淀工具。
 
+首期目标：自动读取 Claude Code、OpenAI Codex CLI、Gemini CLI、OpenCode 的本地 Session 数据，统一标准化后同步到 SiYuan 思源笔记，由 SiYuan 负责文档管理、手工录入、全文搜索、Embedding、语义搜索、Rerank、标签、双链和 AI 问答。
 
-## Getting started
+## 核心原则
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- 不重新开发个人知识库。
+- 不实现独立 Vector DB、Embedding Pipeline、RAG Engine、搜索 UI 或笔记编辑器。
+- AI Session 原始数据必须只读。
+- Provider、Canonical Model、Sync Engine、Renderer、Sink 必须解耦。
+- 首期唯一正式 Knowledge Sink 为 SiYuan。
+- Session Parser 优先复用/改造成熟开源项目，不允许无理由从零重写。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## V1 数据源
 
-## Add your files
+- Claude Code
+- OpenAI Codex CLI
+- Gemini CLI
+- OpenCode
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## V1 数据流
 
+```text
+Claude / Codex / Gemini / OpenCode
+                ↓
+          Session Providers
+                ↓
+        Canonical Session Model
+                ↓
+             Sync Engine
+                ↓
+         Markdown Renderer
+                ↓
+            SiYuan API
+                ↓
+ Personal Knowledge / Search / AI
 ```
-cd existing_repo
-git remote add origin http://new-gitlab.dataoceanai.com/wangjie/aisk.git
-git branch -M main
-git push -uf origin main
+
+## 主要上游项目
+
+| 项目 | 地址 | 用途 |
+|---|---|---|
+| AICoder Session Viewer | https://github.com/seastart/aicoder-session-viewer | 四种 Session Provider/Parser 首要代码来源 |
+| CC Switch | https://github.com/farion1231/cc-switch | Session 扫描、增量状态、OpenCode SQLite/WAL、路径发现参考 |
+| ccusage | https://github.com/ccusage/ccusage | 多 Agent 数据源、未来 Provider 扩展、格式兼容参考 |
+| Mnemos | https://github.com/mnemos-dev/mnemos | Session → Knowledge/Memory 提炼设计参考 |
+| SiYuan | https://github.com/siyuan-note/siyuan | 正式个人知识库底座 |
+| OpenAI Codex | https://github.com/openai/codex | Codex Session 格式事实来源 |
+| Gemini CLI | https://github.com/google-gemini/gemini-cli | Gemini Session 格式事实来源 |
+| OpenCode | https://github.com/anomalyco/opencode | OpenCode SQLite Schema 事实来源 |
+| Claude Code | https://github.com/anthropics/claude-code | Claude Code 行为和格式变化事实来源 |
+
+## 建议开发顺序
+
+1. 阅读 `AGENTS.md`。
+2. 阅读 `docs/design/01-system-design.md`。
+3. 阅读 `docs/design/02-open-source-reuse.md`。
+4. Clone `references/README.md` 中列出的上游仓库，并固定 Commit SHA。
+5. 完成 `docs/reference-analysis/` 中的上游分析文档。
+6. 按 `TODO.md` 从 Phase 0 开始实施。
+7. 每完成一个 Provider，必须增加匿名 Fixture 和 Parser Test。
+
+## 本目录当前状态
+
+当前仅包含项目规范、设计、任务拆解、配置模板和数据库 DDL，不包含正式实现代码。
+
+实际开发时建议建立：
+
+```text
+src/
+├── cli/
+├── config/
+├── model/
+├── providers/
+├── sync/
+├── renderer/
+├── sink/
+├── extractor/
+├── storage/
+└── util/
 ```
 
-## Integrate with your tools
-
-- [ ] [Set up project integrations](http://new-gitlab.dataoceanai.com/wangjie/aisk/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+详细内容见 `docs/design/01-system-design.md`。

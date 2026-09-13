@@ -1,0 +1,52 @@
+[sync]
+scan_interval_seconds = 300
+watch_enabled = true
+debounce_seconds = 2
+max_parallel_sessions = 4
+
+[providers.claude]
+enabled = true
+path = ""
+
+[providers.codex]
+enabled = true
+path = ""
+include_archived_sessions = true
+
+[providers.gemini]
+enabled = true
+path = ""
+
+[providers.opencode]
+enabled = true
+path = ""
+
+[content]
+include_system = false
+include_thinking = false
+include_tool_calls = true
+include_tool_results = true
+max_tool_result_chars = 10000
+minimum_messages = 2
+minimum_session_chars = 100
+
+[security]
+redact_secrets = true
+
+[siyuan]
+base_url = "http://127.0.0.1:6806"
+notebook_name = "AI Knowledge"
+session_root = "/10 AI Sessions"
+knowledge_root = "/20 Knowledge"
+# token 建议使用环境变量 SIYUAN_TOKEN，不要提交到 Git。
+
+[archive]
+enabled = true
+compression = "gzip"
+
+[extractor]
+enabled = false
+provider = "openai-compatible"
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen3.8:27b"
+minimum_confidence = 0.85

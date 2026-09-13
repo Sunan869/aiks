@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aiks-core",
+    "apps/aiks-cli",
+    "apps/aiks-desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# HTTP
+reqwest = { version = "0.12", features = ["json"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Config
+toml = "0.8"
+
+# File watching
+notify = "6"
+notify-debouncer-full = "0.3"
+
+# Hashing / crypto
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Utilities
+walkdir = "2"
+flate2 = "1"
+dirs = "5"
+regex = "1"
+
+# Dev
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

@@ -1,0 +1,29 @@
+{
+  "sessionId": "gemini-fixture-session-1",
+  "startTime": "2024-03-10T14:00:00Z",
+  "messages": [
+    {
+      "type": "user",
+      "id": "user-msg-1",
+      "content": [{"text": "Explain gradient descent in machine learning"}],
+      "timestamp": "2024-03-10T14:00:00Z"
+    },
+    {
+      "type": "gemini",
+      "id": "gemini-msg-1",
+      "content": "Gradient descent is an optimization algorithm used to minimize a function by iteratively moving in the direction of steepest descent.",
+      "toolCalls": [
+        {
+          "id": "tool-ddd1",
+          "name": "code_execution",
+          "args": {"code": "import numpy as np\ndef gradient_descent(lr=0.01): pass"},
+          "result": [{"functionResponse": {"response": {"output": "Function defined successfully"}}}]
+        }
+      ],
+      "thoughts": [{"subject": "Approach", "description": "Start with the mathematical definition"}],
+      "tokens": {"input": 120, "output": 180, "cached": 0},
+      "timestamp": "2024-03-10T14:00:05Z",
+      "model": "gemini-2.5-pro"
+    }
+  ]
+}
