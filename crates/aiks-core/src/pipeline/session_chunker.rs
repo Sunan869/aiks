@@ -10,7 +10,6 @@ use rusqlite::params;
 use uuid::Uuid;
 
 use crate::model::NormalizedMessage;
-use crate::pipeline::cleaner::CleanResult;
 use crate::storage::StateDb;
 
 const CHARS_PER_TOKEN: f64 = 3.5;
@@ -119,7 +118,7 @@ pub fn chunk_for_llm(
     let mut current: Vec<(usize, String)> = Vec::new();
     let mut current_tokens = 0usize;
 
-    let mut flush = |current: &mut Vec<(usize, String)>, chunks: &mut Vec<SessionChunk>, chunk_index: &mut i32| {
+    let flush = |current: &mut Vec<(usize, String)>, chunks: &mut Vec<SessionChunk>, chunk_index: &mut i32| {
         if current.is_empty() {
             return;
         }

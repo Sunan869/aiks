@@ -31,10 +31,13 @@ impl AppState {
 }
 
 /// Resolve the user data directory.
+///
+/// Delegates to `aiks_core`'s data-root resolution so the desktop app, the
+/// CLI, and the state DB all agree on one root (default
+/// `%LOCALAPPDATA%\AIKnowledgeSync`, relocatable via `AIKS_DATA_DIR` or a
+/// `data-root.txt` pointer file).
 pub fn data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
-        .join("AIKnowledgeSync")
+    aiks_core::config::data_root()
 }
 
 /// Resolve the app config file path.

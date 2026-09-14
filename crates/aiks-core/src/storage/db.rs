@@ -8,6 +8,8 @@ use rusqlite::{Connection, OpenFlags};
 const SCHEMA_V1_SQL: &str = include_str!("../../migrations/001_init.sql");
 const SCHEMA_V3_SQL: &str = include_str!("../../migrations/002_v3_pipeline.sql");
 const SCHEMA_V4_SQL: &str = include_str!("../../migrations/003_pipeline_job.sql");
+const SCHEMA_V5_SQL: &str = include_str!("../../migrations/004_knowledge_sync.sql");
+const SCHEMA_V6_SQL: &str = include_str!("../../migrations/005_knowledge_baseline.sql");
 
 /// AIKS state database.
 ///
@@ -62,6 +64,20 @@ impl StateDb {
         conn.execute_batch(SCHEMA_V1_SQL).context("run V1 migrations")?;
         conn.execute_batch(SCHEMA_V3_SQL).context("run V3 pipeline migrations")?;
         conn.execute_batch(SCHEMA_V4_SQL).context("run V4 pipeline job migrations")?;
+        conn.execute_batch(SCHEMA_V5_SQL).context("run V5 knowledge sync migrations")?;
+        // V6 adds knowledge_sync_target.target_hash. SQLite's ALTER TABLE ADD
+        // COLUMN fails on rerun (no IF NOT EXISTS), so guard with pragma.
+        let has_target_hash: i64 = {
+            let mut stmt = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('knowledge_sync_target') WHERE name = 'target_hash'")
+                .context("prepare V6 pragma check")?;
+            stmt.query_row([], |row| row.get(0))
+                .context("run V6 pragma check")?
+        };
+        if has_target_hash == 0 {
+            conn.execute_batch(SCHEMA_V6_SQL)
+                .context("run V6 knowledge baseline migrations")?;
+        }
         Ok(())
     }
 

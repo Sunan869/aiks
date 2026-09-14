@@ -519,7 +519,7 @@ impl CodexProvider {
         })?;
 
         for row in rows.flatten() {
-            let (session_id, title, cwd, created_at, updated_at, tokens_used) = row;
+            let (session_id, title, cwd, created_at, updated_at, _tokens_used) = row;
             summaries.push(SessionSummary {
                 source: SourceKind::Codex,
                 external_session_id: session_id,

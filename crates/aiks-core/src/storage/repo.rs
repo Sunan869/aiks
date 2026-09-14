@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
@@ -306,7 +306,7 @@ impl<'a> SyncTargetRepo<'a> {
         target_id: &str,
         target_path: &str,
         synced_hash: &str,
-        target_hash: &str,
+        target_hash: Option<&str>,
     ) -> anyhow::Result<()> {
         let now = Utc::now().to_rfc3339();
         self.db.conn().execute(
@@ -370,6 +370,161 @@ impl<'a> SyncTargetRepo<'a> {
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+}
+
+// ===== KnowledgeSyncTarget =====
+
+/// Sync state for a knowledge_item → SiYuan knowledge doc.
+#[derive(Debug, Clone)]
+pub struct KnowledgeSyncTarget {
+    pub knowledge_id: String,
+    pub sink: String,
+    pub target_id: Option<String>,
+    pub target_path: Option<String>,
+    /// Hash of the LOCAL rendered markdown at the last successful sync
+    /// (used to detect local content changes).
+    pub synced_hash: Option<String>,
+    /// Hash of the REMOTE SiYuan text captured at the last successful sync
+    /// (used to detect manual edits in SiYuan). NULL = baseline unknown.
+    pub target_hash: Option<String>,
+    pub status: SyncStatus,
+    pub error_message: Option<String>,
+    pub updated_at: String,
+}
+
+pub struct KnowledgeSyncRepo<'a> {
+    db: &'a StateDb,
+}
+
+impl<'a> KnowledgeSyncRepo<'a> {
+    pub fn new(db: &'a StateDb) -> Self {
+        Self { db }
+    }
+
+    pub fn find(&self, knowledge_id: &str, sink: &str) -> anyhow::Result<Option<KnowledgeSyncTarget>> {
+        let result = self.db.conn().query_row(
+            "SELECT knowledge_id, sink, target_id, target_path, synced_hash, target_hash,
+                    status, error_message, updated_at
+             FROM knowledge_sync_target WHERE knowledge_id = ?1 AND sink = ?2",
+            params![knowledge_id, sink],
+            |row| {
+                let status_str: String = row.get(6)?;
+                Ok(KnowledgeSyncTarget {
+                    knowledge_id: row.get(0)?,
+                    sink: row.get(1)?,
+                    target_id: row.get(2)?,
+                    target_path: row.get(3)?,
+                    synced_hash: row.get(4)?,
+                    target_hash: row.get(5)?,
+                    status: SyncStatus::from_str(&status_str).unwrap_or(SyncStatus::Pending),
+                    error_message: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(t) => Ok(Some(t)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Record the remote doc id/path as soon as it exists (before attrs are set),
+    /// so a failed retry resumes with UPDATE instead of creating duplicates.
+    pub fn record_target_doc(
+        &self,
+        knowledge_id: &str,
+        sink: &str,
+        target_id: &str,
+        target_path: &str,
+    ) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "INSERT INTO knowledge_sync_target
+             (knowledge_id, sink, target_id, target_path, status, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'PROCESSING', ?5)
+             ON CONFLICT(knowledge_id) DO UPDATE SET
+               target_id = excluded.target_id,
+               target_path = excluded.target_path,
+               status = 'PROCESSING',
+               updated_at = excluded.updated_at",
+            params![knowledge_id, sink, target_id, target_path, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_synced(
+        &self,
+        knowledge_id: &str,
+        sink: &str,
+        target_id: &str,
+        target_path: &str,
+        synced_hash: &str,
+    ) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "INSERT INTO knowledge_sync_target
+             (knowledge_id, sink, target_id, target_path, synced_hash, status, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'SYNCED', ?6)
+             ON CONFLICT(knowledge_id) DO UPDATE SET
+               target_id = excluded.target_id,
+               target_path = excluded.target_path,
+               synced_hash = excluded.synced_hash,
+               status = 'SYNCED',
+               error_message = NULL,
+               updated_at = excluded.updated_at",
+            params![knowledge_id, sink, target_id, target_path, synced_hash, now],
+        )?;
+        Ok(())
+    }
+
+    /// Store the remote-content hash captured right after a successful sync,
+    /// so the next conflict check compares remote-vs-baseline (not remote-vs-local).
+    pub fn record_target_hash(
+        &self,
+        knowledge_id: &str,
+        sink: &str,
+        target_hash: &str,
+    ) -> anyhow::Result<()> {
+        self.db.conn().execute(
+            "UPDATE knowledge_sync_target SET target_hash = ?3, updated_at = ?4
+             WHERE knowledge_id = ?1 AND sink = ?2",
+            params![knowledge_id, sink, target_hash, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_conflict(&self, knowledge_id: &str, sink: &str) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "INSERT INTO knowledge_sync_target (knowledge_id, sink, status, updated_at)
+             VALUES (?1, ?2, 'CONFLICT', ?3)
+             ON CONFLICT(knowledge_id) DO UPDATE SET
+               status = 'CONFLICT', updated_at = excluded.updated_at",
+            params![knowledge_id, sink, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_failed(
+        &self,
+        knowledge_id: &str,
+        sink: &str,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "INSERT INTO knowledge_sync_target (knowledge_id, sink, status, error_message, updated_at)
+             VALUES (?1, ?2, 'FAILED_RETRYABLE', ?3, ?4)
+             ON CONFLICT(knowledge_id) DO UPDATE SET
+               status = 'FAILED_RETRYABLE',
+               error_message = excluded.error_message,
+               updated_at = excluded.updated_at",
+            params![knowledge_id, sink, error, now],
+        )?;
+        Ok(())
     }
 }
 
@@ -576,7 +731,7 @@ mod tests {
         assert_eq!(target.status, SyncStatus::Pending);
 
         target_repo
-            .mark_synced(session_id, "siyuan", "doc-id", "/path", "hash-1", "target-hash-1")
+            .mark_synced(session_id, "siyuan", "doc-id", "/path", "hash-1", Some("target-hash-1"))
             .unwrap();
 
         let target = target_repo.find(session_id, "siyuan").unwrap().unwrap();

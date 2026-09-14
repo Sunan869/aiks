@@ -265,6 +265,11 @@ export class MockAiksApi implements AiksApi {
     return { submitted: 0 };
   }
 
+  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> {
+    await delay(1200);
+    return { created: 3, updated: 5, unchanged: 230, conflict: 0, failed: 0 };
+  }
+
   async getSiyuanUrl(): Promise<string | null> {
     return "http://127.0.0.1:6812";
   }

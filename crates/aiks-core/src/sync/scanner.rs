@@ -7,7 +7,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use crate::storage::{SourceFileState, SourceFileStateRepo, StateDb};
+use crate::storage::{SourceFileStateRepo, StateDb};
 
 /// Result of checking a file for changes.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,7 +31,7 @@ impl IncrementalScanner {
     pub fn check_file(
         db: &StateDb,
         path: &Path,
-        source: &str,
+        _source: &str,
         parser_version: &str,
     ) -> anyhow::Result<FileChangeStatus> {
         let repo = SourceFileStateRepo::new(db);

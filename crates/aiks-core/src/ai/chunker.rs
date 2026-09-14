@@ -78,7 +78,7 @@ pub fn render_session_for_ai(
 }
 
 fn truncate_tool_result(content: &str) -> String {
-    use crate::util::{truncate_chars, truncate_utf8_bytes};
+    use crate::util::truncate_utf8_bytes;
     if content.len() <= MAX_TOOL_RESULT_CHARS {
         return content.to_string();
     }

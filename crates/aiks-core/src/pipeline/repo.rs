@@ -3,7 +3,6 @@ use chrono::Utc;
 use rusqlite::params;
 use uuid::Uuid;
 
-use crate::model::pipeline::{PipelineRun, StageRun};
 use crate::storage::StateDb;
 use crate::pipeline::status::{PipelineStatus, StageStatus};
 

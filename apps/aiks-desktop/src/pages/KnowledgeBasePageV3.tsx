@@ -62,6 +62,8 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [category, setCategory] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const PAGE_SIZE = 30;
 
   const load = useCallback(async () => {
@@ -79,6 +81,26 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
+  const handleSyncToSiyuan = useCallback(async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const r = await getApi().syncKnowledgeToSiyuan();
+      const parts: string[] = [];
+      if (r.created > 0) parts.push(`新建 ${r.created}`);
+      if (r.updated > 0) parts.push(`更新 ${r.updated}`);
+      if (r.unchanged > 0) parts.push(`${r.unchanged} 条无变化`);
+      if (r.conflict > 0) parts.push(`冲突 ${r.conflict}`);
+      if (r.failed > 0) parts.push(`失败 ${r.failed}`);
+      setSyncResult(parts.length > 0 ? `已同步到 SiYuan：${parts.join("，")}` : "同步完成");
+      if (r.created > 0 || r.updated > 0) load();
+    } catch (e) {
+      setSyncResult(`同步失败：${String(e)}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, [load]);
+
   const categories = ["", ...Object.keys(CATEGORY_LABELS)];
 
   return (
@@ -88,15 +110,40 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
           {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
         </div>
-        <select
-          value={category}
-          onChange={e => { setCategory(e.target.value); setPage(0); }}
-          className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-        >
-          {categories.map(c => (
-            <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          {syncResult && (
+            <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
+              {syncResult}
+            </span>
+          )}
+          <button
+            onClick={handleSyncToSiyuan}
+            disabled={syncing}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
+            title="将提炼的知识推送到 SiYuan 知识库"
+          >
+            {syncing ? (
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            {syncing ? "同步中..." : "同步到 SiYuan"}
+          </button>
+          <select
+            value={category}
+            onChange={e => { setCategory(e.target.value); setPage(0); }}
+            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+          >
+            {categories.map(c => (
+              <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && (

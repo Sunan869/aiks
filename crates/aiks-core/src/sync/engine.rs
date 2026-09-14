@@ -372,11 +372,11 @@ impl SyncEngine {
         let markdown = renderer.render(&session);
 
         // Ensure notebook exists
-        let notebook_id = match sink.ensure_notebook().await {
+        let notebook_id = match sink.ensure_session_notebook().await {
             Ok(id) => id,
             Err(e) => {
                 let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
-                return SyncOutcome::Failed { error: format!("ensure_notebook: {}", e) };
+                return SyncOutcome::Failed { error: format!("ensure_session_notebook: {}", e) };
             }
         };
 
@@ -434,14 +434,17 @@ impl SyncEngine {
             return SyncOutcome::Failed { error: msg };
         }
 
-        // R05: capture the remote content baseline from SiYuan's own export so
-        // the next conflict check compares like-for-like. Fallback: content hash.
-        let target_hash = match sink.get_document_markdown(&doc_id).await {
-            Ok(remote_md) => hash_markdown(&remote_md),
+        // R05: capture the remote content baseline so the next conflict check
+        // compares remote-vs-baseline like-for-like. Best-effort: when capture
+        // fails we store NO baseline, which only disables remote-edit conflict
+        // detection for this doc. (The old content-hash fallback guaranteed a
+        // mismatch on the next run and flagged everything as CONFLICT.)
+        let target_hash: Option<String> = match sink.get_document_markdown(&doc_id).await {
+            Ok(remote_md) => Some(hash_markdown(&remote_md)),
             Err(e) => {
-                warn!(doc_id = %doc_id, error = %e,
-                    "Could not capture remote baseline — using content hash");
-                content_hash.clone()
+                debug!(doc_id = %doc_id, error = %e,
+                    "Could not capture remote baseline — conflict detection disabled for this doc");
+                None
             }
         };
 
@@ -450,7 +453,7 @@ impl SyncEngine {
         if let Err(e) = sync_target_repo.mark_synced(
             db_session_id, "siyuan",
             &doc_id, &doc_path,
-            &content_hash, &target_hash,
+            &content_hash, target_hash.as_deref(),
         ) {
             return SyncOutcome::Failed { error: format!("mark_synced: {}", e) };
         }

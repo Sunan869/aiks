@@ -145,7 +145,10 @@ impl Default for SecurityConfig {
 pub struct SiYuanConfig {
     pub base_url: String,
     pub token: String,
+    /// Knowledge notebook — only distilled knowledge docs live here (clean tree).
     pub notebook_name: String,
+    /// Session archive notebook — raw session markdown is archived here.
+    pub session_notebook_name: String,
     pub session_root: String,
     pub knowledge_root: String,
 }
@@ -156,6 +159,7 @@ impl Default for SiYuanConfig {
             base_url: "http://127.0.0.1:6806".to_string(),
             token: String::new(),
             notebook_name: "AI Knowledge".to_string(),
+            session_notebook_name: "AI Session Archive".to_string(),
             session_root: "/10 AI Sessions".to_string(),
             knowledge_root: "/20 Knowledge".to_string(),
         }
@@ -214,6 +218,32 @@ impl Config {
         Ok(config)
     }
 
+    /// Return the AIKS state database path.
+    pub fn state_db_path(&self) -> PathBuf {
+        data_root().join("aiks.db")
+    }
+
+    /// Return the archive base directory.
+    pub fn archive_dir(&self) -> PathBuf {
+        data_root().join("archive")
+    }
+}
+
+/// Resolve the AIKS data root directory.
+///
+/// Priority: `AIKS_DATA_DIR` env var → pointer file → default
+/// (`%LOCALAPPDATA%\AIKnowledgeSync`). The pointer file
+/// `<default>\data-root.txt` holds one line: the new root path. This
+/// relocates ALL heavy data (state DB, SiYuan workspace incl. its temp
+/// index, archive, logs) to another drive without env-var setup.
+pub fn data_root() -> PathBuf {
+    let default = default_data_root();
+    let env_override = std::env::var("AIKS_DATA_DIR").ok();
+    let pointer_file = std::fs::read_to_string(default.join("data-root.txt")).ok();
+    resolve_data_root(default, env_override.as_deref(), pointer_file.as_deref())
+}
+
+impl Config {
     /// Return the resolved path for the given provider, or None for default.
     pub fn claude_path(&self) -> Option<PathBuf> {
         if self.providers.claude.path.is_empty() {
@@ -246,26 +276,71 @@ impl Config {
             Some(PathBuf::from(&self.providers.opencode.path))
         }
     }
+}
 
-    /// Return the AIKS state database path.
-    pub fn state_db_path(&self) -> PathBuf {
-        if let Some(local_data) = dirs::data_local_dir() {
-            local_data.join("AIKnowledgeSync").join("aiks.db")
-        } else if let Some(home) = dirs::home_dir() {
-            home.join(".aiks").join("aiks.db")
-        } else {
-            PathBuf::from("aiks.db")
-        }
+/// Default data root: `%LOCALAPPDATA%\AIKnowledgeSync` (falls back to
+/// `~/.AIKnowledgeSync` when the local-data dir is unavailable).
+fn default_data_root() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+        .join("AIKnowledgeSync")
+}
+
+/// Pure data-root resolution logic — testable without touching the real env.
+///
+/// Whitespace-only values are ignored; the env var wins over the pointer file
+/// (explicit per-process override beats persistent machine state).
+pub(crate) fn resolve_data_root(
+    default: PathBuf,
+    env_override: Option<&str>,
+    pointer_file: Option<&str>,
+) -> PathBuf {
+    if let Some(env) = env_override.map(str::trim).filter(|s| !s.is_empty()) {
+        return PathBuf::from(env);
+    }
+    if let Some(content) = pointer_file.map(str::trim).filter(|s| !s.is_empty()) {
+        return PathBuf::from(content);
+    }
+    default
+}
+
+#[cfg(test)]
+mod data_root_tests {
+    use super::*;
+
+    #[test]
+    fn resolve_prefers_env_over_pointer() {
+        let p = resolve_data_root(
+            PathBuf::from("C:\\default"),
+            Some("E:\\env-root"),
+            Some("E:\\ptr-root"),
+        );
+        assert_eq!(p, PathBuf::from("E:\\env-root"));
     }
 
-    /// Return the archive base directory.
-    pub fn archive_dir(&self) -> PathBuf {
-        if let Some(local_data) = dirs::data_local_dir() {
-            local_data.join("AIKnowledgeSync").join("archive")
-        } else if let Some(home) = dirs::home_dir() {
-            home.join(".aiks").join("archive")
-        } else {
-            PathBuf::from("archive")
-        }
+    #[test]
+    fn resolve_prefers_pointer_over_default() {
+        let p = resolve_data_root(
+            PathBuf::from("C:\\default"),
+            None,
+            Some(" E:\\ptr-root\n"),
+        );
+        assert_eq!(p, PathBuf::from("E:\\ptr-root"));
+    }
+
+    #[test]
+    fn resolve_ignores_blank_overrides() {
+        assert_eq!(
+            resolve_data_root(PathBuf::from("C:\\default"), Some("  "), Some("")),
+            PathBuf::from("C:\\default")
+        );
+    }
+
+    #[test]
+    fn resolve_defaults_without_any_override() {
+        assert_eq!(
+            resolve_data_root(PathBuf::from("C:\\default"), None, None),
+            PathBuf::from("C:\\default")
+        );
     }
 }

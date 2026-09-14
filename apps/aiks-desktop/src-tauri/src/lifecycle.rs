@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
-use aiks_core::runtime::{SiyuanRuntime, SiyuanRuntimeConfig, RuntimeState};
+use aiks_core::runtime::SiyuanRuntime;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};

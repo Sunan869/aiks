@@ -10,7 +10,7 @@ use crate::ai::{
     AiClient,
     config::AiModelConfig,
     prompts_v3::{make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt, SYSTEM_PROMPT_V3},
-    schema_v3::{V3ExtractionResult, V3KnowledgeItem},
+    schema_v3::V3ExtractionResult,
 };
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;

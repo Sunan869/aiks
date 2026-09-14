@@ -10,13 +10,13 @@ use tracing::info;
 
 use crate::ai::{AiClient, AiModelConfig};
 use crate::config::Config;
-use crate::knowledge::service::{extract_session, get_extraction_stats, ExtractionService};
+use crate::knowledge::service::{extract_session, get_extraction_stats};
 use crate::knowledge::model::ExtractionStats;
 use crate::model::SourceKind;
 use crate::pipeline::{EmbeddingConfig, PipelineOrchestrator, PipelineWorker, PipelineJob};
 use crate::providers::{build_registry, ProviderRegistry, SessionSummary};
 use crate::sink::SiYuanSink;
-use crate::storage::{StateDb, SourceSessionRepo};
+use crate::storage::StateDb;
 use crate::sync::{SyncEngine, SyncOptions, SyncStats};
 use crate::watcher::{FileWatcher, WatchEvent};
 
@@ -126,6 +126,24 @@ pub struct ScanResult {
     pub total: usize,
 }
 
+/// Result of a knowledge → SiYuan sync run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KnowledgeSyncStats {
+    pub created: usize,
+    pub updated: usize,
+    pub unchanged: usize,
+    pub conflict: usize,
+    pub failed: usize,
+}
+
+/// Per-item outcome inside the knowledge sync loop.
+enum Outcome {
+    Created,
+    Updated,
+    Unchanged,
+    Conflict,
+}
+
 /// The main AIKS engine, shared between CLI and Desktop
 pub struct AiksEngine {
     config: Arc<Config>,
@@ -138,12 +156,17 @@ pub struct AiksEngine {
     siyuan_token: Option<String>,
     /// V3 pipeline worker (started on init)
     pipeline_worker: Arc<PipelineWorker>,
+    /// Global sync mutex — serializes all sync flows (startup, watcher-triggered,
+    /// manual, knowledge). Without it two overlapping syncs can both observe a
+    /// NULL target_id for the same session and each create a document, producing
+    /// duplicates in SiYuan.
+    sync_lock: tokio::sync::Mutex<()>,
 }
 
 impl AiksEngine {
     /// Initialize the engine from a config
     pub fn initialize(engine_config: AiksEngineConfig) -> anyhow::Result<Self> {
-        let mut config = match &engine_config.config_path {
+        let config = match &engine_config.config_path {
             Some(path) => Config::from_file(path)?,
             None => Config::default(),
         };
@@ -190,6 +213,7 @@ impl AiksEngine {
             siyuan_base_url,
             siyuan_token,
             pipeline_worker,
+            sync_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -271,6 +295,16 @@ impl AiksEngine {
 
     /// Run a sync operation
     pub async fn sync(&self, opts: SyncOptions) -> anyhow::Result<SyncStats> {
+        // Serialize overlapping sync flows (startup + watcher can fire in the
+        // same second). The lock is held for the whole run so the second flow
+        // observes the target mapping written by the first instead of
+        // re-creating the document.
+        let _guard = self.sync_lock.lock().await;
+        self.sync_unlocked(opts).await
+    }
+
+    /// Sync implementation — caller must hold `sync_lock`.
+    async fn sync_unlocked(&self, opts: SyncOptions) -> anyhow::Result<SyncStats> {
         let sink = if let Some(token) = &self.siyuan_token {
             // External mode: use token from CLI config
             let mut cfg = self.config.siyuan.clone();
@@ -480,7 +514,23 @@ impl AiksEngine {
         &self,
         opts: SyncOptions,
     ) -> anyhow::Result<SyncStats> {
-        let stats = self.sync(opts.clone()).await?;
+        // Hold the global sync lock across migration + sync + bookkeeping so
+        // the archive migration never interleaves with another flow's SiYuan
+        // writes (same duplicate-document rationale as `sync`).
+        let _guard = self.sync_lock.lock().await;
+
+        // One-time (idempotent) migration: move raw session docs out of the
+        // knowledge notebook into the dedicated archive notebook. Cheap after
+        // the first run (a single SQL lookup against an empty result).
+        if !opts.dry_run && opts.source_filter.is_none() {
+            match self.migrate_sessions_to_archive().await {
+                Ok(0) => {}
+                Ok(n) => info!("[SYNC] Migrated {} session docs to archive notebook", n),
+                Err(e) => tracing::warn!("[SYNC] Session archive migration failed: {}", e),
+            }
+        }
+
+        let stats = self.sync_unlocked(opts.clone()).await?;
 
         // B15: After a successful scan (no source_filter = full scan),
         // mark sessions that are no longer visible in any provider as MISSING.
@@ -534,6 +584,14 @@ impl AiksEngine {
                         });
                     }
                 }
+            }
+        }
+
+        // Knowledge → SiYuan: push new/updated knowledge docs into the
+        // knowledge notebook (non-blocking for the sync result).
+        if !opts.dry_run && opts.source_filter.is_none() {
+            if let Err(e) = self.sync_knowledge_to_siyuan(false).await {
+                tracing::warn!("[SYNC] Knowledge sync failed: {}", e);
             }
         }
 
@@ -602,6 +660,261 @@ impl AiksEngine {
         Ok(submitted)
     }
 
+    /// ── Knowledge → SiYuan sync (knowledge-first tree) ─────────────────────────
+    ///
+    /// Syncs distilled knowledge items into the knowledge notebook
+    /// (`/20 Knowledge/{分类}/…`), each doc linking back to its raw session doc.
+    /// Idempotent via content hash; manual edits in SiYuan are detected as
+    /// conflicts and never silently overwritten.
+    pub async fn sync_knowledge_to_siyuan(
+        &self,
+        overwrite_conflicts: bool,
+    ) -> anyhow::Result<KnowledgeSyncStats> {
+        use crate::renderer::knowledge::{render_knowledge_item_md, KnowledgeItemDoc};
+        use crate::storage::{KnowledgeSyncRepo, SyncStatus, SyncTargetRepo};
+        use sha2::{Digest, Sha256};
+
+        // Share the global sync lock with session sync so SiYuan writes never
+        // interleave (see `sync` for the duplicate-document rationale).
+        let _guard = self.sync_lock.lock().await;
+
+        let sink = self.make_sink()?;
+        let stats = KnowledgeSyncStats::default();
+
+        let notebook_id = sink.ensure_notebook().await?;
+
+        // (k_id, title, category, project, summary, content, tags, confidence,
+        //  source, session_db_id, ext_id, session_title)
+        let items: Vec<(String, String, String, Option<String>, String, String, String, f64, String, i64, String, Option<String>)> = {
+            let conn = self.db.conn();
+            let mut stmt = conn.prepare(
+                "SELECT ki.id, ki.title, ki.category, ki.project_name, ki.summary, ki.content,
+                        ki.tags, ki.confidence, ss.source, ss.id, ss.external_session_id, ss.title
+                 FROM knowledge_item ki
+                 JOIN source_session ss ON ss.id = ki.source_session_id",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, f64>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                ))
+            })?;
+            rows.flatten().collect()
+        };
+
+        let mut stats = stats;
+        let target_repo = SyncTargetRepo::new(&self.db);
+        let ks_repo = KnowledgeSyncRepo::new(&self.db);
+
+        for (k_id, title, category, project, summary, content, tags, confidence,
+             source_str, session_db_id, ext_id, session_title) in items
+        {
+            let result: anyhow::Result<Outcome> = async {
+                // Deep link target: the raw session doc, if already synced.
+                let session_doc_id = target_repo
+                    .find(session_db_id, "siyuan")?
+                    .filter(|t| t.status == SyncStatus::Synced)
+                    .and_then(|t| t.target_id);
+
+                let source_display = match source_str.as_str() {
+                    "claude_code" => "Claude",
+                    "codex" => "Codex",
+                    "gemini_cli" => "Gemini",
+                    "opencode" => "OpenCode",
+                    other => other,
+                };
+
+                let doc = KnowledgeItemDoc {
+                    knowledge_id: &k_id,
+                    title: &title,
+                    category: &category,
+                    project_name: project.as_deref(),
+                    summary: &summary,
+                    content: &content,
+                    tags_json: &tags,
+                    confidence,
+                    source_display,
+                    session_ext_id: &ext_id,
+                    session_title: session_title.as_deref(),
+                    session_doc_id: session_doc_id.as_deref(),
+                };
+                let markdown = render_knowledge_item_md(&doc);
+                let hash = hex::encode(Sha256::digest(markdown.as_bytes()));
+                let path = sink.build_knowledge_path(&category, &k_id, &title);
+
+                let existing = ks_repo.find(&k_id, "siyuan")?;
+
+                // Unchanged — nothing to do.
+                if let Some(ref e) = existing {
+                    if e.status == SyncStatus::Synced && e.synced_hash.as_deref() == Some(&hash) {
+                        return Ok(Outcome::Unchanged);
+                    }
+                    if e.status == SyncStatus::Conflict && !overwrite_conflicts {
+                        return Ok(Outcome::Conflict);
+                    }
+                }
+
+                // Determine remote doc: reuse local mapping if the doc still exists.
+                let remote_id = match existing.as_ref().and_then(|e| e.target_id.clone()) {
+                    Some(id) => {
+                        if sink.get_doc_notebook(&id).await?.is_some() {
+                            Some(id)
+                        } else {
+                            None // deleted remotely — recreate
+                        }
+                    }
+                    None => None,
+                };
+
+                // Conflict guard: remote content was manually edited in SiYuan.
+                // Only enforced when a baseline exists (target_hash captured at
+                // the last successful sync). The earlier comparison against
+                // synced_hash (LOCAL markdown) always mismatched after SiYuan
+                // re-serializes the content — flagging every item as CONFLICT.
+                if let (Some(e), Some(id)) = (existing.as_ref(), remote_id.as_deref()) {
+                    if e.status == SyncStatus::Synced {
+                        if let Some(baseline) = e.target_hash.as_deref() {
+                            if let Ok(remote_md) = sink.get_document_markdown(id).await {
+                                let remote_hash =
+                                    hex::encode(Sha256::digest(remote_md.as_bytes()));
+                                if remote_hash != baseline {
+                                    ks_repo.mark_conflict(&k_id, "siyuan")?;
+                                    return Ok(Outcome::Conflict);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let doc_id = if let Some(id) = &remote_id {
+                    sink.update_document(id, &markdown).await?;
+                    ks_repo.record_target_doc(&k_id, "siyuan", id, &path)?;
+                    id.clone()
+                } else {
+                    let new_id = sink
+                        .create_document(&notebook_id, &path, &markdown)
+                        .await?;
+                    ks_repo.record_target_doc(&k_id, "siyuan", &new_id, &path)?;
+                    new_id
+                };
+
+                sink.set_knowledge_attrs(&doc_id, &k_id, &ext_id, &hash, &category)
+                    .await?;
+                ks_repo.mark_synced(&k_id, "siyuan", &doc_id, &path, &hash)?;
+
+                // Capture the remote baseline right after a successful write so
+                // the next run's conflict guard compares remote-vs-baseline.
+                // Best-effort: no baseline → conflict detection stays disabled
+                // for this item (never a false CONFLICT).
+                if let Ok(remote_md) = sink.get_document_markdown(&doc_id).await {
+                    let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));
+                    ks_repo.record_target_hash(&k_id, "siyuan", &remote_hash)?;
+                }
+
+                Ok(if remote_id.is_some() {
+                    Outcome::Updated
+                } else {
+                    Outcome::Created
+                })
+            }
+            .await;
+
+            match result {
+                Ok(Outcome::Created) => stats.created += 1,
+                Ok(Outcome::Updated) => stats.updated += 1,
+                Ok(Outcome::Unchanged) => stats.unchanged += 1,
+                Ok(Outcome::Conflict) => stats.conflict += 1,
+                Err(e) => {
+                    tracing::warn!(knowledge_id = %k_id, error = %e, "[KNOWLEDGE-SYNC] item failed");
+                    let _ = ks_repo.mark_failed(&k_id, "siyuan", &e.to_string());
+                    stats.failed += 1;
+                }
+            }
+        }
+
+        info!(
+            created = stats.created,
+            updated = stats.updated,
+            unchanged = stats.unchanged,
+            conflict = stats.conflict,
+            failed = stats.failed,
+            "[KNOWLEDGE-SYNC] Complete"
+        );
+        Ok(stats)
+    }
+
+    /// One-time migration: move raw session docs out of the knowledge notebook
+    /// into the dedicated session archive notebook, so the knowledge notebook
+    /// tree shows only distilled knowledge. Idempotent — docs already in the
+    /// archive notebook are skipped.
+    pub async fn migrate_sessions_to_archive(&self) -> anyhow::Result<usize> {
+        let sink = self.make_sink()?;
+        let knowledge_nb = sink.ensure_notebook().await?;
+        let session_nb = sink.ensure_session_notebook().await?;
+        if knowledge_nb == session_nb {
+            return Ok(0); // configuration points both to the same notebook
+        }
+
+        // Find AIKS-managed session docs still living in the knowledge notebook.
+        let stmt = format!(
+            "SELECT id, hpath FROM blocks WHERE box = '{}' AND type = 'd' \
+             AND root_id = id AND hpath LIKE '/10 AI Sessions%'",
+            knowledge_nb.replace('\'', "''")
+        );
+        let rows = sink.query_sql(&stmt).await?;
+
+        let mut moved = 0usize;
+        for row in rows {
+            let (Some(doc_id), Some(hpath)) = (
+                row.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                row.get("hpath").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            ) else {
+                continue;
+            };
+
+            // Move into the same parent path inside the archive notebook.
+            let parent = match hpath.rfind('/') {
+                Some(0) => "/".to_string(),
+                Some(idx) => hpath[..idx].to_string(),
+                None => "/".to_string(),
+            };
+            match sink.move_docs(&[doc_id.clone()], &session_nb, &parent).await {
+                Ok(()) => moved += 1,
+                Err(e) => tracing::warn!(doc_id = %doc_id, error = %e, "[MIGRATE] move failed"),
+            }
+            if moved % 50 == 0 && moved > 0 {
+                info!(moved, "[MIGRATE] session docs moved so far");
+            }
+        }
+
+        if moved > 0 {
+            info!(moved, "[MIGRATE] Session archive migration complete");
+        }
+        Ok(moved)
+    }
+
+    /// Build the SiYuan sink using the engine's resolved connection.
+    fn make_sink(&self) -> anyhow::Result<SiYuanSink> {
+        if let Some(token) = &self.siyuan_token {
+            let mut cfg = self.config.siyuan.clone();
+            cfg.base_url = self.siyuan_base_url.clone();
+            cfg.token = token.clone();
+            SiYuanSink::new(cfg)
+        } else {
+            SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)
+        }
+    }
+
     /// Get the unified full status for all UI pages (spec §8).
     ///
     /// Returns consistent numbers across Overview, Sidebar, Sources, Sync, Knowledge pages.
@@ -646,7 +959,7 @@ impl AiksEngine {
             matches!(
                 SiYuanSink::embedded(&self.siyuan_base_url, "AI Knowledge")
                     .ok()
-                    .map(|s| {
+                    .map(|_s| {
                         // Quick TCP check without async (synchronous)
                         // For UI purposes, trust that if we got here, SiYuan is likely running
                         true

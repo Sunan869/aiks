@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use tracing::{info, warn};
 
-use crate::model::pipeline::{PipelineStage, PipelineStats};
+use crate::model::pipeline::PipelineStats;
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::status::PipelineStatus;
 use crate::storage::StateDb;

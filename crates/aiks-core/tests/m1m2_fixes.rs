@@ -6,7 +6,7 @@ use aiks_core::{
     model::*,
     providers::*,
     storage::{StateDb, SourceSessionRepo},
-    sync::{SyncEngine, SyncOptions},
+    sync::SyncEngine,
 };
 use aiks_core::pipeline::{
     knowledge_repo::KnowledgeRepo,
@@ -223,7 +223,7 @@ async fn b04_target_hash_tracks_written_content() {
     // the hash of the content we wrote, NOT the source content_hash
     let target_repo = aiks_core::storage::SyncTargetRepo::new(&db);
     target_repo.upsert_pending(sid, "siyuan").unwrap();
-    target_repo.mark_synced(sid, "siyuan", "doc-123", "/path/doc", "source-hash", "rendered-content-hash").unwrap();
+    target_repo.mark_synced(sid, "siyuan", "doc-123", "/path/doc", "source-hash", Some("rendered-content-hash")).unwrap();
 
     let target = target_repo.find(sid, "siyuan").unwrap().unwrap();
     assert_eq!(target.synced_hash.as_deref(), Some("source-hash"),

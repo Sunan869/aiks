@@ -86,7 +86,7 @@ impl KnowledgeRenderer {
 
         // Link back to raw session
         md.push_str("---\n\n");
-        if let Some(raw_id) = raw_session_siyuan_id {
+        if let Some(_raw_id) = raw_session_siyuan_id {
             md.push_str(&format!(
                 "原始会话：{{{{原始对话 - {}}}}}  \nSession ID: `{}`\n",
                 source.display_name(),
@@ -102,7 +102,7 @@ impl KnowledgeRenderer {
     /// Build the SiYuan document path for a knowledge document.
     pub fn build_doc_path(
         doc: &KnowledgeDocument,
-        source: SourceKind,
+        _source: SourceKind,
         session_id: &str,
     ) -> String {
         let cat = KnowledgeCategory::from_str(&doc.category);

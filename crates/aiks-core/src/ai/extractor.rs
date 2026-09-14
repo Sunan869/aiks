@@ -12,7 +12,7 @@ use crate::ai::{
         make_chunk_prompt, make_extraction_prompt, make_final_extraction_prompt,
         SYSTEM_PROMPT,
     },
-    schema::{ChunkSummary, KnowledgeDocument},
+    schema::KnowledgeDocument,
 };
 use crate::model::NormalizedSession;
 use crate::util::SecretSanitizer;

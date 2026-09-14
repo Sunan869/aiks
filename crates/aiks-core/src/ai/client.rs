@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Context;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::ai::config::AiModelConfig;
 

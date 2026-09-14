@@ -107,7 +107,7 @@ fn seeded(db: &StateDb) -> i64 {
     repo.upsert_pending(id, "siyuan").unwrap();
     // target_hash is the R05 baseline: hash of SiYuan's exported markdown
     // captured at the last successful sync. The mock exports "exported".
-    repo.mark_synced(id, "siyuan", "existing-doc", "/old", "old", &md_hash("exported"))
+    repo.mark_synced(id, "siyuan", "existing-doc", "/old", "old", Some(&md_hash("exported")))
         .unwrap();
     id
 }
@@ -157,11 +157,21 @@ async fn server(attr_fail: bool, ai_garbage: bool) -> (String, Arc<std::sync::Mu
             copy.lock().unwrap().push(path.clone());
 
             let body = if path.contains("lsNotebooks") {
-                serde_json::json!({"code":0,"msg":"","data":{"notebooks":[{"id":"nb","name":"audit"}]}})
+                // The sync engine writes session docs into the archive notebook
+                // ("AI Session Archive") after the knowledge-sync change, so the
+                // mock must expose it alongside the knowledge notebook "audit".
+                serde_json::json!({"code":0,"msg":"","data":{"notebooks":[
+                    {"id":"nb","name":"audit"},
+                    {"id":"nba","name":"AI Session Archive"}
+                ]}})
+            } else if path.contains("createNotebook") {
+                serde_json::json!({"code":0,"msg":"","data":{"notebook":{"id":"nbc","name":"created"}}})
             } else if path.contains("createDocWithMd") {
                 serde_json::json!({"code":0,"msg":"","data":"new-doc"})
-            } else if path.contains("exportMdContent") {
-                serde_json::json!({"code":0,"msg":"","data":{"content":"exported"}})
+            } else if path.contains("getBlockKramdown") {
+                // get_document_markdown uses /api/block/getBlockKramdown (the
+                // embedded kernel lacks exportMdContent).
+                serde_json::json!({"code":0,"msg":"","data":{"id":"doc","kramdown":"exported"}})
             } else if path.contains("getBlockAttrs") {
                 serde_json::json!({"code":0,"msg":"","data":{"custom-aiks-content-hash":"old"}})
             } else if path.contains("setBlockAttrs") && attr_fail {
@@ -275,7 +285,7 @@ async fn r05_attribute_failure_is_not_success_and_retry_reuses_doc() {
     let dir = tempfile::tempdir().unwrap();
     let db = StateDb::open(&dir.path().join("db")).unwrap();
     insert(&db, "hash");
-    let (url, seen, h) = server(true, false).await;
+    let (url, _seen, h) = server(true, false).await;
 
     // First run: create succeeds, attribute set FAILS.
     let stats = SyncEngine::new(Arc::new(Config::default()))

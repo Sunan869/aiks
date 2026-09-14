@@ -25,7 +25,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::model::{
-    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SessionUsage, SourceKind,
+    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind,
 };
 use crate::providers::{ProviderHealth, SessionSummary};
 
@@ -287,7 +287,7 @@ impl super::SessionProvider for OpenCodeProvider {
                 let directory: Option<String> = row.get(2)?;
                 let time_created: i64 = row.get(3)?;
                 let time_updated: Option<i64> = row.get(4)?;
-                let model: Option<String> = row.get(5)?;
+                let _model: Option<String> = row.get(5)?;
                 let msg_count: usize = row.get(6)?;
                 let worktree: Option<String> = row.get(7)?;
                 let project_name: Option<String> = row.get(8)?;

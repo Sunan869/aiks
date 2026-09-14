@@ -51,4 +51,11 @@ pub enum Commands {
     ResetData {
         #[arg(long)] yes: bool,
     },
+    /// Sync distilled knowledge items into the SiYuan "AI Knowledge" notebook
+    /// (knowledge-first tree: /20 Knowledge/{project}/{category}/...). Each doc
+    /// links back to its raw session doc via a siyuan:// deep link.
+    SyncKnowledge {
+        /// Recreate docs even when SiYuan-side edits were detected (conflicts).
+        #[arg(long)] overwrite_conflicts: bool,
+    },
 }

@@ -60,6 +60,14 @@ async fn main() -> anyhow::Result<()> {
             // B14/R01: full destructive reset — deletes ALL data including knowledge
             cli::resync::reset_all_data(engine_config, *yes).await?;
         }
+        Commands::SyncKnowledge { overwrite_conflicts } => {
+            let engine = AiksEngine::initialize(engine_config)?;
+            let stats = engine.sync_knowledge_to_siyuan(*overwrite_conflicts).await?;
+            println!(
+                "Knowledge sync complete: created={} updated={} unchanged={} conflict={} failed={}",
+                stats.created, stats.updated, stats.unchanged, stats.conflict, stats.failed
+            );
+        }
     }
 
     Ok(())

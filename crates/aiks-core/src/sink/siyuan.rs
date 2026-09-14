@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::config::SiYuanConfig;
 
@@ -27,6 +27,8 @@ const SINK_NAME: &str = "siyuan";
 
 /// Attributes stored on managed SiYuan documents.
 pub const ATTR_MANAGED: &str = "custom-aiks-managed";
+/// Kind of managed doc: "session" or "knowledge".
+pub const ATTR_KIND: &str = "custom-aiks-kind";
 pub const ATTR_SOURCE: &str = "custom-aiks-source";
 pub const ATTR_SESSION_ID: &str = "custom-aiks-session-id";
 pub const ATTR_CONTENT_HASH: &str = "custom-aiks-content-hash";
@@ -35,24 +37,34 @@ pub const ATTR_SYNCED_AT: &str = "custom-aiks-synced-at";
 
 pub struct SiYuanSink {
     base_url: String,
+    /// Knowledge notebook — only distilled knowledge docs (clean tree).
     notebook_name: String,
+    /// Session archive notebook — raw session docs are archived here.
+    session_notebook_name: String,
     session_root: String,
+    knowledge_root: String,
     /// Optional token — None for embedded mode, Some for external mode
     token: Option<String>,
     client: Client,
 }
+
+const DEFAULT_ARCHIVE_NOTEBOOK: &str = "AI Session Archive";
+const DEFAULT_SESSION_ROOT: &str = "/10 AI Sessions";
+const DEFAULT_KNOWLEDGE_ROOT: &str = "/20 Knowledge";
 
 impl SiYuanSink {
     /// Embedded mode: no token required (spec §25-26).
     /// SiYuan listens on 127.0.0.1 only and allows unauthenticated local requests.
     pub fn embedded(base_url: impl Into<String>, notebook_name: impl Into<String>) -> anyhow::Result<Self> {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(300))
             .build()?;
         Ok(Self {
             base_url: base_url.into(),
             notebook_name: notebook_name.into(),
-            session_root: "/10 AI Sessions".to_string(),
+            session_notebook_name: DEFAULT_ARCHIVE_NOTEBOOK.to_string(),
+            session_root: DEFAULT_SESSION_ROOT.to_string(),
+            knowledge_root: DEFAULT_KNOWLEDGE_ROOT.to_string(),
             token: None,
             client,
         })
@@ -62,12 +74,14 @@ impl SiYuanSink {
     pub fn new(config: SiYuanConfig) -> anyhow::Result<Self> {
         let token = if config.token.is_empty() { None } else { Some(config.token.clone()) };
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(300))
             .build()?;
         Ok(Self {
             base_url: config.base_url,
             notebook_name: config.notebook_name,
+            session_notebook_name: config.session_notebook_name,
             session_root: config.session_root,
+            knowledge_root: config.knowledge_root,
             token,
             client,
         })
@@ -96,8 +110,18 @@ impl SiYuanSink {
         }
     }
 
-    /// Get or create the target notebook.
+    /// Get or create the knowledge notebook (the clean, knowledge-only one).
     pub async fn ensure_notebook(&self) -> anyhow::Result<String> {
+        self.ensure_notebook_named(&self.notebook_name).await
+    }
+
+    /// Get or create the session archive notebook (raw session docs).
+    pub async fn ensure_session_notebook(&self) -> anyhow::Result<String> {
+        self.ensure_notebook_named(&self.session_notebook_name).await
+    }
+
+    /// Get or create a notebook by name.
+    pub async fn ensure_notebook_named(&self, name: &str) -> anyhow::Result<String> {
         let url = format!("{}/api/notebook/lsNotebooks", self.base_url);
         let resp: ApiResponse<NotebooksResult> = self
             .request_builder(reqwest::Method::POST, &url)
@@ -115,7 +139,7 @@ impl SiYuanSink {
 
         let notebooks = resp.data.map(|d| d.notebooks).unwrap_or_default();
         for nb in &notebooks {
-            if nb.name == self.notebook_name {
+            if nb.name == name {
                 return Ok(nb.id.clone());
             }
         }
@@ -124,7 +148,7 @@ impl SiYuanSink {
         let create_url = format!("{}/api/notebook/createNotebook", self.base_url);
         let resp: ApiResponse<NotebookCreateResult> = self
             .request_builder(reqwest::Method::POST, &create_url)
-            .json(&serde_json::json!({"name": self.notebook_name}))
+            .json(&serde_json::json!({"name": name}))
             .send()
             .await
             .context("create notebook")?
@@ -139,6 +163,80 @@ impl SiYuanSink {
         resp.data
             .map(|d| d.notebook.id)
             .ok_or_else(|| anyhow::anyhow!("No notebook ID in response"))
+    }
+
+    /// Get the notebook (box) ID that currently contains a document.
+    /// Returns the notebook id (`box`) that currently contains `doc_id`, or
+    /// None if the document does not exist.
+    ///
+    /// Implemented via /api/query/sql instead of /api/filetree/getDocInfo:
+    /// the embedded SiYuan runtime does not expose getDocInfo (it answers
+    /// plain-text 404), which made every knowledge-sync update-path call fail
+    /// with "parse getDocInfo response". The blocks table answers the same
+    /// question on any kernel build.
+    pub async fn get_doc_notebook(&self, doc_id: &str) -> anyhow::Result<Option<String>> {
+        let escaped = doc_id.replace('\'', "''");
+        let rows = self
+            .query_sql(&format!(
+                "SELECT box FROM blocks WHERE id = '{escaped}' AND type = 'd' LIMIT 1"
+            ))
+            .await?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .and_then(|row| row.get("box").and_then(|b| b.as_str()).map(str::to_string)))
+    }
+
+    /// Run a read-only SQL query via the official /api/query/sql endpoint.
+    /// Used for bulk lookups during one-time migrations only.
+    pub async fn query_sql(&self, stmt: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+        let url = format!("{}/api/query/sql", self.base_url);
+        let resp: ApiResponse<Vec<serde_json::Value>> = self
+            .request_builder(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({"stmt": stmt}))
+            .send()
+            .await
+            .context("query sql")?
+            .json()
+            .await
+            .context("parse query sql response")?;
+
+        if resp.code != 0 {
+            anyhow::bail!("SiYuan query sql error {}: {}", resp.code, resp.msg);
+        }
+
+        Ok(resp.data.unwrap_or_default())
+    }
+
+    /// Move documents to another notebook/path.
+    /// SiYuan: /api/filetree/moveDocs {fromIDs, toNotebook, toPath}
+    /// Doc block IDs are preserved across moves (the .sy file is the ID).
+    pub async fn move_docs(
+        &self,
+        from_ids: &[String],
+        to_notebook: &str,
+        to_path: &str,
+    ) -> anyhow::Result<()> {
+        let url = format!("{}/api/filetree/moveDocs", self.base_url);
+        let resp: ApiResponse<serde_json::Value> = self
+            .request_builder(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({
+                "fromIDs": from_ids,
+                "toNotebook": to_notebook,
+                "toPath": to_path,
+            }))
+            .send()
+            .await
+            .context("move docs")?
+            .json()
+            .await
+            .context("parse moveDocs response")?;
+
+        if resp.code != 0 {
+            anyhow::bail!("SiYuan moveDocs error: {}", resp.msg);
+        }
+
+        Ok(())
     }
 
     /// Find a managed document by its target_id saved in the local sync_target table.
@@ -277,32 +375,39 @@ impl SiYuanSink {
         Ok(resp.data.unwrap_or_default())
     }
 
-    /// Fetch the current markdown content of a document.
-    /// R05: used to build a stable conflict baseline from the actual remote content.
-    /// SiYuan: /api/filetree/exportMdContent
+    /// Fetch the current text content of a document (conflict baseline).
+    ///
+    /// Uses /api/block/getBlockKramdown — the embedded SiYuan kernel does NOT
+    /// ship /api/filetree/exportMdContent (it returns a plain-text 404, which
+    /// used to fail the baseline capture for every single document).
+    /// Kramdown block attributes ({: id="..." ...}) are stripped so the returned
+    /// text only reflects the actual content.
     pub async fn get_document_markdown(&self, doc_id: &str) -> anyhow::Result<String> {
         #[derive(Deserialize)]
-        struct ExportMdContent {
-            content: String,
+        struct KramdownResult {
+            #[serde(default)]
+            kramdown: String,
         }
-        let url = format!("{}/api/filetree/exportMdContent", self.base_url);
-        let resp: ApiResponse<ExportMdContent> = self
+        let url = format!("{}/api/block/getBlockKramdown", self.base_url);
+        let resp: ApiResponse<KramdownResult> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({"id": doc_id}))
             .send()
             .await
-            .context("export markdown")?
+            .context("get block kramdown")?
             .json()
             .await
-            .context("parse export markdown response")?;
+            .context("parse block kramdown response")?;
 
         if resp.code != 0 {
-            anyhow::bail!("SiYuan exportMdContent error {}: {}", resp.code, resp.msg);
+            anyhow::bail!("SiYuan getBlockKramdown error {}: {}", resp.code, resp.msg);
         }
 
-        resp.data
-            .map(|d| d.content)
-            .ok_or_else(|| anyhow::anyhow!("exportMdContent: no data in response"))
+        let raw = resp
+            .data
+            .map(|d| d.kramdown)
+            .ok_or_else(|| anyhow::anyhow!("getBlockKramdown: no data in response"))?;
+        Ok(strip_kramdown_attrs(&raw))
     }
 
     /// Set AIKS managed attributes on a document.
@@ -321,6 +426,49 @@ impl SiYuanSink {
         attrs.insert(ATTR_SESSION_ID.to_string(), session_id.to_string());
         attrs.insert(ATTR_CONTENT_HASH.to_string(), content_hash.to_string());
         attrs.insert(ATTR_PARSER_VERSION.to_string(), parser_version.to_string());
+        attrs.insert(ATTR_SYNCED_AT.to_string(), now);
+        self.set_block_attrs(doc_id, &attrs).await
+    }
+
+    /// Build the document path for a knowledge item.
+    ///
+    /// Format: {knowledge_root}/{分类}/{title} [{short-knowledge-id}]
+    /// Category display names match the desktop UI labels.
+    pub fn build_knowledge_path(
+        &self,
+        category: &str,
+        knowledge_id: &str,
+        title: &str,
+    ) -> String {
+        let cat_label = crate::renderer::knowledge::category_display_name(category);
+        let short_id: String = knowledge_id.chars().take(8).collect();
+        let title_part: String = title.chars().take(50).collect();
+        let sanitized = title_part
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let sanitized = crate::util::sanitizer::default_sanitizer().sanitize(&sanitized);
+        format!(
+            "{}/{}/{} [{}]",
+            self.knowledge_root, cat_label, sanitized, short_id
+        )
+    }
+
+    /// Set AIKS managed attributes on a knowledge document.
+    pub async fn set_knowledge_attrs(
+        &self,
+        doc_id: &str,
+        knowledge_id: &str,
+        session_ext_id: &str,
+        content_hash: &str,
+        category: &str,
+    ) -> anyhow::Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut attrs = HashMap::new();
+        attrs.insert(ATTR_MANAGED.to_string(), "true".to_string());
+        attrs.insert(ATTR_KIND.to_string(), "knowledge".to_string());
+        attrs.insert("custom-aiks-knowledge-id".to_string(), knowledge_id.to_string());
+        attrs.insert(ATTR_SESSION_ID.to_string(), session_ext_id.to_string());
+        attrs.insert(ATTR_CONTENT_HASH.to_string(), content_hash.to_string());
+        attrs.insert("custom-aiks-category".to_string(), category.to_string());
         attrs.insert(ATTR_SYNCED_AT.to_string(), now);
         self.set_block_attrs(doc_id, &attrs).await
     }
@@ -384,6 +532,41 @@ impl SiYuanSink {
 
 // ===== API Types =====
 
+/// Strip SiYuan kramdown block attributes (`{: id="..." updated="..."}`) from a
+/// line so the conflict baseline hash depends only on the real content.
+/// Attributes appear at line end (or alone on a line) after every block.
+/// Trailing-newline semantics of the input are preserved exactly.
+fn strip_kramdown_attrs(md: &str) -> String {
+    let (body, had_trailing_nl) = match md.strip_suffix('\n') {
+        Some(rest) => (rest, true),
+        None => (md, false),
+    };
+    let mut out = String::with_capacity(md.len());
+    for line in body.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        out.push_str(strip_trailing_attr(line));
+        out.push('\n');
+    }
+    if !had_trailing_nl && out.ends_with('\n') {
+        out.truncate(out.len() - 1);
+    }
+    out
+}
+
+fn strip_trailing_attr(line: &str) -> &str {
+    if let Some(idx) = line.rfind("{:") {
+        let candidate = line[idx..].trim_end();
+        // SiYuan block attributes always carry an id: {: id="20240101-xxxx" ...}
+        if candidate.starts_with("{:")
+            && candidate.ends_with('}')
+            && candidate.contains("id=\"")
+        {
+            return line[..idx].trim_end();
+        }
+    }
+    line
+}
+
 #[derive(Debug, Deserialize)]
 struct ApiResponse<T> {
     code: i32,
@@ -407,22 +590,6 @@ struct NotebookCreateResult {
     notebook: Notebook,
 }
 
-#[derive(Debug, Deserialize)]
-struct CreateDocResult {
-    id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SearchAttrResult {
-    blocks: Vec<BlockInfo>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BlockInfo {
-    id: String,
-    path: String,
-}
-
 /// Information about a SiYuan document managed by AIKS.
 #[derive(Debug, Clone)]
 pub struct DocumentInfo {
@@ -435,6 +602,35 @@ pub struct DocumentInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strip_kramdown_attrs_removes_block_ids() {
+        let md = "# Title\n{: id=\"20260101-abc\" updated=\"20260101\"}\n\n正文段落\n{: id=\"20260101-def\"}\n";
+        let out = strip_kramdown_attrs(md);
+        assert!(!out.contains("id="), "attrs must be stripped: {}", out);
+        assert!(out.contains("# Title"));
+        assert!(out.contains("正文段落"));
+    }
+
+    #[test]
+    fn strip_kramdown_attrs_keeps_plain_content() {
+        // JSON-ish lines must survive (they do not look like block attrs).
+        let md = "{\"notebook\":\"20260101-abc\"}\ncode with {: unusual } tail\n";
+        let out = strip_kramdown_attrs(md);
+        assert!(out.contains("{\"notebook\""));
+        // "{: unusual }" has no id=" — kept intact.
+        assert!(out.contains("{: unusual }"));
+    }
+
+    #[test]
+    fn strip_kramdown_attrs_preserves_trailing_newline_semantics() {
+        // Baseline hashes must be stable: no phantom trailing newline.
+        assert_eq!(strip_kramdown_attrs("exported"), "exported");
+        assert_eq!(strip_kramdown_attrs("exported\n"), "exported\n");
+        // A standalone attr line collapses to an empty line (stable across exports).
+        assert_eq!(strip_kramdown_attrs("a\n{: id=\"x\"}\nb"), "a\n\nb");
+        assert_eq!(strip_kramdown_attrs("a\n{: id=\"x\"}\nb\n"), "a\n\nb\n");
+    }
 
     #[test]
     fn build_document_path() {

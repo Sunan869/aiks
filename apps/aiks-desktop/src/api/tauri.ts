@@ -100,6 +100,10 @@ export class TauriAiksApi implements AiksApi {
     return { submitted: typeof r === "number" ? r : (r?.submitted ?? 0) };
   }
 
+  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> {
+    return invoke("sync_knowledge_to_siyuan");
+  }
+
   async getSiyuanUrl(): Promise<string | null> {
     return invoke("get_siyuan_url");
   }

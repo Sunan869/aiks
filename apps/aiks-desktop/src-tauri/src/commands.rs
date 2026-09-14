@@ -938,6 +938,26 @@ pub async fn backfill_extractions(
     Ok(serde_json::json!({ "submitted": submitted }))
 }
 
+/// Push distilled knowledge items into the SiYuan knowledge notebook
+/// (knowledge-first tree with source-session deep links).
+#[tauri::command]
+pub async fn sync_knowledge_to_siyuan(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let stats = engine
+        .sync_knowledge_to_siyuan(false)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "created": stats.created,
+        "updated": stats.updated,
+        "unchanged": stats.unchanged,
+        "conflict": stats.conflict,
+        "failed": stats.failed,
+    }))
+}
+
 /// Manually trigger pipeline for a specific session
 #[tauri::command]
 pub async fn run_pipeline_for_session(

@@ -9,12 +9,12 @@ use rusqlite::params;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::ai::{config::AiModelConfig, extractor::KnowledgeExtractor, schema::KnowledgeDocument};
+use crate::ai::{config::AiModelConfig, extractor::KnowledgeExtractor};
 use crate::knowledge::{
-    model::{ExtractionRecord, ExtractionStats, ExtractionStatus},
+    model::{ExtractionStats, ExtractionStatus},
     renderer::KnowledgeRenderer,
 };
-use crate::model::{NormalizedSession, SourceKind};
+use crate::model::NormalizedSession;
 use crate::sink::SiYuanSink;
 use crate::storage::StateDb;
 
@@ -85,7 +85,7 @@ async fn run_extraction_worker(
     info!("Knowledge extraction worker started");
 
     while let Some(req) = rx.recv().await {
-        let extractor = match KnowledgeExtractor::new(config.clone()) {
+        let _extractor = match KnowledgeExtractor::new(config.clone()) {
             Ok(e) => e,
             Err(e) => {
                 error!(error = %e, "Cannot create extractor");
@@ -93,7 +93,7 @@ async fn run_extraction_worker(
             }
         };
 
-        let sink = match SiYuanSink::embedded(&siyuan_base_url, KNOWLEDGE_NOTEBOOK) {
+        let _sink = match SiYuanSink::embedded(&siyuan_base_url, KNOWLEDGE_NOTEBOOK) {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "Cannot create SiYuan sink for extraction");
@@ -122,7 +122,7 @@ pub async fn extract_session(
     session: &NormalizedSession,
     config: &AiModelConfig,
     sink: &SiYuanSink,
-    db: &StateDb,
+    _db: &StateDb,
 ) -> ExtractionOutcome {
     if !config.enabled {
         return ExtractionOutcome::Skipped { score: 0.0 };

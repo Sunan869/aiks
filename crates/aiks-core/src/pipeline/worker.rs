@@ -5,7 +5,6 @@
 ///
 /// Runs automatically when new sessions are discovered via sync.
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
@@ -15,7 +14,6 @@ use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::embedding_stage::EmbeddingStage;
-use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::ProviderRegistry;

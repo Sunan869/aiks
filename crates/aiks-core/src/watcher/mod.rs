@@ -1,8 +1,3 @@
-/// Real filesystem watcher using the `notify` crate.
-///
-/// Monitors Claude, Codex, Gemini, and OpenCode data paths for changes.
-/// Debounces events by 2 seconds, then triggers incremental sync on affected providers.
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -173,7 +168,7 @@ impl FileWatcher {
         }
 
         // Spawn thread to forward events over mpsc
-        let handle = std::thread::spawn(move || {
+        let _handle = std::thread::spawn(move || {
             loop {
                 match rx.recv() {
                     Ok(Ok(events)) => {

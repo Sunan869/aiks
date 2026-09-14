@@ -5,7 +5,7 @@
 use tracing::info;
 
 use crate::pipeline::embedding_client::{cosine_sim, EmbeddingClient, EmbeddingConfig};
-use crate::pipeline::knowledge_repo::{EmbeddingRow, KnowledgeRepo};
+use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::storage::StateDb;
 
 #[derive(Debug)]
