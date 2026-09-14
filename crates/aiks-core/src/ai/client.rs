@@ -14,6 +14,11 @@ struct ChatRequest<'a> {
     messages: Vec<ChatMessage<'a>>,
     temperature: f32,
     max_tokens: u32,
+    /// vLLM hard switch for Qwen3-style thinking models. Sent only when
+    /// config.disable_thinking is set; unknown servers simply ignore or
+    /// reject the extra field (a 400 surfaces in the error message).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -102,6 +107,7 @@ impl AiClient {
             messages: vec![ChatMessage { role: "user", content: "Hi" }],
             temperature: self.config.temperature,
             max_tokens: 5,
+            chat_template_kwargs: self.thinking_switch(),
         };
         let resp = self.client.post(&url).json(&req).send().await?;
         if !resp.status().is_success() {
@@ -110,47 +116,82 @@ impl AiClient {
         Ok(())
     }
 
+    /// `chat_template_kwargs` payload that turns Qwen3 thinking off, or None
+    /// when the feature is disabled in config (non-vLLM endpoints).
+    fn thinking_switch(&self) -> Option<serde_json::Value> {
+        if self.config.disable_thinking {
+            Some(serde_json::json!({ "enable_thinking": false }))
+        } else {
+            None
+        }
+    }
+
     /// Call the chat completions endpoint.
+    ///
+    /// Context-length guard: when the server rejects the request because
+    /// prompt + max_tokens exceeds the model context, max_tokens is halved
+    /// and the request retried (down to a 1024 floor). A large output budget
+    /// must not make long-prompt chunks unprocessable.
     pub async fn chat(
         &self,
         system: &str,
         user: &str,
     ) -> anyhow::Result<String> {
         let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
-        let req = ChatRequest {
-            model: &self.config.model,
-            messages: vec![
-                ChatMessage { role: "system", content: system },
-                ChatMessage { role: "user", content: user },
-            ],
-            temperature: self.config.temperature,
-            max_tokens: self.config.max_tokens,
-        };
+        let mut max_tokens = self.config.max_tokens;
+        loop {
+            let req = ChatRequest {
+                model: &self.config.model,
+                messages: vec![
+                    ChatMessage { role: "system", content: system },
+                    ChatMessage { role: "user", content: user },
+                ],
+                temperature: self.config.temperature,
+                max_tokens,
+                chat_template_kwargs: self.thinking_switch(),
+            };
 
-        debug!(url = %url, model = %self.config.model, "Calling AI");
+            debug!(url = %url, model = %self.config.model, "Calling AI");
 
-        let resp = self.client
-            .post(&url)
-            .json(&req)
-            .send()
-            .await
-            .context("AI HTTP request failed")?;
+            let resp = self.client
+                .post(&url)
+                .json(&req)
+                .send()
+                .await
+                .context("AI HTTP request failed")?;
 
-        if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            let preview = crate::util::truncate_chars(&body, 200);
-            anyhow::bail!("AI API error {}: {}", status, preview);
+            let body_text = resp.text().await.unwrap_or_default();
+
+            if status.as_u16() == 400
+                && body_text.contains("maximum context length")
+                && max_tokens > 1024
+            {
+                let reduced = (max_tokens / 2).max(1024);
+                tracing::warn!(
+                    requested = max_tokens,
+                    reduced,
+                    "Prompt + max_tokens exceeded model context; retrying with reduced output budget"
+                );
+                max_tokens = reduced;
+                continue;
+            }
+
+            if !status.is_success() {
+                let preview = crate::util::truncate_chars(&body_text, 200);
+                anyhow::bail!("AI API error {}: {}", status, preview);
+            }
+
+            let body: ChatResponse =
+                serde_json::from_str(&body_text).context("parse AI response")?;
+            let content = body.choices
+                .into_iter()
+                .next()
+                .map(|c| c.message.content)
+                .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
+
+            return Ok(content);
         }
-
-        let body: ChatResponse = resp.json().await.context("parse AI response")?;
-        let content = body.choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
-
-        Ok(content)
     }
 
     pub fn config(&self) -> &AiModelConfig {

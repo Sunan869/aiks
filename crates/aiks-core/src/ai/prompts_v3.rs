@@ -27,6 +27,11 @@ JSON 硬性要求：
 
 /no_think"#;
 
+/// Qwen3 soft thinking switch — official guidance is to put it at the END
+/// of the user message (a `/no_think` in the system message is ignored by
+/// many chat templates). Harmless no-op for non-Qwen models.
+pub const NO_THINK_SUFFIX: &str = "\n/no_think";
+
 /// Prompt for a single session (short sessions)
 pub fn make_v3_extraction_prompt(session_text: &str) -> String {
     format!(
@@ -56,8 +61,9 @@ pub fn make_v3_extraction_prompt(session_text: &str) -> String {
       "confidence": 0.0-1.0
     }}
   ]
-}}"#,
-        session_text
+}}{no_think}"#,
+        session_text,
+        no_think = NO_THINK_SUFFIX
     )
 }
 
@@ -78,11 +84,12 @@ pub fn make_v3_chunk_prompt(chunk_text: &str, chunk_index: usize, total_chunks: 
   "key_files": ["文件1"],
   "decisions": ["决策1"],
   "summary": "这部分的核心内容（200字以内）"
-}}"#,
+}}{no_think}"#,
         chunk_index + 1,
         total_chunks,
         chunk_text,
-        chunk_index
+        chunk_index,
+        no_think = NO_THINK_SUFFIX
     )
 }
 
@@ -95,6 +102,10 @@ pub fn make_v3_final_prompt(title: &str, project: Option<&str>, chunk_summaries:
         .collect::<Vec<_>>()
         .join("\n\n");
 
+    // The schema MUST be spelled out here: the final prompt is a fresh
+    // conversation — "同上述 Schema" refers to a schema the model cannot see,
+    // and Qwen then invents items that drop required fields (observed live:
+    // "missing field `summary`/`content`").
     format!(
         r#"基于以下各部分摘要，提取完整的工程知识条目。
 
@@ -104,9 +115,31 @@ pub fn make_v3_final_prompt(title: &str, project: Option<&str>, chunk_summaries:
 各部分摘要:
 {}
 
-输出完整 JSON（同上述 Schema，items 数组包含所有独立知识点）："#,
+输出完整 JSON，Schema 如下（每个 item 的每个字段都必须给出，不可省略）：
+{{
+  "session_summary": "整个会话的一句话摘要",
+  "knowledge_score": 0.0-1.0,
+  "worth_extracting": true/false,
+  "items": [
+    {{
+      "title": "简洁标题（50字以内）",
+      "category": "troubleshooting/implementation/architecture/configuration/decision/research/general",
+      "summary": "2-3句摘要",
+      "content": "详细内容（Markdown格式，包含所有关键信息）",
+      "problem": "问题描述（可为null）",
+      "root_causes": ["根因1", "根因2"],
+      "solutions": ["解决方案1"],
+      "key_commands": ["命令1"],
+      "key_files": ["文件路径"],
+      "decisions": ["决策说明"],
+      "tags": ["标签1", "标签2"],
+      "confidence": 0.0-1.0
+    }}
+  ]
+}}{no_think}"#,
         title,
         project.unwrap_or("未知"),
-        sums
+        sums,
+        no_think = NO_THINK_SUFFIX
     )
 }

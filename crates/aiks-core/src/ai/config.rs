@@ -23,6 +23,10 @@ pub struct AiModelConfig {
     pub debounce_minutes: u64,
     /// R07: automatically run AI extraction after sync (Settings UI field).
     pub auto_extract: bool,
+    /// Hard-disable Qwen3 thinking mode via `chat_template_kwargs`
+    /// (vLLM). Leaked reasoning text both pollutes the JSON output and
+    /// burns the max_tokens budget, producing truncated unparseable JSON.
+    pub disable_thinking: bool,
 }
 
 impl Default for AiModelConfig {
@@ -33,13 +37,17 @@ impl Default for AiModelConfig {
             model: "Qwen3.8-27B".to_string(),
             api_key: None,
             temperature: 0.1,
-            max_tokens: 4096,
+            // 8192: with thinking disabled, large sessions still produce
+            // 15-20 KB of pure JSON; 4096 tokens truncated mid-array
+            // (observed: "EOF while parsing a list at line 216").
+            max_tokens: 8192,
             timeout_seconds: 120,
             min_knowledge_score: 0.6,
             chunk_size_messages: 40,
             max_concurrent: 1,
             debounce_minutes: 10,
             auto_extract: true,
+            disable_thinking: true,
         }
     }
 }
