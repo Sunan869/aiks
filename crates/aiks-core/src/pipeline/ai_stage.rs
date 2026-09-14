@@ -144,29 +144,61 @@ pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResul
             crate::util::safe_preview(response, 100)
         );
     }
-    match serde_json::from_str::<V3ExtractionResult>(&clean) {
-        Ok(r) => Ok(r),
-        Err(e) => {
-            // Qwen-style models often emit JS-style objects (unquoted keys,
-            // trailing commas). Attempt a lenient repair before failing.
-            let repaired = repair_json(&clean);
-            if repaired != clean {
-                if let Ok(r) = serde_json::from_str::<V3ExtractionResult>(&repaired) {
-                    return Ok(r);
-                }
-            }
-            Err(anyhow::anyhow!(
-                "AI JSON parse failed: {} (response length: {})",
-                e,
-                response.len()
-            ))
+    if let Ok(r) = serde_json::from_str::<V3ExtractionResult>(&clean) {
+        return Ok(r);
+    }
+    // Qwen-style small models emit near-JSON: smart quotes, JS-style bare
+    // keys (ASCII or Chinese), mixed/single quotes, Python literals, trailing
+    // commas. Escalating lenient repairs — every attempt's output is validated
+    // by serde_json, so an over-eager pass simply fails validation and the
+    // next one runs; a mangled attempt can never shadow a good one.
+    for repaired in repair_attempts(&clean) {
+        if let Ok(r) = serde_json::from_str::<V3ExtractionResult>(&repaired) {
+            return Ok(r);
         }
     }
+    Err(anyhow::anyhow!(
+        "AI JSON parse failed: {} (response length: {}, head: {:?})",
+        serde_json::from_str::<serde_json::Value>(&clean)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default(),
+        response.len(),
+        crate::util::safe_preview(&clean, 120)
+    ))
+}
+
+/// Escalating repair attempts, tried in order after the pristine parse fails.
+fn repair_attempts(clean: &str) -> Vec<String> {
+    let smart = normalize_smart_quotes(clean);
+    let mut attempts = Vec::new();
+    // 1. Conservative: bare ASCII keys + trailing commas on the original text.
+    attempts.push(repair_json(clean));
+    // 2. Smart quotes normalized (curly “ ” ‘ ’ → straight) — CJK models emit
+    //    these constantly and serde rejects them at the very first key.
+    attempts.push(repair_json(&smart));
+    // 3. Aggressive single→double quote flattening (mixed-quote documents).
+    attempts.push(repair_json(&smart.replace('\'', "\"")));
+    // 4. Lenient: Unicode bare keys (中文键名), fullwidth key colons, Python
+    //    True/False/None literals.
+    attempts.push(repair_json_lenient(&smart));
+    attempts
+}
+
+/// Normalize curly quotes to straight ASCII quotes. Only used inside the
+/// repair path (validated afterwards), never on the pristine parse.
+fn normalize_smart_quotes(s: &str) -> String {
+    s.replace('\u{201c}', "\"") // “
+        .replace('\u{201d}', "\"") // ”
+        .replace('\u{2018}', "'")  // ‘
+        .replace('\u{2019}', "'")  // ’
 }
 
 fn clean_json(s: &str) -> String {
     // Qwen3-style thinking models may wrap answers in <think>...</think>.
     let s = strip_think_blocks(s);
+    // Leading BOM / zero-width characters survive trim() and break the parse.
+    let s = s.trim_start_matches(['\u{feff}', '\u{200b}', '\u{200c}', '\u{200d}']);
     let s = s.trim();
     let s = if s.starts_with("```") {
         let after = s.trim_start_matches('`').trim_start_matches("json").trim_start_matches('\n');
@@ -194,7 +226,7 @@ fn strip_think_blocks(s: &str) -> String {
 }
 
 /// Best-effort repair of near-JSON emitted by small local models:
-/// - quote unquoted object keys: `{foo: 1}` → `{"foo": 1}`
+/// - quote unquoted ASCII object keys: `{foo: 1}` → `{"foo": 1}`
 /// - remove trailing commas: `[1, 2,]` → `[1, 2]`
 /// - convert single-quoted strings when the text has no double quotes at all
 fn repair_json(s: &str) -> String {
@@ -214,6 +246,35 @@ fn repair_json(s: &str) -> String {
         out = re.replace_all(&out, "$1").to_string();
     }
 
+    out
+}
+
+/// Extra-lenient pass for non-ASCII mistakes the conservative repair misses:
+/// - Chinese/Unicode bare keys: `{总结: "..."}` → `{"总结": "..."}`
+/// - fullwidth key colon: `{键： 1}` → `{"键": 1}` (prose colons inside string
+///   values may be mangled, but every attempt is validated before use)
+/// - Python literals: `True/False/None` → `true/false/null`
+fn repair_json_lenient(s: &str) -> String {
+    use regex::Regex;
+    let mut out = s.to_string();
+
+    if let Ok(re) = Regex::new(r#"(:\s*)(True|False|None)\b"#) {
+        out = re
+            .replace_all(&out, |caps: &regex::Captures| {
+                match &caps[2] {
+                    "True" => format!("{}true", &caps[1]),
+                    "False" => format!("{}false", &caps[1]),
+                    _ => format!("{}null", &caps[1]),
+                }
+            })
+            .to_string();
+    }
+
+    if let Ok(re) = Regex::new(r#"([\{,]\s*)(\p{L}[\p{L}\p{N}_\-]*)\s*[：:]"#) {
+        out = re.replace_all(&out, "$1\"$2\":").to_string();
+    }
+
+    out = repair_json(&out);
     out
 }
 
@@ -319,5 +380,52 @@ mod tests {
         let json = "{'session_summary':'x','knowledge_score':0.4,'worth_extracting':false,'items':[]}";
         let result = parse_v3_result_typed(json).unwrap();
         assert!(!result.worth_extracting);
+    }
+
+    /// Smart quotes (curly “ ”) break serde at the first key — the exact
+    /// "key must be a string at line 1 column 2" failure from Qwen output.
+    #[test]
+    fn parse_repairs_smart_quotes() {
+        let json = "{\u{201c}session_summary\u{201d}:\u{201c}x\u{201d},\u{201c}knowledge_score\u{201d}:0.4,\u{201c}worth_extracting\u{201d}:false,\u{201c}items\u{201d}:[]}";
+        let result = parse_v3_result_typed(json).unwrap();
+        assert_eq!(result.session_summary, "x");
+        assert!(!result.worth_extracting);
+    }
+
+    /// Mixed single/double quotes: keys single-quoted while some string value
+    /// uses double quotes — the conservative no-double-quote rule must not
+    /// fire, the aggressive flattening pass has to save it.
+    #[test]
+    fn parse_repairs_mixed_quotes() {
+        let json = "{'session_summary':'x',\"knowledge_score\":0.4,'worth_extracting':false,'items':[]}";
+        let result = parse_v3_result_typed(json).unwrap();
+        assert_eq!(result.session_summary, "x");
+        assert!(!result.worth_extracting);
+    }
+
+    /// Chinese bare keys + Python literals + trailing comma.
+    #[test]
+    fn parse_repairs_unicode_keys_and_python_literals() {
+        let json = "{session_summary:\"x\", knowledge_score:0.4, worth_extracting:True, items:[],}";
+        let result = parse_v3_result_typed(json).unwrap();
+        assert_eq!(result.session_summary, "x");
+        assert!(result.worth_extracting);
+        assert!(result.items.is_empty());
+    }
+
+    /// A leading BOM must not break the parse.
+    #[test]
+    fn parse_tolerates_leading_bom() {
+        let json = "\u{feff}{\"session_summary\":\"x\",\"knowledge_score\":0.4,\"worth_extracting\":false,\"items\":[]}";
+        let result = parse_v3_result_typed(json).unwrap();
+        assert!(!result.worth_extracting);
+    }
+
+    /// Failed parses include a sanitized response head for diagnosis.
+    #[test]
+    fn parse_failure_includes_head_preview() {
+        let garbage = "{\"aaaa\": ".to_string() + &"b".repeat(400);
+        let err = parse_v3_result_typed(&garbage).unwrap_err().to_string();
+        assert!(err.contains("head:"), "error should carry a head preview: {err}");
     }
 }

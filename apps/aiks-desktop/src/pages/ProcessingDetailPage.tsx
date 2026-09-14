@@ -113,7 +113,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   }[detail.status] ?? "text-gray-600";
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6">
       <div className="flex items-center gap-2 mb-5">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
