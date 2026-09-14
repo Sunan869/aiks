@@ -277,6 +277,34 @@ impl SiYuanSink {
         Ok(resp.data.unwrap_or_default())
     }
 
+    /// Fetch the current markdown content of a document.
+    /// R05: used to build a stable conflict baseline from the actual remote content.
+    /// SiYuan: /api/filetree/exportMdContent
+    pub async fn get_document_markdown(&self, doc_id: &str) -> anyhow::Result<String> {
+        #[derive(Deserialize)]
+        struct ExportMdContent {
+            content: String,
+        }
+        let url = format!("{}/api/filetree/exportMdContent", self.base_url);
+        let resp: ApiResponse<ExportMdContent> = self
+            .request_builder(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({"id": doc_id}))
+            .send()
+            .await
+            .context("export markdown")?
+            .json()
+            .await
+            .context("parse export markdown response")?;
+
+        if resp.code != 0 {
+            anyhow::bail!("SiYuan exportMdContent error {}: {}", resp.code, resp.msg);
+        }
+
+        resp.data
+            .map(|d| d.content)
+            .ok_or_else(|| anyhow::anyhow!("exportMdContent: no data in response"))
+    }
+
     /// Set AIKS managed attributes on a document.
     pub async fn set_aiks_attrs(
         &self,
@@ -337,6 +365,9 @@ impl SiYuanSink {
             .take(50)
             .collect::<String>();
         let sanitized_title = title_part.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        // R15: the document path/title is an output surface too — secrets in a
+        // session title must not leak into the knowledge base file tree.
+        let sanitized_title = crate::util::sanitizer::default_sanitizer().sanitize(&sanitized_title);
 
         format!(
             "{}/{}/{}/{}/{} {} [{}]",

@@ -16,7 +16,16 @@ pub const SYSTEM_PROMPT_V3: &str = r#"你是企业研发工作知识整理器（
 
 category 必须是：troubleshooting, implementation, architecture, configuration, decision, research, general
 
-输出格式：严格 JSON，无代码块标记。"#;
+输出格式：严格 JSON，无代码块标记。
+
+JSON 硬性要求：
+- 所有键名必须用双引号包裹（不要输出 JS 风格的裸键名）
+- 字符串一律用双引号，不要用单引号
+- 不要输出注释、省略号或 JSON 以外的任何文字
+- 不要思考过程，直接输出最终 JSON
+- 输出的第一个字符必须是 `{`
+
+/no_think"#;
 
 /// Prompt for a single session (short sessions)
 pub fn make_v3_extraction_prompt(session_text: &str) -> String {

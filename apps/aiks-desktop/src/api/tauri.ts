@@ -94,6 +94,12 @@ export class TauriAiksApi implements AiksApi {
     return invoke("scan_sources", { source });
   }
 
+  async backfillExtractions(): Promise<{ submitted: number }> {
+    // Backend returns { submitted: N } as a JSON value
+    const r = await invoke<{ submitted: number }>("backfill_extractions");
+    return { submitted: typeof r === "number" ? r : (r?.submitted ?? 0) };
+  }
+
   async getSiyuanUrl(): Promise<string | null> {
     return invoke("get_siyuan_url");
   }

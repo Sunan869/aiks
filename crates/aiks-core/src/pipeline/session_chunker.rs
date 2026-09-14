@@ -31,9 +31,11 @@ pub struct ChunkResult {
     pub chunks: Vec<SessionChunk>,
 }
 
-/// Estimate token count from character count
+/// Estimate token count from character count.
+/// R12: estimate from CHARACTERS (not bytes) so CJK text is budgeted
+/// consistently with the character-based chunk splitting.
 fn estimate_tokens(text: &str) -> usize {
-    (text.len() as f64 / CHARS_PER_TOKEN) as usize
+    (text.chars().count() as f64 / CHARS_PER_TOKEN).ceil() as usize
 }
 
 /// Render a message slice to text for AI consumption
@@ -77,62 +79,99 @@ fn render_messages(messages: &[&NormalizedMessage]) -> String {
     parts.join("\n")
 }
 
-/// Split cleaned messages into chunks for LLM processing
+/// Push one chunk covering [start, end] with the given content.
+fn push_chunk(
+    chunks: &mut Vec<SessionChunk>,
+    session_id: i64,
+    chunk_index: i32,
+    message_start: usize,
+    message_end: usize,
+    content: String,
+) {
+    let token_count = estimate_tokens(&content);
+    chunks.push(SessionChunk {
+        id: Uuid::new_v4().to_string(),
+        session_id,
+        chunk_index,
+        message_start: message_start as i32,
+        message_end: message_end as i32,
+        token_count: token_count as i32,
+        content,
+    });
+}
+
+/// Split cleaned messages into chunks for LLM processing.
+///
+/// R12 fixes:
+/// - The budget estimate and the splitting both operate on characters, so CJK
+///   content no longer exceeds the token budget.
+/// - The FIRST message of each chunk is counted in the accumulated budget.
+/// - A single message larger than the whole budget is split into multiple
+///   chunks covering its full text — nothing is truncated, no tail is lost.
 pub fn chunk_for_llm(
     session_id: i64,
     messages: &[NormalizedMessage],
 ) -> ChunkResult {
-    let mut chunks = Vec::new();
-    let mut chunk_start = 0;
-    let mut chunk_index = 0;
+    let mut chunks: Vec<SessionChunk> = Vec::new();
+    let mut chunk_index: i32 = 0;
 
-    while chunk_start < messages.len() {
-        let mut chunk_end = chunk_start + 1;
-        let mut token_acc = 0usize;
+    // Accumulator: (message_index, rendered_text)
+    let mut current: Vec<(usize, String)> = Vec::new();
+    let mut current_tokens = 0usize;
 
-        // Expand chunk until token limit or message limit
-        while chunk_end < messages.len()
-            && (chunk_end - chunk_start) < MAX_MESSAGES
-        {
-            let msg_text = render_messages(&[&messages[chunk_end]]);
-            token_acc += estimate_tokens(&msg_text);
-            if token_acc > TARGET_TOKENS {
-                break;
+    let mut flush = |current: &mut Vec<(usize, String)>, chunks: &mut Vec<SessionChunk>, chunk_index: &mut i32| {
+        if current.is_empty() {
+            return;
+        }
+        let start = current[0].0;
+        let end = current[current.len() - 1].0;
+        let content = current
+            .iter()
+            .map(|(_, t)| t.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        push_chunk(chunks, session_id, *chunk_index, start, end, content);
+        *chunk_index += 1;
+        current.clear();
+    };
+
+    for (i, msg) in messages.iter().enumerate() {
+        let text = render_messages(&[msg]);
+        if text.is_empty() {
+            // System/empty messages carry nothing for the LLM — skip entirely.
+            continue;
+        }
+        let tokens = estimate_tokens(&text);
+
+        // Single message exceeding the whole budget: flush, then split the
+        // message text into budget-sized pieces. All content is preserved.
+        if tokens > TARGET_TOKENS {
+            flush(&mut current, &mut chunks, &mut chunk_index);
+            let total_chars = text.chars().count();
+            let max_chars = ((TARGET_TOKENS as f64) * CHARS_PER_TOKEN) as usize;
+            let mut char_pos = 0usize;
+            while char_pos < total_chars {
+                let end = (char_pos + max_chars).min(total_chars);
+                let piece: String = text.chars().skip(char_pos).take(end - char_pos).collect();
+                push_chunk(&mut chunks, session_id, chunk_index, i, i, piece);
+                chunk_index += 1;
+                char_pos = end;
             }
-            chunk_end += 1;
+            continue;
         }
 
-        let slice: Vec<&NormalizedMessage> = messages[chunk_start..chunk_end].iter().collect();
-        let raw_content = render_messages(&slice);
-
-        // B23: If a single chunk exceeds the token limit, truncate to keep it manageable.
-        // Use TARGET_TOKENS as the limit to leave headroom for the truncation message overhead.
-        const MAX_CHUNK_TOKENS: usize = TARGET_TOKENS; // 20k tokens; test requires <= 25k
-        let content = if estimate_tokens(&raw_content) > MAX_CHUNK_TOKENS {
-            use crate::util::truncate_chars;
-            // Leave room for "...[内容超长已截断]..." footer (~8 tokens)
-            let max_chars = ((MAX_CHUNK_TOKENS - 50) as f64 * CHARS_PER_TOKEN) as usize;
-            let head = truncate_chars(&raw_content, max_chars);
-            format!("{}\n...[内容超长已截断]...", head)
-        } else {
-            raw_content
-        };
-
-        let token_count = estimate_tokens(&content);
-
-        chunks.push(SessionChunk {
-            id: Uuid::new_v4().to_string(),
-            session_id,
-            chunk_index,
-            message_start: chunk_start as i32,
-            message_end: (chunk_end - 1) as i32,
-            token_count: token_count as i32,
-            content,
-        });
-
-        chunk_start = chunk_end;
-        chunk_index += 1;
+        // Accumulate into the current chunk; flush first when adding this
+        // message would exceed the budget or the message-count limit.
+        if !current.is_empty()
+            && (current_tokens + tokens > TARGET_TOKENS || current.len() >= MAX_MESSAGES)
+        {
+            flush(&mut current, &mut chunks, &mut chunk_index);
+            current_tokens = 0;
+        }
+        current_tokens += tokens;
+        current.push((i, text));
     }
+    flush(&mut current, &mut chunks, &mut chunk_index);
 
     ChunkResult { chunks }
 }
@@ -216,5 +255,48 @@ mod tests {
         let messages: Vec<_> = (0..5).map(make_msg).collect();
         let result = chunk_for_llm(1, &messages);
         assert_eq!(result.chunks.len(), 1);
+    }
+
+    /// R12: an oversized CJK message must be split within budget, with the
+    /// tail preserved (no truncation loss).
+    #[test]
+    fn chunking_long_cjk_message_stays_in_budget_and_keeps_tail() {
+        let messages = vec![NormalizedMessage {
+            external_id: "m".to_string(),
+            parent_id: None,
+            role: MessageRole::User,
+            created_at: None,
+            model: None,
+            blocks: vec![ContentBlock::Text {
+                text: format!("{}AUDIT_TAIL", "中".repeat(80_000)),
+            }],
+            usage: None,
+            metadata: HashMap::new(),
+        }];
+        let result = chunk_for_llm(1, &messages);
+        assert!(result.chunks.len() > 1, "80k CJK chars must split into multiple chunks");
+        for chunk in &result.chunks {
+            assert!(
+                chunk.token_count <= TARGET_TOKENS as i32,
+                "chunk token_count {} exceeds budget {}",
+                chunk.token_count,
+                TARGET_TOKENS
+            );
+        }
+        let all = result.chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("");
+        assert!(all.contains("AUDIT_TAIL"), "tail marker must survive chunking");
+    }
+
+    /// R12: chunks cover all messages — no message is dropped.
+    #[test]
+    fn chunking_covers_all_messages() {
+        let messages: Vec<_> = (0..100).map(make_msg).collect();
+        let result = chunk_for_llm(1, &messages);
+        assert_eq!(result.chunks.first().unwrap().message_start, 0);
+        assert_eq!(result.chunks.last().unwrap().message_end, 99);
+        // Consecutive coverage
+        for w in result.chunks.windows(2) {
+            assert_eq!(w[0].message_end + 1, w[1].message_start);
+        }
     }
 }

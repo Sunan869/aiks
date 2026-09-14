@@ -85,6 +85,7 @@ pub fn run() {
             commands::get_session_detail,
             commands::get_knowledge_detail,
             commands::run_pipeline_for_session,
+            commands::backfill_extractions,
             commands::hybrid_search,
         ])
         .on_window_event(|window, event| {

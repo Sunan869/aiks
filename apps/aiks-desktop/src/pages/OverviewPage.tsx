@@ -36,7 +36,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const isSyncing = syncing || syncInProgress;
 
   return (
-    <div className="p-6 max-w-2xl space-y-4">
+    <div className="p-6 space-y-4">
       <div>
         <h1 className="text-xl font-semibold">概览</h1>
         <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p>

@@ -30,6 +30,11 @@ pub const SYSTEM_PROMPT: &str = r#"你是企业研发工作知识整理器。
 
 输出格式：严格按照指定 JSON Schema 输出，不要包含 markdown 代码块标记。
 
+JSON 硬性要求：
+- 所有键名必须用双引号包裹
+- 不要思考过程，直接输出最终 JSON
+- 输出的第一个字符必须是 `{`
+
 分类（category）必须是以下之一：
 troubleshooting（故障排查）、implementation（实现）、design（设计）、research（研究）、decision（决策）、general（通用）
 
@@ -37,7 +42,9 @@ knowledge_score 评分标准：
 - 0.9+：重要的技术问题解决、架构决策、关键实现
 - 0.7-0.9：有价值的技术探索、解决方案
 - 0.5-0.7：一般性技术讨论
-- <0.5：简单修改、询问、测试性对话（不值得提炼）"#;
+- <0.5：简单修改、询问、测试性对话（不值得提炼）
+
+/no_think"#;
 
 /// User prompt template for extraction
 pub fn make_extraction_prompt(session_text: &str) -> String {

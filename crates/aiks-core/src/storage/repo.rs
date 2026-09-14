@@ -250,6 +250,24 @@ impl<'a> SyncTargetRepo<'a> {
         Ok(())
     }
 
+    /// R05: record the remote document id/path as soon as it exists, without
+    /// changing the sync status. This makes retries resume with UPDATE instead
+    /// of creating orphan duplicate documents when a later step fails.
+    pub fn record_target_doc(
+        &self,
+        session_id: i64,
+        sink: &str,
+        target_id: &str,
+        target_path: &str,
+    ) -> anyhow::Result<()> {
+        self.db.conn().execute(
+            "UPDATE sync_target SET target_id = ?3, target_path = ?4
+             WHERE session_id = ?1 AND sink = ?2",
+            params![session_id, sink, target_id, target_path],
+        )?;
+        Ok(())
+    }
+
     pub fn find(&self, session_id: i64, sink: &str) -> anyhow::Result<Option<SyncTarget>> {
         let result = self.db.conn().query_row(
             "SELECT id, session_id, sink, target_id, target_path, synced_hash, target_hash,

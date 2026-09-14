@@ -29,7 +29,8 @@ pub async fn run(engine: &AiksEngine) -> anyhow::Result<()> {
             _ = periodic.tick() => {
                 tracing::info!("Periodic scan triggered");
                 let opts = SyncOptions { dry_run: false, overwrite: false, source_filter: None };
-                match engine.sync(opts).await {
+                // R09: daemon periodic sync also feeds the extraction pipeline
+                match engine.sync_and_enqueue_extraction(opts).await {
                     Ok(s) => tracing::info!(new=s.new_count, updated=s.updated_count, "Sync done"),
                     Err(e) => tracing::warn!("Sync error: {}", e),
                 }
@@ -42,7 +43,7 @@ pub async fn run(engine: &AiksEngine) -> anyhow::Result<()> {
                     overwrite: false,
                     source_filter: Some(source_str),
                 };
-                match engine.sync(opts).await {
+                match engine.sync_and_enqueue_extraction(opts).await {
                     Ok(s) => tracing::debug!(new=s.new_count, updated=s.updated_count, "Event sync done"),
                     Err(e) => tracing::warn!("Event sync error: {}", e),
                 }

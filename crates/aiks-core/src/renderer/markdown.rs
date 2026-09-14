@@ -89,7 +89,16 @@ impl MarkdownRenderer {
             out.push('\n');
         }
 
-        out
+        // R15: final whole-document sanitization pass. The title and metadata
+        // header are concatenated WITHOUT per-field sanitization, so secrets in
+        // the title (or any other bypass field) would survive the per-block
+        // sanitization. One final pass over the complete document closes that
+        // gap — this is the last gate before the document leaves the process.
+        if self.sanitizer.is_some() {
+            self.sanitize(&out)
+        } else {
+            out
+        }
     }
 
     fn render_block(&self, out: &mut String, block: &ContentBlock) {
@@ -372,5 +381,16 @@ mod tests {
         let md = renderer.render(&session);
         assert!(!md.contains("eyJhbGciOiJSUzI1NiJ9"));
         assert!(md.contains("[REDACTED]"));
+    }
+
+    /// R15: secrets embedded in the session TITLE must not leak into the
+    /// final document — the title bypasses per-block sanitization.
+    #[test]
+    fn sanitizes_secrets_in_title() {
+        let renderer = MarkdownRenderer::new(ContentConfig::default(), true);
+        let mut session = make_session();
+        session.title = Some("password=AUDIT_SECRET_12345 leak".to_string());
+        let md = renderer.render(&session);
+        assert!(!md.contains("AUDIT_SECRET_12345"), "title secret leaked: {}", md);
     }
 }

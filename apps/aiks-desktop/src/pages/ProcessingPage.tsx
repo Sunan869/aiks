@@ -47,6 +47,8 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,6 +66,20 @@ export default function ProcessingPage({ onViewDetail }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
+  const handleBackfill = useCallback(async () => {
+    setBackfilling(true);
+    setBackfillMsg("");
+    try {
+      const { submitted } = await getApi().backfillExtractions();
+      setBackfillMsg(`已重新提交 ${submitted} 个任务（失败 + 未处理队列）`);
+      await load();
+    } catch (e) {
+      setBackfillMsg(`提交失败: ${String(e)}`);
+    } finally {
+      setBackfilling(false);
+    }
+  }, [load]);
+
   const filtered = filter === "all" ? runs
     : filter === "processing" ? runs.filter(r => r.status === "PROCESSING")
     : filter === "failed" ? runs.filter(r => r.status === "FAILED")
@@ -76,9 +92,19 @@ export default function ProcessingPage({ onViewDetail }: Props) {
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">处理中心</h1>
           <p className="text-sm text-gray-500 mt-0.5">知识处理流水线状态</p>
         </div>
-        <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
-          刷新
-        </button>
+        <div className="flex items-center gap-3">
+          {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
+          <button
+            onClick={handleBackfill}
+            disabled={backfilling}
+            className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
+          >
+            {backfilling ? "提交中..." : "重试失败并补跑队列"}
+          </button>
+          <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+            刷新
+          </button>
+        </div>
       </div>
 
       {/* Stats bar */}

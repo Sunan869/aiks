@@ -52,6 +52,12 @@ pub struct SyncStats {
     pub extraction_candidates: Vec<String>,
 }
 
+/// R05: stable hash over SiYuan's exported markdown — the conflict baseline.
+fn hash_markdown(md: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
+}
+
 pub struct SyncEngine {
     config: Arc<Config>,
 }
@@ -247,42 +253,50 @@ impl SyncEngine {
 
         let content_hash = compute_session_hash(&session);
         let parser_version = provider.parser_version();
-
-        // Check if content changed
         let is_new = existing.is_none();
-        let hash_changed = existing
-            .as_ref()
-            .map(|e| e.content_hash.as_deref() != Some(&content_hash))
-            .unwrap_or(true);
-        let parser_changed = existing
-            .as_ref()
-            .map(|e| e.parser_version.as_deref() != Some(parser_version))
-            .unwrap_or(false);
 
-        // B03 fix: UNCHANGED only when content hash matches AND we have a confirmed SYNCED target.
-        // This prevents "failure then UNCHANGED" syndrome where a failed sync poisons the hash.
-        if !is_new && !hash_changed && !parser_changed {
-            let db_session_id_check = existing.as_ref().map(|e| e.id).unwrap_or(0);
-            let has_synced_target = match SyncTargetRepo::new(db).find(db_session_id_check, "siyuan") {
-                Ok(Some(ref t)) => matches!(t.status, SyncStatus::Synced | SyncStatus::Unchanged),
-                _ => false,
-            };
+        // R03: load the locally persisted sync target. It holds the mapping to
+        // the remote document, which is the source of truth for create-vs-update.
+        let existing_target = match existing.as_ref() {
+            Some(e) => sync_target_repo.find(e.id, "siyuan").ok().flatten(),
+            None => None,
+        };
 
-            if has_synced_target {
-                let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
-                let _ = source_session_repo.upsert(
-                    source, session_id,
-                    session.source_path.as_ref().and_then(|p| p.to_str()),
-                    session.project_path.as_deref(),
-                    session.project_name.as_deref(),
-                    session.title.as_deref(),
-                    source_updated_at.as_deref(),
-                    Some(&content_hash),
-                    Some(parser_version),
-                );
-                return SyncOutcome::Unchanged;
+        // B03 + R04: UNCHANGED only when the *confirmed* target matches the
+        // current content hash AND the parser version. The hash stored on the
+        // source row alone is not enough (dry-run or a stale target must not
+        // swallow a pending update).
+        if !is_new {
+            if let Some(target) = &existing_target {
+                if matches!(target.status, SyncStatus::Synced | SyncStatus::Unchanged)
+                    && target.synced_hash.as_deref() == Some(&content_hash)
+                    && existing.as_ref().map(|e| e.parser_version.as_deref()) == Some(Some(parser_version))
+                {
+                    // Refresh observed metadata only — hash is unchanged, safe.
+                    let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
+                    let _ = source_session_repo.upsert(
+                        source, session_id,
+                        session.source_path.as_ref().and_then(|p| p.to_str()),
+                        session.project_path.as_deref(),
+                        session.project_name.as_deref(),
+                        session.title.as_deref(),
+                        source_updated_at.as_deref(),
+                        Some(&content_hash),
+                        Some(parser_version),
+                    );
+                    return SyncOutcome::Unchanged;
+                }
             }
-            // No synced target → fall through and retry
+        }
+
+        // R04: dry-run must not advance any state that a later real sync
+        // depends on (no source upsert, no target change, no SiYuan call).
+        if opts.dry_run {
+            return if is_new {
+                SyncOutcome::Created { doc_id: "[dry-run]".to_string() }
+            } else {
+                SyncOutcome::Updated { doc_id: "[dry-run]".to_string() }
+            };
         }
 
         // Persist session metadata. The content_hash here is the observed hash.
@@ -304,26 +318,51 @@ impl SyncEngine {
             }
         };
 
-        // dry-run: report intent but make NO changes to sync_target or SiYuan
-        if opts.dry_run {
-            return if is_new {
-                SyncOutcome::Created { doc_id: "[dry-run]".to_string() }
-            } else {
-                SyncOutcome::Updated { doc_id: "[dry-run]".to_string() }
-            };
-        }
+        // R03: resolve the existing remote document from the local mapping.
+        let existing_doc: Option<crate::sink::siyuan::DocumentInfo> = existing_target
+            .as_ref()
+            .filter(|t| t.target_id.as_deref().map(|id| !id.is_empty()).unwrap_or(false))
+            .map(|t| crate::sink::siyuan::DocumentInfo {
+                id: t.target_id.clone().unwrap_or_default(),
+                path: t.target_path.clone().unwrap_or_default(),
+                content_hash: t.synced_hash.clone(),
+                parser_version: None,
+            });
 
-        // Check for existing SiYuan document
-        let existing_doc = sink.find_document_by_session(source, session_id).await.ok().flatten();
+        // R05: conflict detection against the remote content baseline.
+        // The baseline (target_hash) is the hash of SiYuan's exported markdown
+        // captured at the last successful sync. If the remote content changed
+        // since then, someone edited it outside AIKS → CONFLICT.
+        if let (Some(doc), Some(target)) = (&existing_doc, existing_target.as_ref()) {
+            if !opts.overwrite {
+                match sink.get_document_markdown(&doc.id).await {
+                    Ok(remote_md) => {
+                        let remote_hash = hash_markdown(&remote_md);
+                        let baseline_differs = match &target.target_hash {
+                            Some(baseline) => *baseline != remote_hash,
+                            // No baseline recorded (legacy rows): fall back to
+                            // the managed-attribute hash comparison below.
+                            None => false,
+                        };
+                        if baseline_differs {
+                            let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                            return SyncOutcome::Conflict { doc_id: doc.id.clone() };
+                        }
+                    }
+                    Err(e) => {
+                        warn!(doc_id = %doc.id, error = %e,
+                            "Could not fetch remote content for conflict check — proceeding");
+                    }
+                }
 
-        // Conflict check: target manually edited
-        if let Some(ref doc) = existing_doc {
-            if let Ok(Some(target)) = sync_target_repo.find(db_session_id, "siyuan") {
+                // Secondary check: managed attribute was tampered with.
                 if let Ok(attrs) = sink.get_block_attrs(&doc.id).await {
                     let current = attrs.get(crate::sink::siyuan::ATTR_CONTENT_HASH).cloned();
-                    if current != target.synced_hash && !opts.overwrite {
-                        let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
-                        return SyncOutcome::Conflict { doc_id: doc.id.clone() };
+                    if let Some(cur) = current {
+                        if target.synced_hash.as_deref().map(|h| h != cur).unwrap_or(false) {
+                            let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                            return SyncOutcome::Conflict { doc_id: doc.id.clone() };
+                        }
                     }
                 }
             }
@@ -352,8 +391,19 @@ impl SyncEngine {
             match sink.update_document(&doc.id, &markdown).await {
                 Ok(()) => doc.id.clone(),
                 Err(e) => {
-                    let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
-                    return SyncOutcome::Failed { error: format!("update_document: {}", e) };
+                    // R03: the mapped document may have been deleted remotely
+                    // (e.g. user removed it in SiYuan). Fall back to create so
+                    // the mapping is restored instead of failing forever.
+                    warn!(doc_id = %doc.id, error = %e,
+                        "update_document failed — falling back to create");
+                    let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
+                    match sink.create_document(&notebook_id, &doc_path, &markdown).await {
+                        Ok(id) => id,
+                        Err(e2) => {
+                            let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e2.to_string(), true);
+                            return SyncOutcome::Failed { error: format!("create_document (after update fallback): {}", e2) };
+                        }
+                    }
                 }
             }
         } else {
@@ -367,21 +417,43 @@ impl SyncEngine {
             }
         };
 
-        // Set AIKS metadata attributes
+        // R05: persist the doc mapping immediately so that a failure in the
+        // attribute step retries with UPDATE instead of creating a duplicate.
+        let _ = sync_target_repo.record_target_doc(db_session_id, "siyuan", &doc_id, &doc_path);
+
+        // R05: Set AIKS metadata attributes — a failure here is FATAL for this
+        // session (the doc exists but is not recoverable/self-describing, so we
+        // must not report success). The mapping was already recorded above, so
+        // the retry path updates the same document.
         if let Err(e) = sink
             .set_aiks_attrs(&doc_id, source, session_id, &content_hash, parser_version)
             .await
         {
-            warn!(error = %e, "Could not set AIKS attrs (non-fatal)");
+            let msg = format!("set_aiks_attrs: {}", e);
+            let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
+            return SyncOutcome::Failed { error: msg };
         }
 
-        // Update sync_target state
-        let target_hash = content_hash.clone(); // Use content hash as reference
-        let _ = sync_target_repo.mark_synced(
+        // R05: capture the remote content baseline from SiYuan's own export so
+        // the next conflict check compares like-for-like. Fallback: content hash.
+        let target_hash = match sink.get_document_markdown(&doc_id).await {
+            Ok(remote_md) => hash_markdown(&remote_md),
+            Err(e) => {
+                warn!(doc_id = %doc_id, error = %e,
+                    "Could not capture remote baseline — using content hash");
+                content_hash.clone()
+            }
+        };
+
+        // R05: mark_synced errors must not be silently ignored — the run would
+        // report success while the state says otherwise.
+        if let Err(e) = sync_target_repo.mark_synced(
             db_session_id, "siyuan",
             &doc_id, &doc_path,
             &content_hash, &target_hash,
-        );
+        ) {
+            return SyncOutcome::Failed { error: format!("mark_synced: {}", e) };
+        }
 
         if is_new {
             SyncOutcome::Created { doc_id }
@@ -391,6 +463,11 @@ impl SyncEngine {
     }
 
     /// Mark sessions as missing when source files are deleted.
+    ///
+    /// R14: only judge "missing" for sources whose provider scan actually
+    /// SUCCEEDED. A provider failure (permissions, path error, temporary
+    /// outage) previously produced an empty result which marked every stored
+    /// session of that source as missing — a false deletion report.
     pub async fn mark_missing_sessions(
         &self,
         db: &StateDb,
@@ -398,16 +475,36 @@ impl SyncEngine {
     ) -> anyhow::Result<usize> {
         let source_session_repo = SourceSessionRepo::new(db);
         let all_stored = source_session_repo.list_all()?;
-        let all_discovered = registry.discover_all().await;
+        let per_source = registry.discover_all_detailed().await;
 
-        let visible: std::collections::HashSet<(String, String)> = all_discovered
-            .iter()
-            .map(|s| (s.source.as_str().to_string(), s.external_session_id.clone()))
-            .collect();
+        let mut visible: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        let mut scanned_sources: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        for (source, result) in per_source {
+            match result {
+                Ok(sessions) => {
+                    scanned_sources.insert(source.as_str().to_string());
+                    for s in sessions {
+                        visible.insert((source.as_str().to_string(), s.external_session_id));
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        source = %source.as_str(),
+                        error = %e,
+                        "[SYNC] Provider scan failed — skipping missing-detection for this source"
+                    );
+                }
+            }
+        }
 
         let mut marked = 0;
         for stored in &all_stored {
             if stored.is_missing { continue; }
+            // R14: only judge sources that were successfully scanned this round.
+            if !scanned_sources.contains(&stored.source) { continue; }
             let key = (stored.source.clone(), stored.external_session_id.clone());
             if !visible.contains(&key) {
                 source_session_repo.mark_missing(&stored.source, &stored.external_session_id)?;

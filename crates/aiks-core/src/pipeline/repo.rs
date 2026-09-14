@@ -80,6 +80,22 @@ impl<'a> PipelineRepo<'a> {
         Ok(())
     }
 
+    /// R13: crash recovery — reset runs stuck in PROCESSING (left behind by a
+    /// dead process) back to DISCOVERED so the worker can resubmit them.
+    pub fn requeue_processing_runs(&self) -> anyhow::Result<usize> {
+        let conn = self.db.conn();
+        let now = Utc::now().to_rfc3339();
+        let n = conn.execute(
+            "UPDATE pipeline_run SET status = 'DISCOVERED', updated_at = ?1
+             WHERE status = 'PROCESSING' AND pipeline_version = 'v3'",
+            params![now],
+        )?;
+        if n > 0 {
+            tracing::info!("[PIPELINE] Requeued {} run(s) stuck in PROCESSING", n);
+        }
+        Ok(n)
+    }
+
     /// Mark pipeline run as finished
     pub fn mark_finished(&self, run_id: &str, status: &str) -> anyhow::Result<()> {
         let conn = self.db.conn();

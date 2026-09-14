@@ -53,7 +53,12 @@ async fn main() -> anyhow::Result<()> {
             cli::resync::run(&engine, source.clone(), session_id.clone()).await?;
         }
         Commands::RebuildState { yes } => {
-            cli::resync::rebuild_state(engine_config, *yes).await?;
+            // B14/R01: rebuild only the sync index — knowledge data is preserved
+            cli::resync::rebuild_sync_index(engine_config, *yes).await?;
+        }
+        Commands::ResetData { yes } => {
+            // B14/R01: full destructive reset — deletes ALL data including knowledge
+            cli::resync::reset_all_data(engine_config, *yes).await?;
         }
     }
 

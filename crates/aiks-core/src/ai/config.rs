@@ -21,6 +21,8 @@ pub struct AiModelConfig {
     pub max_concurrent: usize,
     /// Debounce minutes before extracting a recently-updated session
     pub debounce_minutes: u64,
+    /// R07: automatically run AI extraction after sync (Settings UI field).
+    pub auto_extract: bool,
 }
 
 impl Default for AiModelConfig {
@@ -37,6 +39,7 @@ impl Default for AiModelConfig {
             chunk_size_messages: 40,
             max_concurrent: 1,
             debounce_minutes: 10,
+            auto_extract: true,
         }
     }
 }

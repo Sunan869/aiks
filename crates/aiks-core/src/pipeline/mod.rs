@@ -13,7 +13,7 @@ pub mod worker;
 
 pub use orchestrator::PipelineOrchestrator;
 pub use status::{PipelineStatus, StageStatus};
-pub use worker::{PipelineWorker, PipelineJob};
+pub use worker::{PipelineWorker, PipelineJob, recover_interrupted_runs};
 pub use embedding_client::EmbeddingConfig;
 pub use knowledge_repo::KnowledgeRepo;
 pub use search::hybrid_search;

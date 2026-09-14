@@ -178,6 +178,10 @@ impl AiksEngine {
             config.embedding.clone(),
         ));
 
+        // R13: crash recovery — resubmit runs left in PROCESSING/DISCOVERED by
+        // a previous process so background work survives restarts.
+        crate::pipeline::recover_interrupted_runs(&db, &pipeline_worker);
+
         Ok(Self {
             config,
             registry,
@@ -488,8 +492,9 @@ impl AiksEngine {
             }
         }
 
-        // B09: Enqueue new/updated sessions into V3 pipeline
-        if !stats.extraction_candidates.is_empty() {
+        // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
+        // the ai.enabled AND ai.auto_extract switches.
+        if !stats.extraction_candidates.is_empty() && self.config.ai.enabled && self.config.ai.auto_extract {
             info!(
                 count = stats.extraction_candidates.len(),
                 "[PIPELINE] Enqueueing new/updated sessions"
@@ -533,6 +538,68 @@ impl AiksEngine {
         }
 
         Ok(stats)
+    }
+
+    /// R09: Backfill extraction for historical sessions.
+    ///
+    /// Unlike `SyncEngine::enqueue_all_pending_for_pipeline` (which only creates
+    /// pipeline_run rows), this actually submits PipelineJobs to the running
+    /// worker for every run that is DISCOVERED (never processed) or FAILED, so
+    /// the work really executes and produces knowledge items.
+    pub fn backfill_pending_extractions(&self) -> anyhow::Result<usize> {
+        if !self.config.ai.enabled || !self.config.ai.auto_extract {
+            anyhow::bail!("AI extraction is disabled (ai.enabled / ai.auto_extract)");
+        }
+
+        // Step 1: ensure pipeline_run rows exist for every session
+        let ensured = self.sync_engine.enqueue_all_pending_for_pipeline(&self.db)?;
+
+        // Step 2: submit jobs for runs that still need processing
+        let rows: Vec<(String, i64, String, String, Option<String>, Option<String>)> = {
+            let conn = self.db.conn();
+            let mut stmt = conn.prepare(
+                "SELECT pr.id, pr.session_id, ss.source, ss.external_session_id, ss.title, ss.project_name
+                 FROM pipeline_run pr
+                 JOIN source_session ss ON ss.id = pr.session_id
+                 WHERE pr.pipeline_version = 'v3'
+                   AND pr.status IN ('DISCOVERED', 'FAILED')
+                 ORDER BY pr.updated_at ASC"
+            )?;
+            let result = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            result
+        };
+
+        let mut submitted = 0;
+        for (run_id, session_id, source, ext_id, title, project) in rows {
+            self.pipeline_worker.submit(PipelineJob {
+                pipeline_run_id: run_id,
+                session_id,
+                session_external_id: ext_id,
+                source,
+                session_title: title,
+                project_name: project,
+            });
+            submitted += 1;
+        }
+
+        info!(
+            ensured_runs = ensured,
+            submitted = submitted,
+            "[PIPELINE] Backfill completed"
+        );
+        Ok(submitted)
     }
 
     /// Get the unified full status for all UI pages (spec §8).

@@ -212,7 +212,11 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
     }
 }
 
-/// B10: save_settings also writes a TOML config file so the engine can load it on restart.
+/// B10 + R07: save_settings must preserve the rest of aiks.toml.
+/// It loads the full typed config, mutates ONLY the UI-controlled fields and
+/// writes the result back atomically. Previously a fixed template regenerated
+/// the whole file, silently dropping AI endpoints/keys, embedding config and
+/// provider paths on next restart.
 #[tauri::command]
 pub async fn save_settings(
     settings: AppSettings,
@@ -224,32 +228,39 @@ pub async fn save_settings(
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&settings_file, json).map_err(|e| e.to_string())?;
 
-    // B10: Also write aiks.toml so engine reads correct config on next startup
+    // Load the existing full config (or defaults if missing), mutate the
+    // controlled subset, and atomically write it back.
     let toml_file = state.data_dir.join("config").join("aiks.toml");
-    let toml_content = format!(
-        r#"# AIKS configuration (auto-generated from Settings UI)
-[ai]
-enabled = {}
-auto_extract = {}
+    let mut config = if toml_file.exists() {
+        aiks_core::Config::from_file(&toml_file)
+            .map_err(|e| format!("Failed to load existing aiks.toml: {}", e))?
+    } else {
+        aiks_core::Config::default()
+    };
 
-[sync]
-scan_interval_seconds = {}
-watch_enabled = {}
+    // [ai] — only the UI-controlled fields
+    config.ai.enabled = settings.ai_enabled;
+    config.ai.auto_extract = settings.ai_auto_extract;
 
-[security]
-redact_secrets = {}
+    // [sync]
+    config.sync.scan_interval_seconds = settings.scan_interval_seconds;
+    config.sync.watch_enabled = settings.sync_enabled;
 
-[content]
-include_tool_calls = {}
-"#,
-        settings.ai_enabled,
-        settings.ai_auto_extract,
-        settings.scan_interval_seconds,
-        settings.sync_enabled,
-        settings.redact_secrets,
-        settings.include_tool_calls,
-    );
-    std::fs::write(&toml_file, toml_content).map_err(|e| e.to_string())?;
+    // [security]
+    config.security.redact_secrets = settings.redact_secrets;
+
+    // [content]
+    config.content.include_thinking = settings.include_thinking;
+    config.content.include_tool_calls = settings.include_tool_calls;
+    config.content.max_tool_result_chars = settings.max_tool_result_chars;
+
+    let toml_content =
+        toml::to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    // Atomic write: temp file + rename so a crash never leaves a half-written config.
+    let tmp_file = state.data_dir.join("config").join("aiks.toml.tmp");
+    std::fs::write(&tmp_file, &toml_content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_file, &toml_file).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -457,18 +468,10 @@ pub async fn sync_and_extract(
         overwrite: false,
     };
 
-    // Run sync — returns stats including extraction candidates
-    let stats = engine.sync(opts).await.map_err(|e| e.to_string())?;
-
-    // Enqueue extraction for new/updated sessions (fire-and-forget)
-    if engine.ai_config().enabled && !stats.extraction_candidates.is_empty() {
-        tracing::info!(
-            count = stats.extraction_candidates.len(),
-            "[EXTRACT] Queuing {} sessions",
-            stats.extraction_candidates.len()
-        );
-        // Individual extraction can be triggered via extract_session_now
-    }
+    // R09: use the SAME orchestration as startup/watcher/tray — real sync that
+    // also submits PipelineJobs to the worker. Previously this only ran a plain
+    // sync and logged candidates without ever enqueuing anything.
+    let stats = engine.sync_and_enqueue_extraction(opts).await.map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "discovered": stats.discovered,
@@ -632,13 +635,21 @@ pub async fn list_knowledge(
         return Ok(serde_json::json!({"items": [], "total": 0}));
     }
 
-    // Build dynamic WHERE clause
+    // R02: Build WHERE clause and parameters together so the bind count always
+    // matches the placeholder count for every filter combination.
     let mut where_parts: Vec<&str> = Vec::new();
+    let mut filter_params: Vec<rusqlite::types::Value> = Vec::new();
     let has_project = project.as_deref().map(|p| !p.is_empty()).unwrap_or(false);
     let has_category = category.as_deref().map(|c| !c.is_empty()).unwrap_or(false);
 
-    if has_project { where_parts.push("project_name = ?3"); }
-    if has_category { where_parts.push("category = ?4"); }
+    if has_project {
+        where_parts.push("project_name = ?");
+        filter_params.push(rusqlite::types::Value::Text(project.clone().unwrap()));
+    }
+    if has_category {
+        where_parts.push("category = ?");
+        filter_params.push(rusqlite::types::Value::Text(category.clone().unwrap()));
+    }
 
     let where_clause = if where_parts.is_empty() {
         String::new()
@@ -652,14 +663,15 @@ pub async fn list_knowledge(
              FROM knowledge_item
              {}
              ORDER BY updated_at DESC
-             LIMIT ?1 OFFSET ?2",
+             LIMIT ? OFFSET ?",
             where_clause
         );
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let proj_str = project.as_deref().unwrap_or("");
-        let cat_str = category.as_deref().unwrap_or("");
+        let mut all_params = filter_params.clone();
+        all_params.push(rusqlite::types::Value::Integer(limit as i64));
+        all_params.push(rusqlite::types::Value::Integer(offset as i64));
         let mapped = stmt.query_map(
-            rusqlite::params![limit as i64, offset as i64, proj_str, cat_str],
+            rusqlite::params_from_iter(all_params),
             |row| {
                 Ok(serde_json::json!({
                     "id": row.get::<_, String>(0)?,
@@ -679,13 +691,12 @@ pub async fn list_knowledge(
         r
     };
 
-    // B21: Use same WHERE predicate for total count
+    // B21/R02: Use same WHERE predicate and same filter params for total count.
+    // Surface DB errors to the caller instead of masking them with 0.
     let total: i64 = {
         let count_sql = format!("SELECT COUNT(*) FROM knowledge_item {}", where_clause);
-        let proj_str = project.as_deref().unwrap_or("");
-        let cat_str = category.as_deref().unwrap_or("");
-        conn.query_row(&count_sql, rusqlite::params![0i64, 0i64, proj_str, cat_str], |r| r.get(0))
-            .unwrap_or(0)
+        conn.query_row(&count_sql, rusqlite::params_from_iter(filter_params.clone()), |r| r.get(0))
+            .map_err(|e| e.to_string())?
     };
 
     Ok(serde_json::json!({
@@ -914,6 +925,17 @@ pub async fn get_knowledge_detail(
         }
         None => Err(format!("Knowledge item not found: {}", knowledge_id)),
     }
+}
+
+/// R09: manually trigger extraction backfill for historical sessions.
+/// Submits real PipelineJobs (not just DB rows) to the running worker.
+#[tauri::command]
+pub async fn backfill_extractions(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let submitted = engine.backfill_pending_extractions().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "submitted": submitted }))
 }
 
 /// Manually trigger pipeline for a specific session

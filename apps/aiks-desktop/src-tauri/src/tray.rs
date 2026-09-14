@@ -70,7 +70,9 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
                             dry_run: false,
                             overwrite: false,
                         };
-                        let _ = engine.sync(opts).await;
+                        // R09: tray sync uses the same orchestration as the UI —
+                        // raw sync + pipeline enqueue (extraction submission)
+                        let _ = engine.sync_and_enqueue_extraction(opts).await;
                         let _ = app2.emit("sync-complete", serde_json::json!({"triggered_by": "tray"}));
                     }
                 }

@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
 use aiks_core::runtime::{SiyuanRuntime, SiyuanRuntimeConfig, RuntimeState};
+use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
@@ -78,15 +79,29 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             error!("SiYuan failed to start: {}", e);
             emit_error(&app, &format!("知识引擎启动失败：{}", e));
             show_control_center(&app);
+            // R08: keep the collection engine alive even without SiYuan so the
+            // watcher and periodic scanner can run; syncs will retry once the
+            // kernel becomes available (e.g. after restart_siyuan).
+            let engine = AiksEngine::initialize(AiksEngineConfig {
+                config_path: config_file_path().exists().then_some(config_file_path()),
+                siyuan_base_url: None,
+                siyuan_token: None,
+            })
+            .map(Arc::new)
+            .ok();
+            let engine_ref = engine.clone();
+            let (watcher_handle, watcher_rx) = start_watcher_for_engine(&engine_ref);
             let state = AppState {
-                engine: None,
+                engine,
                 siyuan_url: Arc::new(Mutex::new(None)),
                 data_dir,
-                _watcher_handle: Mutex::new(None),
+                _watcher_handle: Mutex::new(watcher_handle),
             };
             app.manage(state);
-            // B07: Only manage the runtime once via a shared container
-            app.manage(Arc::new(Mutex::new(Some(runtime))));
+            // B07/R06: keep the runtime object available for restart even when
+            // the initial start failed — update the container managed in lib.rs.
+            set_runtime(&app, Some(runtime)).await;
+            spawn_background_tasks(&app, engine_ref, watcher_rx);
             return Ok(());
         }
     };
@@ -120,19 +135,8 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
     let engine = Arc::new(engine);
 
-    // ── B08: Set up Watcher — hold handle in AppState ─────────────────────────
-    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
-    let watcher = engine.create_watcher(watcher_tx);
-    let watcher_handle = match watcher.start() {
-        Ok(h) => {
-            info!("File watcher started");
-            Some(h)
-        }
-        Err(e) => {
-            warn!("File watcher failed to start: {}", e);
-            None
-        }
-    };
+    // ── B08/R08: Set up Watcher (respects sync.watch_enabled) ─────────────────
+    let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
     // ── Register state (B07: only one manage per type) ────────────────────────
     let state = AppState {
@@ -142,13 +146,69 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         _watcher_handle: Mutex::new(watcher_handle), // B08: Mutex wraps for Sync
     };
     app.manage(state);
-    // B07: Manage runtime once via Option container
-    app.manage(Arc::new(Mutex::new(Some(runtime))));
+    // B07/R06: fill the runtime container that was pre-managed in lib.rs.
+    // Calling manage() again with a new Arc of the same type would be silently
+    // rejected by Tauri (manage returns false, the original stays), leaving
+    // consumers with None forever.
+    set_runtime(&app, Some(runtime)).await;
 
     emit_progress(&app, "ready", "AIKS 已就绪");
     show_control_center(&app);
 
-    // ── B09: Background initial scan + sync_and_enqueue ──────────────────────
+    // ── B09/R08: initial sync + watcher loop + periodic scan (shared scheduler)
+    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
+
+    info!("AIKS startup complete");
+    Ok(())
+}
+
+/// R08: start the file watcher for an engine (if present), honoring
+/// `sync.watch_enabled`. Returns the handle for AppState and the event receiver.
+fn start_watcher_for_engine(
+    engine: &Option<Arc<AiksEngine>>,
+) -> (
+    Option<aiks_core::watcher::WatcherHandle>,
+    tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+) {
+    let (watcher_tx, watcher_rx) = tokio::sync::mpsc::unbounded_channel();
+    match engine {
+        Some(engine) => {
+            if !engine.config().sync.watch_enabled {
+                info!("[WATCHER] Disabled by config (sync.watch_enabled = false)");
+                return (None, watcher_rx);
+            }
+            let watcher = engine.create_watcher(watcher_tx);
+            match watcher.start() {
+                Ok(h) => {
+                    info!("File watcher started");
+                    (Some(h), watcher_rx)
+                }
+                Err(e) => {
+                    warn!("File watcher failed to start: {}", e);
+                    (None, watcher_rx)
+                }
+            }
+        }
+        None => (None, watcher_rx),
+    }
+}
+
+/// R08: unified background scheduling shared by ALL startup modes:
+///   1. initial full sync (sync_and_enqueue_extraction)
+///   2. watcher event loop → per-source sync
+///   3. periodic full scan (calibration) — Watcher is never the only mechanism
+/// The scheduler is decoupled from SiYuan availability: sync attempts are
+/// logged when the kernel is down and succeed once it is back.
+fn spawn_background_tasks(
+    app: &AppHandle,
+    engine: Option<Arc<AiksEngine>>,
+    mut watcher_rx: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+) {
+    let Some(engine) = engine else {
+        return;
+    };
+
+    // 1. Initial full sync
     {
         let engine_bg = engine.clone();
         let app_bg = app.clone();
@@ -181,7 +241,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         });
     }
 
-    // ── B08: Watcher event loop ────────────────────────────────────────────────
+    // 2. Watcher event loop
     {
         let engine_w = engine.clone();
         let app_w = app.clone();
@@ -207,8 +267,30 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         });
     }
 
-    info!("AIKS startup complete");
-    Ok(())
+    // 3. Periodic full scan — calibration safety net required by AGENTS.md §9
+    {
+        let engine_p = engine.clone();
+        tauri::async_runtime::spawn(async move {
+            let interval_secs = engine_p.config().sync.scan_interval_seconds.max(30);
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await; // first tick fires immediately — skip, initial sync already ran
+            loop {
+                ticker.tick().await;
+                info!("[SCAN] Periodic scan triggered (every {}s)", interval_secs);
+                let opts = aiks_core::SyncOptions { source_filter: None, dry_run: false, overwrite: false };
+                match engine_p.sync_and_enqueue_extraction(opts).await {
+                    Ok(s) => {
+                        info!(
+                            "[SCAN] Periodic sync: new={} updated={} unchanged={} failed={}",
+                            s.new_count, s.updated_count, s.unchanged_count, s.failed_count
+                        );
+                    }
+                    Err(e) => warn!("[SCAN] Periodic sync failed: {}", e),
+                }
+            }
+        });
+    }
 }
 
 /// Startup without SiYuan
@@ -245,15 +327,22 @@ async fn startup_with_external_siyuan(
         siyuan_token: token,
     };
 
-    let engine = AiksEngine::initialize(engine_config)?;
+    let engine = Arc::new(AiksEngine::initialize(engine_config)?);
+
+    // R08: external mode gets the SAME scheduler as embedded mode —
+    // watcher (respecting watch_enabled), initial sync and periodic scan.
+    let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
+
     let state = AppState {
-        engine: Some(Arc::new(engine)),
+        engine: Some(engine.clone()),
         siyuan_url: Arc::new(Mutex::new(Some(base_url.clone()))),
         data_dir,
-        _watcher_handle: Mutex::new(None),
+        _watcher_handle: Mutex::new(watcher_handle),
     };
     app.manage(state);
     show_control_center(&app);
+
+    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
     Ok(())
 }
 
@@ -273,6 +362,22 @@ pub async fn shutdown(app: &AppHandle) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// R06: store the runtime in the container pre-managed by lib.rs.
+/// Checks that the container actually exists and reports if registration is broken.
+async fn set_runtime(app: &AppHandle, runtime: Option<SiyuanRuntime>) {
+    let container = app
+        .try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>()
+        .map(|s| s.inner().clone());
+    match container {
+        Some(arc) => {
+            *arc.lock().await = runtime;
+        }
+        None => {
+            error!("Runtime container not managed — restart_siyuan/shutdown will not work");
+        }
+    }
+}
 
 fn emit_progress(app: &AppHandle, step: &str, message: &str) {
     let _ = app.emit("startup-progress", serde_json::json!({ "step": step, "message": message }));

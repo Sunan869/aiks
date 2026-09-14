@@ -260,6 +260,11 @@ export class MockAiksApi implements AiksApi {
     };
   }
 
+  async backfillExtractions(): Promise<{ submitted: number }> {
+    await delay(800);
+    return { submitted: 0 };
+  }
+
   async getSiyuanUrl(): Promise<string | null> {
     return "http://127.0.0.1:6812";
   }

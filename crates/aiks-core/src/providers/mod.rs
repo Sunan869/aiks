@@ -93,20 +93,38 @@ impl ProviderRegistry {
     /// Discover all sessions from all providers.
     /// Single provider failures are isolated and logged.
     pub async fn discover_all(&self) -> Vec<SessionSummary> {
-        let mut all = Vec::new();
-        for provider in &self.providers {
-            match provider.discover_sessions().await {
-                Ok(sessions) => all.extend(sessions),
+        self.discover_all_detailed()
+            .await
+            .into_iter()
+            .filter_map(|(_, result)| match result {
+                Ok(sessions) => Some(sessions),
                 Err(e) => {
-                    tracing::warn!(
-                        source = ?provider.source(),
-                        error = %e,
-                        "Provider discover_sessions failed"
-                    );
+                    tracing::warn!(error = %e, "Provider discover_sessions failed");
+                    None
                 }
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// R14: discover per source, keeping each provider's scan result (success
+    /// or failure) so callers can distinguish "no sessions" from "scan failed".
+    pub async fn discover_all_detailed(
+        &self,
+    ) -> Vec<(SourceKind, anyhow::Result<Vec<SessionSummary>>)> {
+        let mut results = Vec::new();
+        for provider in &self.providers {
+            let result = provider.discover_sessions().await;
+            if let Err(e) = &result {
+                tracing::warn!(
+                    source = ?provider.source(),
+                    error = %e,
+                    "Provider discover_sessions failed"
+                );
             }
+            results.push((provider.source(), result));
         }
-        all
+        results
     }
 
     /// Perform health check on all providers.

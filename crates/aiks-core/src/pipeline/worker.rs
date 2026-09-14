@@ -71,6 +71,69 @@ impl PipelineWorker {
     }
 }
 
+/// R13: crash recovery — requeue pipeline runs left in PROCESSING by a
+/// previous process and submit them to the current worker. Runs found in
+/// DISCOVERED (never processed) are submitted as well.
+pub fn recover_interrupted_runs(
+    db: &Arc<StateDb>,
+    worker: &PipelineWorker,
+) -> usize {
+    let repo = PipelineRepo::new(db);
+
+    // Step 1: requeue runs stuck in PROCESSING (previous process died mid-run)
+    let _ = repo.requeue_processing_runs();
+
+    // Step 2: submit every run that still needs processing
+    let rows: Vec<(String, i64, String, String, Option<String>, Option<String>)> = {
+        let conn = db.conn();
+        let result = conn
+            .prepare(
+                "SELECT pr.id, pr.session_id, ss.source, ss.external_session_id, ss.title, ss.project_name
+                 FROM pipeline_run pr
+                 JOIN source_session ss ON ss.id = pr.session_id
+                 WHERE pr.pipeline_version = 'v3'
+                   AND pr.status IN ('DISCOVERED', 'FAILED')
+                 ORDER BY pr.updated_at ASC",
+            )
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                })
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            });
+        match result {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(error = %e, "[PIPELINE] Recovery query failed");
+                return 0;
+            }
+        }
+    };
+
+    let count = rows.len();
+    for (pipeline_run_id, session_id, source, session_external_id, session_title, project_name) in rows {
+        worker.submit(PipelineJob {
+            pipeline_run_id,
+            session_id,
+            session_external_id,
+            source,
+            session_title,
+            project_name,
+        });
+    }
+    if count > 0 {
+        info!("[PIPELINE] Recovered {} interrupted/pending run(s)", count);
+    }
+    count
+}
+
 async fn run_worker(
     mut rx: mpsc::UnboundedReceiver<PipelineJob>,
     db: Arc<StateDb>,
@@ -81,18 +144,45 @@ async fn run_worker(
 ) {
     info!("[PIPELINE] Worker started");
 
+    // R13: per-session in-flight dedup — a session already being processed is
+    // not re-spawned (the run row stays DISCOVERED and the periodic backfill
+    // picks it up later). Prevents duplicate work and racing writes.
+    let in_flight: Arc<tokio::sync::Mutex<std::collections::HashSet<i64>>> =
+        Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+
     while let Some(job) = rx.recv().await {
+        // R13: dedup — skip if this session is already queued/running.
+        {
+            let mut set = in_flight.lock().await;
+            if !set.insert(job.session_id) {
+                warn!(
+                    session_id = job.session_id,
+                    run_id = %job.pipeline_run_id,
+                    "[PIPELINE] Session already in flight — job skipped (will be picked up by backfill)"
+                );
+                continue;
+            }
+        }
+
         let db = Arc::clone(&db);
         let registry = Arc::clone(&registry);
         let ai = ai_config.clone();
         let emb = embedding_config.clone();
         let sem = Arc::clone(&semaphore);
+        let inflight = Arc::clone(&in_flight);
 
-        // B13: Acquire semaphore permit before spawning — limits concurrency
+        // B13 + R13: acquire the permit BEFORE spawning — at most
+        // `max_concurrent` tasks exist at any moment, so the backlog cannot
+        // pile up as unbounded waiting tasks.
+        let permit = match sem.acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => {
+                inflight.lock().await.remove(&job.session_id);
+                break;
+            }
+        };
+
         tokio::spawn(async move {
-            // Acquire permit (blocks if at concurrency limit)
-            let _permit = sem.acquire().await.expect("Semaphore closed");
-
             if let Err(e) = run_pipeline(&db, &registry, &ai, &emb, &job).await {
                 error!(
                     run_id = %job.pipeline_run_id,
@@ -100,15 +190,48 @@ async fn run_worker(
                     error = %e,
                     "[PIPELINE] Job failed"
                 );
-                // B12: Safety net mark_failed
+                // B12 + R13: safety-net mark_failed — but do NOT overwrite the
+                // accurate failure stage already recorded by run_pipeline.
                 let repo = PipelineRepo::new(&db);
-                let _ = repo.mark_failed(&job.pipeline_run_id, "UNKNOWN", &e.to_string());
+                let already_failed = repo
+                    .get_run_detail(&job.pipeline_run_id)
+                    .ok()
+                    .flatten()
+                    .map(|d| d.status == "FAILED")
+                    .unwrap_or(false);
+                if !already_failed {
+                    let stage = extract_failed_stage(&e.to_string());
+                    let _ = repo.mark_failed(&job.pipeline_run_id, stage, &e.to_string());
+                }
             }
-            // _permit dropped here → releases semaphore slot
+            // Release: remove from in-flight set + drop the semaphore permit.
+            inflight.lock().await.remove(&job.session_id);
+            drop(permit);
         });
     }
 
     info!("[PIPELINE] Worker stopped");
+}
+
+/// R13: map a run_pipeline error message back to its pipeline stage.
+/// run_pipeline prefixes stage errors with the stage name.
+fn extract_failed_stage(error: &str) -> &'static str {
+    const STAGES: [&str; 8] = [
+        "PARSED",
+        "CLEANED",
+        "LLM_CHUNKED",
+        "AI_EXTRACTED",
+        "EMBED_CHUNKED",
+        "EMBEDDED",
+        "INDEXED",
+        "DISCOVERED",
+    ];
+    for stage in STAGES {
+        if error.starts_with(stage) || error.contains(&format!("{}: ", stage)) {
+            return stage;
+        }
+    }
+    "UNKNOWN"
 }
 
 async fn run_pipeline(

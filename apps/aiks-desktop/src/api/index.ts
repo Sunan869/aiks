@@ -25,6 +25,7 @@ export interface AiksApi {
   getAiStatus(): Promise<AiStatus>;
   syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }>;
   scanSources(source?: string): Promise<{ total: number; by_source: Record<string, number> }>;
+  backfillExtractions(): Promise<{ submitted: number }>;
   getSiyuanUrl(): Promise<string | null>;
   testAiConnection(): Promise<boolean>;
 }

@@ -114,11 +114,12 @@ fn truncate_tool_results(mut msg: NormalizedMessage) -> NormalizedMessage {
     msg.blocks = msg.blocks.into_iter().map(|block| {
         match block {
             ContentBlock::ToolResult { id, content, is_error } => {
-                if content.len() > MAX_TOOL_RESULT_CHARS && !is_error {
+                // R11: cut on character boundaries — byte slicing panics on CJK.
+                if content.chars().count() > MAX_TOOL_RESULT_CHARS && !is_error {
                     let truncated = format!(
                         "{}\n\n[... {} chars truncated ...]",
-                        &content[..MAX_TOOL_RESULT_CHARS],
-                        content.len() - MAX_TOOL_RESULT_CHARS
+                        crate::util::truncate_chars(&content, MAX_TOOL_RESULT_CHARS),
+                        content.chars().count() - MAX_TOOL_RESULT_CHARS
                     );
                     ContentBlock::ToolResult { id, content: truncated, is_error }
                 } else {

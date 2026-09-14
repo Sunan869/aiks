@@ -36,11 +36,19 @@ pub enum Commands {
     },
     Status,
     Daemon,
+    /// Re-run sync for specific sessions (resets their hash so they are re-pushed)
     Resync {
         #[arg(long)] source: Option<String>,
         #[arg(long)] session_id: Vec<String>,
     },
+    /// Rebuild the sync index (sync_target / sync_run / source_file_state / content_hash).
+    /// Knowledge data (knowledge_item, pipeline_run, ...) is PRESERVED. Non-destructive.
     RebuildState {
+        #[arg(long)] yes: bool,
+    },
+    /// DANGEROUS: delete the entire state database including all knowledge data.
+    /// Requires explicit --yes and typing "DELETE ALL" to confirm.
+    ResetData {
         #[arg(long)] yes: bool,
     },
 }
