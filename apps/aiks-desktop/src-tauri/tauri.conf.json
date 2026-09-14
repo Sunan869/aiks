@@ -38,7 +38,7 @@
     ],
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
+      "iconAsTemplate": false,
       "menuOnLeftClick": false,
       "tooltip": "AIKS Knowledge Sync"
     },
