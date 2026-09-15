@@ -75,4 +75,4 @@ The AICoder Session Viewer claude.rs was used as primary source (MIT licensed).
 
 - Parsing approach from AICoder Session Viewer (MIT)
 - Original file: `references/aicoder-session-viewer/src-tauri/src/providers/claude.rs`
-- AIKS derived file: `src/providers/claude.rs`
+- AIKS derived file: `crates/aiks-core/src/providers/claude.rs`

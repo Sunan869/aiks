@@ -117,7 +117,7 @@ SQLite (read-only, WAL-aware)
 ## Reusable Code
 
 - OpenCode schema discovery from sqlite_master
-- Part data parsing logic (adapted in `src/providers/opencode.rs`)
+- Part data parsing logic (adapted in `crates/aiks-core/src/providers/opencode.rs`)
 - WAL-aware read-only connection pattern
 
 ## Reference-Only Code
@@ -151,5 +151,5 @@ SQLite (read-only, WAL-aware)
 
 - Parsing approach adapted from: AICoder Session Viewer
 - Original file: `references/aicoder-session-viewer/src-tauri/src/providers/opencode.rs`
-- AIKS derived file: `src/providers/opencode.rs`
+- AIKS derived file: `crates/aiks-core/src/providers/opencode.rs`
 - License notice required: MIT

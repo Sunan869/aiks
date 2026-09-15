@@ -29,15 +29,15 @@
 - [ ] 引入 uuid。
 - [ ] 引入 chrono。
 - [ ] 引入 thiserror/anyhow。
-- [ ] 建立 `src/cli`。
-- [ ] 建立 `src/config`。
-- [ ] 建立 `src/model`。
-- [ ] 建立 `src/providers`。
-- [ ] 建立 `src/sync`。
-- [ ] 建立 `src/renderer`。
-- [ ] 建立 `src/sink`。
-- [ ] 建立 `src/storage`。
-- [ ] 建立 `src/util`。
+- [ ] 建立 `apps/aiks-cli/src`。
+- [ ] 建立 `crates/aiks-core/src/config`。
+- [ ] 建立 `crates/aiks-core/src/model`。
+- [ ] 建立 `crates/aiks-core/src/providers`。
+- [ ] 建立 `crates/aiks-core/src/sync`。
+- [ ] 建立 `crates/aiks-core/src/knowledge/renderer.rs`。
+- [ ] 建立 `crates/aiks-core/src/sink`。
+- [ ] 建立 `crates/aiks-core/src/storage`。
+- [ ] 建立 `crates/aiks-core/src/util`。
 
 ## Phase 2 - Canonical Model
 
@@ -125,7 +125,7 @@
 
 ## Phase 8 - State SQLite
 
-- [ ] 执行 `migrations/001_init.sql`。
+- [ ] 执行 `crates/aiks-core/migrations/001_init.sql`。
 - [ ] source_session repository。
 - [ ] sync_target repository。
 - [ ] source_file_state repository。

@@ -48,4 +48,4 @@ id, title, cwd, created_at, updated_at, tokens_used, rollout_path, archived
 
 - Parsing approach from AICoder Session Viewer (MIT)
 - Original file: `references/aicoder-session-viewer/src-tauri/src/providers/codex.rs`
-- AIKS derived file: `src/providers/codex.rs`
+- AIKS derived file: `crates/aiks-core/src/providers/codex.rs`
