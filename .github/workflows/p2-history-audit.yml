@@ -1,0 +1,162 @@
+name: P2 History Sensitive Audit
+
+on:
+  push:
+    branches:
+      - audit/p2-history-sensitive
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  history-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch every branch and tag ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin \
+            '+refs/heads/*:refs/remotes/origin/*' \
+            '+refs/tags/*:refs/tags/*'
+          echo "refs=$(git for-each-ref --format='%(refname)' refs/remotes/origin refs/tags | wc -l)"
+          echo "unique_commits=$(git rev-list --all | sort -u | wc -l)"
+
+      - name: Scan historical topology and work-memory paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          : > audit/topology.tsv
+          : > audit/workbuddy.tsv
+          private_endpoint="$(printf '%s.%s.%s.%s' 10 10 23 16)"
+
+          while read -r commit; do
+            while IFS= read -r hit; do
+              [ -n "$hit" ] || continue
+              rest="${hit#${commit}:}"
+              path="${rest%%:*}"
+              rest="${rest#*:}"
+              line="${rest%%:*}"
+              printf '%s\t%s\t%s\n' "$commit" "$path" "$line" >> audit/topology.tsv
+            done < <(git grep -nF "$private_endpoint" "$commit" -- 2>/dev/null || true)
+
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              printf '%s\t%s\n' "$commit" "$path" >> audit/workbuddy.tsv
+            done < <(git ls-tree -r --name-only "$commit" -- .workbuddy 2>/dev/null || true)
+          done < <(git rev-list --all | sort -u)
+
+          sort -u -o audit/topology.tsv audit/topology.tsv
+          sort -u -o audit/workbuddy.tsv audit/workbuddy.tsv
+
+      - name: Scan all Git history with Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo \
+            --redact \
+            --report-format json \
+            --report-path /repo/audit/gitleaks-history.json \
+            --log-opts='--all'
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+            echo "Gitleaks execution failed with status $status" >&2
+            exit "$status"
+          fi
+          test -f audit/gitleaks-history.json || printf '[]\n' > audit/gitleaks-history.json
+
+      - name: Build redacted audit summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import subprocess
+
+          audit = Path('audit')
+
+          def rows(name):
+              p = audit / name
+              if not p.exists():
+                  return []
+              return [line.split('\t') for line in p.read_text().splitlines() if line.strip()]
+
+          topology = rows('topology.tsv')
+          workbuddy = rows('workbuddy.tsv')
+          findings = json.loads((audit / 'gitleaks-history.json').read_text() or '[]')
+
+          def short(c):
+              return c[:12] if c else 'working-tree'
+
+          def uniq(values):
+              return sorted(set(values))
+
+          lines = [
+              '# P2 historical sensitive-data audit',
+              '',
+              'This report intentionally omits matched secret values and matched topology text.',
+              '',
+              f'- Reachable refs scanned: {subprocess.check_output(["bash", "-lc", "git for-each-ref --format=\"%(refname)\" refs/remotes/origin refs/tags | wc -l"]).decode().strip()}',
+              f'- Unique commits scanned: {subprocess.check_output(["bash", "-lc", "git rev-list --all | sort -u | wc -l"]).decode().strip()}',
+              f'- Known private-topology hits: {len(topology)} across {len(uniq(r[0] for r in topology))} commits',
+              f'- Historical .workbuddy paths: {len(workbuddy)} across {len(uniq(r[0] for r in workbuddy))} commits',
+              f'- Gitleaks findings: {len(findings)}',
+              '',
+              '## Known private-topology locations',
+          ]
+          if topology:
+              for commit, path, line in topology:
+                  lines.append(f'- `{short(commit)}` `{path}:{line}`')
+          else:
+              lines.append('- none')
+
+          lines += ['', '## Historical .workbuddy locations']
+          if workbuddy:
+              for commit, path in workbuddy:
+                  lines.append(f'- `{short(commit)}` `{path}`')
+          else:
+              lines.append('- none')
+
+          lines += ['', '## Gitleaks findings (values redacted)']
+          if findings:
+              seen = set()
+              for f in findings:
+                  row = (
+                      str(f.get('RuleID') or f.get('RuleId') or 'unknown-rule'),
+                      str(f.get('Commit') or ''),
+                      str(f.get('File') or 'unknown-file'),
+                      str(f.get('StartLine') or '?'),
+                  )
+                  if row in seen:
+                      continue
+                  seen.add(row)
+                  rule, commit, file, line = row
+                  lines.append(f'- `{rule}` at `{short(commit)}` `{file}:{line}`')
+          else:
+              lines.append('- none')
+
+          (audit / 'summary.md').write_text('\n'.join(lines) + '\n')
+          print((audit / 'summary.md').read_text())
+          PY
+
+      - name: Upload redacted audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-history-audit
+          path: |
+            audit/summary.md
+            audit/gitleaks-history.json
+          if-no-files-found: error
