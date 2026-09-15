@@ -55,7 +55,11 @@ pub fn render_knowledge_item_md(k: &KnowledgeItemDoc<'_>) -> String {
     // which only resolve when an OS protocol handler is registered.
     let cat_label = category_display_name(k.category);
     if let Some(doc_id) = k.session_doc_id {
-        let _ = writeln!(md, "> 原始工作记录：{}  ", block_ref(doc_id, "点击查看原始 Session"));
+        let _ = writeln!(
+            md,
+            "> 原始工作记录：{}  ",
+            block_ref(doc_id, "点击查看原始 Session")
+        );
     }
     let _ = write!(
         md,
@@ -133,7 +137,10 @@ mod tests {
         // Native block ref on the first metadata line (quick jump without
         // scrolling) — no siyuan:// protocol link anywhere.
         assert!(md.contains("> 原始工作记录：((20260914-doc-id \"点击查看原始 Session\"))"));
-        assert!(!md.contains("siyuan://"), "protocol links are not clickable in the browser UI");
+        assert!(
+            !md.contains("siyuan://"),
+            "protocol links are not clickable in the browser UI"
+        );
         // Provenance footer keeps title + raw session id as plain text.
         assert!(md.contains("原始工作记录：AIKS Build Pipeline 修复"));
         assert!(md.contains("Session ID: `ses_f717xxxx`"));

@@ -124,7 +124,7 @@ export class MockAiksApi implements AiksApi {
       processing_count: 12,
       failed_count: 3,
       ai_ready: true,
-      ai_model: "Qwen3.8-27B",
+      ai_model: "qwen3",
       siyuan_ready: true,
       last_sync_at: new Date(Date.now() - 600 * 1000).toISOString(),
       recent_knowledge: ALL_KNOWLEDGE.slice(0, 5),
@@ -225,7 +225,7 @@ export class MockAiksApi implements AiksApi {
       extraction_pending: 0,
       siyuan_ready: true,
       ai_ready: true,
-      ai_model: "Qwen3.8-27B",
+      ai_model: "qwen3",
     };
   }
 
@@ -234,9 +234,9 @@ export class MockAiksApi implements AiksApi {
     return {
       enabled: true,
       healthy: true,
-      model: "Qwen3.8-27B",
-      display_name: "公司内部 AI",
-      base_url: "http://10.10.23.16:18000/v1",
+      model: "qwen3",
+      display_name: "本地 AI 服务",
+      base_url: "http://127.0.0.1:11434/v1",
       extraction_stats: {
         total: 652,
         success: 598,

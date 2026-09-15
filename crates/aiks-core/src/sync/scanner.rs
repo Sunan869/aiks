@@ -45,13 +45,10 @@ impl IncrementalScanner {
         };
 
         let current_size = metadata.len() as i64;
-        let current_mtime = metadata
-            .modified()
-            .ok()
-            .map(|t| {
-                let dt: chrono::DateTime<chrono::Utc> = t.into();
-                dt.to_rfc3339()
-            });
+        let current_mtime = metadata.modified().ok().map(|t| {
+            let dt: chrono::DateTime<chrono::Utc> = t.into();
+            dt.to_rfc3339()
+        });
 
         let stored = repo.find(&path_str)?;
 
@@ -72,9 +69,7 @@ impl IncrementalScanner {
         }
 
         // Size unchanged and mtime unchanged → unchanged
-        if stored.file_size == Some(current_size)
-            && stored.modified_at == current_mtime
-        {
+        if stored.file_size == Some(current_size) && stored.modified_at == current_mtime {
             return Ok(FileChangeStatus::Unchanged);
         }
 
@@ -105,13 +100,10 @@ impl IncrementalScanner {
 
         let metadata = fs::metadata(path).ok();
         let file_size = metadata.as_ref().map(|m| m.len() as i64);
-        let modified_at = metadata
-            .as_ref()
-            .and_then(|m| m.modified().ok())
-            .map(|t| {
-                let dt: chrono::DateTime<chrono::Utc> = t.into();
-                dt.to_rfc3339()
-            });
+        let modified_at = metadata.as_ref().and_then(|m| m.modified().ok()).map(|t| {
+            let dt: chrono::DateTime<chrono::Utc> = t.into();
+            dt.to_rfc3339()
+        });
 
         repo.upsert(
             &path_str,
@@ -146,7 +138,8 @@ mod tests {
         let file = dir.path().join("session.jsonl");
         std::fs::write(&file, b"test content").unwrap();
 
-        let status = IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
+        let status =
+            IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
         assert_eq!(status, FileChangeStatus::New);
     }
 
@@ -157,10 +150,12 @@ mod tests {
         let file = dir.path().join("session.jsonl");
         std::fs::write(&file, b"test content").unwrap();
 
-        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", Some(12), None).unwrap();
-        
+        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", Some(12), None)
+            .unwrap();
+
         // Small sleep to ensure mtime would change if file is rewritten
-        let status = IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
+        let status =
+            IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
         assert_eq!(status, FileChangeStatus::Unchanged);
     }
 
@@ -171,12 +166,14 @@ mod tests {
         let file = dir.path().join("session.jsonl");
         std::fs::write(&file, b"longer content here").unwrap();
 
-        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", Some(20), None).unwrap();
+        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", Some(20), None)
+            .unwrap();
 
         // Truncate the file
         std::fs::write(&file, b"shorter").unwrap();
 
-        let status = IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
+        let status =
+            IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v1").unwrap();
         assert_eq!(status, FileChangeStatus::Truncated);
     }
 
@@ -187,10 +184,12 @@ mod tests {
         let file = dir.path().join("session.jsonl");
         std::fs::write(&file, b"content").unwrap();
 
-        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", None, None).unwrap();
+        IncrementalScanner::record_file(&db, &file, "claude_code", "claude-v1", None, None)
+            .unwrap();
 
         // Check with new parser version
-        let status = IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v2").unwrap();
+        let status =
+            IncrementalScanner::check_file(&db, &file, "claude_code", "claude-v2").unwrap();
         assert_eq!(status, FileChangeStatus::Modified);
     }
 }

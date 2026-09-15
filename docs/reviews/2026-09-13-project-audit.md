@@ -355,7 +355,7 @@ AGENTS.md 禁止自研 Embedding Pipeline、全文搜索引擎、知识库 Web U
 
 当前 references 中有六个上游目录，缺少 mnemos、claude-code、siyuan。对应分析仍出现 N/A/TBD，没有满足 AGENTS.md 要求的九仓库固定 SHA 记录。即使不能取得 Claude 的私有实现，公共仓库资料仍需按实际可读范围记录 commit 和局限。
 
-THIRD_PARTY_NOTICES 同时包含“Bundled Runtime”和旧“External only”的思源说明，Derived Files 仍写旧 src/providers 路径，与实际 crates 路径不一致；部分依赖条目重复。
+THIRD_PARTY_NOTICES 同时包含“Bundled Runtime”和旧“External only”的思源说明，Derived Files 仍写旧的非 workspace provider 路径，与实际 crates 路径不一致；部分依赖条目重复。
 
 **建议：** 补齐固定版本、实际复用文件及分发资产清单，统一说明口径；对安装包中的许可材料做交付核查。此处是文档/可追溯性发现，不是对许可证法律义务作最终判断。
 

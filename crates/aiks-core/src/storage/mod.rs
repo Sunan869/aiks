@@ -11,13 +11,15 @@ pub use repo::*;
 ///            embedding_record, pipeline_run, pipeline_stage_run, session_chunk
 pub fn rebuild_sync_index_only(db: &StateDb) -> anyhow::Result<()> {
     let conn = db.conn();
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         DELETE FROM sync_target;
         DELETE FROM sync_run;
         DELETE FROM source_file_state;
         -- Reset content hashes so all sessions will re-sync
         UPDATE source_session SET content_hash = NULL, updated_at = datetime('now');
-    ")?;
+    ",
+    )?;
     tracing::info!("[REBUILD] Sync index cleared; knowledge data preserved");
     Ok(())
 }

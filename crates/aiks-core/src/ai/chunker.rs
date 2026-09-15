@@ -10,10 +10,7 @@ const TOOL_RESULT_TAIL: usize = 30_000;
 
 /// Render a NormalizedSession to compact text for AI consumption.
 /// Applies truncation rules (spec §20).
-pub fn render_session_for_ai(
-    session: &NormalizedSession,
-    include_thinking: bool,
-) -> String {
+pub fn render_session_for_ai(session: &NormalizedSession, include_thinking: bool) -> String {
     let mut parts = Vec::new();
 
     if let Some(title) = &session.title {
@@ -52,12 +49,18 @@ pub fn render_session_for_ai(
                         serde_json::to_string(input).unwrap_or_default()
                     };
                     if !input_str.is_empty() && input_str != "null" {
-                        msg_parts.push(format!("[工具调用] {}: {}", name, &input_str[..input_str.len().min(500)]));
+                        msg_parts.push(format!(
+                            "[工具调用] {}: {}",
+                            name,
+                            &input_str[..input_str.len().min(500)]
+                        ));
                     } else {
                         msg_parts.push(format!("[工具调用] {}", name));
                     }
                 }
-                ContentBlock::ToolResult { content, is_error, .. } => {
+                ContentBlock::ToolResult {
+                    content, is_error, ..
+                } => {
                     let display = truncate_tool_result(content);
                     if *is_error {
                         msg_parts.push(format!("[工具错误] {}", display));
@@ -94,7 +97,10 @@ fn truncate_tool_result(content: &str) -> String {
 }
 
 /// Split messages into chunks of max `chunk_size` messages.
-pub fn chunk_messages(messages: &[NormalizedMessage], chunk_size: usize) -> Vec<Vec<&NormalizedMessage>> {
+pub fn chunk_messages(
+    messages: &[NormalizedMessage],
+    chunk_size: usize,
+) -> Vec<Vec<&NormalizedMessage>> {
     messages
         .iter()
         .filter(|m| m.role != MessageRole::System)
@@ -118,13 +124,19 @@ pub fn render_chunk(messages: &[&NormalizedMessage], include_thinking: bool) -> 
         for block in &msg.blocks {
             match block {
                 ContentBlock::Text { text } if !text.is_empty() => msg_parts.push(text.clone()),
-                ContentBlock::Thinking { text } if include_thinking => msg_parts.push(format!("[思考] {}", text)),
+                ContentBlock::Thinking { text } if include_thinking => {
+                    msg_parts.push(format!("[思考] {}", text))
+                }
                 ContentBlock::ToolCall { name, input, .. } => {
                     let inp = serde_json::to_string(input).unwrap_or_default();
                     msg_parts.push(format!("[{}] {}", name, &inp[..inp.len().min(300)]));
                 }
                 ContentBlock::ToolResult { content, .. } => {
-                    msg_parts.push(format!("[结果] {}", &truncate_tool_result(content)[..truncate_tool_result(content).len().min(2000)]));
+                    msg_parts.push(format!(
+                        "[结果] {}",
+                        &truncate_tool_result(content)
+                            [..truncate_tool_result(content).len().min(2000)]
+                    ));
                 }
                 _ => {}
             }
@@ -151,7 +163,9 @@ mod tests {
                 role: MessageRole::User,
                 created_at: None,
                 model: None,
-                blocks: vec![ContentBlock::Text { text: format!("msg {}", i) }],
+                blocks: vec![ContentBlock::Text {
+                    text: format!("msg {}", i),
+                }],
                 usage: None,
                 metadata: HashMap::new(),
             })

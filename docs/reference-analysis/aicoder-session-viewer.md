@@ -55,10 +55,10 @@ File system / SQLite
 ## Reusable Code
 
 Directly adapted into AIKS:
-- `src/providers/claude.rs` → Claude JSONL parser, mtime summary cache, agent_id injection
-- `src/providers/codex.rs` → Codex JSONL parser, dual-version (user_message / item_completed), SQLite fast path
-- `src/providers/gemini.rs` → Gemini JSON parser, .project_root discovery
-- `src/providers/opencode.rs` → OpenCode SQLite parser (updated for live schema)
+- `crates/aiks-core/src/providers/claude.rs` → Claude JSONL parser, mtime summary cache, agent_id injection
+- `crates/aiks-core/src/providers/codex.rs` → Codex JSONL parser, dual-version (user_message / item_completed), SQLite fast path
+- `crates/aiks-core/src/providers/gemini.rs` → Gemini JSON parser, .project_root discovery
+- `crates/aiks-core/src/providers/opencode.rs` → OpenCode SQLite parser (updated for live schema)
 
 ## Reference-Only Code
 
@@ -90,5 +90,5 @@ Directly adapted into AIKS:
 ## Attribution Required
 
 - Original files: `src-tauri/src/providers/{claude,codex,gemini,opencode}.rs`, `src-tauri/src/models.rs`
-- AIKS derived files: `src/providers/{claude,codex,gemini,opencode}.rs`
+- AIKS derived files: `crates/aiks-core/src/providers/{claude,codex,gemini,opencode}.rs`
 - License notice required: MIT

@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::useless_borrows_in_formatting)]
+
 /// Renders a NormalizedSession as Markdown suitable for SiYuan.
 /// Sections: metadata header, User/Assistant messages, Tool Calls and Results.
 use crate::config::ContentConfig;
@@ -33,7 +36,10 @@ impl MarkdownRenderer {
         out.push('\n');
 
         if let Some(project) = session.infer_project_name() {
-            out.push_str(&format!("> **项目 (Project):** {}\n", self.escape_inline(&project)));
+            out.push_str(&format!(
+                "> **项目 (Project):** {}\n",
+                self.escape_inline(&project)
+            ));
         }
 
         if let Some(path) = &session.project_path {
@@ -46,7 +52,10 @@ impl MarkdownRenderer {
         ));
 
         if let Some(model) = &session.model {
-            out.push_str(&format!("> **模型 (Model):** {}\n", self.escape_inline(model)));
+            out.push_str(&format!(
+                "> **模型 (Model):** {}\n",
+                self.escape_inline(model)
+            ));
         }
 
         if let Some(started) = &session.started_at {
@@ -138,7 +147,11 @@ impl MarkdownRenderer {
                 out.push_str("\n```\n\n");
             }
 
-            ContentBlock::ToolResult { id: _, content, is_error } => {
+            ContentBlock::ToolResult {
+                id: _,
+                content,
+                is_error,
+            } => {
                 if !self.config.include_tool_results {
                     return;
                 }
@@ -156,7 +169,10 @@ impl MarkdownRenderer {
                         content.len(),
                         self.config.max_tool_result_chars
                     );
-                    let trunc = crate::util::truncate_chars(content.as_str(), self.config.max_tool_result_chars);
+                    let trunc = crate::util::truncate_chars(
+                        content.as_str(),
+                        self.config.max_tool_result_chars,
+                    );
                     format!("{}{}", trunc, truncation_msg)
                 } else {
                     content.clone()
@@ -256,7 +272,7 @@ mod tests {
                         ContentBlock::ToolCall {
                             id: Some("tool-1".to_string()),
                             name: "bash".to_string(),
-                            input: serde_json::json!({"command": "python3 -c 'print(sorted([3,1,2]))'"})
+                            input: serde_json::json!({"command": "python3 -c 'print(sorted([3,1,2]))'"}),
                         },
                     ],
                     usage: None,
@@ -331,7 +347,13 @@ mod tests {
 
     #[test]
     fn skips_thinking_by_default() {
-        let renderer = MarkdownRenderer::new(ContentConfig { include_thinking: false, ..Default::default() }, false);
+        let renderer = MarkdownRenderer::new(
+            ContentConfig {
+                include_thinking: false,
+                ..Default::default()
+            },
+            false,
+        );
         let mut session = make_session();
         session.messages[1].blocks.push(ContentBlock::Thinking {
             text: "Let me think...".to_string(),
@@ -342,7 +364,13 @@ mod tests {
 
     #[test]
     fn includes_thinking_when_configured() {
-        let renderer = MarkdownRenderer::new(ContentConfig { include_thinking: true, ..Default::default() }, false);
+        let renderer = MarkdownRenderer::new(
+            ContentConfig {
+                include_thinking: true,
+                ..Default::default()
+            },
+            false,
+        );
         let mut session = make_session();
         session.messages[1].blocks.push(ContentBlock::Thinking {
             text: "This is my reasoning".to_string(),
@@ -391,6 +419,10 @@ mod tests {
         let mut session = make_session();
         session.title = Some("password=AUDIT_SECRET_12345 leak".to_string());
         let md = renderer.render(&session);
-        assert!(!md.contains("AUDIT_SECRET_12345"), "title secret leaked: {}", md);
+        assert!(
+            !md.contains("AUDIT_SECRET_12345"),
+            "title secret leaked: {}",
+            md
+        );
     }
 }

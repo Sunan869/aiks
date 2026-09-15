@@ -106,6 +106,8 @@ export interface SearchResponse {
   results: SearchResult[];
   query: string;
   total: number;
+  degraded?: boolean;
+  warnings?: string[];
 }
 
 // Legacy V2.5 types kept for backward compat

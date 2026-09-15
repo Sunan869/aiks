@@ -1,6 +1,11 @@
 use aiks_core::{AiksEngine, SyncOptions};
 
-pub async fn run(engine: &AiksEngine, source: Option<String>, dry_run: bool, overwrite: bool) -> anyhow::Result<()> {
+pub async fn run(
+    engine: &AiksEngine,
+    source: Option<String>,
+    dry_run: bool,
+    overwrite: bool,
+) -> anyhow::Result<()> {
     if dry_run {
         println!("DRY RUN mode — scanning and computing changes (no SiYuan writes)\n");
         // dry_run: discover + hash check only, no SiYuan required

@@ -1,257 +1,83 @@
-# AIKS Implementation TODO
+# AIKS Roadmap
 
-## Phase 0 - 上游研究与冻结基线
+本文件只记录**当前仍未完成**或明确需要后续推进的工作。已经落地的 V1/V3 能力不再保留成未勾选的初始化清单；历史实现计划可从 Git 历史和 `docs/` 中追溯。
 
-- [ ] Clone `references/README.md` 中所有上游项目。
-- [ ] 固定每个仓库的 Commit SHA。
-- [ ] 填写 `docs/reference-analysis/aicoder-session-viewer.md`。
-- [ ] 填写 `docs/reference-analysis/cc-switch.md`。
-- [ ] 填写 `docs/reference-analysis/ccusage.md`。
-- [ ] 填写 `docs/reference-analysis/mnemos.md`。
-- [ ] 填写 `docs/reference-analysis/codex.md`。
-- [ ] 填写 `docs/reference-analysis/gemini-cli.md`。
-- [ ] 填写 `docs/reference-analysis/opencode.md`。
-- [ ] 填写 `docs/reference-analysis/claude-code.md`。
-- [ ] 填写 `docs/reference-analysis/siyuan.md`。
-- [ ] 更新 `THIRD_PARTY_NOTICES.md`。
+## 当前基线
 
-## Phase 1 - 项目骨架
+截至当前 V3 集成分支，以下主链路已经存在：
 
-- [ ] 初始化 Rust Cargo Workspace/Package。
-- [ ] 引入 tokio。
-- [ ] 引入 serde/serde_json。
-- [ ] 引入 rusqlite。
-- [ ] 引入 reqwest。
-- [ ] 引入 tracing。
-- [ ] 引入 clap。
-- [ ] 引入 notify。
-- [ ] 引入 sha2。
-- [ ] 引入 uuid。
-- [ ] 引入 chrono。
-- [ ] 引入 thiserror/anyhow。
-- [ ] 建立 `src/cli`。
-- [ ] 建立 `src/config`。
-- [ ] 建立 `src/model`。
-- [ ] 建立 `src/providers`。
-- [ ] 建立 `src/sync`。
-- [ ] 建立 `src/renderer`。
-- [ ] 建立 `src/sink`。
-- [ ] 建立 `src/storage`。
-- [ ] 建立 `src/util`。
+- Claude Code / Codex / Gemini CLI / OpenCode Provider。
+- Canonical Session Model、增量同步、Watcher/Scanner、Archive。
+- SQLite 状态库与正式 migration 链。
+- 持久化 Pipeline Job、lease、重试和重启恢复。
+- AI Knowledge Extraction、KnowledgeItem/Chunk。
+- 可选 Embedding、FTS + bounded vector rerank 混合搜索。
+- Rust CLI。
+- React/Vite + Tauri Desktop。
+- SiYuan Session / Knowledge 同步、冲突检测和映射。
+- Secret Sanitizer 与较完整的 Rust 回归测试。
 
-## Phase 2 - Canonical Model
+P0 与 P1 代码评审问题已经在 `review/integration` 中集中处理；后续不要按照旧 V1 Phase 重新实现这些能力。
 
-- [ ] SourceKind。
-- [ ] NormalizedSession。
-- [ ] NormalizedMessage。
-- [ ] MessageRole。
-- [ ] ContentBlock::Text。
-- [ ] ContentBlock::Thinking。
-- [ ] ContentBlock::ToolCall。
-- [ ] ContentBlock::ToolResult。
-- [ ] ContentBlock::Image。
-- [ ] ContentBlock::FileReference。
-- [ ] ContentBlock::Unknown。
-- [ ] Usage Model。
-- [ ] Metadata Model。
-- [ ] Canonical serialization。
-- [ ] Canonical SHA256 hash。
+## P2 — Repository Engineering
 
-## Phase 3 - Provider Interface
+### #11 Permanent CI / Frontend Test / Repository Hygiene
 
-- [ ] 定义 SessionProvider trait。
-- [ ] ProviderRegistry。
-- [ ] ProviderHealth。
-- [ ] SessionSummary。
-- [ ] ParserVersion。
-- [ ] 错误隔离。
-- [ ] Unknown Event 本地记录。
+- [ ] 增加正式 GitHub Actions CI，至少覆盖：
+  - `cargo fmt --check`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
+  - Rust workspace tests
+  - Desktop frontend build
+- [ ] 为 Desktop 增加最小可执行前端测试基线，并接入 CI。
+- [ ] 若项目继续声明 MIT，补齐仓库根 `LICENSE` 并与 Cargo metadata 保持一致。
+- [ ] 清理/忽略 `.icon-output` 等生成物，明确 canonical icon/source assets。
+- [ ] 在 CI 中阻止已知内部 endpoint、`.workbuddy` 等公开仓库卫生回归。
 
-## Phase 4 - ClaudeProvider
+跟踪：GitHub Issue #11。
 
-- [ ] 移植/改造 AICoder Session Viewer Claude Parser。
-- [ ] 对照 Mnemos。
-- [ ] 对照 CC Switch。
-- [ ] 对照 ccusage。
-- [ ] 对照 Claude Code 官方仓库。
-- [ ] 支持默认路径发现。
-- [ ] 支持 user/assistant/system。
-- [ ] 支持 tool_use/tool_result。
-- [ ] 支持 parentUuid/uuid/sessionId/cwd/timestamp。
-- [ ] 匿名 fixtures。
-- [ ] parser golden tests。
+### #12 Public History / Sensitive-data Audit
 
-## Phase 5 - CodexProvider
+- [ ] 对 Git 历史执行一次专门的敏感信息和内部拓扑审计。
+- [ ] 区分真实凭据、私网拓扑、普通历史文本，输出影响清单。
+- [ ] 如果发现真实 secret，先轮换凭据，再决定 history rewrite。
+- [ ] 如果仅需要移除历史内部拓扑，制定 rewrite 范围、备份和协作者迁移方案。
+- [ ] **未经明确确认，不直接 force-rewrite `main` 或所有公开 refs。**
 
-- [ ] 移植/改造 AICoder Session Viewer Codex Parser。
-- [ ] 对照 CC Switch。
-- [ ] 对照 ccusage。
-- [ ] 对照 openai/codex。
-- [ ] sessions 扫描。
-- [ ] archived_sessions 扫描。
-- [ ] session_meta。
-- [ ] user/assistant message。
-- [ ] tool calls/results。
-- [ ] turn_context。
-- [ ] token_count 可选解析。
-- [ ] 匿名 fixtures。
-- [ ] parser golden tests。
+跟踪：GitHub Issue #12。
 
-## Phase 6 - GeminiProvider
+## V3 后续产品演进候选
 
-- [ ] 建立 FormatDetector。
-- [ ] 移植/改造 AICoder Session Viewer Gemini Parser。
-- [ ] 对照 CC Switch。
-- [ ] 对照 ccusage。
-- [ ] 对照 google-gemini/gemini-cli。
-- [ ] 支持当前 JSONL。
-- [ ] 如需要兼容 legacy JSON。
-- [ ] Unknown Event fail-soft。
-- [ ] 匿名 fixtures。
-- [ ] parser golden tests。
+以下不是当前 P2 阻塞项，实施前应单独建 Issue、定义验收标准并评估兼容性。
 
-## Phase 7 - OpenCodeProvider
+### Knowledge Identity
 
-- [ ] 移植/改造 AICoder Session Viewer OpenCode Parser。
-- [ ] SQLite Read Only。
-- [ ] SchemaDetector。
-- [ ] WAL aware。
-- [ ] 对照 CC Switch。
-- [ ] 对照 ccusage。
-- [ ] 对照 anomalyco/opencode migrations/schema。
-- [ ] 解析 session/message/part 或当前新版结构。
-- [ ] 匿名 fixtures/db fixture。
-- [ ] parser golden tests。
+- [ ] 在 Extraction schema 中评估显式 stable key，安全支持 KnowledgeItem rename，而不是依赖 title/category 模糊猜测。
+- [ ] 为 `REMOVED` SiYuan mapping 定义可选的远端 archive/delete 生命周期策略。
 
-## Phase 8 - State SQLite
+### Search / Vector
 
-- [ ] 执行 `migrations/001_init.sql`。
-- [ ] source_session repository。
-- [ ] sync_target repository。
-- [ ] source_file_state repository。
-- [ ] sync_run repository。
-- [ ] parser_version 变更重新同步逻辑。
+- [ ] 当数据规模证明 512-candidate rerank 不足时，评估 sqlite-vec 或其它本地 ANN/vector index。
+- [ ] 增加可重复的搜索质量/性能 benchmark，而不是仅以最终 top-N 数量判断扩展性。
 
-## Phase 9 - Markdown Renderer
+### Providers
 
-- [ ] Session metadata header。
-- [ ] User/Assistant sections。
-- [ ] Tool Call 渲染。
-- [ ] Tool Result 截断。
-- [ ] Thinking 默认排除。
-- [ ] Image/Attachment 渲染。
-- [ ] Markdown escaping/sanitization。
-- [ ] renderer golden tests。
+新增 Provider 前先确认真实需求，并延续只读 source + canonical model 边界。候选包括：
 
-## Phase 10 - Secret Sanitizer
+- [ ] Cursor。
+- [ ] Windsurf。
+- [ ] Copilot CLI。
+- [ ] Qwen Code / Kimi 等本地或 CLI Agent。
 
-- [ ] Bearer Token。
-- [ ] OpenAI-style keys。
-- [ ] AWS Access Key。
-- [ ] password/token/secret/api_key。
-- [ ] Authorization Header。
-- [ ] 自定义 pattern 配置。
-- [ ] 单元测试。
+### Distribution / Operations
 
-## Phase 11 - SiYuan Sink
+- [ ] 固化 Windows/macOS/Linux Tauri 打包验证。
+- [ ] 明确 SiYuan runtime resources 的开发、CI 与发行包来源，消除空 checkout 需要临时 placeholder 的情况。
+- [ ] 建立版本发布、升级和已有 SQLite migration 兼容性检查流程。
 
-- [ ] health check。
-- [ ] Token auth。
-- [ ] Notebook discover/create。
-- [ ] createDocWithMd。
-- [ ] updateBlock。
-- [ ] setBlockAttrs。
-- [ ] upload asset。
-- [ ] 获取当前文档用于冲突判断。
-- [ ] Integration Tests。
+## 开发规则
 
-## Phase 12 - Sync Engine
-
-- [ ] 首次发现。
-- [ ] content hash。
-- [ ] NEW/UPDATED/UNCHANGED。
-- [ ] pending 状态。
-- [ ] retry/backoff。
-- [ ] 冲突检测。
-- [ ] missing source。
-- [ ] bounded concurrency。
-- [ ] 单 Session fault isolation。
-- [ ] 单 Provider fault isolation。
-
-## Phase 13 - Incremental Scanner
-
-- [ ] JSONL file_size/mtime/offset。
-- [ ] 文件截断检测。
-- [ ] 文件替换检测。
-- [ ] JSON whole-file hash fallback。
-- [ ] OpenCode updated_at/message id strategy。
-
-## Phase 14 - Watcher/Daemon
-
-- [ ] notify watcher。
-- [ ] debounce 2s。
-- [ ] periodic scan 300s。
-- [ ] graceful shutdown。
-- [ ] daemon command。
-
-## Phase 15 - Archive
-
-- [ ] NormalizedSession JSON archive。
-- [ ] gzip 压缩。
-- [ ] 可关闭。
-- [ ] 原 source 删除后仍可保留归档。
-
-## Phase 16 - CLI
-
-- [ ] `aiks doctor`。
-- [ ] `aiks scan`。
-- [ ] `aiks sync`。
-- [ ] `aiks sync --source`。
-- [ ] `aiks sync --dry-run`。
-- [ ] `aiks status`。
-- [ ] `aiks daemon`。
-- [ ] `aiks resync`。
-- [ ] `aiks rebuild-state`。
-
-## Phase 17 - Windows Packaging
-
-- [ ] Windows 路径验证。
-- [ ] `%USERPROFILE%` 默认路径验证。
-- [ ] `%LOCALAPPDATA%` State DB。
-- [ ] 单 EXE 或最小分发包。
-- [ ] HKCU Run 或 Task Scheduler 文档。
-
-## Phase 18 - 完整测试与验收
-
-- [ ] 所有 unit tests。
-- [ ] 所有 provider golden tests。
-- [ ] SiYuan integration tests。
-- [ ] 10k Session 级别扫描测试。
-- [ ] resume session 不重复建文档。
-- [ ] SiYuan offline pending/retry。
-- [ ] conflict 场景。
-- [ ] source missing 场景。
-- [ ] 按 `docs/implementation/acceptance.md` 完成验收。
-
-## V1.5 - Knowledge Extractor
-
-- [ ] 先分析 Mnemos。
-- [ ] OpenAI Compatible LLM abstraction。
-- [ ] Structured JSON output。
-- [ ] KnowledgeItem type enum。
-- [ ] confidence。
-- [ ] source provenance。
-- [ ] Knowledge 去重。
-- [ ] 写入 `/20 Knowledge`。
-
-## V2+
-
-- [ ] Cursor Provider。
-- [ ] Windsurf Provider。
-- [ ] Copilot CLI Provider。
-- [ ] Qwen Code Provider。
-- [ ] Kimi Provider。
-- [ ] OpenClaw/Hermes/Goose 等 Provider。
-- [ ] 可选 MarkdownFolderSink。
-- [ ] 可选 ObsidianSink。
-- [ ] MCP Knowledge Server。
+- 当前任务状态以 GitHub Issues 为准；完成项及时关闭 Issue，不在本文件复制完整实施细节。
+- 新的可靠性问题按 P0/P1/P2 或明确 severity 单独建 Issue。
+- 行为修复先补能复现问题的回归测试。
+- 不为局部修复引入无关全仓格式化或大范围重构。
+- `README.md`、`AGENTS.md` 和本文件必须描述当前代码，不得重新退化为早期 V1 设计说明。

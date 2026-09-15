@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::should_implement_trait)]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -195,12 +198,10 @@ pub struct SessionUsage {
 
 impl SessionUsage {
     pub fn add_message_usage(&mut self, usage: &MessageUsage) {
-        self.total_input_tokens = Some(
-            self.total_input_tokens.unwrap_or(0) + usage.input_tokens.unwrap_or(0),
-        );
-        self.total_output_tokens = Some(
-            self.total_output_tokens.unwrap_or(0) + usage.output_tokens.unwrap_or(0),
-        );
+        self.total_input_tokens =
+            Some(self.total_input_tokens.unwrap_or(0) + usage.input_tokens.unwrap_or(0));
+        self.total_output_tokens =
+            Some(self.total_output_tokens.unwrap_or(0) + usage.output_tokens.unwrap_or(0));
         if let Some(cr) = usage.cache_read_tokens {
             self.total_cache_read_tokens = Some(self.total_cache_read_tokens.unwrap_or(0) + cr);
         }

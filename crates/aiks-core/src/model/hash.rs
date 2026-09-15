@@ -66,7 +66,11 @@ fn hash_block(hasher: &mut Sha256, block: &ContentBlock) {
             hasher.update(name.as_bytes());
             hasher.update(input.to_string().as_bytes());
         }
-        ContentBlock::ToolResult { id, content, is_error } => {
+        ContentBlock::ToolResult {
+            id,
+            content,
+            is_error,
+        } => {
             hasher.update(b"tool_result:");
             if let Some(id) = id {
                 hasher.update(id.as_bytes());

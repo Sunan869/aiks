@@ -1,3 +1,11 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(
+    clippy::cloned_ref_to_slice_refs,
+    clippy::derivable_impls,
+    clippy::manual_is_multiple_of,
+    clippy::type_complexity
+)]
+
 /// AiksEngine — unified facade for AIKS Core.
 ///
 /// Both CLI and Desktop use this as their single entry point.
@@ -10,10 +18,10 @@ use tracing::info;
 
 use crate::ai::{AiClient, AiModelConfig};
 use crate::config::Config;
-use crate::knowledge::service::{extract_session, get_extraction_stats};
 use crate::knowledge::model::ExtractionStats;
+use crate::knowledge::service::{extract_session, get_extraction_stats};
 use crate::model::SourceKind;
-use crate::pipeline::{EmbeddingConfig, PipelineOrchestrator, PipelineWorker, PipelineJob};
+use crate::pipeline::{EmbeddingConfig, PipelineJob, PipelineOrchestrator, PipelineWorker};
 use crate::providers::{build_registry, ProviderRegistry, SessionSummary};
 use crate::sink::SiYuanSink;
 use crate::storage::StateDb;
@@ -156,11 +164,14 @@ pub struct AiksEngine {
     siyuan_token: Option<String>,
     /// V3 pipeline worker (started on init)
     pipeline_worker: Arc<PipelineWorker>,
-    /// Global sync mutex — serializes all sync flows (startup, watcher-triggered,
-    /// manual, knowledge). Without it two overlapping syncs can both observe a
-    /// NULL target_id for the same session and each create a document, producing
-    /// duplicates in SiYuan.
+    /// Raw/session sync mutex — serializes startup, watcher-triggered, and manual
+    /// session sync flows so overlapping runs cannot create duplicate session docs.
     sync_lock: tokio::sync::Mutex<()>,
+    /// Knowledge-only sync mutex. Knowledge pushes may spend a long time awaiting
+    /// SiYuan network I/O, so they must not hold the raw/session sync mutex. A
+    /// dedicated single-writer lock still prevents concurrent knowledge pushes
+    /// from observing a missing mapping and creating duplicate knowledge docs.
+    knowledge_sync_lock: tokio::sync::Mutex<()>,
 }
 
 impl AiksEngine {
@@ -184,7 +195,11 @@ impl AiksEngine {
             .clone()
             .filter(|t| !t.is_empty())
             .or_else(|| {
-                if config.siyuan.token.is_empty() { None } else { Some(config.siyuan.token.clone()) }
+                if config.siyuan.token.is_empty() {
+                    None
+                } else {
+                    Some(config.siyuan.token.clone())
+                }
             });
 
         let config = Arc::new(config);
@@ -214,6 +229,7 @@ impl AiksEngine {
             siyuan_token,
             pipeline_worker,
             sync_lock: tokio::sync::Mutex::new(()),
+            knowledge_sync_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -245,7 +261,9 @@ impl AiksEngine {
 
         // SiYuan
         let siyuan_ok = if !self.siyuan_base_url.is_empty() {
-            if let Ok(sink) = SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name) {
+            if let Ok(sink) =
+                SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)
+            {
                 sink.health_check().await
             } else {
                 false
@@ -263,7 +281,12 @@ impl AiksEngine {
             },
         });
 
-        let all_ok = checks.iter().all(|c| c.ok || c.name.contains("Claude") || c.name.contains("Codex") || c.name.contains("Gemini") || c.name.contains("OpenCode"));
+        let all_ok = checks.iter().all(|c| {
+            c.ok || c.name.contains("Claude")
+                || c.name.contains("Codex")
+                || c.name.contains("Gemini")
+                || c.name.contains("OpenCode")
+        });
 
         DoctorResult { checks, all_ok }
     }
@@ -282,7 +305,9 @@ impl AiksEngine {
         let mut by_source: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for s in &filtered {
-            *by_source.entry(s.source.display_name().to_string()).or_insert(0) += 1;
+            *by_source
+                .entry(s.source.display_name().to_string())
+                .or_insert(0) += 1;
         }
 
         let total = filtered.len();
@@ -313,10 +338,7 @@ impl AiksEngine {
             SiYuanSink::new(cfg)?
         } else {
             // Embedded mode: no token required
-            SiYuanSink::embedded(
-                &self.siyuan_base_url,
-                &self.config.siyuan.notebook_name,
-            )?
+            SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)?
         };
         self.sync_engine
             .run_sync(&self.db, &self.registry, &sink, &opts)
@@ -342,12 +364,9 @@ impl AiksEngine {
             if let Ok(Some(target)) = target_repo.find(session.id, "siyuan") {
                 match target.status {
                     SyncStatus::Synced => synced += 1,
-                    SyncStatus::Pending
-                    | SyncStatus::New
-                    | SyncStatus::Updated => pending += 1,
+                    SyncStatus::Pending | SyncStatus::New | SyncStatus::Updated => pending += 1,
                     SyncStatus::Conflict => conflict += 1,
-                    SyncStatus::FailedRetryable
-                    | SyncStatus::FailedPermanent => failed += 1,
+                    SyncStatus::FailedRetryable | SyncStatus::FailedPermanent => failed += 1,
                     _ => {}
                 }
             }
@@ -423,20 +442,22 @@ impl AiksEngine {
             source,
             session_title,
             project_name,
-        });
+        })?;
         Ok(run_id)
     }
 
-    /// Get hybrid search results
-    pub async fn search_knowledge(&self, query: &str, limit: usize) -> Vec<crate::pipeline::search::SearchHit> {
+    /// Search distilled knowledge while preserving degraded-state/error semantics.
+    pub async fn search_knowledge(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<crate::pipeline::search::SearchOutcome> {
         let embedding_config = if self.config.embedding.enabled {
             Some(&self.config.embedding)
         } else {
             None
         };
-        crate::pipeline::hybrid_search(&self.db, query, limit, embedding_config)
-            .await
-            .unwrap_or_default()
+        crate::pipeline::search::search_with_status(&self.db, query, limit, embedding_config).await
     }
 
     /// Check AI model health
@@ -479,10 +500,14 @@ impl AiksEngine {
         let summary = summaries
             .into_iter()
             .find(|s| s.source == source && s.external_session_id == session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {} / {}", source.as_str(), session_id))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("Session not found: {} / {}", source.as_str(), session_id)
+            })?;
 
         // Load full session
-        let provider = self.registry.get(source)
+        let provider = self
+            .registry
+            .get(source)
             .ok_or_else(|| anyhow::anyhow!("Provider not found for {:?}", source))?;
         let session = provider.load_session(&summary).await?;
 
@@ -537,35 +562,56 @@ impl AiksEngine {
 
             let stats = self.sync_unlocked(opts.clone()).await?;
 
-        // B15: After a successful scan (no source_filter = full scan),
-        // mark sessions that are no longer visible in any provider as MISSING.
-        if opts.source_filter.is_none() && !opts.dry_run {
-            match self.sync_engine.mark_missing_sessions(&self.db, &self.registry).await {
-                Ok(n) if n > 0 => info!("[SYNC] Marked {} sessions as MISSING (source removed)", n),
-                Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
-                _ => {}
+            // B15: After a successful scan (no source_filter = full scan),
+            // mark sessions that are no longer visible in any provider as MISSING.
+            if opts.source_filter.is_none() && !opts.dry_run {
+                match self
+                    .sync_engine
+                    .mark_missing_sessions(&self.db, &self.registry)
+                    .await
+                {
+                    Ok(n) if n > 0 => {
+                        info!("[SYNC] Marked {} sessions as MISSING (source removed)", n)
+                    }
+                    Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
+                    _ => {}
+                }
             }
-        }
 
-        // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
-        // the ai.enabled AND ai.auto_extract switches.
-        if !stats.extraction_candidates.is_empty() && self.config.ai.enabled && self.config.ai.auto_extract {
-            info!(
-                count = stats.extraction_candidates.len(),
-                "[PIPELINE] Enqueueing new/updated sessions"
-            );
+            // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
+            // the ai.enabled AND ai.auto_extract switches.
+            if !stats.extraction_candidates.is_empty()
+                && self.config.ai.enabled
+                && self.config.ai.auto_extract
+            {
+                info!(
+                    count = stats.extraction_candidates.len(),
+                    "[PIPELINE] Enqueueing new/updated sessions"
+                );
 
-            let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
+                let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
 
-            for ext_id in &stats.extraction_candidates {
-                // Collect data while holding conn, then release before submitting
-                let session_data: Option<(i64, String, String, Option<String>, Option<String>, Option<String>)> = {
-                    let conn = self.db.conn();
-                    conn.query_row(
+                for candidate in &stats.extraction_candidates {
+                    // Resolve by canonical DB identity and verify the redundant source
+                    // identity. This prevents cross-provider external-ID collisions.
+                    let session_data: Option<(
+                        i64,
+                        String,
+                        String,
+                        Option<String>,
+                        Option<String>,
+                        Option<String>,
+                    )> = {
+                        let conn = self.db.conn();
+                        conn.query_row(
                         "SELECT id, source, external_session_id, title, project_name, content_hash
-                         FROM source_session WHERE external_session_id = ?1
-                         ORDER BY updated_at DESC LIMIT 1",
-                        rusqlite::params![ext_id],
+                         FROM source_session
+                         WHERE id = ?1 AND source = ?2 AND external_session_id = ?3",
+                        rusqlite::params![
+                            candidate.session_id,
+                            candidate.source,
+                            candidate.external_session_id
+                        ],
                         |row| Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,
@@ -575,30 +621,41 @@ impl AiksEngine {
                             row.get::<_, Option<String>>(5)?,
                         )),
                     ).ok()
-                };
+                    };
 
-                if let Some((db_id, source, session_ext_id, title, project_name, content_hash)) = session_data {
-                    if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
-                        self.pipeline_worker.submit(PipelineJob {
-                            pipeline_run_id: run_id,
-                            session_id: db_id,
-                            session_external_id: session_ext_id,
-                            source,
-                            session_title: title,
-                            project_name,
-                        });
+                    if let Some((
+                        db_id,
+                        source,
+                        session_ext_id,
+                        title,
+                        project_name,
+                        content_hash,
+                    )) = session_data
+                    {
+                        if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
+                            if let Err(e) = self.pipeline_worker.submit(PipelineJob {
+                                pipeline_run_id: run_id,
+                                session_id: db_id,
+                                session_external_id: session_ext_id,
+                                source,
+                                session_title: title,
+                                project_name,
+                            }) {
+                                tracing::warn!(session_id = db_id, error = %e, "[PIPELINE] Durable enqueue failed");
+                            }
+                        }
                     }
                 }
             }
-        }
 
             stats
         };
 
         // Knowledge → SiYuan: push new/updated knowledge docs into the
         // knowledge notebook (non-blocking for the sync result).
-        // NOTE: intentionally OUTSIDE the sync_lock block above — this call
-        // takes the lock itself, and tokio Mutexes are not re-entrant.
+        // NOTE: intentionally OUTSIDE the raw sync_lock block above. Knowledge
+        // sync uses its own single-writer mutex, so slow network I/O cannot hold
+        // up startup/watcher/manual raw sync work.
         if !opts.dry_run && opts.source_filter.is_none() {
             if let Err(e) = self.sync_knowledge_to_siyuan(false).await {
                 tracing::warn!("[SYNC] Knowledge sync failed: {}", e);
@@ -620,7 +677,9 @@ impl AiksEngine {
         }
 
         // Step 1: ensure pipeline_run rows exist for every session
-        let ensured = self.sync_engine.enqueue_all_pending_for_pipeline(&self.db)?;
+        let ensured = self
+            .sync_engine
+            .enqueue_all_pending_for_pipeline(&self.db)?;
 
         // Step 2: submit jobs for runs that still need processing
         let rows: Vec<(String, i64, String, String, Option<String>, Option<String>)> = {
@@ -651,15 +710,19 @@ impl AiksEngine {
 
         let mut submitted = 0;
         for (run_id, session_id, source, ext_id, title, project) in rows {
-            self.pipeline_worker.submit(PipelineJob {
+            match self.pipeline_worker.submit(PipelineJob {
                 pipeline_run_id: run_id,
                 session_id,
                 session_external_id: ext_id,
                 source,
                 session_title: title,
                 project_name: project,
-            });
-            submitted += 1;
+            }) {
+                Ok(()) => submitted += 1,
+                Err(e) => {
+                    tracing::warn!(session_id, error = %e, "[PIPELINE] Backfill durable enqueue failed")
+                }
+            }
         }
 
         info!(
@@ -684,9 +747,10 @@ impl AiksEngine {
         use crate::storage::{KnowledgeSyncRepo, SyncStatus, SyncTargetRepo};
         use sha2::{Digest, Sha256};
 
-        // Share the global sync lock with session sync so SiYuan writes never
-        // interleave (see `sync` for the duplicate-document rationale).
-        let _guard = self.sync_lock.lock().await;
+        // Serialize knowledge writers independently from raw/session sync. This
+        // preserves duplicate-document protection without holding the raw sync
+        // mutex across potentially slow SiYuan network I/O.
+        let _guard = self.knowledge_sync_lock.lock().await;
 
         let sink = self.make_sink()?;
         let stats = KnowledgeSyncStats::default();
@@ -695,7 +759,20 @@ impl AiksEngine {
 
         // (k_id, title, category, project, summary, content, tags, confidence,
         //  source, session_db_id, ext_id, session_title)
-        let items: Vec<(String, String, String, Option<String>, String, String, String, f64, String, i64, String, Option<String>)> = {
+        let items: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            f64,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = {
             let conn = self.db.conn();
             let mut stmt = conn.prepare(
                 "SELECT ki.id, ki.title, ki.category, ki.project_name, ki.summary, ki.content,
@@ -726,8 +803,20 @@ impl AiksEngine {
         let target_repo = SyncTargetRepo::new(&self.db);
         let ks_repo = KnowledgeSyncRepo::new(&self.db);
 
-        for (k_id, title, category, project, summary, content, tags, confidence,
-             source_str, session_db_id, ext_id, session_title) in items
+        for (
+            k_id,
+            title,
+            category,
+            project,
+            summary,
+            content,
+            tags,
+            confidence,
+            source_str,
+            session_db_id,
+            ext_id,
+            session_title,
+        ) in items
         {
             let result: anyhow::Result<Outcome> = async {
                 // Deep link target: the raw session doc, if already synced.
@@ -795,8 +884,7 @@ impl AiksEngine {
                     if e.status == SyncStatus::Synced {
                         if let Some(baseline) = e.target_hash.as_deref() {
                             if let Ok(remote_md) = sink.get_document_markdown(id).await {
-                                let remote_hash =
-                                    hex::encode(Sha256::digest(remote_md.as_bytes()));
+                                let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));
                                 if remote_hash != baseline {
                                     ks_repo.mark_conflict(&k_id, "siyuan")?;
                                     return Ok(Outcome::Conflict);
@@ -811,9 +899,7 @@ impl AiksEngine {
                     ks_repo.record_target_doc(&k_id, "siyuan", id, &path)?;
                     id.clone()
                 } else {
-                    let new_id = sink
-                        .create_document(&notebook_id, &path, &markdown)
-                        .await?;
+                    let new_id = sink.create_document(&notebook_id, &path, &markdown).await?;
                     ks_repo.record_target_doc(&k_id, "siyuan", &new_id, &path)?;
                     new_id
                 };
@@ -886,8 +972,12 @@ impl AiksEngine {
         let mut moved = 0usize;
         for row in rows {
             let (Some(doc_id), Some(hpath)) = (
-                row.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                row.get("hpath").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                row.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                row.get("hpath")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             ) else {
                 continue;
             };
@@ -898,7 +988,10 @@ impl AiksEngine {
                 Some(idx) => hpath[..idx].to_string(),
                 None => "/".to_string(),
             };
-            match sink.move_docs(&[doc_id.clone()], &session_nb, &parent).await {
+            match sink
+                .move_docs(&[doc_id.clone()], &session_nb, &parent)
+                .await
+            {
                 Ok(()) => moved += 1,
                 Err(e) => tracing::warn!(doc_id = %doc_id, error = %e, "[MIGRATE] move failed"),
             }

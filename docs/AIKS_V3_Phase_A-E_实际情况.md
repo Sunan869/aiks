@@ -197,7 +197,7 @@ AIKS V3 — Phase A-E 完成
 | 项目 | 现状 | 说明 |
 |------|------|------|
 | SiYuan 弱化 | 仍为主 Knowledge UI | V3 Phase F 计划 |
-| AI 提炼真实 E2E | AI 调用依赖公司内网 | 需连接 `http://10.10.23.16:18000/v1` |
+| AI 提炼真实 E2E | AI 调用依赖公司内网 | 需连接 `http://127.0.0.1:11434/v1` |
 | Embedding 真实 E2E | 未配置 Embedding 模型 | 需接入 vLLM Embedding |
 | CLI V3 子命令 | 未实现 `aiks pipeline run <id>` 等 | 后续迭代 |
 | 分页搜索结果 | 搜索结果限 20 条 | 可扩展 |
@@ -243,7 +243,7 @@ $env:VITE_AIKS_MOCK="true"; npm run dev
 ```toml
 [embedding]
 enabled = true
-base_url = "http://10.10.23.16:18000/v1"
+base_url = "http://127.0.0.1:11434/v1"
 model = "bge-m3"
 dimensions = 1024
 batch_size = 16

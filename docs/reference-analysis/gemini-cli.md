@@ -55,4 +55,4 @@ Message format:
 
 - Parsing approach from AICoder Session Viewer (MIT)
 - Original file: `references/aicoder-session-viewer/src-tauri/src/providers/gemini.rs`
-- AIKS derived file: `src/providers/gemini.rs`
+- AIKS derived file: `crates/aiks-core/src/providers/gemini.rs`

@@ -1,3 +1,10 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(
+    clippy::manual_range_contains,
+    clippy::ptr_arg,
+    clippy::redundant_pattern_matching
+)]
+
 /// SiYuan Kernel Runtime Manager.
 ///
 /// Manages the lifecycle of the embedded SiYuan-Kernel process.
@@ -54,11 +61,7 @@ pub struct SiyuanRuntimeConfig {
 }
 
 impl SiyuanRuntimeConfig {
-    pub fn new(
-        runtime_root: PathBuf,
-        workspace: PathBuf,
-        data_dir: &PathBuf,
-    ) -> Self {
+    pub fn new(runtime_root: PathBuf, workspace: PathBuf, data_dir: &PathBuf) -> Self {
         Self {
             runtime_root,
             workspace,
@@ -176,7 +179,11 @@ impl SiyuanRuntime {
     }
 
     pub fn base_url(&self) -> Option<String> {
-        self.info.lock().unwrap().as_ref().map(|i| i.base_url.clone())
+        self.info
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|i| i.base_url.clone())
     }
 
     pub fn runtime_info(&self) -> Option<SiyuanRuntimeInfo> {
@@ -211,12 +218,14 @@ impl SiyuanRuntime {
             ));
         }
 
-        let stage      = config.runtime_root.join("stage");
+        let stage = config.runtime_root.join("stage");
         let appearance = config.runtime_root.join("appearance");
 
         let stage_exists = stage.exists()
             && stage.is_dir()
-            && std::fs::read_dir(&stage).map(|d| d.count() > 0).unwrap_or(false);
+            && std::fs::read_dir(&stage)
+                .map(|d| d.count() > 0)
+                .unwrap_or(false);
         let appearance_exists = appearance.exists()
             && appearance.is_dir()
             && std::fs::read_dir(&appearance)
@@ -262,7 +271,10 @@ impl SiyuanRuntime {
         // Verify the expected version matches
         if let Some(ref expected) = self.config.expected_version {
             if &saved.version != expected {
-                info!("Saved runtime version mismatch ({} vs {}), ignoring", saved.version, expected);
+                info!(
+                    "Saved runtime version mismatch ({} vs {}), ignoring",
+                    saved.version, expected
+                );
                 return None;
             }
         }
@@ -317,7 +329,8 @@ impl SiyuanRuntime {
         // Allocate port
         let port = self.config.port.unwrap_or(0);
         let port = if port == 0 {
-            allocate_port(6806, 6899).ok_or_else(|| anyhow::anyhow!("No available port in range 6806-6899"))?
+            allocate_port(6806, 6899)
+                .ok_or_else(|| anyhow::anyhow!("No available port in range 6806-6899"))?
         } else {
             port
         };
@@ -362,7 +375,10 @@ impl SiyuanRuntime {
         let base_url = format!("http://127.0.0.1:{}", port);
         let expected_ver = self.config.expected_version.clone();
 
-        match self.wait_ready(pid, &base_url, expected_ver.as_deref()).await {
+        match self
+            .wait_ready(pid, &base_url, expected_ver.as_deref())
+            .await
+        {
             Ok(version) => {
                 let info = SiyuanRuntimeInfo {
                     pid,
@@ -401,7 +417,9 @@ impl SiyuanRuntime {
     ) -> anyhow::Result<String> {
         let deadline = tokio::time::Instant::now() + self.config.startup_timeout;
         // Exponential-ish backoff: 250ms, 500ms, 500ms, 1s, 1s, 1s, 2s...
-        let delays_ms: &[u64] = &[250, 500, 500, 1000, 1000, 1000, 2000, 2000, 2000, 3000, 3000, 5000];
+        let delays_ms: &[u64] = &[
+            250, 500, 500, 1000, 1000, 1000, 2000, 2000, 2000, 3000, 3000, 5000,
+        ];
         let mut delay_iter = delays_ms.iter().cycle();
 
         loop {
@@ -501,7 +519,7 @@ impl SiyuanRuntime {
     /// Live health check.
     pub async fn health(&self) -> RuntimeHealth {
         let state = self.state();
-        let info  = self.runtime_info();
+        let info = self.runtime_info();
         let last_error = self.last_error();
 
         RuntimeHealth {
@@ -557,10 +575,7 @@ impl SiyuanRuntime {
 // ── Free functions ─────────────────────────────────────────────────────────────
 
 /// Call /api/system/version and return the version string.
-pub async fn get_siyuan_version(
-    base_url: &str,
-    token: Option<&str>,
-) -> anyhow::Result<String> {
+pub async fn get_siyuan_version(base_url: &str, token: Option<&str>) -> anyhow::Result<String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
         .build()?;
@@ -617,7 +632,11 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn make_config(runtime_root: PathBuf, workspace: PathBuf, data_dir: &PathBuf) -> SiyuanRuntimeConfig {
+    fn make_config(
+        runtime_root: PathBuf,
+        workspace: PathBuf,
+        data_dir: &PathBuf,
+    ) -> SiyuanRuntimeConfig {
         SiyuanRuntimeConfig::new(runtime_root, workspace, data_dir)
     }
 
@@ -629,7 +648,11 @@ mod tests {
         let cfg = make_config(root.clone(), root.join("workspace"), &data);
 
         let kernel = cfg.kernel_exe();
-        let expected_name = if cfg!(windows) { "SiYuan-Kernel.exe" } else { "SiYuan-Kernel" };
+        let expected_name = if cfg!(windows) {
+            "SiYuan-Kernel.exe"
+        } else {
+            "SiYuan-Kernel"
+        };
         assert!(kernel.ends_with(format!("kernel/{}", expected_name)));
         assert!(kernel.starts_with(&root));
     }
@@ -653,7 +676,11 @@ mod tests {
         // Create fake kernel
         let kernel_dir = dir.path().join("kernel");
         std::fs::create_dir_all(&kernel_dir).unwrap();
-        let kernel_name = if cfg!(windows) { "SiYuan-Kernel.exe" } else { "SiYuan-Kernel" };
+        let kernel_name = if cfg!(windows) {
+            "SiYuan-Kernel.exe"
+        } else {
+            "SiYuan-Kernel"
+        };
         let fake_kernel = kernel_dir.join(kernel_name);
         std::fs::write(&fake_kernel, vec![0u8; 2_000_000]).unwrap(); // 2 MB
 
@@ -670,13 +697,17 @@ mod tests {
 
         // Create fake runtime
         let kernel_dir = dir.path().join("kernel");
-        let stage_dir  = dir.path().join("stage");
+        let stage_dir = dir.path().join("stage");
         let appear_dir = dir.path().join("appearance");
         std::fs::create_dir_all(&kernel_dir).unwrap();
         std::fs::create_dir_all(&stage_dir).unwrap();
         std::fs::create_dir_all(&appear_dir).unwrap();
 
-        let kernel_name = if cfg!(windows) { "SiYuan-Kernel.exe" } else { "SiYuan-Kernel" };
+        let kernel_name = if cfg!(windows) {
+            "SiYuan-Kernel.exe"
+        } else {
+            "SiYuan-Kernel"
+        };
         std::fs::write(kernel_dir.join(kernel_name), vec![0u8; 2_000_000]).unwrap();
         std::fs::write(stage_dir.join("index.html"), b"<html/>").unwrap();
         std::fs::write(appear_dir.join("base.css"), b"body{}").unwrap();
@@ -701,8 +732,8 @@ mod tests {
         let mut cfg = make_config(dir.path().to_path_buf(), dir.path().join("ws"), &data);
         cfg.port = Some(7000);
         // Verify the args we'd pass
-        let ws_arg  = format!("--workspace={}", cfg.workspace.display());
-        let wd_arg  = format!("--wd={}", cfg.runtime_root.display());
+        let ws_arg = format!("--workspace={}", cfg.workspace.display());
+        let wd_arg = format!("--wd={}", cfg.runtime_root.display());
         let args: Vec<&str> = vec![
             "serve",
             &ws_arg,

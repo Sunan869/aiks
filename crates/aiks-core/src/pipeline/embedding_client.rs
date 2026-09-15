@@ -64,7 +64,9 @@ impl EmbeddingClient {
 
     /// Embed a batch of texts. Returns embeddings in the same order as input.
     pub async fn embed_batch(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
-        if texts.is_empty() { return Ok(vec![]); }
+        if texts.is_empty() {
+            return Ok(vec![]);
+        }
 
         let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
 
@@ -81,7 +83,11 @@ impl EmbeddingClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Embedding API error {}: {}", status, &body[..body.len().min(200)]);
+            anyhow::bail!(
+                "Embedding API error {}: {}",
+                status,
+                &body[..body.len().min(200)]
+            );
         }
 
         let embed_resp: EmbedResponse = resp.json().await?;
@@ -108,11 +114,17 @@ impl EmbeddingClient {
 
 /// Cosine similarity between two vectors
 pub fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() { return 0.0; }
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 { 0.0 } else { dot / (norm_a * norm_b) }
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
 }
 
 #[cfg(test)]

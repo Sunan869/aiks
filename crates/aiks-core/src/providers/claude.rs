@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::bind_instead_of_map, clippy::useless_format)]
+
 /// Claude Code session provider.
 ///
 /// Session storage: ~/.claude/projects/{project-hash}/{session-uuid}.jsonl
@@ -27,8 +30,8 @@ pub struct ClaudeProvider {
 
 impl ClaudeProvider {
     pub fn default_path() -> anyhow::Result<PathBuf> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Cannot locate home directory"))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot locate home directory"))?;
         Ok(home.join(".claude"))
     }
 
@@ -108,7 +111,9 @@ impl ClaudeProvider {
     }
 
     /// Extract session summary from JSONL content in a single pass.
-    fn scan_summary(content: &str) -> (Option<String>, usize, Option<String>, Option<DateTime<Utc>>) {
+    fn scan_summary(
+        content: &str,
+    ) -> (Option<String>, usize, Option<String>, Option<DateTime<Utc>>) {
         let mut title: Option<String> = None;
         let mut cwd: Option<String> = None;
         let mut started_at: Option<DateTime<Utc>> = None;
@@ -273,7 +278,11 @@ impl ClaudeProvider {
             Some(MessageUsage {
                 input_tokens: Some(raw_input + cache_read + cache_creation),
                 output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()),
-                cache_read_tokens: if cache_read > 0 { Some(cache_read) } else { None },
+                cache_read_tokens: if cache_read > 0 {
+                    Some(cache_read)
+                } else {
+                    None
+                },
                 cache_creation_tokens: if cache_creation > 0 {
                     Some(cache_creation)
                 } else {
@@ -350,7 +359,10 @@ impl ClaudeProvider {
                     .and_then(|n| n.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let id = block.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+                let id = block
+                    .get("id")
+                    .and_then(|i| i.as_str())
+                    .map(|s| s.to_string());
                 let input = block
                     .get("input")
                     .cloned()
@@ -385,7 +397,11 @@ impl ClaudeProvider {
                         .join("\n"),
                     _ => String::new(),
                 };
-                Some(ContentBlock::ToolResult { id, content, is_error })
+                Some(ContentBlock::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                })
             }
             "thinking" => {
                 let text = block.get("thinking")?.as_str()?.to_string();
@@ -441,8 +457,7 @@ impl super::SessionProvider for ClaudeProvider {
             };
 
             let (title, count, cwd, started_at) = Self::scan_summary(&content);
-            let project_path =
-                cwd.unwrap_or_else(|| Self::dir_name_to_path(&project_dir_name));
+            let project_path = cwd.unwrap_or_else(|| Self::dir_name_to_path(&project_dir_name));
 
             let mtime = fs::metadata(&file_path)
                 .ok()
@@ -586,7 +601,10 @@ mod tests {
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Binary search is..."}]},"uuid":"m2","sessionId":"s","cwd":"/home/user/project","timestamp":"2024-01-01T00:00:01Z","parentUuid":"m1"}
 "#;
         let (title, count, cwd, started_at) = ClaudeProvider::scan_summary(content);
-        assert_eq!(title.as_deref(), Some("How do I implement a binary search?"));
+        assert_eq!(
+            title.as_deref(),
+            Some("How do I implement a binary search?")
+        );
         assert_eq!(count, 2);
         assert_eq!(cwd.as_deref(), Some("/home/user/project"));
         assert!(started_at.is_some());

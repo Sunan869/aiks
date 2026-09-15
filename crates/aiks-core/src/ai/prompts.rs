@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::empty_line_after_doc_comments)]
+
 /// Prompt templates for the Knowledge Extractor.
 /// Prompts are versioned to support future re-extraction with new prompts.
 

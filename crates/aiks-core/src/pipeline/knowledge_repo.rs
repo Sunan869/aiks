@@ -1,6 +1,9 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::chunks_exact_to_as_chunks)]
+
 /// Knowledge Item Repository — CRUD for knowledge_item, knowledge_chunk, embedding_record
 use chrono::Utc;
-use rusqlite::params;
+use rusqlite::{params, params_from_iter};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -12,78 +15,196 @@ pub struct KnowledgeRepo<'a> {
 }
 
 impl<'a> KnowledgeRepo<'a> {
-    pub fn new(db: &'a StateDb) -> Self { Self { db } }
+    pub fn new(db: &'a StateDb) -> Self {
+        Self { db }
+    }
 
     /// Save all extracted knowledge items for a session.
-    /// B11: Uses proper cascade delete order in a transaction to avoid FK constraint failures.
+    ///
+    /// Stable identity policy:
+    /// Reuse an existing ID only for a unique normalized (category, title) match.
+    /// A changed title is treated as a new identity unless a future extraction
+    /// schema provides an explicit stable key; never infer identity from category alone.
+    ///
+    /// Reused IDs preserve knowledge_sync_target mappings. Chunks/embeddings/FTS
+    /// are rebuilt because the extracted content may have changed. Removed items
+    /// retain an explicit REMOVED sink tombstone before the item row is deleted.
     pub fn save_items(
         &self,
         session_id: i64,
         project_name: Option<&str>,
         result: &V3ExtractionResult,
     ) -> anyhow::Result<Vec<String>> {
+        #[derive(Debug)]
+        struct ExistingIdentity {
+            id: String,
+            title: String,
+            category: String,
+        }
+
+        fn normalize(value: &str) -> String {
+            value
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        }
+
+        fn key(category: &str, title: &str) -> String {
+            format!("{}\u{1f}{}", normalize(category), normalize(title))
+        }
+
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
-
-        // Cascade delete in dependency order within a transaction
-        // embedding_record → knowledge_chunk → knowledge_item → knowledge_fts
         conn.execute_batch("BEGIN")?;
+
         let result_res: anyhow::Result<Vec<String>> = (|| {
-            // Get existing knowledge IDs for this session
-            let existing_ids: Vec<String> = {
+            let existing: Vec<ExistingIdentity> = {
                 let mut stmt = conn.prepare(
-                    "SELECT id FROM knowledge_item WHERE source_session_id = ?1"
+                    "SELECT id, title, category
+                     FROM knowledge_item
+                     WHERE source_session_id = ?1
+                     ORDER BY rowid",
                 )?;
-                let rows: Vec<String> = stmt
-                    .query_map(params![session_id], |r| r.get(0))?
-                    .filter_map(|r| r.ok())
-                    .collect();
+                let rows = stmt
+                    .query_map(params![session_id], |row| {
+                        Ok(ExistingIdentity {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            category: row.get(2)?,
+                        })
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
                 rows
             };
 
-            // Delete in dependency order
-            for kid in &existing_ids {
-                // 1. embedding_record references knowledge_chunk
-                conn.execute(
-                    "DELETE FROM embedding_record WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
-                    params![kid],
-                )?;
-                // 2. knowledge_chunk references knowledge_item
-                conn.execute("DELETE FROM knowledge_chunk WHERE knowledge_id = ?1", params![kid])?;
-                // 3. FTS entries
-                conn.execute("DELETE FROM knowledge_fts WHERE knowledge_id = ?1", params![kid])?;
+            let mut old_by_key: std::collections::HashMap<String, Vec<usize>> =
+                std::collections::HashMap::new();
+            for (idx, old) in existing.iter().enumerate() {
+                old_by_key
+                    .entry(key(&old.category, &old.title))
+                    .or_default()
+                    .push(idx);
             }
-            // 4. knowledge_item
-            conn.execute("DELETE FROM knowledge_item WHERE source_session_id = ?1", params![session_id])?;
 
-            // Insert new items
-            let mut item_ids = Vec::new();
+            let mut new_key_counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
             for item in &result.items {
-                let id = Uuid::new_v4().to_string();
-                let tags_json = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
+                *new_key_counts
+                    .entry(key(&item.category, &item.title))
+                    .or_default() += 1;
+            }
+
+            let mut assignments: Vec<Option<usize>> = vec![None; result.items.len()];
+            let mut used_old: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+            // Pass 1: exact semantic identity, but only when unique on both sides.
+            for (new_idx, item) in result.items.iter().enumerate() {
+                let semantic_key = key(&item.category, &item.title);
+                if new_key_counts.get(&semantic_key).copied() != Some(1) {
+                    continue;
+                }
+                let Some(old_indexes) = old_by_key.get(&semantic_key) else {
+                    continue;
+                };
+                if old_indexes.len() == 1 && used_old.insert(old_indexes[0]) {
+                    assignments[new_idx] = Some(old_indexes[0]);
+                }
+            }
+
+            // Existing derived data is always invalidated. For matched items the
+            // canonical knowledge ID and sink mapping remain intact.
+            for old in &existing {
+                conn.execute(
+                    "DELETE FROM embedding_record
+                     WHERE chunk_id IN (
+                         SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1
+                     )",
+                    params![old.id],
+                )?;
+                conn.execute(
+                    "DELETE FROM knowledge_chunk WHERE knowledge_id = ?1",
+                    params![old.id],
+                )?;
+                conn.execute(
+                    "DELETE FROM knowledge_fts WHERE knowledge_id = ?1",
+                    params![old.id],
+                )?;
+            }
+
+            // Explicitly tombstone removed items before deleting the item row.
+            for (idx, old) in existing.iter().enumerate() {
+                if used_old.contains(&idx) {
+                    continue;
+                }
+                conn.execute(
+                    "UPDATE knowledge_sync_target
+                     SET status = 'REMOVED', error_message = NULL, updated_at = ?2
+                     WHERE knowledge_id = ?1",
+                    params![old.id, now],
+                )?;
+                conn.execute("DELETE FROM knowledge_item WHERE id = ?1", params![old.id])?;
+            }
+
+            let mut item_ids = Vec::with_capacity(result.items.len());
+            for (new_idx, item) in result.items.iter().enumerate() {
+                let tags_json =
+                    serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
                 let content = build_content(item);
 
-                conn.execute(
-                    "INSERT INTO knowledge_item
-                     (id, source_session_id, project_name, title, category, summary, content,
-                      tags, confidence, worth_extracting, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
-                    params![
-                        id, session_id, project_name,
-                        item.title, item.category, item.summary, content,
-                        tags_json, item.confidence, 1i32, now
-                    ],
-                )?;
+                let id = if let Some(old_idx) = assignments[new_idx] {
+                    let id = existing[old_idx].id.clone();
+                    conn.execute(
+                        "UPDATE knowledge_item
+                         SET project_name = ?2, title = ?3, category = ?4,
+                             summary = ?5, content = ?6, tags = ?7,
+                             confidence = ?8, worth_extracting = 1, updated_at = ?9
+                         WHERE id = ?1 AND source_session_id = ?10",
+                        params![
+                            id,
+                            project_name,
+                            item.title,
+                            item.category,
+                            item.summary,
+                            content,
+                            tags_json,
+                            item.confidence,
+                            now,
+                            session_id,
+                        ],
+                    )?;
+                    id
+                } else {
+                    let id = Uuid::new_v4().to_string();
+                    conn.execute(
+                        "INSERT INTO knowledge_item
+                         (id, source_session_id, project_name, title, category, summary, content,
+                          tags, confidence, worth_extracting, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)",
+                        params![
+                            id,
+                            session_id,
+                            project_name,
+                            item.title,
+                            item.category,
+                            item.summary,
+                            content,
+                            tags_json,
+                            item.confidence,
+                            now,
+                        ],
+                    )?;
+                    id
+                };
 
-                // FTS insert
                 conn.execute(
                     "INSERT INTO knowledge_fts (knowledge_id, title, summary, content, tags)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![id, item.title, item.summary, content, tags_json],
                 )?;
-
                 item_ids.push(id);
             }
+
             Ok(item_ids)
         })();
 
@@ -104,7 +225,7 @@ impl<'a> KnowledgeRepo<'a> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT id, title, category, summary, content, tags, confidence, updated_at
-             FROM knowledge_item WHERE source_session_id = ?1 ORDER BY rowid"
+             FROM knowledge_item WHERE source_session_id = ?1 ORDER BY rowid",
         )?;
         let rows: Vec<KnowledgeItemRow> = stmt
             .query_map(params![session_id], |row| {
@@ -135,23 +256,25 @@ impl<'a> KnowledgeRepo<'a> {
              JOIN source_session ss ON ss.id = ki.source_session_id
              WHERE ki.id = ?1",
             params![id],
-            |row| Ok(KnowledgeItemDetail {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                project_name: row.get(2)?,
-                title: row.get(3)?,
-                category: row.get(4)?,
-                summary: row.get(5)?,
-                content: row.get(6)?,
-                tags: row.get(7)?,
-                confidence: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-                source: row.get(11)?,
-                session_external_id: row.get(12)?,
-                session_title: row.get(13)?,
-                chunks: vec![],
-            }),
+            |row| {
+                Ok(KnowledgeItemDetail {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    project_name: row.get(2)?,
+                    title: row.get(3)?,
+                    category: row.get(4)?,
+                    summary: row.get(5)?,
+                    content: row.get(6)?,
+                    tags: row.get(7)?,
+                    confidence: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    source: row.get(11)?,
+                    session_external_id: row.get(12)?,
+                    session_title: row.get(13)?,
+                    chunks: vec![],
+                })
+            },
         );
 
         match result {
@@ -159,27 +282,32 @@ impl<'a> KnowledgeRepo<'a> {
                 // Load chunks
                 let mut stmt = conn.prepare(
                     "SELECT id, heading, chunk_index, token_count, text
-                     FROM knowledge_chunk WHERE knowledge_id = ?1 ORDER BY chunk_index"
+                     FROM knowledge_chunk WHERE knowledge_id = ?1 ORDER BY chunk_index",
                 )?;
                 detail.chunks = stmt
-                    .query_map(params![detail.id], |row| Ok(KnowledgeChunkRow {
-                        id: row.get(0)?,
-                        heading: row.get(1)?,
-                        chunk_index: row.get(2)?,
-                        token_count: row.get(3)?,
-                        text: row.get(4)?,
-                        has_embedding: false,
-                    }))?
+                    .query_map(params![detail.id], |row| {
+                        Ok(KnowledgeChunkRow {
+                            id: row.get(0)?,
+                            heading: row.get(1)?,
+                            chunk_index: row.get(2)?,
+                            token_count: row.get(3)?,
+                            text: row.get(4)?,
+                            has_embedding: false,
+                        })
+                    })?
                     .filter_map(|r| r.ok())
                     .collect();
 
                 // Check embeddings
                 for chunk in &mut detail.chunks {
-                    let has: bool = conn.query_row(
-                        "SELECT COUNT(*) FROM embedding_record WHERE chunk_id = ?1",
-                        params![chunk.id],
-                        |row| row.get::<_, i64>(0),
-                    ).unwrap_or(0) > 0;
+                    let has: bool = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM embedding_record WHERE chunk_id = ?1",
+                            params![chunk.id],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .unwrap_or(0)
+                        > 0;
                     chunk.has_embedding = has;
                 }
 
@@ -199,7 +327,10 @@ impl<'a> KnowledgeRepo<'a> {
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
 
-        conn.execute("DELETE FROM knowledge_chunk WHERE knowledge_id = ?1", params![knowledge_id])?;
+        conn.execute(
+            "DELETE FROM knowledge_chunk WHERE knowledge_id = ?1",
+            params![knowledge_id],
+        )?;
 
         let mut ids = Vec::new();
         for (i, (heading, text)) in chunks.iter().enumerate() {
@@ -230,9 +361,7 @@ impl<'a> KnowledgeRepo<'a> {
         let id = Uuid::new_v4().to_string();
 
         // Serialize f32 vector as bytes (little-endian)
-        let bytes: Vec<u8> = vector.iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let bytes: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
 
         conn.execute(
             "INSERT OR REPLACE INTO embedding_record (id, chunk_id, model, dimensions, vector, created_at)
@@ -242,6 +371,67 @@ impl<'a> KnowledgeRepo<'a> {
         Ok(())
     }
 
+    /// Load a bounded embedding candidate set for vector reranking.
+    ///
+    /// When `knowledge_ids` is non-empty, candidates are restricted to those
+    /// text/metadata matches. Otherwise the most recently updated knowledge is
+    /// used as a deterministic bounded prefilter. The caller can combine a
+    /// preferred pass with a recent fallback without ever loading the full
+    /// embedding table.
+    pub fn load_embedding_candidates(
+        &self,
+        model: &str,
+        knowledge_ids: &[String],
+        limit: usize,
+    ) -> anyhow::Result<Vec<EmbeddingRow>> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+
+        let conn = self.db.conn();
+        let mut sql = String::from(
+            "SELECT er.chunk_id, er.vector, kc.knowledge_id, kc.text \
+             FROM embedding_record er \
+             JOIN knowledge_chunk kc ON kc.id = er.chunk_id \
+             JOIN knowledge_item ki ON ki.id = kc.knowledge_id \
+             WHERE er.model = ?",
+        );
+        let mut values: Vec<rusqlite::types::Value> = vec![model.to_string().into()];
+
+        if !knowledge_ids.is_empty() {
+            sql.push_str(" AND kc.knowledge_id IN (");
+            for (index, knowledge_id) in knowledge_ids.iter().enumerate() {
+                if index > 0 {
+                    sql.push(',');
+                }
+                sql.push('?');
+                values.push(knowledge_id.clone().into());
+            }
+            sql.push(')');
+        }
+
+        sql.push_str(" ORDER BY ki.updated_at DESC, kc.chunk_index ASC LIMIT ?");
+        values.push((limit as i64).into());
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params_from_iter(values.iter()), |row| {
+                let bytes: Vec<u8> = row.get(1)?;
+                let vector: Vec<f32> = bytes
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+                Ok(EmbeddingRow {
+                    chunk_id: row.get(0)?,
+                    vector,
+                    knowledge_id: row.get(2)?,
+                    chunk_text: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Load all embeddings for a model (for in-memory search)
     pub fn load_all_embeddings(&self, model: &str) -> anyhow::Result<Vec<EmbeddingRow>> {
         let conn = self.db.conn();
@@ -249,7 +439,7 @@ impl<'a> KnowledgeRepo<'a> {
             "SELECT er.chunk_id, er.vector, kc.knowledge_id, kc.text
              FROM embedding_record er
              JOIN knowledge_chunk kc ON kc.id = er.chunk_id
-             WHERE er.model = ?1"
+             WHERE er.model = ?1",
         )?;
         let rows: Vec<EmbeddingRow> = stmt
             .query_map(params![model], |row| {
@@ -279,12 +469,24 @@ fn build_content(item: &V3KnowledgeItem) -> String {
     }
     if let Some(rc) = &item.root_causes {
         if !rc.is_empty() {
-            parts.push(format!("**根因：**\n{}", rc.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")));
+            parts.push(format!(
+                "**根因：**\n{}",
+                rc.iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
     }
     if let Some(sol) = &item.solutions {
         if !sol.is_empty() {
-            parts.push(format!("**解决方案：**\n{}", sol.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")));
+            parts.push(format!(
+                "**解决方案：**\n{}",
+                sol.iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
     }
     if let Some(cmds) = &item.key_commands {
@@ -294,7 +496,14 @@ fn build_content(item: &V3KnowledgeItem) -> String {
     }
     if let Some(files) = &item.key_files {
         if !files.is_empty() {
-            parts.push(format!("**关键文件：**\n{}", files.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")));
+            parts.push(format!(
+                "**关键文件：**\n{}",
+                files
+                    .iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
     }
     if !item.content.is_empty() {

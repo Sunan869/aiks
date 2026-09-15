@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::should_implement_trait, clippy::too_many_arguments)]
+
 use chrono::Utc;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -28,6 +31,8 @@ pub enum SyncStatus {
     Conflict,
     /// Source session is missing
     MissingSource,
+    /// Knowledge item was removed by a later extraction, while its sink mapping is retained as a tombstone
+    Removed,
 }
 
 impl SyncStatus {
@@ -42,6 +47,7 @@ impl SyncStatus {
             SyncStatus::FailedPermanent => "FAILED_PERMANENT",
             SyncStatus::Conflict => "CONFLICT",
             SyncStatus::MissingSource => "MISSING_SOURCE",
+            SyncStatus::Removed => "REMOVED",
         }
     }
 
@@ -56,6 +62,7 @@ impl SyncStatus {
             "FAILED_PERMANENT" => Some(SyncStatus::FailedPermanent),
             "CONFLICT" => Some(SyncStatus::Conflict),
             "MISSING_SOURCE" => Some(SyncStatus::MissingSource),
+            "REMOVED" => Some(SyncStatus::Removed),
             _ => None,
         }
     }
@@ -121,8 +128,16 @@ impl<'a> SourceSessionRepo<'a> {
                is_missing = 0,
                updated_at = excluded.updated_at",
             params![
-                source, external_session_id, source_path, project_path, project_name,
-                title, source_updated_at, content_hash, parser_version, now
+                source,
+                external_session_id,
+                source_path,
+                project_path,
+                project_name,
+                title,
+                source_updated_at,
+                content_hash,
+                parser_version,
+                now
             ],
         )?;
 
@@ -315,7 +330,15 @@ impl<'a> SyncTargetRepo<'a> {
                  synced_hash = ?5, target_hash = ?6, last_synced_at = ?7,
                  last_error = NULL, retry_count = 0
              WHERE session_id = ?1 AND sink = ?2",
-            params![session_id, sink, target_id, target_path, synced_hash, target_hash, now],
+            params![
+                session_id,
+                sink,
+                target_id,
+                target_path,
+                synced_hash,
+                target_hash,
+                now
+            ],
         )?;
         Ok(())
     }
@@ -335,7 +358,11 @@ impl<'a> SyncTargetRepo<'a> {
         error: &str,
         retryable: bool,
     ) -> anyhow::Result<()> {
-        let status = if retryable { "FAILED_RETRYABLE" } else { "FAILED_PERMANENT" };
+        let status = if retryable {
+            "FAILED_RETRYABLE"
+        } else {
+            "FAILED_PERMANENT"
+        };
         self.db.conn().execute(
             "UPDATE sync_target
              SET status = ?3, last_error = ?4, retry_count = retry_count + 1
@@ -402,7 +429,11 @@ impl<'a> KnowledgeSyncRepo<'a> {
         Self { db }
     }
 
-    pub fn find(&self, knowledge_id: &str, sink: &str) -> anyhow::Result<Option<KnowledgeSyncTarget>> {
+    pub fn find(
+        &self,
+        knowledge_id: &str,
+        sink: &str,
+    ) -> anyhow::Result<Option<KnowledgeSyncTarget>> {
         let result = self.db.conn().query_row(
             "SELECT knowledge_id, sink, target_id, target_path, synced_hash, target_hash,
                     status, error_message, updated_at
@@ -508,12 +539,7 @@ impl<'a> KnowledgeSyncRepo<'a> {
         Ok(())
     }
 
-    pub fn mark_failed(
-        &self,
-        knowledge_id: &str,
-        sink: &str,
-        error: &str,
-    ) -> anyhow::Result<()> {
+    pub fn mark_failed(&self, knowledge_id: &str, sink: &str, error: &str) -> anyhow::Result<()> {
         let now = Utc::now().to_rfc3339();
         self.db.conn().execute(
             "INSERT INTO knowledge_sync_target (knowledge_id, sink, status, error_message, updated_at)
@@ -523,6 +549,20 @@ impl<'a> KnowledgeSyncRepo<'a> {
                error_message = excluded.error_message,
                updated_at = excluded.updated_at",
             params![knowledge_id, sink, error, now],
+        )?;
+        Ok(())
+    }
+
+    /// Keep the remote target identity when an extracted knowledge item disappears.
+    /// This explicit tombstone prevents a remote SiYuan document from becoming
+    /// an untraceable orphan and leaves enough information for later cleanup.
+    pub fn mark_removed(&self, knowledge_id: &str, sink: &str) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "UPDATE knowledge_sync_target
+             SET status = 'REMOVED', error_message = NULL, updated_at = ?3
+             WHERE knowledge_id = ?1 AND sink = ?2",
+            params![knowledge_id, sink, now],
         )?;
         Ok(())
     }
@@ -699,18 +739,44 @@ mod tests {
         let repo = SourceSessionRepo::new(&db);
 
         let id1 = repo
-            .upsert("claude_code", "sess-1", Some("/path/to/session.jsonl"), None, None, Some("Hello"), None, Some("abc123"), Some("claude-v1"))
+            .upsert(
+                "claude_code",
+                "sess-1",
+                Some("/path/to/session.jsonl"),
+                None,
+                None,
+                Some("Hello"),
+                None,
+                Some("abc123"),
+                Some("claude-v1"),
+            )
             .unwrap();
 
-        let found = repo.find_by_source_and_id("claude_code", "sess-1").unwrap().unwrap();
+        let found = repo
+            .find_by_source_and_id("claude_code", "sess-1")
+            .unwrap()
+            .unwrap();
         assert_eq!(found.id, id1);
         assert_eq!(found.content_hash.as_deref(), Some("abc123"));
 
         // Upsert again with different hash
-        repo.upsert("claude_code", "sess-1", Some("/path/to/session.jsonl"), None, None, Some("Hello updated"), None, Some("def456"), Some("claude-v1"))
-            .unwrap();
+        repo.upsert(
+            "claude_code",
+            "sess-1",
+            Some("/path/to/session.jsonl"),
+            None,
+            None,
+            Some("Hello updated"),
+            None,
+            Some("def456"),
+            Some("claude-v1"),
+        )
+        .unwrap();
 
-        let found2 = repo.find_by_source_and_id("claude_code", "sess-1").unwrap().unwrap();
+        let found2 = repo
+            .find_by_source_and_id("claude_code", "sess-1")
+            .unwrap()
+            .unwrap();
         assert_eq!(found2.content_hash.as_deref(), Some("def456"));
         assert_eq!(found2.id, id1); // Same row updated
     }
@@ -722,7 +788,17 @@ mod tests {
         let target_repo = SyncTargetRepo::new(&db);
 
         let session_id = session_repo
-            .upsert("claude_code", "sess-1", None, None, None, None, None, None, None)
+            .upsert(
+                "claude_code",
+                "sess-1",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
 
         target_repo.upsert_pending(session_id, "siyuan").unwrap();
@@ -731,7 +807,14 @@ mod tests {
         assert_eq!(target.status, SyncStatus::Pending);
 
         target_repo
-            .mark_synced(session_id, "siyuan", "doc-id", "/path", "hash-1", Some("target-hash-1"))
+            .mark_synced(
+                session_id,
+                "siyuan",
+                "doc-id",
+                "/path",
+                "hash-1",
+                Some("target-hash-1"),
+            )
             .unwrap();
 
         let target = target_repo.find(session_id, "siyuan").unwrap().unwrap();

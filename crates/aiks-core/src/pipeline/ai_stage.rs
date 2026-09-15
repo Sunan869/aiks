@@ -1,3 +1,11 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(
+    clippy::collapsible_str_replace,
+    clippy::too_many_arguments,
+    clippy::unnecessary_lazy_evaluations,
+    clippy::vec_init_then_push
+)]
+
 /// V3 AI Extraction Stage
 ///
 /// Calls the AI model on session chunks and produces 0~N KnowledgeItems.
@@ -7,10 +15,12 @@ use std::time::Instant;
 use tracing::info;
 
 use crate::ai::{
-    AiClient,
     config::AiModelConfig,
-    prompts_v3::{make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt, SYSTEM_PROMPT_V3},
+    prompts_v3::{
+        make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt, SYSTEM_PROMPT_V3,
+    },
     schema_v3::{V3ExtractionResult, V3KnowledgeItem},
+    AiClient,
 };
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;
@@ -71,7 +81,9 @@ impl AiStage {
         let head_s: String = prompt.chars().take(head).collect();
         let tail_s: String = prompt.chars().skip(total - tail).collect();
         tracing::warn!(
-            chars = total, max_chars, dropped,
+            chars = total,
+            max_chars,
+            dropped,
             "Prompt exceeds model context budget; truncating middle"
         );
         format!(
@@ -101,7 +113,11 @@ impl AiStage {
         }
 
         let t0 = Instant::now();
-        info!(session_id, chunks = chunks.len(), "[AI] Starting extraction");
+        info!(
+            session_id,
+            chunks = chunks.len(),
+            "[AI] Starting extraction"
+        );
 
         let result = if chunks.len() == 1 {
             // Single chunk: direct extraction
@@ -113,13 +129,24 @@ impl AiStage {
             parse_v3_result_typed(&response)?
         } else {
             // Multiple chunks: Map-Reduce
-            self.map_reduce(session_title, project_name, &chunks).await?
+            self.map_reduce(session_title, project_name, &chunks)
+                .await?
         };
 
         let latency_ms = t0.elapsed().as_millis() as i64;
 
         // Log AI request
-        log_ai_request(db, pipeline_run_id, "AI_EXTRACT", &self.config.model, &self.config.base_url, chunks.len(), result.items.len(), latency_ms, true);
+        log_ai_request(
+            db,
+            pipeline_run_id,
+            "AI_EXTRACT",
+            &self.config.model,
+            &self.config.base_url,
+            chunks.len(),
+            result.items.len(),
+            latency_ms,
+            true,
+        );
 
         if !result.worth_extracting || result.items.is_empty() {
             info!(
@@ -128,8 +155,12 @@ impl AiStage {
                 "[AI] Session not worth extracting or produced 0 items"
             );
             pipeline_repo.record_stage(
-                pipeline_run_id, "AI_EXTRACTED", "SUCCESS",
-                Some(chunks.len() as i32), Some(0), Some(latency_ms),
+                pipeline_run_id,
+                "AI_EXTRACTED",
+                "SUCCESS",
+                Some(chunks.len() as i32),
+                Some(0),
+                Some(latency_ms),
                 Some(&serde_json::json!({"score": result.knowledge_score, "items": 0})),
                 None,
             )?;
@@ -137,14 +168,23 @@ impl AiStage {
         }
 
         let item_count = result.items.len();
-        info!(session_id, items = item_count, latency_ms, "[AI] Extraction complete");
+        info!(
+            session_id,
+            items = item_count,
+            latency_ms,
+            "[AI] Extraction complete"
+        );
 
         // Save knowledge items
         knowledge_repo.save_items(session_id, project_name, &result)?;
 
         pipeline_repo.record_stage(
-            pipeline_run_id, "AI_EXTRACTED", "SUCCESS",
-            Some(chunks.len() as i32), Some(item_count as i32), Some(latency_ms),
+            pipeline_run_id,
+            "AI_EXTRACTED",
+            "SUCCESS",
+            Some(chunks.len() as i32),
+            Some(item_count as i32),
+            Some(latency_ms),
             Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count})),
             None,
         )?;
@@ -173,7 +213,8 @@ impl AiStage {
         let title = session_title.unwrap_or("未知会话");
         // The final prompt concatenates every chunk summary — with hundreds of
         // chunks this alone can exceed the window (observed: 175 summaries).
-        let final_prompt = self.fit_to_budget(&make_v3_final_prompt(title, project_name, &chunk_summaries));
+        let final_prompt =
+            self.fit_to_budget(&make_v3_final_prompt(title, project_name, &chunk_summaries));
         let response = self.client.chat(SYSTEM_PROMPT_V3, &final_prompt).await?;
         // R10: final parse errors propagate as real failures.
         parse_v3_result_typed(&response)
@@ -282,10 +323,9 @@ fn schema_patch_candidates(clean: &str) -> Vec<String> {
             // Patch each item too — the final-stage model drops required
             // item fields (observed: "missing field `summary`").
             let items = match map.get("items") {
-                Some(serde_json::Value::Array(arr)) => arr
-                    .iter()
-                    .filter_map(patch_item_value)
-                    .collect::<Vec<_>>(),
+                Some(serde_json::Value::Array(arr)) => {
+                    arr.iter().filter_map(patch_item_value).collect::<Vec<_>>()
+                }
                 _ => vec![],
             };
             out.push(
@@ -312,8 +352,7 @@ fn schema_patch_candidates(clean: &str) -> Vec<String> {
             );
         }
         serde_json::Value::Array(ref arr) if !arr.is_empty() => {
-            let items: Vec<serde_json::Value> =
-                arr.iter().filter_map(patch_item_value).collect();
+            let items: Vec<serde_json::Value> = arr.iter().filter_map(patch_item_value).collect();
             if items.is_empty() {
                 return out;
             }
@@ -387,8 +426,8 @@ fn repair_attempts(clean: &str) -> Vec<String> {
 fn normalize_smart_quotes(s: &str) -> String {
     s.replace('\u{201c}', "\"") // “
         .replace('\u{201d}', "\"") // ”
-        .replace('\u{2018}', "'")  // ‘
-        .replace('\u{2019}', "'")  // ’
+        .replace('\u{2018}', "'") // ‘
+        .replace('\u{2019}', "'") // ’
 }
 
 fn clean_json(s: &str) -> String {
@@ -398,12 +437,23 @@ fn clean_json(s: &str) -> String {
     let s = s.trim_start_matches(['\u{feff}', '\u{200b}', '\u{200c}', '\u{200d}']);
     let s = s.trim();
     let s = if s.starts_with("```") {
-        let after = s.trim_start_matches('`').trim_start_matches("json").trim_start_matches('\n');
-        if let Some(end) = after.rfind("```") { &after[..end] } else { after }
-    } else { s };
+        let after = s
+            .trim_start_matches('`')
+            .trim_start_matches("json")
+            .trim_start_matches('\n');
+        if let Some(end) = after.rfind("```") {
+            &after[..end]
+        } else {
+            after
+        }
+    } else {
+        s
+    };
     if let (Some(start), Some(end)) = (s.find('{'), s.rfind('}')) {
         s[start..=end].to_string()
-    } else { s.to_string() }
+    } else {
+        s.to_string()
+    }
 }
 
 fn strip_think_blocks(s: &str) -> String {
@@ -666,12 +716,10 @@ fn repair_json_lenient(s: &str) -> String {
 
     if let Ok(re) = Regex::new(r#"(:\s*)(True|False|None)\b"#) {
         out = re
-            .replace_all(&out, |caps: &regex::Captures| {
-                match &caps[2] {
-                    "True" => format!("{}true", &caps[1]),
-                    "False" => format!("{}false", &caps[1]),
-                    _ => format!("{}null", &caps[1]),
-                }
+            .replace_all(&out, |caps: &regex::Captures| match &caps[2] {
+                "True" => format!("{}true", &caps[1]),
+                "False" => format!("{}false", &caps[1]),
+                _ => format!("{}null", &caps[1]),
             })
             .to_string();
     }
@@ -766,7 +814,8 @@ mod tests {
     /// Qwen-style unquoted keys must be repaired, not failed.
     #[test]
     fn parse_repairs_unquoted_keys() {
-        let json = r#"{session_summary:"x", knowledge_score:0.5, worth_extracting:false, items:[]}"#;
+        let json =
+            r#"{session_summary:"x", knowledge_score:0.5, worth_extracting:false, items:[]}"#;
         let result = parse_v3_result_typed(json).unwrap();
         assert!(!result.worth_extracting);
     }
@@ -783,7 +832,8 @@ mod tests {
     /// Single-quoted JSON (no double quotes anywhere) is repaired.
     #[test]
     fn parse_repairs_single_quotes() {
-        let json = "{'session_summary':'x','knowledge_score':0.4,'worth_extracting':false,'items':[]}";
+        let json =
+            "{'session_summary':'x','knowledge_score':0.4,'worth_extracting':false,'items':[]}";
         let result = parse_v3_result_typed(json).unwrap();
         assert!(!result.worth_extracting);
     }
@@ -803,7 +853,8 @@ mod tests {
     /// fire, the aggressive flattening pass has to save it.
     #[test]
     fn parse_repairs_mixed_quotes() {
-        let json = "{'session_summary':'x',\"knowledge_score\":0.4,'worth_extracting':false,'items':[]}";
+        let json =
+            "{'session_summary':'x',\"knowledge_score\":0.4,'worth_extracting':false,'items':[]}";
         let result = parse_v3_result_typed(json).unwrap();
         assert_eq!(result.session_summary, "x");
         assert!(!result.worth_extracting);
@@ -832,7 +883,10 @@ mod tests {
     fn parse_failure_includes_head_preview() {
         let garbage = "{\"aaaa\": ".to_string() + &"b".repeat(400);
         let err = parse_v3_result_typed(&garbage).unwrap_err().to_string();
-        assert!(err.contains("head:"), "error should carry a head preview: {err}");
+        assert!(
+            err.contains("head:"),
+            "error should carry a head preview: {err}"
+        );
     }
 
     /// vLLM chat templates often swallow the opening <think> tag and leave a
@@ -876,7 +930,9 @@ mod tests {
     /// Qwen3 soft switch must sit at the END of the user message.
     #[test]
     fn v3_prompts_end_with_no_think_suffix() {
-        use crate::ai::prompts_v3::{make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt};
+        use crate::ai::prompts_v3::{
+            make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt,
+        };
         assert!(make_v3_extraction_prompt("内容").ends_with("/no_think"));
         assert!(make_v3_chunk_prompt("内容", 0, 2).ends_with("/no_think"));
         assert!(make_v3_final_prompt("标题", None, &["摘要".into()]).ends_with("/no_think"));
@@ -917,7 +973,8 @@ mod tests {
         let cfg = AiModelConfig::default();
         let stage = AiStage::new(cfg.clone()).unwrap();
         let budget = stage.prompt_char_budget();
-        let usable_tokens = cfg.max_context_tokens - cfg.max_tokens as usize - PROMPT_OVERHEAD_TOKENS;
+        let usable_tokens =
+            cfg.max_context_tokens - cfg.max_tokens as usize - PROMPT_OVERHEAD_TOKENS;
         assert!(
             (budget as f64) <= usable_tokens as f64 * BUDGET_CHARS_PER_TOKEN,
             "budget {} chars exceeds usable {} tokens",
@@ -958,7 +1015,10 @@ mod tests {
         let truncated = r#"{"session_summary":"对 dataset-eval 项目进行了全面的分析。","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"条目A","category":"architecture","summary":"内容到这里被截断"#;
         let result = parse_v3_result_typed(truncated).unwrap();
         assert!(result.worth_extracting);
-        assert_eq!(result.session_summary, "对 dataset-eval 项目进行了全面的分析。");
+        assert_eq!(
+            result.session_summary,
+            "对 dataset-eval 项目进行了全面的分析。"
+        );
         assert!(result.items.is_empty());
     }
 
@@ -966,9 +1026,12 @@ mod tests {
     /// the boundary cut lands on the inter-item comma.
     #[test]
     fn parse_keeps_complete_items_before_truncation() {
-        let item = |t: &str| format!(
-            r#"{{"title":"{}","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.9}}"#, t
-        );
+        let item = |t: &str| {
+            format!(
+                r#"{{"title":"{}","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.9}}"#,
+                t
+            )
+        };
         let truncated = format!(
             r#"{{"session_summary":"多条目","knowledge_score":0.9,"worth_extracting":true,"items":[{},{},"#,
             item("甲"),
@@ -986,9 +1049,12 @@ mod tests {
     /// Each item must be recovered individually.
     #[test]
     fn parse_recovers_bare_concatenated_items() {
-        let item = |t: &str| format!(
-            r#"{{"title":"{}","category":"implementation","summary":"s{}","content":"c{}","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":["t"],"confidence":0.85}}"#, t, t, t
-        );
+        let item = |t: &str| {
+            format!(
+                r#"{{"title":"{}","category":"implementation","summary":"s{}","content":"c{}","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":["t"],"confidence":0.85}}"#,
+                t, t, t
+            )
+        };
         let leaked = format!("{}\n\n{}\n\n{}", item("一"), item("二"), item("三"));
         let result = parse_v3_result_typed(&leaked).unwrap();
         assert!(result.worth_extracting);
@@ -1024,7 +1090,10 @@ mod tests {
     fn parse_failure_reports_missing_field() {
         let json = r#"{"unrelated": true}"#;
         let err = parse_v3_result_typed(json).unwrap_err().to_string();
-        assert!(err.contains("missing field"), "error should name the missing field: {err}");
+        assert!(
+            err.contains("missing field"),
+            "error should name the missing field: {err}"
+        );
     }
 
     /// Observed live (sessions 370/366/354/348/342): final-stage items drop

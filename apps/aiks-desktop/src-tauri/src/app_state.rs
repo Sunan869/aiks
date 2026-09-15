@@ -2,8 +2,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aiks_core::AiksEngine;
 use aiks_core::watcher::WatcherHandle;
+use aiks_core::AiksEngine;
 use tokio::sync::Mutex;
 
 /// State shared across all Tauri commands.

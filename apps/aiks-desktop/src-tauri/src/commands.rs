@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use aiks_core::runtime::SiyuanRuntime;
 use serde::{Deserialize, Serialize};
-use tauri::{State};
+use tauri::State;
 use tokio::sync::Mutex;
 
 use crate::app_state::AppState;
@@ -142,8 +142,13 @@ pub async fn get_status(
             .map_err(|e| e.to_string())
     } else {
         Ok(StatusResponse {
-            total_sessions: 0, synced: 0, pending: 0, conflict: 0, failed: 0,
-            last_sync_at: None, runtime: runtime_dto,
+            total_sessions: 0,
+            synced: 0,
+            pending: 0,
+            conflict: 0,
+            failed: 0,
+            last_sync_at: None,
+            runtime: runtime_dto,
         })
     }
 }
@@ -192,11 +197,15 @@ pub async fn get_doctor(state: State<'_, AppState>) -> Result<DoctorResponse, St
     let engine = state.engine().ok_or("Engine not initialized")?;
     let result = engine.doctor().await;
     Ok(DoctorResponse {
-        checks: result.checks.into_iter().map(|c| DoctorCheckDto {
-            name: c.name,
-            ok: c.ok,
-            message: c.message,
-        }).collect(),
+        checks: result
+            .checks
+            .into_iter()
+            .map(|c| DoctorCheckDto {
+                name: c.name,
+                ok: c.ok,
+                message: c.message,
+            })
+            .collect(),
         all_ok: result.all_ok,
     })
 }
@@ -254,8 +263,8 @@ pub async fn save_settings(
     config.content.include_tool_calls = settings.include_tool_calls;
     config.content.max_tool_result_chars = settings.max_tool_result_chars;
 
-    let toml_content =
-        toml::to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let toml_content = toml::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     // Atomic write: temp file + rename so a crash never leaves a half-written config.
     let tmp_file = state.data_dir.join("config").join("aiks.toml.tmp");
@@ -266,7 +275,7 @@ pub async fn save_settings(
 }
 
 #[tauri::command]
-pub async fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn open_data_folder(_state: State<'_, AppState>) -> Result<(), String> {
     #[cfg(windows)]
     {
         std::process::Command::new("explorer")
@@ -283,7 +292,10 @@ pub async fn restart_siyuan(
 ) -> Result<u16, String> {
     let mut lock = runtime.lock().await;
     if let Some(rt) = lock.as_mut() {
-        rt.restart().await.map(|info| info.port).map_err(|e| e.to_string())
+        rt.restart()
+            .await
+            .map(|info| info.port)
+            .map_err(|e| e.to_string())
     } else {
         Err("SiYuan runtime not initialized".to_string())
     }
@@ -303,14 +315,19 @@ pub async fn get_sessions(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let scan = engine.scan(source.as_deref()).await;
     let limit = limit.unwrap_or(100);
-    Ok(scan.summaries.into_iter().take(limit).map(|s| SessionDto {
-        id: s.external_session_id,
-        source: s.source.display_name().to_string(),
-        title: s.title,
-        project_path: s.project_path,
-        message_count: s.message_count,
-        updated_at: s.updated_at.map(|t| t.to_rfc3339()),
-    }).collect())
+    Ok(scan
+        .summaries
+        .into_iter()
+        .take(limit)
+        .map(|s| SessionDto {
+            id: s.external_session_id,
+            source: s.source.display_name().to_string(),
+            title: s.title,
+            project_path: s.project_path,
+            message_count: s.message_count,
+            updated_at: s.updated_at.map(|t| t.to_rfc3339()),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -396,11 +413,14 @@ pub async fn get_recent_knowledge(
     let limit = limit.unwrap_or(10);
 
     // Check table exists
-    let table_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_extraction'",
-        [],
-        |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_extraction'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
 
     if !table_exists {
         return Ok(vec![]);
@@ -412,16 +432,18 @@ pub async fn get_recent_knowledge(
          ORDER BY updated_at DESC LIMIT ?1"
     ).map_err(|e| e.to_string())?;
 
-    let rows = stmt.query_map([limit as i64], |row| {
-        Ok(serde_json::json!({
-            "source": row.get::<_, String>(0)?,
-            "session_id": row.get::<_, String>(1)?,
-            "category": row.get::<_, Option<String>>(2)?,
-            "score": row.get::<_, Option<f64>>(3)?,
-            "doc_id": row.get::<_, Option<String>>(4)?,
-            "updated_at": row.get::<_, String>(5)?
-        }))
-    }).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([limit as i64], |row| {
+            Ok(serde_json::json!({
+                "source": row.get::<_, String>(0)?,
+                "session_id": row.get::<_, String>(1)?,
+                "category": row.get::<_, Option<String>>(2)?,
+                "score": row.get::<_, Option<f64>>(3)?,
+                "doc_id": row.get::<_, Option<String>>(4)?,
+                "updated_at": row.get::<_, String>(5)?
+            }))
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
@@ -451,7 +473,7 @@ pub async fn open_knowledge_window(
 pub async fn get_full_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
     let full = engine.full_status().await;
-    Ok(serde_json::to_value(full).map_err(|e| e.to_string())?)
+    serde_json::to_value(full).map_err(|e| e.to_string())
 }
 
 /// Sync AND enqueue extraction (the main sync button).
@@ -471,7 +493,10 @@ pub async fn sync_and_extract(
     // R09: use the SAME orchestration as startup/watcher/tray — real sync that
     // also submits PipelineJobs to the worker. Previously this only ran a plain
     // sync and logged candidates without ever enqueuing anything.
-    let stats = engine.sync_and_enqueue_extraction(opts).await.map_err(|e| e.to_string())?;
+    let stats = engine
+        .sync_and_enqueue_extraction(opts)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "discovered": stats.discovered,
@@ -495,8 +520,10 @@ pub async fn list_pipeline_runs(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let orchestrator = aiks_core::PipelineOrchestrator::new(db);
-    let runs = orchestrator.list_runs(limit.unwrap_or(200)).map_err(|e| e.to_string())?;
-    Ok(serde_json::to_value(runs).map_err(|e| e.to_string())?)
+    let runs = orchestrator
+        .list_runs(limit.unwrap_or(200))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(runs).map_err(|e| e.to_string())
 }
 
 /// Get pipeline run detail (with stage trace)
@@ -508,7 +535,10 @@ pub async fn get_pipeline_detail(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let orchestrator = aiks_core::PipelineOrchestrator::new(db);
-    match orchestrator.get_run_detail(&run_id).map_err(|e| e.to_string())? {
+    match orchestrator
+        .get_run_detail(&run_id)
+        .map_err(|e| e.to_string())?
+    {
         Some(detail) => Ok(serde_json::to_value(detail).map_err(|e| e.to_string())?),
         None => Err(format!("Pipeline run not found: {}", run_id)),
     }
@@ -521,7 +551,7 @@ pub async fn get_pipeline_stats(state: State<'_, AppState>) -> Result<serde_json
     let db = engine.db();
     let orchestrator = aiks_core::PipelineOrchestrator::new(db);
     let stats = orchestrator.get_stats().map_err(|e| e.to_string())?;
-    Ok(serde_json::to_value(stats).map_err(|e| e.to_string())?)
+    serde_json::to_value(stats).map_err(|e| e.to_string())
 }
 
 /// List sessions (V3 version — from DB with pipeline status)
@@ -549,21 +579,23 @@ pub async fn list_sessions_v3(
              ORDER BY ss.source_updated_at DESC
              LIMIT ?1 OFFSET ?2"
         ).map_err(|e| e.to_string())?;
-        let mapped = stmt.query_map(rusqlite::params![limit as i64, offset as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, i64>(0)?,
-                "source": row.get::<_, String>(1)?,
-                "session_id": row.get::<_, String>(2)?,
-                "title": row.get::<_, Option<String>>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "project_path": row.get::<_, Option<String>>(5)?,
-                "updated_at": row.get::<_, Option<String>>(6)?,
-                "content_hash": row.get::<_, Option<String>>(7)?,
-                "run_id": row.get::<_, Option<String>>(8)?,
-                "pipeline_status": row.get::<_, Option<String>>(9)?,
-                "current_stage": row.get::<_, Option<String>>(10)?
-            }))
-        }).map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, i64>(0)?,
+                    "source": row.get::<_, String>(1)?,
+                    "session_id": row.get::<_, String>(2)?,
+                    "title": row.get::<_, Option<String>>(3)?,
+                    "project_name": row.get::<_, Option<String>>(4)?,
+                    "project_path": row.get::<_, Option<String>>(5)?,
+                    "updated_at": row.get::<_, Option<String>>(6)?,
+                    "content_hash": row.get::<_, Option<String>>(7)?,
+                    "run_id": row.get::<_, Option<String>>(8)?,
+                    "pipeline_status": row.get::<_, Option<String>>(9)?,
+                    "current_stage": row.get::<_, Option<String>>(10)?
+                }))
+            })
+            .map_err(|e| e.to_string())?;
         let result: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         result
     } else {
@@ -577,30 +609,40 @@ pub async fn list_sessions_v3(
              ORDER BY ss.source_updated_at DESC
              LIMIT ?2 OFFSET ?3"
         ).map_err(|e| e.to_string())?;
-        let mapped = stmt.query_map(rusqlite::params![source_filter, limit as i64, offset as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, i64>(0)?,
-                "source": row.get::<_, String>(1)?,
-                "session_id": row.get::<_, String>(2)?,
-                "title": row.get::<_, Option<String>>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "project_path": row.get::<_, Option<String>>(5)?,
-                "updated_at": row.get::<_, Option<String>>(6)?,
-                "content_hash": row.get::<_, Option<String>>(7)?,
-                "run_id": row.get::<_, Option<String>>(8)?,
-                "pipeline_status": row.get::<_, Option<String>>(9)?,
-                "current_stage": row.get::<_, Option<String>>(10)?
-            }))
-        }).map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map(
+                rusqlite::params![source_filter, limit as i64, offset as i64],
+                |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, i64>(0)?,
+                        "source": row.get::<_, String>(1)?,
+                        "session_id": row.get::<_, String>(2)?,
+                        "title": row.get::<_, Option<String>>(3)?,
+                        "project_name": row.get::<_, Option<String>>(4)?,
+                        "project_path": row.get::<_, Option<String>>(5)?,
+                        "updated_at": row.get::<_, Option<String>>(6)?,
+                        "content_hash": row.get::<_, Option<String>>(7)?,
+                        "run_id": row.get::<_, Option<String>>(8)?,
+                        "pipeline_status": row.get::<_, Option<String>>(9)?,
+                        "current_stage": row.get::<_, Option<String>>(10)?
+                    }))
+                },
+            )
+            .map_err(|e| e.to_string())?;
         let result: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         result
     };
 
     let total: i64 = if source_filter.is_empty() {
-        conn.query_row("SELECT COUNT(*) FROM source_session", [], |r| r.get(0)).unwrap_or(0)
+        conn.query_row("SELECT COUNT(*) FROM source_session", [], |r| r.get(0))
+            .unwrap_or(0)
     } else {
-        conn.query_row("SELECT COUNT(*) FROM source_session WHERE source = ?1",
-            rusqlite::params![source_filter], |r| r.get(0)).unwrap_or(0)
+        conn.query_row(
+            "SELECT COUNT(*) FROM source_session WHERE source = ?1",
+            rusqlite::params![source_filter],
+            |r| r.get(0),
+        )
+        .unwrap_or(0)
     };
 
     Ok(serde_json::json!({
@@ -626,10 +668,14 @@ pub async fn list_knowledge(
     let limit = limit.unwrap_or(50);
     let offset = offset.unwrap_or(0);
 
-    let table_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
-        [], |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
 
     if !table_exists {
         return Ok(serde_json::json!({"items": [], "total": 0}));
@@ -670,9 +716,8 @@ pub async fn list_knowledge(
         let mut all_params = filter_params.clone();
         all_params.push(rusqlite::types::Value::Integer(limit as i64));
         all_params.push(rusqlite::types::Value::Integer(offset as i64));
-        let mapped = stmt.query_map(
-            rusqlite::params_from_iter(all_params),
-            |row| {
+        let mapped = stmt
+            .query_map(rusqlite::params_from_iter(all_params), |row| {
                 Ok(serde_json::json!({
                     "id": row.get::<_, String>(0)?,
                     "session_id": row.get::<_, i64>(1)?,
@@ -685,8 +730,8 @@ pub async fn list_knowledge(
                     "created_at": row.get::<_, String>(8)?,
                     "updated_at": row.get::<_, String>(9)?
                 }))
-            }
-        ).map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
         let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         r
     };
@@ -695,8 +740,12 @@ pub async fn list_knowledge(
     // Surface DB errors to the caller instead of masking them with 0.
     let total: i64 = {
         let count_sql = format!("SELECT COUNT(*) FROM knowledge_item {}", where_clause);
-        conn.query_row(&count_sql, rusqlite::params_from_iter(filter_params.clone()), |r| r.get(0))
-            .map_err(|e| e.to_string())?
+        conn.query_row(
+            &count_sql,
+            rusqlite::params_from_iter(filter_params.clone()),
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?
     };
 
     Ok(serde_json::json!({
@@ -707,7 +756,10 @@ pub async fn list_knowledge(
     }))
 }
 
-/// Search knowledge (FTS5 + fallback to LIKE)
+/// Search knowledge through the Core search pipeline.
+///
+/// The response keeps the existing desktop result shape while also surfacing
+/// degraded search state (for example, vector backend unavailable).
 #[tauri::command]
 pub async fn search_knowledge(
     query: String,
@@ -715,81 +767,45 @@ pub async fn search_knowledge(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let degraded = outcome.degraded();
+    let warnings: Vec<String> = outcome
+        .degradations
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+
     let db = engine.db();
-    let conn = db.conn();
-    let limit = limit.unwrap_or(20);
-
-    // Check if FTS table exists
-    let fts_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_fts'",
-        [], |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
-
-    let ki_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
-        [], |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
-
-    if !ki_exists {
-        return Ok(serde_json::json!({"results": [], "query": query, "total": 0}));
+    let repo = aiks_core::KnowledgeRepo::new(&db);
+    let mut results = Vec::new();
+    for hit in outcome.hits {
+        if let Some(detail) = repo
+            .get_by_id(&hit.knowledge_id)
+            .map_err(|e| e.to_string())?
+        {
+            results.push(serde_json::json!({
+                "id": detail.id,
+                "title": detail.title,
+                "category": detail.category,
+                "summary": detail.summary,
+                "project_name": detail.project_name,
+                "tags": detail.tags,
+                "confidence": detail.confidence,
+                "match_type": hit.match_type
+            }));
+        }
     }
-
-    let results: Vec<serde_json::Value> = if fts_exists {
-        // FTS5 search
-        let mut stmt = conn.prepare(
-            "SELECT ki.id, ki.title, ki.category, ki.summary, ki.project_name, ki.tags, ki.confidence
-             FROM knowledge_fts kf
-             JOIN knowledge_item ki ON ki.id = kf.knowledge_id
-             WHERE knowledge_fts MATCH ?1
-             ORDER BY rank
-             LIMIT ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let mapped = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "category": row.get::<_, String>(2)?,
-                "summary": row.get::<_, String>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "tags": row.get::<_, String>(5)?,
-                "confidence": row.get::<_, f64>(6)?,
-                "match_type": "fts"
-            }))
-        }).map_err(|e| e.to_string())?;
-        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
-        r
-    } else {
-        // Fallback: LIKE search
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn.prepare(
-            "SELECT id, title, category, summary, project_name, tags, confidence
-             FROM knowledge_item
-             WHERE title LIKE ?1 OR summary LIKE ?1 OR content LIKE ?1
-             ORDER BY updated_at DESC
-             LIMIT ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let mapped = stmt.query_map(rusqlite::params![pattern, limit as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "category": row.get::<_, String>(2)?,
-                "summary": row.get::<_, String>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "tags": row.get::<_, String>(5)?,
-                "confidence": row.get::<_, f64>(6)?,
-                "match_type": "like"
-            }))
-        }).map_err(|e| e.to_string())?;
-        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
-        r
-    };
 
     Ok(serde_json::json!({
         "results": results,
         "query": query,
-        "total": results.len()
+        "total": results.len(),
+        "degraded": degraded,
+        "warnings": warnings
     }))
 }
 
@@ -806,22 +822,26 @@ pub async fn get_session_detail(
     let conn = db.conn();
 
     // Session info
-    let session = conn.query_row(
-        "SELECT id, source, external_session_id, title, project_name, project_path,
+    let session = conn
+        .query_row(
+            "SELECT id, source, external_session_id, title, project_name, project_path,
                 source_updated_at, content_hash
          FROM source_session WHERE id = ?1",
-        rusqlite::params![session_id],
-        |row| Ok(serde_json::json!({
-            "id": row.get::<_, i64>(0)?,
-            "source": row.get::<_, String>(1)?,
-            "session_id": row.get::<_, String>(2)?,
-            "title": row.get::<_, Option<String>>(3)?,
-            "project_name": row.get::<_, Option<String>>(4)?,
-            "project_path": row.get::<_, Option<String>>(5)?,
-            "updated_at": row.get::<_, Option<String>>(6)?,
-            "content_hash": row.get::<_, Option<String>>(7)?
-        })),
-    ).map_err(|e| e.to_string())?;
+            rusqlite::params![session_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, i64>(0)?,
+                    "source": row.get::<_, String>(1)?,
+                    "session_id": row.get::<_, String>(2)?,
+                    "title": row.get::<_, Option<String>>(3)?,
+                    "project_name": row.get::<_, Option<String>>(4)?,
+                    "project_path": row.get::<_, Option<String>>(5)?,
+                    "updated_at": row.get::<_, Option<String>>(6)?,
+                    "content_hash": row.get::<_, Option<String>>(7)?
+                }))
+            },
+        )
+        .map_err(|e| e.to_string())?;
 
     // Pipeline run
     let pipeline_run: Option<serde_json::Value> = conn.query_row(
@@ -845,14 +865,16 @@ pub async fn get_session_detail(
         "SELECT chunk_index, message_start, message_end, token_count FROM session_chunk WHERE session_id = ?1 ORDER BY chunk_index"
     ).map_err(|e| e.to_string())?;
     let chunks: Vec<serde_json::Value> = {
-        let mapped = chunk_stmt.query_map(rusqlite::params![session_id], |row| {
-            Ok(serde_json::json!({
-                "index": row.get::<_, i32>(0)?,
-                "message_start": row.get::<_, i32>(1)?,
-                "message_end": row.get::<_, i32>(2)?,
-                "token_count": row.get::<_, i32>(3)?
-            }))
-        }).map_err(|e| e.to_string())?;
+        let mapped = chunk_stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(serde_json::json!({
+                    "index": row.get::<_, i32>(0)?,
+                    "message_start": row.get::<_, i32>(1)?,
+                    "message_end": row.get::<_, i32>(2)?,
+                    "token_count": row.get::<_, i32>(3)?
+                }))
+            })
+            .map_err(|e| e.to_string())?;
         let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         r
     };
@@ -862,16 +884,18 @@ pub async fn get_session_detail(
         "SELECT id, title, category, summary, confidence, created_at FROM knowledge_item WHERE source_session_id = ?1"
     ).map_err(|e| e.to_string())?;
     let knowledge: Vec<serde_json::Value> = {
-        let mapped = ki_stmt.query_map(rusqlite::params![session_id], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "category": row.get::<_, String>(2)?,
-                "summary": row.get::<_, String>(3)?,
-                "confidence": row.get::<_, f64>(4)?,
-                "created_at": row.get::<_, String>(5)?
-            }))
-        }).map_err(|e| e.to_string())?;
+        let mapped = ki_stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "title": row.get::<_, String>(1)?,
+                    "category": row.get::<_, String>(2)?,
+                    "summary": row.get::<_, String>(3)?,
+                    "confidence": row.get::<_, f64>(4)?,
+                    "created_at": row.get::<_, String>(5)?
+                }))
+            })
+            .map_err(|e| e.to_string())?;
         let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
         r
     };
@@ -894,16 +918,25 @@ pub async fn get_knowledge_detail(
     let db = engine.db();
     let knowledge_repo = aiks_core::KnowledgeRepo::new(&db);
 
-    match knowledge_repo.get_by_id(&knowledge_id).map_err(|e| e.to_string())? {
+    match knowledge_repo
+        .get_by_id(&knowledge_id)
+        .map_err(|e| e.to_string())?
+    {
         Some(detail) => {
-            let chunks: Vec<serde_json::Value> = detail.chunks.iter().map(|c| serde_json::json!({
-                "id": c.id,
-                "heading": c.heading,
-                "chunk_index": c.chunk_index,
-                "token_count": c.token_count,
-                "text": &c.text[..c.text.len().min(500)],
-                "has_embedding": c.has_embedding
-            })).collect();
+            let chunks: Vec<serde_json::Value> = detail
+                .chunks
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "id": c.id,
+                        "heading": c.heading,
+                        "chunk_index": c.chunk_index,
+                        "token_count": c.token_count,
+                        "text": &c.text[..c.text.len().min(500)],
+                        "has_embedding": c.has_embedding
+                    })
+                })
+                .collect();
 
             Ok(serde_json::json!({
                 "id": detail.id,
@@ -930,11 +963,11 @@ pub async fn get_knowledge_detail(
 /// R09: manually trigger extraction backfill for historical sessions.
 /// Submits real PipelineJobs (not just DB rows) to the running worker.
 #[tauri::command]
-pub async fn backfill_extractions(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
-    let submitted = engine.backfill_pending_extractions().map_err(|e| e.to_string())?;
+    let submitted = engine
+        .backfill_pending_extractions()
+        .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "submitted": submitted }))
 }
 
@@ -981,11 +1014,12 @@ pub async fn run_pipeline_for_session(
 
     let (source, ext_id, title, project) = result;
 
-    engine.enqueue_pipeline_for_session(session_id, ext_id, source, title, project)
+    engine
+        .enqueue_pipeline_for_session(session_id, ext_id, source, title, project)
         .map_err(|e| e.to_string())
 }
 
-/// Get hybrid search results (FTS5 + vector)
+/// Get hybrid search results (FTS5 + vector) through Core.
 #[tauri::command]
 pub async fn hybrid_search(
     query: String,
@@ -993,18 +1027,36 @@ pub async fn hybrid_search(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
-    let results = engine.search_knowledge(&query, limit.unwrap_or(20)).await;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let items: Vec<serde_json::Value> = results.into_iter().map(|hit| serde_json::json!({
-        "knowledge_id": hit.knowledge_id,
-        "chunk_text": hit.chunk_text,
-        "score": hit.score,
-        "match_type": hit.match_type
-    })).collect();
+    let degraded = outcome.degraded();
+    let warnings: Vec<String> = outcome
+        .degradations
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    let items: Vec<serde_json::Value> = outcome
+        .hits
+        .into_iter()
+        .map(|hit| {
+            serde_json::json!({
+                "knowledge_id": hit.knowledge_id,
+                "chunk_id": hit.chunk_id,
+                "chunk_text": hit.chunk_text,
+                "score": hit.score,
+                "match_type": hit.match_type
+            })
+        })
+        .collect();
 
     Ok(serde_json::json!({
         "results": items,
         "query": query,
-        "total": items.len()
+        "total": items.len(),
+        "degraded": degraded,
+        "warnings": warnings
     }))
 }

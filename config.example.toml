@@ -27,15 +27,17 @@ include_thinking = false
 include_tool_calls = true
 include_tool_results = true
 max_tool_result_chars = 10000
-minimum_messages = 2
-minimum_session_chars = 100
+minimum_messages = 0
+minimum_session_chars = 0
 
 [security]
 redact_secrets = true
 
 [siyuan]
 base_url = "http://127.0.0.1:6806"
+token = ""
 notebook_name = "AI Knowledge"
+session_notebook_name = "AI Session Archive"
 session_root = "/10 AI Sessions"
 knowledge_root = "/20 Knowledge"
 # token 建议使用环境变量 SIYUAN_TOKEN，不要提交到 Git。
@@ -44,9 +46,31 @@ knowledge_root = "/20 Knowledge"
 enabled = true
 compression = "gzip"
 
-[extractor]
+# V3 knowledge extraction. Disabled by default for a public/fresh install.
+[ai]
 enabled = false
-provider = "openai-compatible"
 base_url = "http://127.0.0.1:11434/v1"
-model = "qwen3.8:27b"
-minimum_confidence = 0.85
+model = "qwen3"
+api_key = ""
+temperature = 0.1
+max_tokens = 8192
+timeout_seconds = 120
+min_knowledge_score = 0.6
+chunk_size_messages = 40
+max_concurrent = 1
+debounce_minutes = 10
+auto_extract = true
+disable_thinking = true
+max_context_tokens = 32768
+
+# Optional vector embeddings. Leave disabled until a compatible endpoint is configured.
+[embedding]
+enabled = false
+base_url = ""
+model = ""
+api_key = ""
+dimensions = 1024
+batch_size = 16
+chunk_target_tokens = 800
+chunk_max_tokens = 1200
+chunk_overlap_tokens = 120

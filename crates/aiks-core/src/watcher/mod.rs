@@ -151,9 +151,8 @@ impl FileWatcher {
 
         // Spawn the debouncer on a background thread
         let mut debouncer: Debouncer<notify::RecommendedWatcher, FileIdMap> =
-            new_debouncer(debounce_duration, None, tx).map_err(|e| {
-                anyhow::anyhow!("Failed to create file watcher: {}", e)
-            })?;
+            new_debouncer(debounce_duration, None, tx)
+                .map_err(|e| anyhow::anyhow!("Failed to create file watcher: {}", e))?;
 
         for target in &targets {
             let mode = if target.recursive {
@@ -185,9 +184,7 @@ impl FileWatcher {
                                 if !is_relevant {
                                     continue;
                                 }
-                                if let Some(source) =
-                                    Self::path_to_source(path, &targets_clone)
-                                {
+                                if let Some(source) = Self::path_to_source(path, &targets_clone) {
                                     if seen_sources.insert(source) {
                                         debug!(
                                             path = %path.display(),
@@ -216,10 +213,7 @@ impl FileWatcher {
             }
         });
 
-        info!(
-            targets = targets.len(),
-            "File watcher started"
-        );
+        info!(targets = targets.len(), "File watcher started");
 
         Ok(WatcherHandle {
             _inner: Some(Box::new(debouncer)),
@@ -250,6 +244,9 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let watcher = FileWatcher::new(Arc::new(config), tx);
         let targets = watcher.watch_targets();
-        assert!(targets.is_empty(), "Nonexistent dirs should yield no targets");
+        assert!(
+            targets.is_empty(),
+            "Nonexistent dirs should yield no targets"
+        );
     }
 }

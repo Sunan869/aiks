@@ -1,11 +1,13 @@
+use aiks_core::{AiksEngine, SyncOptions};
 use std::time::Duration;
 use tokio::signal;
-use aiks_core::{AiksEngine, SyncOptions};
 
 pub async fn run(engine: &AiksEngine) -> anyhow::Result<()> {
     let config = engine.config();
-    println!("Starting AIKS daemon (scan every {}s, watcher: {})...",
-        config.sync.scan_interval_seconds, config.sync.watch_enabled);
+    println!(
+        "Starting AIKS daemon (scan every {}s, watcher: {})...",
+        config.sync.scan_interval_seconds, config.sync.watch_enabled
+    );
     println!("Press Ctrl+C to stop.\n");
 
     // Set up file watcher
@@ -13,8 +15,14 @@ pub async fn run(engine: &AiksEngine) -> anyhow::Result<()> {
     let watcher = engine.create_watcher(event_tx);
     let _watcher_handle = if config.sync.watch_enabled {
         match watcher.start() {
-            Ok(h) => { println!("File watcher active."); Some(h) }
-            Err(e) => { eprintln!("Watcher error: {}. Falling back to periodic scan.", e); None }
+            Ok(h) => {
+                println!("File watcher active.");
+                Some(h)
+            }
+            Err(e) => {
+                eprintln!("Watcher error: {}. Falling back to periodic scan.", e);
+                None
+            }
         }
     } else {
         None
