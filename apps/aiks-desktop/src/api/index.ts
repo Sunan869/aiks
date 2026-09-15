@@ -28,6 +28,7 @@ export interface AiksApi {
   backfillExtractions(): Promise<{ submitted: number }>;
   syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }>;
   getSiyuanUrl(): Promise<string | null>;
+  openSiyuanWorkspace(): Promise<void>;
   testAiConnection(): Promise<boolean>;
 }
 
