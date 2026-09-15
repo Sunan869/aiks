@@ -4,9 +4,9 @@
 ///       → EMBED_CHUNKED → EMBEDDED → INDEXED → READY
 ///
 /// Runs automatically when new sessions are discovered via sync.
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
 
 use crate::ai::config::AiModelConfig;
@@ -17,7 +17,8 @@ use crate::pipeline::embedding_stage::EmbeddingStage;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
-use crate::providers::ProviderRegistry;
+use crate::model::SourceKind;
+use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
 use crate::storage::StateDb;
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,63 @@ pub struct PipelineJob {
     pub source: String,
     pub session_title: Option<String>,
     pub project_name: Option<String>,
+}
+
+type SessionSummaryMap = HashMap<String, SessionSummary>;
+type SourceSnapshot = Arc<Mutex<Option<SessionSummaryMap>>>;
+
+/// Shared discovery snapshots for one active durable-queue drain cycle.
+///
+/// A source gets its own mutex so Claude/Codex/Gemini/OpenCode discovery can
+/// still proceed independently. Same-source jobs serialize only while the
+/// snapshot is first populated or refreshed after an ID miss.
+#[derive(Default)]
+struct ProviderDiscoveryCache {
+    sources: Mutex<HashMap<SourceKind, SourceSnapshot>>,
+}
+
+impl ProviderDiscoveryCache {
+    async fn slot(&self, source: SourceKind) -> SourceSnapshot {
+        let mut sources = self.sources.lock().await;
+        Arc::clone(
+            sources
+                .entry(source)
+                .or_insert_with(|| Arc::new(Mutex::new(None))),
+        )
+    }
+
+    async fn clear(&self) {
+        self.sources.lock().await.clear();
+    }
+}
+
+async fn resolve_session_summary(
+    provider: &dyn SessionProvider,
+    cache: &ProviderDiscoveryCache,
+    source: SourceKind,
+    external_session_id: &str,
+) -> anyhow::Result<SessionSummary> {
+    let slot = cache.slot(source).await;
+    let mut snapshot = slot.lock().await;
+
+    if let Some(existing) = snapshot.as_ref() {
+        if let Some(summary) = existing.get(external_session_id) {
+            return Ok(summary.clone());
+        }
+    }
+
+    // No snapshot yet, or the requested ID was not in the current snapshot.
+    // Refresh exactly once while holding this source's lock so concurrent jobs
+    // do not all perform the same full provider scan.
+    let discovered = provider.discover_sessions().await?;
+    let refreshed: SessionSummaryMap = discovered
+        .into_iter()
+        .map(|summary| (summary.external_session_id.clone(), summary))
+        .collect();
+    let resolved = refreshed.get(external_session_id).cloned();
+    *snapshot = Some(refreshed);
+
+    resolved.ok_or_else(|| anyhow::anyhow!("Session not found: {}", external_session_id))
 }
 
 /// Durable pipeline worker.
@@ -175,6 +233,7 @@ async fn run_worker(
     semaphore: Arc<Semaphore>,
 ) {
     info!("[PIPELINE] Durable worker started");
+    let discovery_cache = Arc::new(ProviderDiscoveryCache::default());
     let mut poll = tokio::time::interval(Duration::from_millis(500));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -199,6 +258,9 @@ async fn run_worker(
                 Ok(Some(claimed)) => claimed,
                 Ok(None) => {
                     drop(permit);
+                    // The durable queue is idle: end this discovery cycle so a
+                    // later sync/backfill starts from fresh provider metadata.
+                    discovery_cache.clear().await;
                     break;
                 }
                 Err(e) => {
@@ -213,6 +275,7 @@ async fn run_worker(
             let task_ai = ai_config.clone();
             let task_embedding = embedding_config.clone();
             let task_wake = wake_tx.clone();
+            let task_discovery_cache = Arc::clone(&discovery_cache);
 
             tokio::spawn(async move {
                 let durable_job_id = claimed.durable_job_id.clone();
@@ -244,6 +307,7 @@ async fn run_worker(
                 let result = run_pipeline(
                     &task_db,
                     &task_registry,
+                    &task_discovery_cache,
                     &task_ai,
                     &task_embedding,
                     &job,
@@ -335,6 +399,7 @@ fn extract_failed_stage(error: &str) -> &'static str {
 async fn run_pipeline(
     db: &StateDb,
     registry: &ProviderRegistry,
+    discovery_cache: &ProviderDiscoveryCache,
     ai_config: &AiModelConfig,
     embedding_config: &EmbeddingConfig,
     job: &PipelineJob,
@@ -375,14 +440,16 @@ async fn run_pipeline(
         None => fail_stage!("PARSED", format!("Provider not found for {:?}", source_kind)),
     };
 
-    let summaries = match provider.discover_sessions().await {
-        Ok(s) => s,
-        Err(e) => fail_stage!("PARSED", format!("Discover failed: {}", e)),
-    };
-
-    let summary = match summaries.into_iter().find(|s| s.external_session_id == job.session_external_id) {
-        Some(s) => s,
-        None => fail_stage!("PARSED", format!("Session not found: {}", job.session_external_id)),
+    let summary = match resolve_session_summary(
+        provider,
+        discovery_cache,
+        source_kind,
+        &job.session_external_id,
+    )
+    .await
+    {
+        Ok(summary) => summary,
+        Err(e) => fail_stage!("PARSED", format!("Discover/resolve failed: {}", e)),
     };
 
     let session = match provider.load_session(&summary).await {
