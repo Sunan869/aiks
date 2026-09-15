@@ -32,6 +32,25 @@ export interface AiksApi {
   testAiConnection(): Promise<boolean>;
 }
 
+const SIYUAN_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+/**
+ * Only embed the loopback URL produced by AIKS' embedded SiYuan runtime.
+ * This keeps the Desktop webview from ever becoming an arbitrary remote-frame host.
+ */
+export function normalizeSiyuanWorkspaceUrl(raw: string | null): string | null {
+  if (!raw?.trim()) return null;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!SIYUAN_LOOPBACK_HOSTS.has(url.hostname.toLowerCase())) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 // Detect if running in Tauri context
 export function isTauriContext(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
