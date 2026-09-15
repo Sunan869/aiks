@@ -126,7 +126,7 @@ OpenCode / Codex Session 中往往包含大量：
 AI Knowledge Extractor
 ```
 
-利用公司内部 vLLM 模型将 Session 转换为更高质量的知识文档。
+利用OpenAI-compatible vLLM 模型将 Session 转换为更高质量的知识文档。
 
 ---
 
@@ -256,7 +256,7 @@ Knowledge Document = Derived Artifact
 
 ```text
 Base URL:
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 
 Model:
 Qwen3.8-27B
@@ -321,7 +321,7 @@ pub struct AiModelConfig {
 enabled = true
 
 base_url =
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 
 model =
 Qwen3.8-27B
@@ -346,7 +346,7 @@ POST /v1/chat/completions
 完整：
 
 ```text
-http://10.10.23.16:18000/v1/chat/completions
+http://127.0.0.1:11434/v1/chat/completions
 ```
 
 请求：
@@ -1348,7 +1348,7 @@ AI 智能整理
 公司内部员工不需要看到：
 
 ```text
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 ```
 
 普通 UI 显示：
@@ -1361,7 +1361,7 @@ http://10.10.23.16:18000/v1
 
 ```text
 服务地址：
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 
 模型：
 Qwen3.8-27B
@@ -1383,7 +1383,7 @@ enterprise-policy.json
 {
   "ai": {
     "enabled": true,
-    "baseUrl": "http://10.10.23.16:18000/v1",
+    "baseUrl": "http://127.0.0.1:11434/v1",
     "model": "Qwen3.8-27B",
     "allowUserOverride": false
   },
@@ -2087,7 +2087,7 @@ SiYuan 3.8.3
 
 AI 服务
 
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 
 Qwen3.8-27B
 
@@ -2900,7 +2900,7 @@ OpenCode ses_f717
 测试：
 
 ```text
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 ```
 
 模型：
@@ -3113,7 +3113,7 @@ SiYuan Runtime
 4. 默认接入：
 
    Base URL:
-   http://10.10.23.16:18000/v1
+   http://127.0.0.1:11434/v1
 
    Model:
    Qwen3.8-27B

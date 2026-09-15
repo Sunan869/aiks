@@ -924,7 +924,7 @@ Vector Index
 
 ```text
 Base URL:
-http://10.10.23.16:18000/v1
+http://127.0.0.1:11434/v1
 
 Model:
 Qwen3.8-27B

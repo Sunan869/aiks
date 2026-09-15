@@ -129,10 +129,10 @@ AI Knowledge
 
 ### 6.1 模型配置
 
-公司内部 vLLM：
+OpenAI-compatible vLLM：
 
 ```text
-Base URL: http://10.10.23.16:18000/v1
+Base URL: http://127.0.0.1:11434/v1
 Model:    Qwen3.8-27B
 ```
 
@@ -331,7 +331,8 @@ AI 整理单独显示：
 
 ```text
 Error opening file for writing:
-...\AIKSesources\siyuan\kernel\SiYuan-Kernel.exe
+...\AIKS
+esources\siyuan\kernel\SiYuan-Kernel.exe
 ```
 
 ### 11.2 目标行为

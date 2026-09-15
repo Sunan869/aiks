@@ -10,7 +10,7 @@
 
 AIKS 是企业内部研发人员的 **AI 工作知识库**。  
 自动采集 OpenCode / Codex / Gemini CLI / Claude Code 的 AI 编程会话，  
-通过公司内部 vLLM（Qwen3.8-27B）将原始对话提炼为可搜索、可复用的工程知识。
+通过OpenAI-compatible vLLM（Qwen3.8-27B）将原始对话提炼为可搜索、可复用的工程知识。
 
 ```
 使用 AI 工具
@@ -19,7 +19,7 @@ AIKS Session Sync
      ↓ 写入
 10 AI Sessions（原始会话）
      ↓ AI 提炼
-Qwen3.8-27B (http://10.10.23.16:18000/v1)
+Qwen3.8-27B (http://127.0.0.1:11434/v1)
      ↓ 结构化
 20 Knowledge（精炼知识）
      ↓
@@ -209,7 +209,7 @@ ai-knowledge-sync/
 ### 模型配置
 
 ```
-Base URL: http://10.10.23.16:18000/v1
+Base URL: http://127.0.0.1:11434/v1
 Model:    Qwen3.8-27B
 API:      POST /v1/chat/completions (OpenAI-compatible)
 Temperature: 0.1

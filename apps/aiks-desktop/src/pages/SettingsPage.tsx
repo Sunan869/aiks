@@ -21,8 +21,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [aiBaseUrl, setAiBaseUrl] = useState("http://10.10.23.16:18000/v1");
-  const [aiModel, setAiModel] = useState("Qwen3.8-27B");
+  const [aiBaseUrl, setAiBaseUrl] = useState("http://127.0.0.1:11434/v1");
+  const [aiModel, setAiModel] = useState("qwen3");
   const [aiHealthy, setAiHealthy] = useState<boolean | null>(null);
   const isMock = shouldUseMock();
 
@@ -99,14 +99,14 @@ export default function SettingsPage() {
 
       {/* AI */}
       <Section title="AI 智能整理">
-        <Toggle label="启用智能整理" desc="使用公司内部 AI 自动提炼知识" value={settings.ai_enabled} onChange={v => update("ai_enabled", v)} />
+        <Toggle label="启用智能整理" desc="使用配置的 AI 服务自动提炼知识" value={settings.ai_enabled} onChange={v => update("ai_enabled", v)} />
         <Toggle label="自动整理新会话" desc="10 分钟无变化后自动整理" value={settings.ai_auto_extract} onChange={v => update("ai_auto_extract", v)} />
         <Toggle label="自动生成标签" desc="" value={settings.ai_extract_tags} onChange={v => update("ai_extract_tags", v)} />
         <Toggle label="提取问题与解决方案" desc="" value={settings.ai_extract_problems} onChange={v => update("ai_extract_problems", v)} />
         <Toggle label="提取设计决策" desc="" value={settings.ai_extract_decisions} onChange={v => update("ai_extract_decisions", v)} />
         <div className="py-2">
           <div className="text-sm mb-1 text-gray-500">AI 模型</div>
-          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">公司内部 AI</div>
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">本地 AI 服务</div>
         </div>
       </Section>
 
