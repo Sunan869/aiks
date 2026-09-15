@@ -21,7 +21,7 @@ use aiks_core::{
     providers::*,
     renderer::MarkdownRenderer,
     sink::SiYuanSink,
-    storage::{StateDb, SourceSessionRepo, SyncStatus, SyncTargetRepo},
+    storage::{SourceSessionRepo, StateDb, SyncStatus, SyncTargetRepo},
     sync::{SyncEngine, SyncOptions},
 };
 use async_trait::async_trait;
@@ -96,7 +96,17 @@ impl SessionProvider for Provider {
 
 fn insert(db: &StateDb, hash: &str) -> i64 {
     SourceSessionRepo::new(db)
-        .upsert("claude_code", "audit2", None, None, None, None, None, Some(hash), Some("v1"))
+        .upsert(
+            "claude_code",
+            "audit2",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(hash),
+            Some("v1"),
+        )
         .unwrap()
 }
 
@@ -107,8 +117,15 @@ fn seeded(db: &StateDb) -> i64 {
     repo.upsert_pending(id, "siyuan").unwrap();
     // target_hash is the R05 baseline: hash of SiYuan's exported markdown
     // captured at the last successful sync. The mock exports "exported".
-    repo.mark_synced(id, "siyuan", "existing-doc", "/old", "old", Some(&md_hash("exported")))
-        .unwrap();
+    repo.mark_synced(
+        id,
+        "siyuan",
+        "existing-doc",
+        "/old",
+        "old",
+        Some(&md_hash("exported")),
+    )
+    .unwrap();
     id
 }
 
@@ -120,7 +137,14 @@ fn md_hash(content: &str) -> String {
 /// Minimal HTTP mock: records request paths, serves canned SiYuan responses.
 /// attr_fail makes setBlockAttrs return code=-1.
 /// ai_garbage makes /completions return a non-JSON string.
-async fn server(attr_fail: bool, ai_garbage: bool) -> (String, Arc<std::sync::Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+async fn server(
+    attr_fail: bool,
+    ai_garbage: bool,
+) -> (
+    String,
+    Arc<std::sync::Mutex<Vec<String>>>,
+    tokio::task::JoinHandle<()>,
+) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -237,12 +261,18 @@ async fn r03_update_uses_saved_target() {
     drop(paths);
 
     // State: synced_hash advanced to the new content hash, target_id unchanged.
-    let target = SyncTargetRepo::new(&db).find(id, "siyuan").unwrap().unwrap();
+    let target = SyncTargetRepo::new(&db)
+        .find(id, "siyuan")
+        .unwrap()
+        .unwrap();
     assert_eq!(target.status, SyncStatus::Synced);
     assert_eq!(target.target_id.as_deref(), Some("existing-doc"));
     assert_ne!(target.synced_hash.as_deref(), Some("old"));
     // R05: baseline captured from the actual remote export.
-    assert_eq!(target.target_hash.as_deref(), Some(md_hash("exported").as_str()));
+    assert_eq!(
+        target.target_hash.as_deref(),
+        Some(md_hash("exported").as_str())
+    );
 }
 
 // ── R04: dry-run must not swallow the subsequent real update ─────────────────
@@ -258,7 +288,15 @@ async fn r04_dry_run_does_not_swallow_update() {
     let sink = SiYuanSink::embedded(url, "audit").unwrap();
 
     let dry = engine
-        .run_sync(&db, &reg, &sink, &SyncOptions { dry_run: true, ..Default::default() })
+        .run_sync(
+            &db,
+            &reg,
+            &sink,
+            &SyncOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     let real = engine
@@ -269,13 +307,27 @@ async fn r04_dry_run_does_not_swallow_update() {
 
     // Dry-run reports the update as intent, real run must still perform it.
     assert_eq!(dry.updated_count, 1);
-    assert_eq!(real.updated_count, 1, "real sync after dry-run must not be UNCHANGED");
+    assert_eq!(
+        real.updated_count, 1,
+        "real sync after dry-run must not be UNCHANGED"
+    );
     {
         let paths = seen.lock().unwrap();
-        assert!(paths.iter().any(|p| p.contains("updateBlock")), "real sync must hit the API: {:?}", *paths);
+        assert!(
+            paths.iter().any(|p| p.contains("updateBlock")),
+            "real sync must hit the API: {:?}",
+            *paths
+        );
     }
-    let target = SyncTargetRepo::new(&db).find(id, "siyuan").unwrap().unwrap();
-    assert_ne!(target.synced_hash.as_deref(), Some("old"), "target hash must advance");
+    let target = SyncTargetRepo::new(&db)
+        .find(id, "siyuan")
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        target.synced_hash.as_deref(),
+        Some("old"),
+        "target hash must advance"
+    );
 }
 
 // ── R05: attribute failure is a real failure, retry updates the same doc ─────
@@ -299,15 +351,25 @@ async fn r05_attribute_failure_is_not_success_and_retry_reuses_doc() {
         .unwrap();
     h.abort();
 
-    assert_eq!(stats.failed_count, 1, "attr failure must surface as failure");
+    assert_eq!(
+        stats.failed_count, 1,
+        "attr failure must surface as failure"
+    );
     assert_eq!(stats.new_count, 0, "must not report success");
     let id = SourceSessionRepo::new(&db)
         .find_by_source_and_id("claude_code", "audit2")
         .unwrap()
         .unwrap()
         .id;
-    let target = SyncTargetRepo::new(&db).find(id, "siyuan").unwrap().unwrap();
-    assert_ne!(target.status, SyncStatus::Synced, "must not be marked SYNCED");
+    let target = SyncTargetRepo::new(&db)
+        .find(id, "siyuan")
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        target.status,
+        SyncStatus::Synced,
+        "must not be marked SYNCED"
+    );
     assert_eq!(
         target.target_id.as_deref(),
         Some("new-doc"),
@@ -334,9 +396,15 @@ async fn r05_attribute_failure_is_not_success_and_retry_reuses_doc() {
         .iter()
         .filter(|p| p.contains("createDocWithMd"))
         .count();
-    assert_eq!(creates, 0, "retry must not create a second (orphan) document");
+    assert_eq!(
+        creates, 0,
+        "retry must not create a second (orphan) document"
+    );
 
-    let target = SyncTargetRepo::new(&db).find(id, "siyuan").unwrap().unwrap();
+    let target = SyncTargetRepo::new(&db)
+        .find(id, "siyuan")
+        .unwrap()
+        .unwrap();
     assert_eq!(target.status, SyncStatus::Synced);
 }
 
@@ -350,7 +418,10 @@ async fn r14_provider_failure_is_not_missing() {
 
     // Provider scan FAILS → must not mark the stored session as missing.
     let count = SyncEngine::new(Arc::new(Config::default()))
-        .mark_missing_sessions(&db, &ProviderRegistry::new(vec![Box::new(Provider { fail: true })]))
+        .mark_missing_sessions(
+            &db,
+            &ProviderRegistry::new(vec![Box::new(Provider { fail: true })]),
+        )
         .await
         .unwrap();
     assert_eq!(count, 0, "failed scan must never equal deletion");
@@ -404,7 +475,12 @@ fn r12_cjk_chunk_in_budget_and_tail_kept() {
             chunk.token_count
         );
     }
-    let all: String = chunks.chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("");
+    let all: String = chunks
+        .chunks
+        .iter()
+        .map(|c| c.content.as_str())
+        .collect::<Vec<_>>()
+        .join("");
     assert!(all.contains("AUDIT_TAIL"), "tail must not be lost");
 }
 
@@ -421,9 +497,14 @@ async fn r10_ai_stage_malformed_response_fails() {
     save_chunks(&db, &chunk_for_llm(id, &session("hello").messages).chunks).unwrap();
 
     let (url, _, h) = server(false, true).await;
-    let mut cfg = aiks_core::ai::config::AiModelConfig::default();
-    cfg.base_url = url;
-    let result = AiStage::new(cfg).unwrap().run(&db, &run, id, None, None).await;
+    let cfg = aiks_core::ai::config::AiModelConfig {
+        base_url: url,
+        ..Default::default()
+    };
+    let result = AiStage::new(cfg)
+        .unwrap()
+        .run(&db, &run, id, None, None)
+        .await;
     h.abort();
 
     // R10: parse errors must surface as Err — not Ok(0) with a SUCCESS stage.

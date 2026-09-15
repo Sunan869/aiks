@@ -10,9 +10,13 @@ pub async fn run(engine: &AiksEngine) -> anyhow::Result<()> {
     println!("  Failed:         {}", status.failed);
     if let Some(at) = &status.last_sync_at {
         println!("  Last sync: {}", at);
-        println!("    Discovered: {}  Changed: {}  Synced: {}  Failed: {}",
-            status.last_sync_discovered, status.last_sync_changed,
-            status.last_sync_synced, status.last_sync_failed);
+        println!(
+            "    Discovered: {}  Changed: {}  Synced: {}  Failed: {}",
+            status.last_sync_discovered,
+            status.last_sync_changed,
+            status.last_sync_synced,
+            status.last_sync_failed
+        );
     } else {
         println!("  No sync run recorded yet.");
     }

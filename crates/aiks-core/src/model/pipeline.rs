@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::should_implement_trait)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -287,7 +290,10 @@ mod tests {
 
     #[test]
     fn pipeline_stage_sequence() {
-        assert_eq!(PipelineStage::Discovered.next(), Some(PipelineStage::Parsed));
+        assert_eq!(
+            PipelineStage::Discovered.next(),
+            Some(PipelineStage::Parsed)
+        );
         assert_eq!(PipelineStage::Indexed.next(), Some(PipelineStage::Ready));
         assert_eq!(PipelineStage::Ready.next(), None);
         assert_eq!(PipelineStage::Failed.next(), None);
@@ -295,9 +301,21 @@ mod tests {
 
     #[test]
     fn knowledge_category_from_str() {
-        assert_eq!(KnowledgeCategory::from_str("troubleshooting"), KnowledgeCategory::Troubleshooting);
-        assert_eq!(KnowledgeCategory::from_str("bug"), KnowledgeCategory::Troubleshooting);
-        assert_eq!(KnowledgeCategory::from_str("architecture"), KnowledgeCategory::Architecture);
-        assert_eq!(KnowledgeCategory::from_str("unknown"), KnowledgeCategory::General);
+        assert_eq!(
+            KnowledgeCategory::from_str("troubleshooting"),
+            KnowledgeCategory::Troubleshooting
+        );
+        assert_eq!(
+            KnowledgeCategory::from_str("bug"),
+            KnowledgeCategory::Troubleshooting
+        );
+        assert_eq!(
+            KnowledgeCategory::from_str("architecture"),
+            KnowledgeCategory::Architecture
+        );
+        assert_eq!(
+            KnowledgeCategory::from_str("unknown"),
+            KnowledgeCategory::General
+        );
     }
 }

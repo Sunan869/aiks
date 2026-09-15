@@ -24,9 +24,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 
-use crate::model::{
-    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind,
-};
+use crate::model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
 use crate::providers::{ProviderHealth, SessionSummary};
 
 const PARSER_VERSION: &str = "opencode-sqlite-v1";
@@ -51,7 +49,11 @@ impl OpenCodeProvider {
         // Try home/.local/share (Linux/macOS style, also works on Windows for OpenCode)
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot locate home directory"))?;
-        let linux_path = home.join(".local").join("share").join("opencode").join("opencode.db");
+        let linux_path = home
+            .join(".local")
+            .join("share")
+            .join("opencode")
+            .join("opencode.db");
         if linux_path.exists() {
             return Ok(linux_path);
         }
@@ -95,7 +97,9 @@ impl OpenCodeProvider {
                 if text.is_empty() {
                     return None;
                 }
-                Some(ContentBlock::Text { text: text.to_string() })
+                Some(ContentBlock::Text {
+                    text: text.to_string(),
+                })
             }
 
             "tool" => {
@@ -113,7 +117,10 @@ impl OpenCodeProvider {
                     .and_then(|s| s.get("input"))
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
-                let status = state.and_then(|s| s.get("status")).and_then(|s| s.as_str()).unwrap_or("pending");
+                let status = state
+                    .and_then(|s| s.get("status"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("pending");
 
                 if status == "pending" || status == "running" {
                     // Tool call in progress - render as ToolCall
@@ -145,7 +152,9 @@ impl OpenCodeProvider {
                 if text.is_empty() {
                     return None;
                 }
-                Some(ContentBlock::Thinking { text: text.to_string() })
+                Some(ContentBlock::Thinking {
+                    text: text.to_string(),
+                })
             }
 
             "file" => {
@@ -177,7 +186,9 @@ impl OpenCodeProvider {
                 // Unknown type - try text fallback
                 if let Some(text) = val.get("text").and_then(|t| t.as_str()) {
                     if !text.is_empty() {
-                        return Some(ContentBlock::Text { text: text.to_string() });
+                        return Some(ContentBlock::Text {
+                            text: text.to_string(),
+                        });
                     }
                 }
                 // Preserve unknown as Unknown
@@ -412,7 +423,9 @@ impl super::SessionProvider for OpenCodeProvider {
         Ok(NormalizedSession {
             source: SourceKind::OpenCode,
             external_session_id: session_id.clone(),
-            title: title.filter(|t| !t.is_empty()).or_else(|| summary.title.clone()),
+            title: title
+                .filter(|t| !t.is_empty())
+                .or_else(|| summary.title.clone()),
             project_name: summary.project_name.clone(),
             project_path,
             source_path: Some(self.db_path.clone()),
@@ -428,10 +441,7 @@ impl super::SessionProvider for OpenCodeProvider {
     async fn health_check(&self) -> ProviderHealth {
         if !self.db_path.exists() {
             return ProviderHealth::NotFound {
-                message: format!(
-                    "OpenCode database not found at {}",
-                    self.db_path.display()
-                ),
+                message: format!("OpenCode database not found at {}", self.db_path.display()),
             };
         }
 
@@ -566,10 +576,15 @@ mod tests {
         assert_eq!(session.messages[1].role, MessageRole::Assistant);
 
         // Check blocks
-        assert!(matches!(&session.messages[0].blocks[0], ContentBlock::Text { text } if text.contains("sort")));
+        assert!(
+            matches!(&session.messages[0].blocks[0], ContentBlock::Text { text } if text.contains("sort"))
+        );
 
         // Check tool call + result
-        let has_tool_call = session.messages[1].blocks.iter().any(|b| matches!(b, ContentBlock::ToolCall { name, .. } if name == "bash"));
+        let has_tool_call = session.messages[1]
+            .blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolCall { name, .. } if name == "bash"));
         let has_tool_result = session.messages[1].blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { content, .. } if content.contains("file.txt")));
         assert!(has_tool_call, "Should have tool call");
         assert!(has_tool_result, "Should have tool result");
@@ -585,7 +600,8 @@ mod tests {
 
     #[tokio::test]
     async fn health_check_not_found() {
-        let provider = OpenCodeProvider::new(Some(PathBuf::from("/nonexistent/opencode.db"))).unwrap();
+        let provider =
+            OpenCodeProvider::new(Some(PathBuf::from("/nonexistent/opencode.db"))).unwrap();
         assert!(!provider.health_check().await.is_ok());
     }
 }

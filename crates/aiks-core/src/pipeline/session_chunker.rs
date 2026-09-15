@@ -1,10 +1,12 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::manual_is_multiple_of)]
+
 /// V3 Session Chunker — splits sessions for LLM processing
 ///
 /// Unlike V2 chunker (for extraction rendering), this chunker:
 /// - Tracks message indices for pipeline stage tracking
 /// - Estimates token count (rough: chars / 3.5)
 /// - Writes chunks to the session_chunk table
-
 use chrono::Utc;
 use rusqlite::params;
 use uuid::Uuid;
@@ -47,14 +49,16 @@ fn estimate_tokens(text: &str) -> usize {
 /// Render a message slice to text for AI consumption
 fn render_messages(messages: &[&NormalizedMessage]) -> String {
     use crate::model::{ContentBlock, MessageRole};
-    use crate::util::{truncate_chars};
+    use crate::util::truncate_chars;
 
     const MAX_TOOL_CALL_CHARS: usize = 500;
     const MAX_TOOL_RESULT_CHARS: usize = 2000;
 
     let mut parts = Vec::new();
     for msg in messages {
-        if msg.role == MessageRole::System { continue; }
+        if msg.role == MessageRole::System {
+            continue;
+        }
         let role = match msg.role {
             MessageRole::User => "用户",
             MessageRole::Assistant => "助手",
@@ -70,7 +74,11 @@ fn render_messages(messages: &[&NormalizedMessage]) -> String {
                     let inp_trunc = truncate_chars(&inp, MAX_TOOL_CALL_CHARS);
                     content.push(format!("[{}] {}", name, inp_trunc));
                 }
-                ContentBlock::ToolResult { content: c, is_error, .. } => {
+                ContentBlock::ToolResult {
+                    content: c,
+                    is_error,
+                    ..
+                } => {
                     let prefix = if *is_error { "[错误]" } else { "[结果]" };
                     let trunc = truncate_chars(c.as_str(), MAX_TOOL_RESULT_CHARS);
                     content.push(format!("{} {}", prefix, trunc));
@@ -114,10 +122,7 @@ fn push_chunk(
 /// - The FIRST message of each chunk is counted in the accumulated budget.
 /// - A single message larger than the whole budget is split into multiple
 ///   chunks covering its full text — nothing is truncated, no tail is lost.
-pub fn chunk_for_llm(
-    session_id: i64,
-    messages: &[NormalizedMessage],
-) -> ChunkResult {
+pub fn chunk_for_llm(session_id: i64, messages: &[NormalizedMessage]) -> ChunkResult {
     let mut chunks: Vec<SessionChunk> = Vec::new();
     let mut chunk_index: i32 = 0;
 
@@ -125,7 +130,9 @@ pub fn chunk_for_llm(
     let mut current: Vec<(usize, String)> = Vec::new();
     let mut current_tokens = 0usize;
 
-    let flush = |current: &mut Vec<(usize, String)>, chunks: &mut Vec<SessionChunk>, chunk_index: &mut i32| {
+    let flush = |current: &mut Vec<(usize, String)>,
+                 chunks: &mut Vec<SessionChunk>,
+                 chunk_index: &mut i32| {
         if current.is_empty() {
             return;
         }
@@ -196,7 +203,7 @@ pub fn save_chunks(db: &StateDb, chunks: &[SessionChunk]) -> anyhow::Result<()> 
     }
 
     for chunk in chunks {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let hash = hex::encode(Sha256::digest(chunk.content.as_bytes()));
         conn.execute(
             "INSERT OR REPLACE INTO session_chunk
@@ -216,7 +223,7 @@ pub fn save_chunks(db: &StateDb, chunks: &[SessionChunk]) -> anyhow::Result<()> 
 pub fn load_chunks(db: &StateDb, session_id: i64) -> anyhow::Result<Vec<(i32, String)>> {
     let conn = db.conn();
     let mut stmt = conn.prepare(
-        "SELECT chunk_index, content FROM session_chunk WHERE session_id = ?1 ORDER BY chunk_index"
+        "SELECT chunk_index, content FROM session_chunk WHERE session_id = ?1 ORDER BY chunk_index",
     )?;
     let result: Vec<(i32, String)> = stmt
         .query_map(params![session_id], |row| Ok((row.get(0)?, row.get(1)?)))?
@@ -235,10 +242,16 @@ mod tests {
         NormalizedMessage {
             external_id: format!("m{}", i),
             parent_id: None,
-            role: if i % 2 == 0 { MessageRole::User } else { MessageRole::Assistant },
+            role: if i % 2 == 0 {
+                MessageRole::User
+            } else {
+                MessageRole::Assistant
+            },
             created_at: None,
             model: None,
-            blocks: vec![ContentBlock::Text { text: format!("Message content {}", "x".repeat(100)) }],
+            blocks: vec![ContentBlock::Text {
+                text: format!("Message content {}", "x".repeat(100)),
+            }],
             usage: None,
             metadata: HashMap::new(),
         }
@@ -248,7 +261,10 @@ mod tests {
     fn chunking_splits_large_sessions() {
         let messages: Vec<_> = (0..100).map(make_msg).collect();
         let result = chunk_for_llm(1, &messages);
-        assert!(result.chunks.len() > 1, "100 messages should produce multiple chunks");
+        assert!(
+            result.chunks.len() > 1,
+            "100 messages should produce multiple chunks"
+        );
         // Each chunk should have at most MAX_MESSAGES messages
         for chunk in &result.chunks {
             let span = chunk.message_end - chunk.message_start + 1;
@@ -280,7 +296,10 @@ mod tests {
             metadata: HashMap::new(),
         }];
         let result = chunk_for_llm(1, &messages);
-        assert!(result.chunks.len() > 1, "80k CJK chars must split into multiple chunks");
+        assert!(
+            result.chunks.len() > 1,
+            "80k CJK chars must split into multiple chunks"
+        );
         for chunk in &result.chunks {
             assert!(
                 chunk.token_count <= TARGET_TOKENS as i32,
@@ -289,8 +308,16 @@ mod tests {
                 TARGET_TOKENS
             );
         }
-        let all = result.chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("");
-        assert!(all.contains("AUDIT_TAIL"), "tail marker must survive chunking");
+        let all = result
+            .chunks
+            .iter()
+            .map(|c| c.content.as_str())
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            all.contains("AUDIT_TAIL"),
+            "tail marker must survive chunking"
+        );
     }
 
     /// R12: chunks cover all messages — no message is dropped.

@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::should_implement_trait)]
+
 use serde::{Deserialize, Serialize};
 
 /// Knowledge categories (spec §10)

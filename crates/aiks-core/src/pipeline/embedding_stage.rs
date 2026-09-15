@@ -1,11 +1,10 @@
+use std::time::Instant;
 /// Embedding Stage — chunks knowledge items and embeds them
 ///
 /// Two sub-stages:
 /// 1. EmbedChunk: split knowledge content into 800-token chunks
 /// 2. Embed: call embedding API and store vectors
-
 use tracing::{info, warn};
-use std::time::Instant;
 
 use crate::pipeline::embedding_client::{EmbeddingClient, EmbeddingConfig};
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
@@ -20,7 +19,9 @@ pub struct EmbeddingStage {
 
 impl EmbeddingStage {
     pub fn new(config: EmbeddingConfig) -> anyhow::Result<Self> {
-        Ok(Self { client: EmbeddingClient::new(config)? })
+        Ok(Self {
+            client: EmbeddingClient::new(config)?,
+        })
     }
 
     /// Chunk all knowledge items for a session into embedding-sized pieces
@@ -39,23 +40,30 @@ impl EmbeddingStage {
 
         for item in &items {
             let chunks = split_into_chunks(&item.content, target_tokens, overlap_tokens);
-            let chunk_pairs: Vec<(Option<String>, String)> = chunks
-                .into_iter()
-                .map(|text| (None, text))
-                .collect();
+            let chunk_pairs: Vec<(Option<String>, String)> =
+                chunks.into_iter().map(|text| (None, text)).collect();
             let chunk_count = chunk_pairs.len();
             knowledge_repo.save_embedding_chunks(&item.id, &chunk_pairs)?;
             total_chunks += chunk_count;
         }
 
         pipeline_repo.record_stage(
-            pipeline_run_id, "EMBED_CHUNKED", "SUCCESS",
-            Some(items.len() as i32), Some(total_chunks as i32), None,
+            pipeline_run_id,
+            "EMBED_CHUNKED",
+            "SUCCESS",
+            Some(items.len() as i32),
+            Some(total_chunks as i32),
+            None,
             Some(&serde_json::json!({"knowledge_items": items.len(), "chunks": total_chunks})),
             None,
         )?;
 
-        info!(session_id, items = items.len(), chunks = total_chunks, "[EMBED_CHUNK] Complete");
+        info!(
+            session_id,
+            items = items.len(),
+            chunks = total_chunks,
+            "[EMBED_CHUNK] Complete"
+        );
         Ok(total_chunks)
     }
 
@@ -85,7 +93,7 @@ impl EmbeddingStage {
                     "SELECT kc.id, kc.text FROM knowledge_chunk kc
                      LEFT JOIN embedding_record er ON er.chunk_id = kc.id AND er.model = ?1
                      WHERE kc.knowledge_id = ?2 AND er.id IS NULL
-                     ORDER BY kc.chunk_index"
+                     ORDER BY kc.chunk_index",
                 )?;
                 let rows: Vec<(String, String)> = stmt
                     .query_map(rusqlite::params![model, item.id], |row| {
@@ -96,7 +104,9 @@ impl EmbeddingStage {
                 rows
             };
 
-            if chunks.is_empty() { continue; }
+            if chunks.is_empty() {
+                continue;
+            }
 
             // Process in batches
             for batch in chunks.chunks(batch_size) {
@@ -104,7 +114,10 @@ impl EmbeddingStage {
                 match self.client.embed_batch(texts).await {
                     Ok(embeddings) => {
                         for ((chunk_id, _), vector) in batch.iter().zip(embeddings.iter()) {
-                            if vector.is_empty() { total_failed += 1; continue; }
+                            if vector.is_empty() {
+                                total_failed += 1;
+                                continue;
+                            }
                             knowledge_repo.save_embedding(chunk_id, &model, dimensions, vector)?;
                             total_embedded += 1;
                         }
@@ -119,8 +132,11 @@ impl EmbeddingStage {
 
         let latency_ms = t0.elapsed().as_millis() as i64;
         info!(
-            session_id, embedded = total_embedded, failed = total_failed,
-            latency_ms, "[EMBED] Complete"
+            session_id,
+            embedded = total_embedded,
+            failed = total_failed,
+            latency_ms,
+            "[EMBED] Complete"
         );
 
         let total_attempted = total_embedded + total_failed;
@@ -130,7 +146,9 @@ impl EmbeddingStage {
                 total_failed, total_attempted
             );
             pipeline_repo.record_stage(
-                pipeline_run_id, "EMBEDDED", "FAILED",
+                pipeline_run_id,
+                "EMBEDDED",
+                "FAILED",
                 Some(total_attempted as i32),
                 Some(total_embedded as i32),
                 Some(latency_ms),
@@ -141,7 +159,9 @@ impl EmbeddingStage {
         }
 
         pipeline_repo.record_stage(
-            pipeline_run_id, "EMBEDDED", "SUCCESS",
+            pipeline_run_id,
+            "EMBEDDED",
+            "SUCCESS",
             Some(total_attempted as i32),
             Some(total_embedded as i32),
             Some(latency_ms),
@@ -170,7 +190,9 @@ fn split_into_chunks(text: &str, target_tokens: usize, overlap_tokens: usize) ->
         let end = (start + target_chars).min(chars.len());
         let chunk: String = chars[start..end].iter().collect();
         chunks.push(chunk);
-        if end >= chars.len() { break; }
+        if end >= chars.len() {
+            break;
+        }
         start = end.saturating_sub(overlap_chars);
     }
 
@@ -197,8 +219,10 @@ mod tests {
         // Each chunk should have overlap with the next
         for i in 1..chunks.len() {
             let overlap_chars = (10_f64 * CHARS_PER_TOKEN) as usize;
-            let prev_end: Vec<char> = chunks[i-1].chars().collect();
-            let prev_tail: String = prev_end[prev_end.len().saturating_sub(overlap_chars)..].iter().collect();
+            let prev_end: Vec<char> = chunks[i - 1].chars().collect();
+            let prev_tail: String = prev_end[prev_end.len().saturating_sub(overlap_chars)..]
+                .iter()
+                .collect();
             assert!(chunks[i].starts_with(&prev_tail[..prev_tail.len().min(20)]));
         }
     }

@@ -5,14 +5,13 @@
 use tracing::{debug, info, warn};
 
 use crate::ai::{
-    AiClient,
     chunker::{chunk_messages, render_chunk, render_session_for_ai},
     config::AiModelConfig,
     prompts::{
-        make_chunk_prompt, make_extraction_prompt, make_final_extraction_prompt,
-        SYSTEM_PROMPT,
+        make_chunk_prompt, make_extraction_prompt, make_final_extraction_prompt, SYSTEM_PROMPT,
     },
     schema::KnowledgeDocument,
+    AiClient,
 };
 use crate::model::NormalizedSession;
 use crate::util::SecretSanitizer;
@@ -44,7 +43,9 @@ impl KnowledgeExtractor {
         let include_thinking = false; // spec §19: thinking OFF by default
         let chunk_size = self.client.config().chunk_size_messages;
 
-        let non_system_msgs: Vec<_> = session.messages.iter()
+        let non_system_msgs: Vec<_> = session
+            .messages
+            .iter()
             .filter(|m| m.role != crate::model::MessageRole::System)
             .collect();
 
@@ -123,8 +124,13 @@ impl KnowledgeExtractor {
                 );
                 let retry_resp = self.client.chat(SYSTEM_PROMPT, &fix_prompt).await?;
                 let clean2 = clean_json_response(&retry_resp);
-                serde_json::from_str::<KnowledgeDocument>(&clean2)
-                    .map_err(|e| anyhow::anyhow!("JSON parse failed after retry: {} (original: {})", e, first_err))
+                serde_json::from_str::<KnowledgeDocument>(&clean2).map_err(|e| {
+                    anyhow::anyhow!(
+                        "JSON parse failed after retry: {} (original: {})",
+                        e,
+                        first_err
+                    )
+                })
             }
         }
     }
@@ -135,7 +141,10 @@ fn clean_json_response(s: &str) -> String {
     let s = s.trim();
     // Remove ```json ... ``` or ``` ... ```
     let s = if s.starts_with("```") {
-        let after = s.trim_start_matches('`').trim_start_matches("json").trim_start_matches('\n');
+        let after = s
+            .trim_start_matches('`')
+            .trim_start_matches("json")
+            .trim_start_matches('\n');
         if let Some(end) = after.rfind("```") {
             &after[..end]
         } else {

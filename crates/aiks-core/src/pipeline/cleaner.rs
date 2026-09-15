@@ -12,7 +12,7 @@
 /// - Paths and versions
 /// - Code blocks
 /// - Final results
-use crate::model::{NormalizedMessage, ContentBlock};
+use crate::model::{ContentBlock, NormalizedMessage};
 
 /// Result of cleaning a session
 pub struct CleanResult {
@@ -57,14 +57,12 @@ fn should_remove(msg: &NormalizedMessage) -> bool {
     }
 
     // Check if all blocks are empty/whitespace
-    let has_content = msg.blocks.iter().any(|b| {
-        match b {
-            ContentBlock::Text { text } => !text.trim().is_empty(),
-            ContentBlock::Thinking { text } => !text.trim().is_empty(),
-            ContentBlock::ToolCall { .. } => true,
-            ContentBlock::ToolResult { content, .. } => !content.trim().is_empty(),
-            _ => true,
-        }
+    let has_content = msg.blocks.iter().any(|b| match b {
+        ContentBlock::Text { text } => !text.trim().is_empty(),
+        ContentBlock::Thinking { text } => !text.trim().is_empty(),
+        ContentBlock::ToolCall { .. } => true,
+        ContentBlock::ToolResult { content, .. } => !content.trim().is_empty(),
+        _ => true,
     });
 
     if !has_content {
@@ -98,7 +96,10 @@ fn is_step_noise(msg: &NormalizedMessage) -> bool {
         // Very short messages that look like step announcements
         if trimmed.len() < 50 {
             let lower = trimmed.to_lowercase();
-            if lower.starts_with("let me") || lower.starts_with("i'll ") || lower.starts_with("now ") {
+            if lower.starts_with("let me")
+                || lower.starts_with("i'll ")
+                || lower.starts_with("now ")
+            {
                 return true;
             }
         }
@@ -111,24 +112,40 @@ fn is_step_noise(msg: &NormalizedMessage) -> bool {
 fn truncate_tool_results(mut msg: NormalizedMessage) -> NormalizedMessage {
     const MAX_TOOL_RESULT_CHARS: usize = 8000;
 
-    msg.blocks = msg.blocks.into_iter().map(|block| {
-        match block {
-            ContentBlock::ToolResult { id, content, is_error } => {
-                // R11: cut on character boundaries — byte slicing panics on CJK.
-                if content.chars().count() > MAX_TOOL_RESULT_CHARS && !is_error {
-                    let truncated = format!(
-                        "{}\n\n[... {} chars truncated ...]",
-                        crate::util::truncate_chars(&content, MAX_TOOL_RESULT_CHARS),
-                        content.chars().count() - MAX_TOOL_RESULT_CHARS
-                    );
-                    ContentBlock::ToolResult { id, content: truncated, is_error }
-                } else {
-                    ContentBlock::ToolResult { id, content, is_error }
+    msg.blocks = msg
+        .blocks
+        .into_iter()
+        .map(|block| {
+            match block {
+                ContentBlock::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                } => {
+                    // R11: cut on character boundaries — byte slicing panics on CJK.
+                    if content.chars().count() > MAX_TOOL_RESULT_CHARS && !is_error {
+                        let truncated = format!(
+                            "{}\n\n[... {} chars truncated ...]",
+                            crate::util::truncate_chars(&content, MAX_TOOL_RESULT_CHARS),
+                            content.chars().count() - MAX_TOOL_RESULT_CHARS
+                        );
+                        ContentBlock::ToolResult {
+                            id,
+                            content: truncated,
+                            is_error,
+                        }
+                    } else {
+                        ContentBlock::ToolResult {
+                            id,
+                            content,
+                            is_error,
+                        }
+                    }
                 }
+                other => other,
             }
-            other => other,
-        }
-    }).collect();
+        })
+        .collect();
 
     msg
 }
@@ -136,7 +153,7 @@ fn truncate_tool_results(mut msg: NormalizedMessage) -> NormalizedMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{MessageRole, NormalizedMessage, ContentBlock};
+    use crate::model::{ContentBlock, MessageRole, NormalizedMessage};
 
     fn make_message(role: MessageRole, text: &str) -> NormalizedMessage {
         NormalizedMessage {
@@ -145,7 +162,9 @@ mod tests {
             role,
             created_at: None,
             model: None,
-            blocks: vec![ContentBlock::Text { text: text.to_string() }],
+            blocks: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
             usage: None,
             metadata: Default::default(),
         }
@@ -176,22 +195,20 @@ mod tests {
 
     #[test]
     fn clean_preserves_error_tool_result() {
-        let messages = vec![
-            NormalizedMessage {
-                external_id: "tool".to_string(),
-                parent_id: None,
-                role: MessageRole::Tool,
-                created_at: None,
-                model: None,
-                blocks: vec![ContentBlock::ToolResult {
-                    id: Some("t1".to_string()),
-                    content: "error: compilation failed".to_string(),
-                    is_error: true,
-                }],
-                usage: None,
-                metadata: Default::default(),
-            },
-        ];
+        let messages = vec![NormalizedMessage {
+            external_id: "tool".to_string(),
+            parent_id: None,
+            role: MessageRole::Tool,
+            created_at: None,
+            model: None,
+            blocks: vec![ContentBlock::ToolResult {
+                id: Some("t1".to_string()),
+                content: "error: compilation failed".to_string(),
+                is_error: true,
+            }],
+            usage: None,
+            metadata: Default::default(),
+        }];
 
         let result = clean_messages(messages);
         assert_eq!(result.cleaned_count, 1);

@@ -1,10 +1,13 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::too_many_arguments)]
+
 /// Pipeline repository — read/write pipeline_run and pipeline_stage_run tables
 use chrono::Utc;
 use rusqlite::params;
 use uuid::Uuid;
 
-use crate::storage::StateDb;
 use crate::pipeline::status::{PipelineStatus, StageStatus};
+use crate::storage::StateDb;
 
 pub struct PipelineRepo<'a> {
     db: &'a StateDb,
@@ -26,11 +29,13 @@ impl<'a> PipelineRepo<'a> {
         let now = Utc::now().to_rfc3339();
 
         // Check if run exists
-        let existing: Option<String> = conn.query_row(
-            "SELECT id FROM pipeline_run WHERE session_id = ?1 AND pipeline_version = ?2",
-            params![session_id, pipeline_version],
-            |row| row.get(0),
-        ).ok();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM pipeline_run WHERE session_id = ?1 AND pipeline_version = ?2",
+                params![session_id, pipeline_version],
+                |row| row.get(0),
+            )
+            .ok();
 
         if let Some(id) = existing {
             conn.execute(
@@ -141,12 +146,7 @@ impl<'a> PipelineRepo<'a> {
     }
 
     /// Mark a stage as failed and set pipeline to FAILED state
-    pub fn mark_failed(
-        &self,
-        run_id: &str,
-        stage: &str,
-        error: &str,
-    ) -> anyhow::Result<()> {
+    pub fn mark_failed(&self, run_id: &str, stage: &str, error: &str) -> anyhow::Result<()> {
         self.update_status(run_id, "FAILED", Some(stage), Some(stage), Some(error))?;
         tracing::warn!(run_id, stage, error, "[PIPELINE] Stage failed");
         Ok(())
@@ -245,11 +245,13 @@ impl<'a> PipelineRepo<'a> {
                 }
 
                 // Count knowledge items
-                let kc: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1",
-                    params![status.session_id],
-                    |row| row.get(0),
-                ).unwrap_or(0);
+                let kc: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1",
+                        params![status.session_id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
                 status.knowledge_count = kc as usize;
 
                 Ok(Some(status))
@@ -263,37 +265,55 @@ impl<'a> PipelineRepo<'a> {
     pub fn get_stats(&self) -> anyhow::Result<crate::model::pipeline::PipelineStats> {
         let conn = self.db.conn();
 
-        let total: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pipeline_run", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pipeline_run", [], |row| row.get(0))
+            .unwrap_or(0);
 
-        let processing: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pipeline_run WHERE status = 'PROCESSING'", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let processing: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_run WHERE status = 'PROCESSING'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
-        let ready: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pipeline_run WHERE status = 'READY'", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let ready: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_run WHERE status = 'READY'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
-        let raw_only: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pipeline_run WHERE status = 'RAW_ONLY'", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let raw_only: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_run WHERE status = 'RAW_ONLY'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
-        let failed: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pipeline_run WHERE status = 'FAILED'", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let failed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_run WHERE status = 'FAILED'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
-        let knowledge_items: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM knowledge_item", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let knowledge_items: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knowledge_item", [], |row| row.get(0))
+            .unwrap_or(0);
 
-        let knowledge_chunks: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM knowledge_chunk", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let knowledge_chunks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM knowledge_chunk", [], |row| row.get(0))
+            .unwrap_or(0);
 
-        let embeddings: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM embedding_record", [], |row| row.get(0)
-        ).unwrap_or(0);
+        let embeddings: i64 = conn
+            .query_row("SELECT COUNT(*) FROM embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
 
         Ok(crate::model::pipeline::PipelineStats {
             total: total as usize,

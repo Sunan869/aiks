@@ -1,26 +1,31 @@
+pub mod ai;
+pub mod bootstrap;
 pub mod config;
+pub mod engine;
+pub mod knowledge;
 pub mod model;
+pub mod pipeline;
 pub mod providers;
 pub mod renderer;
+pub mod runtime;
 pub mod sink;
 pub mod storage;
 pub mod sync;
 pub mod util;
 pub mod watcher;
-pub mod runtime;
-pub mod bootstrap;
-pub mod engine;
-pub mod ai;
-pub mod knowledge;
-pub mod pipeline;
 
 // Re-export the most commonly used types
-pub use engine::{AiksEngine, AiksEngineConfig, DoctorResult, DoctorCheck, AppStatus, ScanResult, AiStatus, FullStatus};
-pub use config::Config;
-pub use model::{NormalizedSession, NormalizedMessage, ContentBlock, MessageRole, SourceKind};
-pub use model::pipeline::{PipelineStage, KnowledgeItem, KnowledgeChunk, PipelineStats};
-pub use providers::SessionSummary;
-pub use sync::{ExtractionCandidate, SyncOptions, SyncStats, SyncOutcome};
 pub use ai::AiModelConfig;
+pub use config::Config;
+pub use engine::{
+    AiStatus, AiksEngine, AiksEngineConfig, AppStatus, DoctorCheck, DoctorResult, FullStatus,
+    ScanResult,
+};
 pub use knowledge::model::ExtractionStats;
-pub use pipeline::{PipelineOrchestrator, PipelineWorker, PipelineJob, EmbeddingConfig, KnowledgeRepo};
+pub use model::pipeline::{KnowledgeChunk, KnowledgeItem, PipelineStage, PipelineStats};
+pub use model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
+pub use pipeline::{
+    EmbeddingConfig, KnowledgeRepo, PipelineJob, PipelineOrchestrator, PipelineWorker,
+};
+pub use providers::SessionSummary;
+pub use sync::{ExtractionCandidate, SyncOptions, SyncOutcome, SyncStats};

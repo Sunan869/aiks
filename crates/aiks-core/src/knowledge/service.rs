@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::too_many_arguments)]
+
 /// Knowledge Extraction Service — manages the extraction queue and state.
 ///
 /// Spec §31: Extraction happens in a background queue, never blocking sync.
@@ -44,11 +47,7 @@ pub struct ExtractionService {
 
 impl ExtractionService {
     /// Create a new service and start the background worker.
-    pub fn start(
-        config: AiModelConfig,
-        db: Arc<StateDb>,
-        siyuan_base_url: String,
-    ) -> Self {
+    pub fn start(config: AiModelConfig, db: Arc<StateDb>, siyuan_base_url: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let svc_config = config.clone();
 
@@ -111,7 +110,16 @@ async fn run_extraction_worker(
         );
 
         // Mark as running
-        set_extraction_status(&db, &req.source, &req.session_id, &req.content_hash, ExtractionStatus::Running, None, None, &config);
+        set_extraction_status(
+            &db,
+            &req.source,
+            &req.session_id,
+            &req.content_hash,
+            ExtractionStatus::Running,
+            None,
+            None,
+            &config,
+        );
     }
 
     info!("Knowledge extraction worker stopped");
@@ -130,7 +138,11 @@ pub async fn extract_session(
 
     let extractor = match KnowledgeExtractor::new(config.clone()) {
         Ok(e) => e,
-        Err(e) => return ExtractionOutcome::Failed { error: e.to_string() },
+        Err(e) => {
+            return ExtractionOutcome::Failed {
+                error: e.to_string(),
+            }
+        }
     };
 
     // Run extraction
@@ -138,7 +150,9 @@ pub async fn extract_session(
         Ok(d) => d,
         Err(e) => {
             warn!(error = %e, session_id = %session.external_session_id, "Extraction failed");
-            return ExtractionOutcome::Failed { error: e.to_string() };
+            return ExtractionOutcome::Failed {
+                error: e.to_string(),
+            };
         }
     };
 
@@ -151,19 +165,32 @@ pub async fn extract_session(
     }
 
     // Render to Markdown
-    let markdown = KnowledgeRenderer::render(&doc, session.source, &session.external_session_id, None);
-    let doc_path = KnowledgeRenderer::build_doc_path(&doc, session.source, &session.external_session_id);
+    let markdown =
+        KnowledgeRenderer::render(&doc, session.source, &session.external_session_id, None);
+    let doc_path =
+        KnowledgeRenderer::build_doc_path(&doc, session.source, &session.external_session_id);
 
     // Ensure notebook
     let notebook_id = match sink.ensure_notebook().await {
         Ok(id) => id,
-        Err(e) => return ExtractionOutcome::Failed { error: format!("notebook: {}", e) },
+        Err(e) => {
+            return ExtractionOutcome::Failed {
+                error: format!("notebook: {}", e),
+            }
+        }
     };
 
     // Create/update SiYuan document
-    let doc_id = match sink.create_document(&notebook_id, &doc_path, &markdown).await {
+    let doc_id = match sink
+        .create_document(&notebook_id, &doc_path, &markdown)
+        .await
+    {
         Ok(id) => id,
-        Err(e) => return ExtractionOutcome::Failed { error: format!("create doc: {}", e) },
+        Err(e) => {
+            return ExtractionOutcome::Failed {
+                error: format!("create doc: {}", e),
+            }
+        }
     };
 
     // Set attributes
@@ -171,8 +198,14 @@ pub async fn extract_session(
     let mut attrs = std::collections::HashMap::new();
     attrs.insert("custom-aiks-managed".to_string(), "true".to_string());
     attrs.insert("custom-aiks-type".to_string(), "knowledge".to_string());
-    attrs.insert("custom-aiks-source-session-id".to_string(), session.external_session_id.clone());
-    attrs.insert("custom-aiks-source".to_string(), session.source.as_str().to_string());
+    attrs.insert(
+        "custom-aiks-source-session-id".to_string(),
+        session.external_session_id.clone(),
+    );
+    attrs.insert(
+        "custom-aiks-source".to_string(),
+        session.source.as_str().to_string(),
+    );
     attrs.insert("custom-aiks-category".to_string(), doc.category.clone());
     attrs.insert("custom-aiks-score".to_string(), format!("{:.2}", score));
     attrs.insert("custom-aiks-synced-at".to_string(), now);
@@ -188,19 +221,21 @@ pub fn get_extraction_stats(db: &StateDb) -> anyhow::Result<ExtractionStats> {
     let mut stats = ExtractionStats::default();
 
     // Check if the table exists first
-    let table_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_extraction'",
-        [],
-        |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_extraction'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
 
     if !table_exists {
         return Ok(stats);
     }
 
-    let mut stmt = conn.prepare(
-        "SELECT status, COUNT(*) FROM knowledge_extraction GROUP BY status"
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT status, COUNT(*) FROM knowledge_extraction GROUP BY status")?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
     })?;

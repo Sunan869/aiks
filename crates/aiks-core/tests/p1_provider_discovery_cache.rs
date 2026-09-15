@@ -8,9 +8,8 @@ use aiks_core::{
     ai::AiModelConfig,
     model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind},
     pipeline::{
-        embedding_client::EmbeddingConfig,
-        repo::PipelineRepo,
-        PipelineJob, PipelineOrchestrator, PipelineWorker,
+        embedding_client::EmbeddingConfig, repo::PipelineRepo, PipelineJob, PipelineOrchestrator,
+        PipelineWorker,
     },
     providers::{ProviderHealth, ProviderRegistry, SessionProvider, SessionSummary},
     storage::{SourceSessionRepo, StateDb},
@@ -104,8 +103,10 @@ async fn multi_session_backfill_discovers_provider_once_not_once_per_job() {
         load_calls: Arc::clone(&load_calls),
     })]));
 
-    let mut ai = AiModelConfig::default();
-    ai.enabled = false;
+    let ai = AiModelConfig {
+        enabled: false,
+        ..Default::default()
+    };
     let worker = PipelineWorker::start_with_limit(
         Arc::clone(&db),
         registry,
@@ -131,7 +132,10 @@ async fn multi_session_backfill_discovers_provider_once_not_once_per_job() {
             )
             .unwrap();
         let run_id = orchestrator
-            .enqueue(session_id, Some(&format!("hash-{}", summary.external_session_id)))
+            .enqueue(
+                session_id,
+                Some(&format!("hash-{}", summary.external_session_id)),
+            )
             .unwrap();
         worker
             .submit(PipelineJob {
@@ -164,7 +168,10 @@ async fn multi_session_backfill_discovers_provider_once_not_once_per_job() {
     })
     .await;
 
-    assert!(completed.is_ok(), "pipeline backfill did not finish in time");
+    assert!(
+        completed.is_ok(),
+        "pipeline backfill did not finish in time"
+    );
     assert_eq!(load_calls.load(Ordering::SeqCst), SESSION_COUNT);
     assert_eq!(
         discover_calls.load(Ordering::SeqCst),

@@ -116,8 +116,7 @@ pub async fn search_with_status(
     };
 
     // Merge: deduplicate by knowledge_id, taking the higher/combined score.
-    let mut merged: std::collections::HashMap<String, SearchHit> =
-        std::collections::HashMap::new();
+    let mut merged: std::collections::HashMap<String, SearchHit> = std::collections::HashMap::new();
 
     for hit in fts_results {
         merged.entry(hit.knowledge_id.clone()).or_insert(hit);
@@ -141,7 +140,12 @@ pub async fn search_with_status(
     });
     hits.truncate(limit);
 
-    info!(query, results = hits.len(), degraded = !degradations.is_empty(), "[SEARCH] Complete");
+    info!(
+        query,
+        results = hits.len(),
+        degraded = !degradations.is_empty(),
+        "[SEARCH] Complete"
+    );
     Ok(SearchOutcome { hits, degradations })
 }
 
@@ -297,11 +301,8 @@ async fn vector_search(
     // This second query is also capped, so database reads remain O(cap) rather
     // than O(total_embeddings).
     if !preferred_knowledge_ids.is_empty() && stored.len() < VECTOR_CANDIDATE_CAP {
-        let recent = knowledge_repo.load_embedding_candidates(
-            &cfg.model,
-            &[],
-            VECTOR_CANDIDATE_CAP,
-        )?;
+        let recent =
+            knowledge_repo.load_embedding_candidates(&cfg.model, &[], VECTOR_CANDIDATE_CAP)?;
         let mut chunk_ids: std::collections::HashSet<String> =
             stored.iter().map(|row| row.chunk_id.clone()).collect();
         for row in recent {

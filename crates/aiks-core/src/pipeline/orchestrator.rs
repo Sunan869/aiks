@@ -52,12 +52,7 @@ impl PipelineOrchestrator {
     }
 
     /// Mark a stage as failed
-    pub fn mark_failed(
-        &self,
-        run_id: &str,
-        stage: &str,
-        error: &str,
-    ) -> anyhow::Result<()> {
+    pub fn mark_failed(&self, run_id: &str, stage: &str, error: &str) -> anyhow::Result<()> {
         let repo = PipelineRepo::new(&self.db);
         repo.update_status(run_id, "FAILED", Some(stage), Some(stage), Some(error))?;
         warn!(run_id, stage, error, "[PIPELINE] Stage failed");

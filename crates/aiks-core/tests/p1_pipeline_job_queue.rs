@@ -28,8 +28,10 @@ fn insert_session(db: &StateDb, external_id: &str, hash: &str) -> i64 {
 }
 
 fn make_worker(db: Arc<StateDb>) -> PipelineWorker {
-    let mut ai = AiModelConfig::default();
-    ai.enabled = false;
+    let ai = AiModelConfig {
+        enabled: false,
+        ..Default::default()
+    };
     PipelineWorker::start_with_limit(
         db,
         Arc::new(ProviderRegistry::new(vec![])),
@@ -80,7 +82,10 @@ async fn submit_persists_pipeline_job_before_returning() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1, "submit must durably persist work before returning");
+    assert_eq!(
+        count, 1,
+        "submit must durably persist work before returning"
+    );
 }
 
 #[tokio::test]
@@ -94,11 +99,7 @@ async fn duplicate_submit_has_only_one_active_durable_job() {
     let worker = make_worker(db.clone());
 
     worker
-        .submit(make_job(
-            run_id.clone(),
-            session_id,
-            "p1-duplicate-session",
-        ))
+        .submit(make_job(run_id.clone(), session_id, "p1-duplicate-session"))
         .unwrap();
     worker
         .submit(make_job(run_id, session_id, "p1-duplicate-session"))

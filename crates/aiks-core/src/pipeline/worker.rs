@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::type_complexity)]
+
 /// V3 Pipeline Worker — background task that processes sessions through stages
 ///
 /// Stages: DISCOVERED → PARSED → CLEANED → LLM_CHUNKED → AI_EXTRACTED
@@ -10,6 +13,7 @@ use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
 
 use crate::ai::config::AiModelConfig;
+use crate::model::SourceKind;
 use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
@@ -17,7 +21,6 @@ use crate::pipeline::embedding_stage::EmbeddingStage;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
-use crate::model::SourceKind;
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
 use crate::storage::StateDb;
 
@@ -193,7 +196,9 @@ pub fn recover_interrupted_runs(db: &Arc<StateDb>, worker: &PipelineWorker) -> u
     };
 
     let mut seeded = 0;
-    for (pipeline_run_id, session_id, source, session_external_id, session_title, project_name) in rows {
+    for (pipeline_run_id, session_id, source, session_external_id, session_title, project_name) in
+        rows
+    {
         match job_repo.has_any_job(&source, &session_external_id) {
             Ok(true) => continue,
             Err(e) => {
@@ -218,7 +223,10 @@ pub fn recover_interrupted_runs(db: &Arc<StateDb>, worker: &PipelineWorker) -> u
     }
 
     if seeded > 0 {
-        info!("[PIPELINE] Seeded {} legacy run(s) into durable queue", seeded);
+        info!(
+            "[PIPELINE] Seeded {} legacy run(s) into durable queue",
+            seeded
+        );
     }
     seeded
 }
@@ -437,7 +445,10 @@ async fn run_pipeline(
     // Load session from provider
     let provider = match registry.get(source_kind) {
         Some(p) => p,
-        None => fail_stage!("PARSED", format!("Provider not found for {:?}", source_kind)),
+        None => fail_stage!(
+            "PARSED",
+            format!("Provider not found for {:?}", source_kind)
+        ),
     };
 
     let summary = match resolve_session_summary(
@@ -458,8 +469,12 @@ async fn run_pipeline(
     };
 
     repo.record_stage(
-        run_id, "PARSED", "SUCCESS",
-        None, Some(session.messages.len() as i32), None,
+        run_id,
+        "PARSED",
+        "SUCCESS",
+        None,
+        Some(session.messages.len() as i32),
+        None,
         Some(&serde_json::json!({"message_count": session.messages.len()})),
         None,
     )?;
@@ -471,7 +486,9 @@ async fn run_pipeline(
     let clean_result = clean_messages(session.messages.clone());
 
     repo.record_stage(
-        run_id, "CLEANED", "SUCCESS",
+        run_id,
+        "CLEANED",
+        "SUCCESS",
         Some(clean_result.original_count as i32),
         Some(clean_result.cleaned_count as i32),
         None,
@@ -482,7 +499,10 @@ async fn run_pipeline(
         })),
         None,
     )?;
-    info!("[CLEAN] {} → {} messages", clean_result.original_count, clean_result.cleaned_count);
+    info!(
+        "[CLEAN] {} → {} messages",
+        clean_result.original_count, clean_result.cleaned_count
+    );
 
     if clean_result.cleaned_count == 0 {
         repo.mark_finished(run_id, "RAW_ONLY")?;
@@ -496,7 +516,9 @@ async fn run_pipeline(
     save_chunks(db, &chunk_result.chunks)?;
 
     repo.record_stage(
-        run_id, "LLM_CHUNKED", "SUCCESS",
+        run_id,
+        "LLM_CHUNKED",
+        "SUCCESS",
         Some(clean_result.cleaned_count as i32),
         Some(chunk_result.chunks.len() as i32),
         None,
@@ -526,13 +548,16 @@ async fn run_pipeline(
         }
     };
 
-    let item_count = match ai_stage.run(
-        db,
-        run_id,
-        job.session_id,
-        job.session_title.as_deref(),
-        job.project_name.as_deref(),
-    ).await {
+    let item_count = match ai_stage
+        .run(
+            db,
+            run_id,
+            job.session_id,
+            job.session_title.as_deref(),
+            job.project_name.as_deref(),
+        )
+        .await
+    {
         Ok(n) => n,
         Err(e) => {
             let msg = format!("AI extraction failed: {}", e);
@@ -550,11 +575,22 @@ async fn run_pipeline(
     // ── Stage 5: KNOWLEDGE SPLIT (EMBED_CHUNK) ────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("EMBED_CHUNKED"), None, None)?;
 
-    let target_tokens = if embedding_config.enabled { embedding_config.chunk_target_tokens } else { 800 };
-    let overlap_tokens = if embedding_config.enabled { embedding_config.chunk_overlap_tokens } else { 120 };
-    let embedding_required = embedding_config.enabled && !embedding_config.base_url.trim().is_empty();
+    let target_tokens = if embedding_config.enabled {
+        embedding_config.chunk_target_tokens
+    } else {
+        800
+    };
+    let overlap_tokens = if embedding_config.enabled {
+        embedding_config.chunk_overlap_tokens
+    } else {
+        120
+    };
+    let embedding_required =
+        embedding_config.enabled && !embedding_config.base_url.trim().is_empty();
 
-    if let Err(e) = EmbeddingStage::chunk_knowledge(db, run_id, job.session_id, target_tokens, overlap_tokens) {
+    if let Err(e) =
+        EmbeddingStage::chunk_knowledge(db, run_id, job.session_id, target_tokens, overlap_tokens)
+    {
         if embedding_required {
             fail_stage!("EMBED_CHUNKED", e);
         }
@@ -576,17 +612,37 @@ async fn run_pipeline(
 
         // Index stage (placeholder — vector index is sqlite BLOB)
         repo.record_stage(
-            run_id, "INDEXED", "SUCCESS",
-            None, None, None,
+            run_id,
+            "INDEXED",
+            "SUCCESS",
+            None,
+            None,
+            None,
             Some(&serde_json::json!({"type": "sqlite-blob"})),
             None,
         )?;
     } else {
         // Skip embedding stages
-        repo.record_stage(run_id, "EMBEDDED", "SKIPPED", None, None, None,
-            Some(&serde_json::json!({"reason": "embedding not configured"})), None)?;
-        repo.record_stage(run_id, "INDEXED", "SKIPPED", None, None, None,
-            Some(&serde_json::json!({"reason": "embedding not configured"})), None)?;
+        repo.record_stage(
+            run_id,
+            "EMBEDDED",
+            "SKIPPED",
+            None,
+            None,
+            None,
+            Some(&serde_json::json!({"reason": "embedding not configured"})),
+            None,
+        )?;
+        repo.record_stage(
+            run_id,
+            "INDEXED",
+            "SKIPPED",
+            None,
+            None,
+            None,
+            Some(&serde_json::json!({"reason": "embedding not configured"})),
+            None,
+        )?;
     }
 
     // ── DONE ──────────────────────────────────────────────────────────────────

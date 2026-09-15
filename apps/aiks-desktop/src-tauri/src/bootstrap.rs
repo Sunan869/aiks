@@ -28,7 +28,10 @@ pub fn find_runtime_root(app_handle: &tauri::AppHandle) -> anyhow::Result<PathBu
         // Also try resource_dir/siyuan/ (some Tauri versions strip the prefix)
         let candidate2 = resource_dir.join("siyuan");
         if candidate2.join("kernel").exists() {
-            tracing::debug!("Runtime found via resource_dir/siyuan: {}", candidate2.display());
+            tracing::debug!(
+                "Runtime found via resource_dir/siyuan: {}",
+                candidate2.display()
+            );
             return Ok(candidate2);
         }
     }
@@ -38,7 +41,10 @@ pub fn find_runtime_root(app_handle: &tauri::AppHandle) -> anyhow::Result<PathBu
         .join("resources")
         .join("siyuan");
     if dev_path.join("kernel").exists() {
-        tracing::debug!("Runtime found via CARGO_MANIFEST_DIR: {}", dev_path.display());
+        tracing::debug!(
+            "Runtime found via CARGO_MANIFEST_DIR: {}",
+            dev_path.display()
+        );
         return Ok(dev_path);
     }
 

@@ -190,8 +190,16 @@ impl<'a> PipelineJobRepo<'a> {
             )
             .optional()?;
 
-        let Some((durable_job_id, previous_attempt, pipeline_run_id, session_id,
-                  session_external_id, source, session_title, project_name)) = row
+        let Some((
+            durable_job_id,
+            previous_attempt,
+            pipeline_run_id,
+            session_id,
+            session_external_id,
+            source,
+            session_title,
+            project_name,
+        )) = row
         else {
             tx.commit()?;
             return Ok(None);
@@ -275,8 +283,8 @@ impl<'a> PipelineJobRepo<'a> {
             return Ok(FailureDisposition::Terminal);
         }
 
-        let backoff_index = (attempt.saturating_sub(1) as usize)
-            .min(RETRY_BACKOFF_SECONDS.len().saturating_sub(1));
+        let backoff_index =
+            (attempt.saturating_sub(1) as usize).min(RETRY_BACKOFF_SECONDS.len().saturating_sub(1));
         let available_at =
             (now_dt + Duration::seconds(RETRY_BACKOFF_SECONDS[backoff_index])).to_rfc3339();
         conn.execute(
