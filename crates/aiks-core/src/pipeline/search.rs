@@ -9,6 +9,11 @@ use crate::pipeline::embedding_client::{cosine_sim, EmbeddingClient, EmbeddingCo
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::storage::StateDb;
 
+/// Hard upper bound on embedding rows loaded for one vector rerank request.
+/// This keeps query cost independent from total corpus size until a dedicated
+/// ANN/vector index is introduced.
+pub const VECTOR_CANDIDATE_CAP: usize = 512;
+
 #[derive(Debug)]
 pub struct SearchHit {
     pub knowledge_id: String,
@@ -67,9 +72,32 @@ pub async fn search_with_status(
         degradations.push(degradation);
     }
 
+    // Preserve text/metadata matches as preferred vector candidates. Keep the
+    // list bounded and stable in FTS rank order.
+    let mut preferred_seen = std::collections::HashSet::new();
+    let preferred_knowledge_ids: Vec<String> = fts_results
+        .iter()
+        .filter_map(|hit| {
+            if preferred_seen.insert(hit.knowledge_id.clone()) {
+                Some(hit.knowledge_id.clone())
+            } else {
+                None
+            }
+        })
+        .take(VECTOR_CANDIDATE_CAP)
+        .collect();
+
     let vector_results = if let Some(cfg) = embedding_config {
         if cfg.enabled && !cfg.base_url.trim().is_empty() {
-            match vector_search(db, cfg, query, limit.saturating_mul(2)).await {
+            match vector_search(
+                db,
+                cfg,
+                query,
+                limit.saturating_mul(2),
+                &preferred_knowledge_ids,
+            )
+            .await
+            {
                 Ok(results) => results,
                 Err(e) => {
                     tracing::warn!(error = %e, "[SEARCH] Vector search unavailable; returning text results");
@@ -243,12 +271,13 @@ fn fts_search(
     }
 }
 
-/// Vector similarity search (in-process cosine sim).
+/// Vector similarity search over a bounded candidate pool.
 async fn vector_search(
     db: &StateDb,
     cfg: &EmbeddingConfig,
     query: &str,
     limit: usize,
+    preferred_knowledge_ids: &[String],
 ) -> anyhow::Result<Vec<SearchHit>> {
     let client = EmbeddingClient::new(cfg.clone())?;
     let embeddings = client.embed_batch(vec![query.to_string()]).await?;
@@ -258,7 +287,32 @@ async fn vector_search(
     }
 
     let knowledge_repo = KnowledgeRepo::new(db);
-    let stored = knowledge_repo.load_all_embeddings(&cfg.model)?;
+    let mut stored = knowledge_repo.load_embedding_candidates(
+        &cfg.model,
+        preferred_knowledge_ids,
+        VECTOR_CANDIDATE_CAP,
+    )?;
+
+    // If the text-ranked set is small, supplement it with recent candidates.
+    // This second query is also capped, so database reads remain O(cap) rather
+    // than O(total_embeddings).
+    if !preferred_knowledge_ids.is_empty() && stored.len() < VECTOR_CANDIDATE_CAP {
+        let recent = knowledge_repo.load_embedding_candidates(
+            &cfg.model,
+            &[],
+            VECTOR_CANDIDATE_CAP,
+        )?;
+        let mut chunk_ids: std::collections::HashSet<String> =
+            stored.iter().map(|row| row.chunk_id.clone()).collect();
+        for row in recent {
+            if chunk_ids.insert(row.chunk_id.clone()) {
+                stored.push(row);
+                if stored.len() >= VECTOR_CANDIDATE_CAP {
+                    break;
+                }
+            }
+        }
+    }
 
     let mut hits: Vec<SearchHit> = stored
         .into_iter()
