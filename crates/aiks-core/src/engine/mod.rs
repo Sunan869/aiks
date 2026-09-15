@@ -516,21 +516,26 @@ impl AiksEngine {
     ) -> anyhow::Result<SyncStats> {
         // Hold the global sync lock across migration + sync + bookkeeping so
         // the archive migration never interleaves with another flow's SiYuan
-        // writes (same duplicate-document rationale as `sync`).
-        let _guard = self.sync_lock.lock().await;
+        // writes (same duplicate-document rationale as `sync`). The guard is
+        // scoped to this block — the knowledge push below MUST run outside
+        // it (it takes the lock itself; tokio Mutexes are not re-entrant, so
+        // calling it under the guard deadlocked every periodic tick and
+        // stalled the knowledge push overnight on 2026-09-14).
+        let stats = {
+            let _guard = self.sync_lock.lock().await;
 
-        // One-time (idempotent) migration: move raw session docs out of the
-        // knowledge notebook into the dedicated archive notebook. Cheap after
-        // the first run (a single SQL lookup against an empty result).
-        if !opts.dry_run && opts.source_filter.is_none() {
-            match self.migrate_sessions_to_archive().await {
-                Ok(0) => {}
-                Ok(n) => info!("[SYNC] Migrated {} session docs to archive notebook", n),
-                Err(e) => tracing::warn!("[SYNC] Session archive migration failed: {}", e),
+            // One-time (idempotent) migration: move raw session docs out of the
+            // knowledge notebook into the dedicated archive notebook. Cheap after
+            // the first run (a single SQL lookup against an empty result).
+            if !opts.dry_run && opts.source_filter.is_none() {
+                match self.migrate_sessions_to_archive().await {
+                    Ok(0) => {}
+                    Ok(n) => info!("[SYNC] Migrated {} session docs to archive notebook", n),
+                    Err(e) => tracing::warn!("[SYNC] Session archive migration failed: {}", e),
+                }
             }
-        }
 
-        let stats = self.sync_unlocked(opts.clone()).await?;
+            let stats = self.sync_unlocked(opts.clone()).await?;
 
         // B15: After a successful scan (no source_filter = full scan),
         // mark sessions that are no longer visible in any provider as MISSING.
@@ -587,8 +592,13 @@ impl AiksEngine {
             }
         }
 
+            stats
+        };
+
         // Knowledge → SiYuan: push new/updated knowledge docs into the
         // knowledge notebook (non-blocking for the sync result).
+        // NOTE: intentionally OUTSIDE the sync_lock block above — this call
+        // takes the lock itself, and tokio Mutexes are not re-entrant.
         if !opts.dry_run && opts.source_filter.is_none() {
             if let Err(e) = self.sync_knowledge_to_siyuan(false).await {
                 tracing::warn!("[SYNC] Knowledge sync failed: {}", e);
