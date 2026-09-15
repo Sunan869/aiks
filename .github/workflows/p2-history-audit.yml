@@ -17,14 +17,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch every branch and tag ref
+      - name: Fetch branch, tag, and pull-request refs
         shell: bash
         run: |
           set -euo pipefail
           git fetch --force origin \
             '+refs/heads/*:refs/remotes/origin/*' \
-            '+refs/tags/*:refs/tags/*'
-          echo "refs=$(git for-each-ref --format='%(refname)' refs/remotes/origin refs/tags | wc -l)"
+            '+refs/tags/*:refs/tags/*' \
+            '+refs/pull/*/head:refs/remotes/pull-head/*' \
+            '+refs/pull/*/merge:refs/remotes/pull-merge/*'
+          echo "refs=$(git for-each-ref --format='%(refname)' refs/remotes/origin refs/remotes/pull-head refs/remotes/pull-merge refs/tags | wc -l)"
           echo "unique_commits=$(git rev-list --all | sort -u | wc -l)"
 
       - name: Scan historical topology and work-memory paths
@@ -34,6 +36,7 @@ jobs:
           mkdir -p audit
           : > audit/topology.tsv
           : > audit/workbuddy.tsv
+          : > audit/tip-exposure.tsv
           private_endpoint="$(printf '%s.%s.%s.%s' 10 10 23 16)"
 
           while read -r commit; do
@@ -52,10 +55,25 @@ jobs:
             done < <(git ls-tree -r --name-only "$commit" -- .workbuddy 2>/dev/null || true)
           done < <(git rev-list --all | sort -u)
 
+          while read -r ref; do
+            topology=no
+            workbuddy=no
+            if git grep -qF "$private_endpoint" "$ref" -- 2>/dev/null; then
+              topology=yes
+            fi
+            if [ -n "$(git ls-tree -r --name-only "$ref" -- .workbuddy 2>/dev/null || true)" ]; then
+              workbuddy=yes
+            fi
+            if [ "$topology" = yes ] || [ "$workbuddy" = yes ]; then
+              printf '%s\t%s\t%s\n' "$ref" "$topology" "$workbuddy" >> audit/tip-exposure.tsv
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin refs/remotes/pull-head refs/remotes/pull-merge refs/tags)
+
           sort -u -o audit/topology.tsv audit/topology.tsv
           sort -u -o audit/workbuddy.tsv audit/workbuddy.tsv
+          sort -u -o audit/tip-exposure.tsv audit/tip-exposure.tsv
 
-      - name: Scan all Git history with Gitleaks
+      - name: Scan all reachable Git history with Gitleaks
         shell: bash
         run: |
           set -euo pipefail
@@ -94,39 +112,95 @@ jobs:
                   return []
               return [line.split('\t') for line in p.read_text().splitlines() if line.strip()]
 
-          topology = rows('topology.tsv')
-          workbuddy = rows('workbuddy.tsv')
-          findings = json.loads((audit / 'gitleaks-history.json').read_text() or '[]')
+          def sh(*args):
+              return subprocess.check_output(args, text=True).strip()
 
           def short(c):
               return c[:12] if c else 'working-tree'
 
-          def uniq(values):
-              return sorted(set(values))
+          topology = rows('topology.tsv')
+          workbuddy = rows('workbuddy.tsv')
+          tip_exposure = rows('tip-exposure.tsv')
+          findings = json.loads((audit / 'gitleaks-history.json').read_text() or '[]')
+          topology_commits = sorted({r[0] for r in topology})
+          workbuddy_commits = sorted({r[0] for r in workbuddy})
+          topology_files = sorted({r[1] for r in topology})
+          workbuddy_paths = sorted({r[1] for r in workbuddy})
+          refs = sh(
+              'git', 'for-each-ref', '--format=%(refname)',
+              'refs/remotes/origin', 'refs/remotes/pull-head', 'refs/remotes/pull-merge', 'refs/tags'
+          ).splitlines()
+
+          affected = []
+          topo_set = set(topology_commits)
+          wb_set = set(workbuddy_commits)
+          for ref in refs:
+              ancestors = set(sh('git', 'rev-list', ref).splitlines())
+              t = len(ancestors & topo_set)
+              w = len(ancestors & wb_set)
+              if t or w:
+                  affected.append((ref, t, w))
+
+          branch_like = [r for r in affected if r[0].startswith('refs/remotes/origin/')]
+          pull_like = [r for r in affected if '/pull-head/' in r[0] or '/pull-merge/' in r[0]]
+          tag_like = [r for r in affected if r[0].startswith('refs/tags/')]
 
           lines = [
               '# P2 historical sensitive-data audit',
               '',
-              'This report intentionally omits matched secret values and matched topology text.',
+              'Matched secret values and matched topology text are intentionally omitted.',
               '',
-              f'- Reachable refs scanned: {subprocess.check_output(["bash", "-lc", "git for-each-ref --format=\"%(refname)\" refs/remotes/origin refs/tags | wc -l"]).decode().strip()}',
-              f'- Unique commits scanned: {subprocess.check_output(["bash", "-lc", "git rev-list --all | sort -u | wc -l"]).decode().strip()}',
-              f'- Known private-topology hits: {len(topology)} across {len(uniq(r[0] for r in topology))} commits',
-              f'- Historical .workbuddy paths: {len(workbuddy)} across {len(uniq(r[0] for r in workbuddy))} commits',
+              f'- Reachable refs scanned: {len(refs)}',
+              f'- Unique commits scanned: {len(set(sh("git", "rev-list", "--all").splitlines()))}',
+              f'- Known private-topology hits: {len(topology)} across {len(topology_commits)} commits and {len(topology_files)} files',
+              f'- Historical .workbuddy paths: {len(workbuddy)} across {len(workbuddy_commits)} commits and {len(workbuddy_paths)} paths',
               f'- Gitleaks findings: {len(findings)}',
+              f'- Affected named branch refs by history: {len(branch_like)}',
+              f'- Affected pull refs by history: {len(pull_like)}',
+              f'- Affected tag refs by history: {len(tag_like)}',
+              f'- Ref tips that currently expose topology/.workbuddy: {len(tip_exposure)}',
               '',
-              '## Known private-topology locations',
+              '## Topology-bearing commits',
           ]
-          if topology:
-              for commit, path, line in topology:
-                  lines.append(f'- `{short(commit)}` `{path}:{line}`')
+
+          if topology_commits:
+              for commit in topology_commits:
+                  meta = sh('git', 'show', '-s', '--format=%cs %s', commit)
+                  lines.append(f'- `{short(commit)}` {meta}')
           else:
               lines.append('- none')
 
-          lines += ['', '## Historical .workbuddy locations']
-          if workbuddy:
-              for commit, path in workbuddy:
-                  lines.append(f'- `{short(commit)}` `{path}`')
+          lines += ['', '## Topology-bearing files']
+          if topology_files:
+              for path in topology_files:
+                  lines.append(f'- `{path}`')
+          else:
+              lines.append('- none')
+
+          lines += ['', '## Historical .workbuddy paths']
+          if workbuddy_paths:
+              for path in workbuddy_paths:
+                  lines.append(f'- `{path}`')
+          else:
+              lines.append('- none')
+
+          lines += ['', '## Named branch/tag refs whose history is affected']
+          if branch_like or tag_like:
+              for ref, t, w in branch_like + tag_like:
+                  lines.append(f'- `{ref}`: topology_commits={t}, workbuddy_commits={w}')
+          else:
+              lines.append('- none')
+
+          lines += ['', '## Pull-ref impact']
+          lines.append(f'- affected pull refs: {len(pull_like)}')
+          if pull_like:
+              pull_numbers = sorted({r[0].split('/')[-1] for r in pull_like if '/pull-head/' in r[0]})
+              lines.append(f'- affected PR head refs: {len(pull_numbers)}')
+
+          lines += ['', '## Ref tips with current exposure']
+          if tip_exposure:
+              for ref, topo, wb in tip_exposure:
+                  lines.append(f'- `{ref}`: topology={topo}, workbuddy={wb}')
           else:
               lines.append('- none')
 
