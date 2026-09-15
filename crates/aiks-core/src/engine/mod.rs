@@ -431,16 +431,18 @@ impl AiksEngine {
         Ok(run_id)
     }
 
-    /// Get hybrid search results
-    pub async fn search_knowledge(&self, query: &str, limit: usize) -> Vec<crate::pipeline::search::SearchHit> {
+    /// Search distilled knowledge while preserving degraded-state/error semantics.
+    pub async fn search_knowledge(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<crate::pipeline::search::SearchOutcome> {
         let embedding_config = if self.config.embedding.enabled {
             Some(&self.config.embedding)
         } else {
             None
         };
-        crate::pipeline::hybrid_search(&self.db, query, limit, embedding_config)
-            .await
-            .unwrap_or_default()
+        crate::pipeline::search::search_with_status(&self.db, query, limit, embedding_config).await
     }
 
     /// Check AI model health
