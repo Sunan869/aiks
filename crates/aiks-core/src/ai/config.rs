@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for the OpenAI-compatible AI model.
 ///
-/// Default: Company internal vLLM at http://10.10.23.16:18000/v1 with Qwen3.8-27B.
+/// Default: disabled, with a loopback OpenAI-compatible endpoint example.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiModelConfig {
@@ -37,9 +37,9 @@ pub struct AiModelConfig {
 impl Default for AiModelConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            base_url: "http://10.10.23.16:18000/v1".to_string(),
-            model: "Qwen3.8-27B".to_string(),
+            enabled: false,
+            base_url: "http://127.0.0.1:11434/v1".to_string(),
+            model: "qwen3".to_string(),
             api_key: None,
             temperature: 0.1,
             // 8192: with thinking disabled, large sessions still produce
@@ -61,10 +61,10 @@ impl Default for AiModelConfig {
 impl AiModelConfig {
     /// User-friendly display name for the model provider
     pub fn display_name(&self) -> &str {
-        if self.base_url.contains("10.10.23") {
-            "公司内部 AI"
-        } else if self.base_url.contains("openai") {
+        if self.base_url.contains("api.openai.com") {
             "OpenAI"
+        } else if self.base_url.contains("127.0.0.1") || self.base_url.contains("localhost") {
+            "本地 AI 服务"
         } else {
             "自定义 AI 服务"
         }

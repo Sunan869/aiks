@@ -123,9 +123,26 @@ impl EmbeddingStage {
             latency_ms, "[EMBED] Complete"
         );
 
+        let total_attempted = total_embedded + total_failed;
+        if total_failed > 0 {
+            let error = format!(
+                "{} of {} embedding chunk(s) failed",
+                total_failed, total_attempted
+            );
+            pipeline_repo.record_stage(
+                pipeline_run_id, "EMBEDDED", "FAILED",
+                Some(total_attempted as i32),
+                Some(total_embedded as i32),
+                Some(latency_ms),
+                Some(&serde_json::json!({"embedded": total_embedded, "failed": total_failed})),
+                Some(&error),
+            )?;
+            anyhow::bail!(error);
+        }
+
         pipeline_repo.record_stage(
             pipeline_run_id, "EMBEDDED", "SUCCESS",
-            Some((total_embedded + total_failed) as i32),
+            Some(total_attempted as i32),
             Some(total_embedded as i32),
             Some(latency_ms),
             Some(&serde_json::json!({"embedded": total_embedded, "failed": total_failed})),

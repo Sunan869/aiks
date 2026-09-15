@@ -385,22 +385,26 @@ async fn run_pipeline(
 
     let target_tokens = if embedding_config.enabled { embedding_config.chunk_target_tokens } else { 800 };
     let overlap_tokens = if embedding_config.enabled { embedding_config.chunk_overlap_tokens } else { 120 };
+    let embedding_required = embedding_config.enabled && !embedding_config.base_url.trim().is_empty();
 
     if let Err(e) = EmbeddingStage::chunk_knowledge(db, run_id, job.session_id, target_tokens, overlap_tokens) {
-        warn!(error = %e, "[EMBED_CHUNK] Failed, continuing without chunks");
+        if embedding_required {
+            fail_stage!("EMBED_CHUNKED", e);
+        }
+        warn!(error = %e, "[EMBED_CHUNK] Failed while embedding is disabled/unconfigured; continuing");
     }
 
     // ── Stage 6: EMBED ────────────────────────────────────────────────────────
-    if embedding_config.enabled && !embedding_config.base_url.is_empty() {
+    if embedding_required {
         repo.update_status(run_id, "PROCESSING", Some("EMBEDDED"), None, None)?;
 
-        match EmbeddingStage::new(embedding_config.clone()) {
-            Ok(stage) => {
-                if let Err(e) = stage.embed_knowledge(db, run_id, job.session_id).await {
-                    warn!(error = %e, "[EMBED] Embedding failed, marking INDEXED anyway");
-                }
-            }
-            Err(e) => warn!(error = %e, "[EMBED] Stage init failed"),
+        let stage = match EmbeddingStage::new(embedding_config.clone()) {
+            Ok(stage) => stage,
+            Err(e) => fail_stage!("EMBEDDED", format!("Embedding stage init failed: {}", e)),
+        };
+
+        if let Err(e) = stage.embed_knowledge(db, run_id, job.session_id).await {
+            fail_stage!("EMBEDDED", e);
         }
 
         // Index stage (placeholder — vector index is sqlite BLOB)

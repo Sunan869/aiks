@@ -92,3 +92,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.orig
+
+# Local AI/agent work memory
+/.workbuddy/

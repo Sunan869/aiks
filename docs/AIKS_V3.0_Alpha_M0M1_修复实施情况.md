@@ -244,7 +244,7 @@ cargo test --workspace → 107 passed, 0 failed ✅
 | B21 Filter SQL | ✅ | ✅ | ❌ | ❌ |
 | B23 Chunk limit | ✅ | ✅ | ✅ | ❌ |
 
-Real E2E 需要公司内网 AI (`http://10.10.23.16:18000/v1`) 和真实 SiYuan 环境，本次未执行。
+Real E2E 需要配置的 AI 服务 (`http://127.0.0.1:11434/v1`) 和真实 SiYuan 环境，本次未执行。
 
 ---
 
