@@ -1,0 +1,201 @@
+name: P1 Clean Build
+
+on:
+  push:
+    branches:
+      - fix/p1-search-clean-build
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/p1-search-clean-build
+          fetch-depth: 1
+      - name: Fetch validated implementation
+        run: git fetch origin fix/p1-search-semantics-vector-scaling --depth=1
+      - name: Apply product changes without formatting noise
+        run: |
+          git show FETCH_HEAD:crates/aiks-core/src/pipeline/search.rs > crates/aiks-core/src/pipeline/search.rs
+          git show FETCH_HEAD:crates/aiks-core/src/pipeline/knowledge_repo.rs > crates/aiks-core/src/pipeline/knowledge_repo.rs
+          git show FETCH_HEAD:crates/aiks-core/tests/p1_search_semantics.rs > crates/aiks-core/tests/p1_search_semantics.rs
+          git show FETCH_HEAD:apps/aiks-desktop/src/api/types.ts > apps/aiks-desktop/src/api/types.ts
+          python - <<'PY'
+          from pathlib import Path
+
+          engine_path = Path('crates/aiks-core/src/engine/mod.rs')
+          engine = engine_path.read_text()
+          old_engine = '''    /// Get hybrid search results
+          pub async fn search_knowledge(&self, query: &str, limit: usize) -> Vec<crate::pipeline::search::SearchHit> {
+              let embedding_config = if self.config.embedding.enabled {
+                  Some(&self.config.embedding)
+              } else {
+                  None
+              };
+              crate::pipeline::hybrid_search(&self.db, query, limit, embedding_config)
+                  .await
+                  .unwrap_or_default()
+          }
+          '''
+          new_engine = '''    /// Search distilled knowledge while preserving degraded-state/error semantics.
+          pub async fn search_knowledge(
+              &self,
+              query: &str,
+              limit: usize,
+          ) -> anyhow::Result<crate::pipeline::search::SearchOutcome> {
+              let embedding_config = if self.config.embedding.enabled {
+                  Some(&self.config.embedding)
+              } else {
+                  None
+              };
+              crate::pipeline::search::search_with_status(&self.db, query, limit, embedding_config).await
+          }
+          '''
+          if old_engine not in engine:
+              raise SystemExit('engine block not found')
+          engine_path.write_text(engine.replace(old_engine, new_engine, 1))
+
+          commands_path = Path('apps/aiks-desktop/src-tauri/src/commands.rs')
+          commands = commands_path.read_text()
+          start = commands.index('/// Search knowledge (FTS5 + fallback to LIKE)')
+          end = commands.index('// ===== V3 Detail Commands =====', start)
+          new_search = '''/// Search knowledge through the Core search pipeline.
+          ///
+          /// The response keeps the existing desktop result shape while also surfacing
+          /// degraded search state (for example, vector backend unavailable).
+          #[tauri::command]
+          pub async fn search_knowledge(
+              query: String,
+              limit: Option<usize>,
+              state: State<'_, AppState>,
+          ) -> Result<serde_json::Value, String> {
+              let engine = state.engine().ok_or("Engine not initialized")?;
+              let outcome = engine
+                  .search_knowledge(&query, limit.unwrap_or(20))
+                  .await
+                  .map_err(|e| e.to_string())?;
+
+              let degraded = outcome.degraded();
+              let warnings: Vec<String> = outcome
+                  .degradations
+                  .iter()
+                  .map(|d| d.message.clone())
+                  .collect();
+
+              let db = engine.db();
+              let repo = aiks_core::KnowledgeRepo::new(&db);
+              let mut results = Vec::new();
+              for hit in outcome.hits {
+                  if let Some(detail) = repo
+                      .get_by_id(&hit.knowledge_id)
+                      .map_err(|e| e.to_string())?
+                  {
+                      results.push(serde_json::json!({
+                          "id": detail.id,
+                          "title": detail.title,
+                          "category": detail.category,
+                          "summary": detail.summary,
+                          "project_name": detail.project_name,
+                          "tags": detail.tags,
+                          "confidence": detail.confidence,
+                          "match_type": hit.match_type
+                      }));
+                  }
+              }
+
+              Ok(serde_json::json!({
+                  "results": results,
+                  "query": query,
+                  "total": results.len(),
+                  "degraded": degraded,
+                  "warnings": warnings
+              }))
+          }
+
+          '''
+          commands = commands[:start] + new_search + commands[end:]
+
+          old_hybrid = '''/// Get hybrid search results (FTS5 + vector)
+          #[tauri::command]
+          pub async fn hybrid_search(
+              query: String,
+              limit: Option<usize>,
+              state: State<'_, AppState>,
+          ) -> Result<serde_json::Value, String> {
+              let engine = state.engine().ok_or("Engine not initialized")?;
+              let results = engine.search_knowledge(&query, limit.unwrap_or(20)).await;
+
+              let items: Vec<serde_json::Value> = results.into_iter().map(|hit| serde_json::json!({
+                  "knowledge_id": hit.knowledge_id,
+                  "chunk_text": hit.chunk_text,
+                  "score": hit.score,
+                  "match_type": hit.match_type
+              })).collect();
+
+              Ok(serde_json::json!({
+                  "results": items,
+                  "query": query,
+                  "total": items.len()
+              }))
+          }'''
+          new_hybrid = '''/// Get hybrid search results (FTS5 + vector) through Core.
+          #[tauri::command]
+          pub async fn hybrid_search(
+              query: String,
+              limit: Option<usize>,
+              state: State<'_, AppState>,
+          ) -> Result<serde_json::Value, String> {
+              let engine = state.engine().ok_or("Engine not initialized")?;
+              let outcome = engine
+                  .search_knowledge(&query, limit.unwrap_or(20))
+                  .await
+                  .map_err(|e| e.to_string())?;
+
+              let degraded = outcome.degraded();
+              let warnings: Vec<String> = outcome
+                  .degradations
+                  .iter()
+                  .map(|d| d.message.clone())
+                  .collect();
+              let items: Vec<serde_json::Value> = outcome
+                  .hits
+                  .into_iter()
+                  .map(|hit| serde_json::json!({
+                      "knowledge_id": hit.knowledge_id,
+                      "chunk_id": hit.chunk_id,
+                      "chunk_text": hit.chunk_text,
+                      "score": hit.score,
+                      "match_type": hit.match_type
+                  }))
+                  .collect();
+
+              Ok(serde_json::json!({
+                  "results": items,
+                  "query": query,
+                  "total": items.len(),
+                  "degraded": degraded,
+                  "warnings": warnings
+              }))
+          }'''
+          if old_hybrid not in commands:
+              raise SystemExit('hybrid block not found')
+          commands_path.write_text(commands.replace(old_hybrid, new_hybrid, 1))
+          PY
+      - name: Commit clean product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            crates/aiks-core/src/pipeline/search.rs \
+            crates/aiks-core/src/pipeline/knowledge_repo.rs \
+            crates/aiks-core/src/engine/mod.rs \
+            crates/aiks-core/tests/p1_search_semantics.rs \
+            apps/aiks-desktop/src-tauri/src/commands.rs \
+            apps/aiks-desktop/src/api/types.ts
+          git commit -m "fix(p1): harden search semantics and bound vector reranking"
+          git push origin HEAD:fix/p1-search-clean-build
