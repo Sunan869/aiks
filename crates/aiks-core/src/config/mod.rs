@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::derivable_impls)]
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -136,7 +139,9 @@ pub struct SecurityConfig {
 
 impl Default for SecurityConfig {
     fn default() -> Self {
-        Self { redact_secrets: true }
+        Self {
+            redact_secrets: true,
+        }
     }
 }
 
@@ -320,11 +325,7 @@ mod data_root_tests {
 
     #[test]
     fn resolve_prefers_pointer_over_default() {
-        let p = resolve_data_root(
-            PathBuf::from("C:\\default"),
-            None,
-            Some(" E:\\ptr-root\n"),
-        );
+        let p = resolve_data_root(PathBuf::from("C:\\default"), None, Some(" E:\\ptr-root\n"));
         assert_eq!(p, PathBuf::from("E:\\ptr-root"));
     }
 

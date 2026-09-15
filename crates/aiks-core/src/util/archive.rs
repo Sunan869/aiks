@@ -58,13 +58,11 @@ impl Archive {
     /// Read a NormalizedSession from the archive.
     pub fn read(&self, source: &str, session_id: &str) -> anyhow::Result<NormalizedSession> {
         let path = self.session_path(source, session_id);
-        let data = fs::read(&path)
-            .with_context(|| format!("read archive: {}", path.display()))?;
+        let data = fs::read(&path).with_context(|| format!("read archive: {}", path.display()))?;
 
         let mut decoder = flate2::read::GzDecoder::new(data.as_slice());
         let mut json_bytes = Vec::new();
-        std::io::Read::read_to_end(&mut decoder, &mut json_bytes)
-            .context("decompress archive")?;
+        std::io::Read::read_to_end(&mut decoder, &mut json_bytes).context("decompress archive")?;
 
         serde_json::from_slice(&json_bytes).context("deserialize session from archive")
     }

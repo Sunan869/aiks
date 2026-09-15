@@ -36,15 +36,17 @@ impl StateDb {
                 .with_context(|| format!("create state DB dir: {}", parent.display()))?;
         }
 
-        let conn = Connection::open(path)
-            .with_context(|| format!("open state DB: {}", path.display()))?;
+        let conn =
+            Connection::open(path).with_context(|| format!("open state DB: {}", path.display()))?;
 
         // Enable WAL mode for better concurrent access
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
 
-        let db = Self { conn: Mutex::new(conn) };
+        let db = Self {
+            conn: Mutex::new(conn),
+        };
         db.run_migrations()?;
         Ok(db)
     }
@@ -57,15 +59,21 @@ impl StateDb {
         let conn = Connection::open_with_flags(path, flags)
             .with_context(|| format!("open state DB with flags: {}", path.display()))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     fn run_migrations(&self) -> anyhow::Result<()> {
         let conn = self.conn.lock().expect("DB mutex poisoned");
-        conn.execute_batch(SCHEMA_V1_SQL).context("run V1 migrations")?;
-        conn.execute_batch(SCHEMA_V3_SQL).context("run V3 pipeline migrations")?;
-        conn.execute_batch(SCHEMA_V4_SQL).context("run V4 pipeline job migrations")?;
-        conn.execute_batch(SCHEMA_V5_SQL).context("run V5 knowledge sync migrations")?;
+        conn.execute_batch(SCHEMA_V1_SQL)
+            .context("run V1 migrations")?;
+        conn.execute_batch(SCHEMA_V3_SQL)
+            .context("run V3 pipeline migrations")?;
+        conn.execute_batch(SCHEMA_V4_SQL)
+            .context("run V4 pipeline job migrations")?;
+        conn.execute_batch(SCHEMA_V5_SQL)
+            .context("run V5 knowledge sync migrations")?;
         // V6 adds knowledge_sync_target.target_hash. SQLite's ALTER TABLE ADD
         // COLUMN fails on rerun (no IF NOT EXISTS), so guard with pragma.
         let has_target_hash: i64 = {
@@ -83,11 +91,13 @@ impl StateDb {
         // V7 turns the previously dormant pipeline_job table into the durable
         // production queue. Add exact DB identities with guarded ALTERs so
         // existing installations migrate idempotently.
-        let has_job_session_id: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'session_id'",
-            [],
-            |row| row.get(0),
-        ).context("run V7 session_id pragma check")?;
+        let has_job_session_id: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'session_id'",
+                [],
+                |row| row.get(0),
+            )
+            .context("run V7 session_id pragma check")?;
         if has_job_session_id == 0 {
             conn.execute_batch("ALTER TABLE pipeline_job ADD COLUMN session_id INTEGER;")
                 .context("add pipeline_job.session_id")?;

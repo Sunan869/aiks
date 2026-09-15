@@ -40,11 +40,7 @@ pub struct BootstrapConfig {
 }
 
 impl BootstrapConfig {
-    pub fn new(
-        runtime_root: PathBuf,
-        data_dir: PathBuf,
-        notebook_name: impl Into<String>,
-    ) -> Self {
+    pub fn new(runtime_root: PathBuf, data_dir: PathBuf, notebook_name: impl Into<String>) -> Self {
         let workspace = data_dir.join("siyuan").join("workspace");
         Self {
             runtime_root,
@@ -77,7 +73,8 @@ pub fn read_expected_version(project_root: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(&version_file)
         .ok()
         .and_then(|content| {
-            content.lines()
+            content
+                .lines()
                 .find(|l| l.starts_with("version="))
                 .map(|l| l["version=".len()..].trim().to_string())
         })
@@ -102,10 +99,7 @@ pub fn validate_runtime(config: &BootstrapConfig) -> anyhow::Result<()> {
 }
 
 /// Ensure the "AI Knowledge" notebook exists in SiYuan.
-pub async fn ensure_notebook(
-    base_url: &str,
-    notebook_name: &str,
-) -> anyhow::Result<NotebookInfo> {
+pub async fn ensure_notebook(base_url: &str, notebook_name: &str) -> anyhow::Result<NotebookInfo> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
@@ -124,7 +118,10 @@ pub async fn ensure_notebook(
             if nb["name"].as_str() == Some(notebook_name) {
                 let id = nb["id"].as_str().unwrap_or("").to_string();
                 info!(notebook_id = %id, "Notebook already exists");
-                return Ok(NotebookInfo { id, name: notebook_name.to_string() });
+                return Ok(NotebookInfo {
+                    id,
+                    name: notebook_name.to_string(),
+                });
             }
         }
     }
@@ -144,7 +141,10 @@ pub async fn ensure_notebook(
         .to_string();
 
     info!(notebook_id = %id, name = notebook_name, "Created notebook");
-    Ok(NotebookInfo { id, name: notebook_name.to_string() })
+    Ok(NotebookInfo {
+        id,
+        name: notebook_name.to_string(),
+    })
 }
 
 /// Check developer override environment variables.
@@ -181,7 +181,10 @@ mod tests {
             dir.path().to_path_buf(),
             "AI Knowledge",
         );
-        assert!(cfg.workspace.ends_with("siyuan/workspace") || cfg.workspace.ends_with("siyuan\\workspace"));
+        assert!(
+            cfg.workspace.ends_with("siyuan/workspace")
+                || cfg.workspace.ends_with("siyuan\\workspace")
+        );
     }
 
     #[test]

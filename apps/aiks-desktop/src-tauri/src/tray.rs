@@ -73,13 +73,14 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
                         // R09: tray sync uses the same orchestration as the UI —
                         // raw sync + pipeline enqueue (extraction submission)
                         let _ = engine.sync_and_enqueue_extraction(opts).await;
-                        let _ = app2.emit("sync-complete", serde_json::json!({"triggered_by": "tray"}));
+                        let _ =
+                            app2.emit("sync-complete", serde_json::json!({"triggered_by": "tray"}));
                     }
                 }
             });
         }
         "data_dir" => {
-            if let Some(state) = app.try_state::<crate::app_state::AppState>() {
+            if let Some(_state) = app.try_state::<crate::app_state::AppState>() {
                 #[cfg(windows)]
                 let _ = std::process::Command::new("explorer")
                     .arg(&state.data_dir)

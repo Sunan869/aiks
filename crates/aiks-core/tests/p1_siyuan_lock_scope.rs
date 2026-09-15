@@ -223,9 +223,8 @@ async fn slow_knowledge_push_does_not_block_unrelated_raw_sync() {
     seed_knowledge(dir.path());
 
     let knowledge_engine = Arc::clone(&engine);
-    let knowledge = tokio::spawn(async move {
-        knowledge_engine.sync_knowledge_to_siyuan(false).await
-    });
+    let knowledge =
+        tokio::spawn(async move { knowledge_engine.sync_knowledge_to_siyuan(false).await });
 
     tokio::time::timeout(Duration::from_secs(2), first_request)
         .await
@@ -277,7 +276,10 @@ async fn concurrent_knowledge_syncs_still_create_only_one_remote_document() {
         .iter()
         .filter(|path| path.contains("createDocWithMd"))
         .count();
-    assert_eq!(creates, 1, "concurrent knowledge syncs created duplicate docs: {paths:?}");
+    assert_eq!(
+        creates, 1,
+        "concurrent knowledge syncs created duplicate docs: {paths:?}"
+    );
     assert_eq!(left.created + right.created, 1);
     assert_eq!(left.failed + right.failed, 0);
 }

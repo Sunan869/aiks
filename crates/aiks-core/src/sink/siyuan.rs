@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::field_reassign_with_default)]
+
 /// SiYuan knowledge base sink.
 ///
 /// Integrates with SiYuan via HTTP API to create/update session documents.
@@ -55,7 +58,10 @@ const DEFAULT_KNOWLEDGE_ROOT: &str = "/20 Knowledge";
 impl SiYuanSink {
     /// Embedded mode: no token required (spec §25-26).
     /// SiYuan listens on 127.0.0.1 only and allows unauthenticated local requests.
-    pub fn embedded(base_url: impl Into<String>, notebook_name: impl Into<String>) -> anyhow::Result<Self> {
+    pub fn embedded(
+        base_url: impl Into<String>,
+        notebook_name: impl Into<String>,
+    ) -> anyhow::Result<Self> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()?;
@@ -72,7 +78,11 @@ impl SiYuanSink {
 
     /// External mode: uses token from config (CLI / developer mode).
     pub fn new(config: SiYuanConfig) -> anyhow::Result<Self> {
-        let token = if config.token.is_empty() { None } else { Some(config.token.clone()) };
+        let token = if config.token.is_empty() {
+            None
+        } else {
+            Some(config.token.clone())
+        };
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()?;
@@ -104,7 +114,11 @@ impl SiYuanSink {
     /// Check if SiYuan is running and accessible.
     pub async fn health_check(&self) -> bool {
         let url = format!("{}/api/system/version", self.base_url);
-        match self.request_builder(reqwest::Method::GET, &url).send().await {
+        match self
+            .request_builder(reqwest::Method::GET, &url)
+            .send()
+            .await
+        {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
@@ -117,7 +131,8 @@ impl SiYuanSink {
 
     /// Get or create the session archive notebook (raw session docs).
     pub async fn ensure_session_notebook(&self) -> anyhow::Result<String> {
-        self.ensure_notebook_named(&self.session_notebook_name).await
+        self.ensure_notebook_named(&self.session_notebook_name)
+            .await
     }
 
     /// Get or create a notebook by name.
@@ -353,10 +368,7 @@ impl SiYuanSink {
 
     /// Get attributes of a block.
     /// SiYuan v3.8.3: /api/attr/getBlockAttrs
-    pub async fn get_block_attrs(
-        &self,
-        block_id: &str,
-    ) -> anyhow::Result<HashMap<String, String>> {
+    pub async fn get_block_attrs(&self, block_id: &str) -> anyhow::Result<HashMap<String, String>> {
         let url = format!("{}/api/attr/getBlockAttrs", self.base_url);
         let resp: ApiResponse<HashMap<String, String>> = self
             .request_builder(reqwest::Method::POST, &url)
@@ -434,17 +446,11 @@ impl SiYuanSink {
     ///
     /// Format: {knowledge_root}/{分类}/{title} [{short-knowledge-id}]
     /// Category display names match the desktop UI labels.
-    pub fn build_knowledge_path(
-        &self,
-        category: &str,
-        knowledge_id: &str,
-        title: &str,
-    ) -> String {
+    pub fn build_knowledge_path(&self, category: &str, knowledge_id: &str, title: &str) -> String {
         let cat_label = crate::renderer::knowledge::category_display_name(category);
         let short_id: String = knowledge_id.chars().take(8).collect();
         let title_part: String = title.chars().take(50).collect();
-        let sanitized = title_part
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let sanitized = title_part.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
         let sanitized = crate::util::sanitizer::default_sanitizer().sanitize(&sanitized);
         format!(
             "{}/{}/{} [{}]",
@@ -465,7 +471,10 @@ impl SiYuanSink {
         let mut attrs = HashMap::new();
         attrs.insert(ATTR_MANAGED.to_string(), "true".to_string());
         attrs.insert(ATTR_KIND.to_string(), "knowledge".to_string());
-        attrs.insert("custom-aiks-knowledge-id".to_string(), knowledge_id.to_string());
+        attrs.insert(
+            "custom-aiks-knowledge-id".to_string(),
+            knowledge_id.to_string(),
+        );
         attrs.insert(ATTR_SESSION_ID.to_string(), session_ext_id.to_string());
         attrs.insert(ATTR_CONTENT_HASH.to_string(), content_hash.to_string());
         attrs.insert("custom-aiks-category".to_string(), category.to_string());
@@ -512,20 +521,16 @@ impl SiYuanSink {
             .chars()
             .take(50)
             .collect::<String>();
-        let sanitized_title = title_part.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let sanitized_title =
+            title_part.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
         // R15: the document path/title is an output surface too — secrets in a
         // session title must not leak into the knowledge base file tree.
-        let sanitized_title = crate::util::sanitizer::default_sanitizer().sanitize(&sanitized_title);
+        let sanitized_title =
+            crate::util::sanitizer::default_sanitizer().sanitize(&sanitized_title);
 
         format!(
             "{}/{}/{}/{}/{} {} [{}]",
-            self.session_root,
-            source_dir,
-            year,
-            month,
-            date_str,
-            sanitized_title,
-            short_id
+            self.session_root, source_dir, year, month, date_str, sanitized_title, short_id
         )
     }
 }
@@ -557,10 +562,7 @@ fn strip_trailing_attr(line: &str) -> &str {
     if let Some(idx) = line.rfind("{:") {
         let candidate = line[idx..].trim_end();
         // SiYuan block attributes always carry an id: {: id="20240101-xxxx" ...}
-        if candidate.starts_with("{:")
-            && candidate.ends_with('}')
-            && candidate.contains("id=\"")
-        {
+        if candidate.starts_with("{:") && candidate.ends_with('}') && candidate.contains("id=\"") {
             return line[..idx].trim_end();
         }
     }
@@ -636,9 +638,10 @@ mod tests {
     fn build_document_path() {
         let sink = SiYuanSink::embedded("http://127.0.0.1:6806", "AI Knowledge").unwrap();
 
-        let ts: chrono::DateTime<chrono::Utc> = chrono::DateTime::parse_from_rfc3339("2024-03-15T10:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
+        let ts: chrono::DateTime<chrono::Utc> =
+            chrono::DateTime::parse_from_rfc3339("2024-03-15T10:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc);
 
         let path = sink.build_document_path(
             "claude_code",
@@ -660,13 +663,13 @@ mod tests {
     fn build_document_path_sanitizes_title() {
         let sink = SiYuanSink::embedded("http://127.0.0.1:6806", "AI Knowledge").unwrap();
 
-        let path = sink.build_document_path(
-            "opencode",
-            "sess-1",
-            Some("Fix: path/to/file issue"),
-            None,
+        let path =
+            sink.build_document_path("opencode", "sess-1", Some("Fix: path/to/file issue"), None);
+        assert!(
+            !path.contains("path/to/file"),
+            "Title / should be sanitized: {}",
+            path
         );
-        assert!(!path.contains("path/to/file"), "Title / should be sanitized: {}", path);
         assert!(path.contains("path"));
     }
 
@@ -679,8 +682,10 @@ mod tests {
 
     #[test]
     fn external_sink_with_token() {
-        let mut config = crate::config::SiYuanConfig::default();
-        config.token = "my-test-token".to_string();
+        let config = crate::config::SiYuanConfig {
+            token: "my-test-token".to_string(),
+            ..Default::default()
+        };
         let sink = SiYuanSink::new(config).unwrap();
         assert_eq!(sink.token.as_deref(), Some("my-test-token"));
     }

@@ -9,12 +9,17 @@ pub async fn run(engine: &AiksEngine, source: Option<String>) -> anyhow::Result<
     println!();
     for s in &result.summaries {
         let title = s.title.as_deref().unwrap_or("(untitled)");
-        let updated = s.updated_at
+        let updated = s
+            .updated_at
             .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        println!("  {} | {} msgs | {} | {}", 
+        println!(
+            "  {} | {} msgs | {} | {}",
             &s.external_session_id[..s.external_session_id.len().min(8)],
-            s.message_count, updated, title);
+            s.message_count,
+            updated,
+            title
+        );
     }
     Ok(())
 }

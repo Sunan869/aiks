@@ -60,15 +60,12 @@ pub struct AiClient {
 
 impl AiClient {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
-        let mut builder = Client::builder()
-            .timeout(Duration::from_secs(config.timeout_seconds));
+        let mut builder = Client::builder().timeout(Duration::from_secs(config.timeout_seconds));
 
         if let Some(api_key) = &config.api_key {
             if !api_key.is_empty() {
                 let mut headers = reqwest::header::HeaderMap::new();
-                let value = reqwest::header::HeaderValue::from_str(
-                    &format!("Bearer {}", api_key),
-                )?;
+                let value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))?;
                 headers.insert(reqwest::header::AUTHORIZATION, value);
                 builder = builder.default_headers(headers);
             }
@@ -89,7 +86,10 @@ impl AiClient {
                     if found {
                         return true;
                     }
-                    debug!("Model {} not in models list, but API is accessible", self.config.model);
+                    debug!(
+                        "Model {} not in models list, but API is accessible",
+                        self.config.model
+                    );
                     return true; // API accessible even if model not listed
                 }
                 return true;
@@ -101,10 +101,16 @@ impl AiClient {
     }
 
     async fn test_completion(&self) -> anyhow::Result<()> {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let req = ChatRequest {
             model: &self.config.model,
-            messages: vec![ChatMessage { role: "user", content: "Hi" }],
+            messages: vec![ChatMessage {
+                role: "user",
+                content: "Hi",
+            }],
             temperature: self.config.temperature,
             max_tokens: 5,
             chat_template_kwargs: self.thinking_switch(),
@@ -132,19 +138,24 @@ impl AiClient {
     /// prompt + max_tokens exceeds the model context, max_tokens is halved
     /// and the request retried (down to a 1024 floor). A large output budget
     /// must not make long-prompt chunks unprocessable.
-    pub async fn chat(
-        &self,
-        system: &str,
-        user: &str,
-    ) -> anyhow::Result<String> {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+    pub async fn chat(&self, system: &str, user: &str) -> anyhow::Result<String> {
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let mut max_tokens = self.config.max_tokens;
         loop {
             let req = ChatRequest {
                 model: &self.config.model,
                 messages: vec![
-                    ChatMessage { role: "system", content: system },
-                    ChatMessage { role: "user", content: user },
+                    ChatMessage {
+                        role: "system",
+                        content: system,
+                    },
+                    ChatMessage {
+                        role: "user",
+                        content: user,
+                    },
                 ],
                 temperature: self.config.temperature,
                 max_tokens,
@@ -153,7 +164,8 @@ impl AiClient {
 
             debug!(url = %url, model = %self.config.model, "Calling AI");
 
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&url)
                 .json(&req)
                 .send()
@@ -184,7 +196,8 @@ impl AiClient {
 
             let body: ChatResponse =
                 serde_json::from_str(&body_text).context("parse AI response")?;
-            let content = body.choices
+            let content = body
+                .choices
                 .into_iter()
                 .next()
                 .map(|c| c.message.content)

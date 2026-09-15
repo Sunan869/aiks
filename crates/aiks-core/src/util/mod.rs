@@ -1,7 +1,7 @@
-pub mod sanitizer;
 pub mod archive;
+pub mod sanitizer;
 pub mod text;
 
-pub use sanitizer::SecretSanitizer;
 pub use archive::Archive;
-pub use text::{truncate_chars, truncate_utf8_bytes, truncate_middle, safe_preview};
+pub use sanitizer::SecretSanitizer;
+pub use text::{safe_preview, truncate_chars, truncate_middle, truncate_utf8_bytes};

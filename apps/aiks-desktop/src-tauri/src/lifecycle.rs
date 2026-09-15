@@ -39,8 +39,14 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     // ── Check developer override ───────────────────────────────────────────────
     let dev_override = DevOverride::from_env();
     if dev_override.is_active() {
-        warn!("Developer override active: SIYUAN_URL={:?}", dev_override.url);
-        let base_url = dev_override.url.clone().unwrap_or_else(|| "http://127.0.0.1:6806".to_string());
+        warn!(
+            "Developer override active: SIYUAN_URL={:?}",
+            dev_override.url
+        );
+        let base_url = dev_override
+            .url
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:6806".to_string());
         return startup_with_external_siyuan(app, base_url, dev_override.token, data_dir).await;
     }
 
@@ -57,7 +63,8 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
 
     // ── Validate runtime ──────────────────────────────────────────────────────
     emit_progress(&app, "validate", "正在验证知识引擎...");
-    let bootstrap_cfg = BootstrapConfig::new(runtime_root.clone(), data_dir.clone(), "AI Knowledge");
+    let bootstrap_cfg =
+        BootstrapConfig::new(runtime_root.clone(), data_dir.clone(), "AI Knowledge");
     if let Err(e) = validate_runtime(&bootstrap_cfg) {
         error!("Runtime validation failed: {}", e);
         emit_error(&app, &format!("知识引擎文件不完整：{}", e));
@@ -72,7 +79,11 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     let runtime_info = match runtime.start().await {
         Ok(info) => {
             info!(port = info.port, version = %info.version, "SiYuan ready");
-            emit_progress(&app, "siyuan_ready", &format!("知识引擎就绪 (v{})", info.version));
+            emit_progress(
+                &app,
+                "siyuan_ready",
+                &format!("知识引擎就绪 (v{})", info.version),
+            );
             info
         }
         Err(e) => {
@@ -118,7 +129,11 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     // ── B10: Load config from file ────────────────────────────────────────────
     let config_path = config_file_path();
     let engine_config = AiksEngineConfig {
-        config_path: if config_path.exists() { Some(config_path) } else { None },
+        config_path: if config_path.exists() {
+            Some(config_path)
+        } else {
+            None
+        },
         siyuan_base_url: Some(base_url.clone()),
         siyuan_token: None, // embedded mode
     };
@@ -197,6 +212,7 @@ fn start_watcher_for_engine(
 ///   1. initial full sync (sync_and_enqueue_extraction)
 ///   2. watcher event loop → per-source sync
 ///   3. periodic full scan (calibration) — Watcher is never the only mechanism
+///
 /// The scheduler is decoupled from SiYuan availability: sync attempts are
 /// logged when the kernel is down and succeed once it is back.
 fn spawn_background_tasks(
@@ -216,22 +232,32 @@ fn spawn_background_tasks(
             info!("[STARTUP] Beginning initial scan...");
             let _ = app_bg.emit("sync-status", serde_json::json!({"status": "scanning"}));
 
-            let opts = aiks_core::SyncOptions { source_filter: None, dry_run: false, overwrite: false };
+            let opts = aiks_core::SyncOptions {
+                source_filter: None,
+                dry_run: false,
+                overwrite: false,
+            };
 
             // B09: Use sync_and_enqueue_extraction (not just sync)
             match engine_bg.sync_and_enqueue_extraction(opts).await {
                 Ok(stats) => {
                     info!(
                         "[SYNC] Complete: new={} updated={} unchanged={} failed={}",
-                        stats.new_count, stats.updated_count, stats.unchanged_count, stats.failed_count
+                        stats.new_count,
+                        stats.updated_count,
+                        stats.unchanged_count,
+                        stats.failed_count
                     );
-                    let _ = app_bg.emit("sync-complete", serde_json::json!({
-                        "discovered": stats.discovered,
-                        "new": stats.new_count,
-                        "updated": stats.updated_count,
-                        "unchanged": stats.unchanged_count,
-                        "failed": stats.failed_count,
-                    }));
+                    let _ = app_bg.emit(
+                        "sync-complete",
+                        serde_json::json!({
+                            "discovered": stats.discovered,
+                            "new": stats.new_count,
+                            "updated": stats.updated_count,
+                            "unchanged": stats.unchanged_count,
+                            "failed": stats.failed_count,
+                        }),
+                    );
                 }
                 Err(e) => {
                     error!("[SYNC] Initial sync failed: {}", e);
@@ -256,9 +282,12 @@ fn spawn_background_tasks(
                 // B09: Watcher also uses sync_and_enqueue_extraction
                 match engine_w.sync_and_enqueue_extraction(opts).await {
                     Ok(s) if s.new_count + s.updated_count > 0 => {
-                        let _ = app_w.emit("sync-complete", serde_json::json!({
-                            "new": s.new_count, "updated": s.updated_count
-                        }));
+                        let _ = app_w.emit(
+                            "sync-complete",
+                            serde_json::json!({
+                                "new": s.new_count, "updated": s.updated_count
+                            }),
+                        );
                     }
                     Err(e) => warn!("Watcher sync error: {}", e),
                     _ => {}
@@ -278,7 +307,11 @@ fn spawn_background_tasks(
             loop {
                 ticker.tick().await;
                 info!("[SCAN] Periodic scan triggered (every {}s)", interval_secs);
-                let opts = aiks_core::SyncOptions { source_filter: None, dry_run: false, overwrite: false };
+                let opts = aiks_core::SyncOptions {
+                    source_filter: None,
+                    dry_run: false,
+                    overwrite: false,
+                };
                 match engine_p.sync_and_enqueue_extraction(opts).await {
                     Ok(s) => {
                         info!(
@@ -294,7 +327,10 @@ fn spawn_background_tasks(
 }
 
 /// Startup without SiYuan
-async fn startup_without_siyuan(app: AppHandle, data_dir: std::path::PathBuf) -> anyhow::Result<()> {
+async fn startup_without_siyuan(
+    app: AppHandle,
+    data_dir: std::path::PathBuf,
+) -> anyhow::Result<()> {
     let state = AppState {
         engine: None,
         siyuan_url: Arc::new(Mutex::new(None)),
@@ -322,7 +358,11 @@ async fn startup_with_external_siyuan(
 
     let config_path = config_file_path();
     let engine_config = AiksEngineConfig {
-        config_path: if config_path.exists() { Some(config_path) } else { None },
+        config_path: if config_path.exists() {
+            Some(config_path)
+        } else {
+            None
+        },
         siyuan_base_url: Some(base_url.clone()),
         siyuan_token: token,
     };
@@ -380,7 +420,10 @@ async fn set_runtime(app: &AppHandle, runtime: Option<SiyuanRuntime>) {
 }
 
 fn emit_progress(app: &AppHandle, step: &str, message: &str) {
-    let _ = app.emit("startup-progress", serde_json::json!({ "step": step, "message": message }));
+    let _ = app.emit(
+        "startup-progress",
+        serde_json::json!({ "step": step, "message": message }),
+    );
 }
 
 fn emit_error(app: &AppHandle, message: &str) {

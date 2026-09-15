@@ -94,7 +94,11 @@ pub fn make_v3_chunk_prompt(chunk_text: &str, chunk_index: usize, total_chunks: 
 }
 
 /// Final extraction from chunk summaries (Map-Reduce)
-pub fn make_v3_final_prompt(title: &str, project: Option<&str>, chunk_summaries: &[String]) -> String {
+pub fn make_v3_final_prompt(
+    title: &str,
+    project: Option<&str>,
+    chunk_summaries: &[String],
+) -> String {
     let sums = chunk_summaries
         .iter()
         .enumerate()

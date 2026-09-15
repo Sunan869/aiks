@@ -238,5 +238,7 @@ fn ten_thousand_embeddings_are_reduced_to_a_bounded_candidate_set() {
         .expect("bounded candidate query should succeed");
 
     assert_eq!(candidates.len(), VECTOR_CANDIDATE_CAP);
-    assert!(VECTOR_CANDIDATE_CAP < EMBEDDING_COUNT);
+    const {
+        assert!(VECTOR_CANDIDATE_CAP < EMBEDDING_COUNT);
+    }
 }

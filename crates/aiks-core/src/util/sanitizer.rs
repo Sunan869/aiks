@@ -23,7 +23,9 @@ pub struct SecretSanitizer {
 }
 
 impl Default for SecretSanitizer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SecretSanitizer {
@@ -33,11 +35,15 @@ impl SecretSanitizer {
         // ── Bearer / Authorization ─────────────────────────────────────────────
         let bearer_patterns = [
             (r"(?i)(Bearer\s+)[A-Za-z0-9\-._~+/]+=*", "Bearer [REDACTED]"),
-            (r"(?i)(Authorization:\s*(?:Bearer|Basic|Token)\s+)[^\s\r\n,;]{8,}",
-             "Authorization: [REDACTED]"),
+            (
+                r"(?i)(Authorization:\s*(?:Bearer|Basic|Token)\s+)[^\s\r\n,;]{8,}",
+                "Authorization: [REDACTED]",
+            ),
         ];
         for (pat, rep) in bearer_patterns {
-            if let Ok(re) = Regex::new(pat) { patterns.push((re, rep)); }
+            if let Ok(re) = Regex::new(pat) {
+                patterns.push((re, rep));
+            }
         }
 
         // ── Well-known key formats ─────────────────────────────────────────────
@@ -48,7 +54,9 @@ impl SecretSanitizer {
             (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED_AWS_KEY]"),
         ];
         for (pat, rep) in key_patterns {
-            if let Ok(re) = Regex::new(pat) { patterns.push((re, rep)); }
+            if let Ok(re) = Regex::new(pat) {
+                patterns.push((re, rep));
+            }
         }
 
         // ── JSON "key": "value" ────────────────────────────────────────────────
@@ -64,19 +72,22 @@ impl SecretSanitizer {
         // Matches: token=abc, password='abc', SecretKey = "abc", token = abc
         // Also: AWS_SECRET_ACCESS_KEY=abc, AWS_ACCESS_KEY_ID=abc
         if let Ok(re) = Regex::new(
-            r#"(?i)(?:^|\b)(?:AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|API_KEY|ACCESS_KEY|SECRET_KEY|SECRET_ACCESS_KEY|PRIVATE_KEY|token|password|secret|api[_-]key|access[_-]key|secret[_-]key|SecretKey|AccessKey)\s*[=:]\s*['"]?([A-Za-z0-9\-_+/=.@!$%^&*#]{4,})['"]?"#
+            r#"(?i)(?:^|\b)(?:AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|API_KEY|ACCESS_KEY|SECRET_KEY|SECRET_ACCESS_KEY|PRIVATE_KEY|token|password|secret|api[_-]key|access[_-]key|secret[_-]key|SecretKey|AccessKey)\s*[=:]\s*['"]?([A-Za-z0-9\-_+/=.@!$%^&*#]{4,})['"]?"#,
         ) {
             patterns.push((re, "[SECRET_KEY]=[REDACTED]"));
         }
 
         // ── Bare env-style: KEY=VALUE on its own line ─────────────────────────
         if let Ok(re) = Regex::new(
-            r"(?im)^(?:AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|API_KEY|ACCESS_KEY|SECRET_KEY)=([A-Za-z0-9\-_+/=.]{8,})\s*$"
+            r"(?im)^(?:AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|API_KEY|ACCESS_KEY|SECRET_KEY)=([A-Za-z0-9\-_+/=.]{8,})\s*$",
         ) {
             patterns.push((re, "[SECRET_KEY]=[REDACTED]"));
         }
 
-        Self { patterns, custom_patterns: Vec::new() }
+        Self {
+            patterns,
+            custom_patterns: Vec::new(),
+        }
     }
 
     pub fn add_pattern(&mut self, pattern: &str) -> anyhow::Result<()> {

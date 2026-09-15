@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::should_implement_trait)]
+
 use serde::{Deserialize, Serialize};
 
 /// Extraction status for a session's knowledge extraction (spec §25)

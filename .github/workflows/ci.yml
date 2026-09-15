@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - review/integration
+  pull_request:
+    branches:
+      - main
+      - review/integration
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust quality and tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Prepare CI-only Tauri resource directory
+        run: |
+          mkdir -p apps/aiks-desktop/src-tauri/resources/siyuan
+          printf 'CI-only placeholder for Tauri resource glob\n' > apps/aiks-desktop/src-tauri/resources/siyuan/placeholder.txt
+
+      - name: Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace -- --test-threads=1
+
+  frontend:
+    name: Desktop frontend
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/aiks-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/aiks-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Frontend build
+        run: npm run build
+
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Current-tree hygiene guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f LICENSE
+          test ! -d apps/aiks-desktop/src-tauri/.icon-output
+          grep -q '^apps/aiks-desktop/src-tauri/.icon-output/' .gitignore
+
+          if git ls-files | grep -E '^\.workbuddy/'; then
+            echo 'Tracked .workbuddy content is not allowed in the public repository.' >&2
+            exit 1
+          fi
+
+          private_endpoint="$(printf '%s.%s.%s.%s' 10 10 23 16)"
+          if git grep -nF "$private_endpoint"; then
+            echo 'Known private AI endpoint must not be committed.' >&2
+            exit 1
+          fi
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

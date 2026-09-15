@@ -67,12 +67,21 @@ fn attach_mapping(db: &StateDb, knowledge_id: &str, target_id: &str) {
 fn identical_reextraction_reuses_knowledge_id_and_siyuan_mapping() {
     let (_dir, db, session_id) = setup();
     let repo = KnowledgeRepo::new(&db);
-    let extraction = result(vec![item("Durable Queue", "architecture", "summary", "content")]);
+    let extraction = result(vec![item(
+        "Durable Queue",
+        "architecture",
+        "summary",
+        "content",
+    )]);
 
-    let first = repo.save_items(session_id, Some("project"), &extraction).unwrap();
+    let first = repo
+        .save_items(session_id, Some("project"), &extraction)
+        .unwrap();
     attach_mapping(&db, &first[0], "doc-1");
 
-    let second = repo.save_items(session_id, Some("project"), &extraction).unwrap();
+    let second = repo
+        .save_items(session_id, Some("project"), &extraction)
+        .unwrap();
 
     assert_eq!(second, first);
     let mapping = KnowledgeSyncRepo::new(&db)

@@ -49,17 +49,41 @@ impl KnowledgeRenderer {
             KnowledgeCategory::Troubleshooting => {
                 render_section(&mut md, "## 问题", doc.problem.as_deref());
                 render_list(&mut md, "## 现象", doc.symptoms.as_deref().unwrap_or(&[]));
-                render_list(&mut md, "## 根因", doc.root_causes.as_deref().unwrap_or(&[]));
-                render_list(&mut md, "## 解决方案", doc.solutions.as_deref().unwrap_or(&[]));
+                render_list(
+                    &mut md,
+                    "## 根因",
+                    doc.root_causes.as_deref().unwrap_or(&[]),
+                );
+                render_list(
+                    &mut md,
+                    "## 解决方案",
+                    doc.solutions.as_deref().unwrap_or(&[]),
+                );
             }
             KnowledgeCategory::Implementation | KnowledgeCategory::General => {
-                render_list(&mut md, "## 解决方案", doc.solutions.as_deref().unwrap_or(&[]));
-                render_list(&mut md, "## 设计决策", doc.decisions.as_deref().unwrap_or(&[]));
+                render_list(
+                    &mut md,
+                    "## 解决方案",
+                    doc.solutions.as_deref().unwrap_or(&[]),
+                );
+                render_list(
+                    &mut md,
+                    "## 设计决策",
+                    doc.decisions.as_deref().unwrap_or(&[]),
+                );
             }
             KnowledgeCategory::Design => {
                 render_section(&mut md, "## 背景与目标", doc.problem.as_deref());
-                render_list(&mut md, "## 关键设计决策", doc.decisions.as_deref().unwrap_or(&[]));
-                render_list(&mut md, "## 方案要点", doc.solutions.as_deref().unwrap_or(&[]));
+                render_list(
+                    &mut md,
+                    "## 关键设计决策",
+                    doc.decisions.as_deref().unwrap_or(&[]),
+                );
+                render_list(
+                    &mut md,
+                    "## 方案要点",
+                    doc.solutions.as_deref().unwrap_or(&[]),
+                );
             }
             KnowledgeCategory::Research => {
                 render_section(&mut md, "## 研究问题", doc.problem.as_deref());
@@ -67,14 +91,26 @@ impl KnowledgeRenderer {
             }
             KnowledgeCategory::Decision => {
                 render_section(&mut md, "## 决策背景", doc.problem.as_deref());
-                render_list(&mut md, "## 决策内容", doc.decisions.as_deref().unwrap_or(&[]));
+                render_list(
+                    &mut md,
+                    "## 决策内容",
+                    doc.decisions.as_deref().unwrap_or(&[]),
+                );
                 render_list(&mut md, "## 理由", doc.solutions.as_deref().unwrap_or(&[]));
             }
         }
 
         // Common sections for all categories
-        render_list(&mut md, "## 关键命令", doc.key_commands.as_deref().unwrap_or(&[]));
-        render_list(&mut md, "## 关键文件", doc.key_files.as_deref().unwrap_or(&[]));
+        render_list(
+            &mut md,
+            "## 关键命令",
+            doc.key_commands.as_deref().unwrap_or(&[]),
+        );
+        render_list(
+            &mut md,
+            "## 关键文件",
+            doc.key_files.as_deref().unwrap_or(&[]),
+        );
         if let Some(todos) = &doc.todos {
             if !todos.is_empty() {
                 render_list(&mut md, "## 待办事项", todos);
@@ -109,7 +145,11 @@ impl KnowledgeRenderer {
         let category = cat.display_name();
         let project = doc.project.as_deref().unwrap_or("General");
         let short_id: String = session_id.chars().take(8).collect();
-        let title = doc.title.chars().take(40).collect::<String>()
+        let title = doc
+            .title
+            .chars()
+            .take(40)
+            .collect::<String>()
             .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
 
         let date = Utc::now().format("%Y-%m-%d").to_string();

@@ -1,3 +1,6 @@
+// CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
+#![allow(clippy::empty_line_after_doc_comments, clippy::explicit_counter_loop)]
+
 /// Unicode-safe text truncation utilities.
 ///
 /// All string slicing in AIKS must use these functions instead of `&text[..N]`

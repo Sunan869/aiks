@@ -33,7 +33,9 @@ fn session() -> NormalizedSession {
         started_at: None,
         updated_at: None,
         model: None,
-        messages: vec![message("A useful session that should produce one knowledge item.")],
+        messages: vec![message(
+            "A useful session that should produce one knowledge item.",
+        )],
         usage: None,
         metadata: HashMap::new(),
     }
@@ -209,17 +211,21 @@ async fn wait_for_terminal(db: &StateDb, run_id: &str) -> (String, Option<String
 }
 
 fn worker_configs(base_url: &str) -> (AiModelConfig, EmbeddingConfig) {
-    let mut ai = AiModelConfig::default();
-    ai.enabled = true;
-    ai.base_url = base_url.to_string();
-    ai.model = "p0-ai".into();
-    ai.max_concurrent = 1;
+    let ai = AiModelConfig {
+        enabled: true,
+        base_url: base_url.to_string(),
+        model: "p0-ai".into(),
+        max_concurrent: 1,
+        ..Default::default()
+    };
 
-    let mut embedding = EmbeddingConfig::default();
-    embedding.enabled = true;
-    embedding.base_url = base_url.to_string();
-    embedding.model = "p0-embedding".into();
-    embedding.batch_size = 16;
+    let embedding = EmbeddingConfig {
+        enabled: true,
+        base_url: base_url.to_string(),
+        model: "p0-embedding".into(),
+        batch_size: 16,
+        ..Default::default()
+    };
     (ai, embedding)
 }
 
@@ -241,14 +247,16 @@ async fn configured_embedding_http_failure_must_fail_pipeline_before_indexed_rea
         1,
     );
 
-    worker.submit(PipelineJob {
-        pipeline_run_id: run_id.clone(),
-        session_id,
-        session_external_id: "p0-session".into(),
-        source: "claude_code".into(),
-        session_title: Some("P0 regression".into()),
-        project_name: Some("aiks".into()),
-    }).unwrap();
+    worker
+        .submit(PipelineJob {
+            pipeline_run_id: run_id.clone(),
+            session_id,
+            session_external_id: "p0-session".into(),
+            source: "claude_code".into(),
+            session_title: Some("P0 regression".into()),
+            project_name: Some("aiks".into()),
+        })
+        .unwrap();
 
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();
@@ -263,7 +271,10 @@ async fn configured_embedding_http_failure_must_fail_pipeline_before_indexed_rea
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(indexed_success, 0, "INDEXED must not succeed after embedding failure");
+    assert_eq!(
+        indexed_success, 0,
+        "INDEXED must not succeed after embedding failure"
+    );
 }
 
 #[tokio::test]
@@ -293,14 +304,16 @@ async fn configured_embedding_chunk_failure_must_fail_at_embed_chunked() {
         1,
     );
 
-    worker.submit(PipelineJob {
-        pipeline_run_id: run_id.clone(),
-        session_id,
-        session_external_id: "p0-session".into(),
-        source: "claude_code".into(),
-        session_title: Some("P0 regression".into()),
-        project_name: Some("aiks".into()),
-    }).unwrap();
+    worker
+        .submit(PipelineJob {
+            pipeline_run_id: run_id.clone(),
+            session_id,
+            session_external_id: "p0-session".into(),
+            source: "claude_code".into(),
+            session_title: Some("P0 regression".into()),
+            project_name: Some("aiks".into()),
+        })
+        .unwrap();
 
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();
@@ -315,13 +328,19 @@ async fn configured_embedding_chunk_failure_must_fail_at_embed_chunked() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(later_successes, 0, "later vector stages must not succeed after chunk failure");
+    assert_eq!(
+        later_successes, 0,
+        "later vector stages must not succeed after chunk failure"
+    );
 }
 
 #[test]
 fn ai_defaults_are_safe_for_a_public_repository() {
     let config = AiModelConfig::default();
-    assert!(!config.enabled, "AI must be opt-in for a fresh public install");
+    assert!(
+        !config.enabled,
+        "AI must be opt-in for a fresh public install"
+    );
     let private_ip = ["10", "10", "23", "16"].join(".");
     assert!(
         !config.base_url.contains(&private_ip),
