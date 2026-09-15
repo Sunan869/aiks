@@ -10,6 +10,7 @@ const SCHEMA_V3_SQL: &str = include_str!("../../migrations/002_v3_pipeline.sql")
 const SCHEMA_V4_SQL: &str = include_str!("../../migrations/003_pipeline_job.sql");
 const SCHEMA_V5_SQL: &str = include_str!("../../migrations/004_knowledge_sync.sql");
 const SCHEMA_V6_SQL: &str = include_str!("../../migrations/005_knowledge_baseline.sql");
+const SCHEMA_V7_SQL: &str = include_str!("../../migrations/006_pipeline_job_identity.sql");
 
 /// AIKS state database.
 ///
@@ -78,6 +79,32 @@ impl StateDb {
             conn.execute_batch(SCHEMA_V6_SQL)
                 .context("run V6 knowledge baseline migrations")?;
         }
+
+        // V7 turns the previously dormant pipeline_job table into the durable
+        // production queue. Add exact DB identities with guarded ALTERs so
+        // existing installations migrate idempotently.
+        let has_job_session_id: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'session_id'",
+            [],
+            |row| row.get(0),
+        ).context("run V7 session_id pragma check")?;
+        if has_job_session_id == 0 {
+            conn.execute_batch("ALTER TABLE pipeline_job ADD COLUMN session_id INTEGER;")
+                .context("add pipeline_job.session_id")?;
+        }
+
+        let has_job_run_id: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'pipeline_run_id'",
+            [],
+            |row| row.get(0),
+        ).context("run V7 pipeline_run_id pragma check")?;
+        if has_job_run_id == 0 {
+            conn.execute_batch("ALTER TABLE pipeline_job ADD COLUMN pipeline_run_id TEXT;")
+                .context("add pipeline_job.pipeline_run_id")?;
+        }
+
+        conn.execute_batch(SCHEMA_V7_SQL)
+            .context("run V7 pipeline job identity migrations")?;
         Ok(())
     }
 

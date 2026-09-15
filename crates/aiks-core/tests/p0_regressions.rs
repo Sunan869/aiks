@@ -248,7 +248,7 @@ async fn configured_embedding_http_failure_must_fail_pipeline_before_indexed_rea
         source: "claude_code".into(),
         session_title: Some("P0 regression".into()),
         project_name: Some("aiks".into()),
-    });
+    }).unwrap();
 
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();
@@ -300,7 +300,7 @@ async fn configured_embedding_chunk_failure_must_fail_at_embed_chunked() {
         source: "claude_code".into(),
         session_title: Some("P0 regression".into()),
         project_name: Some("aiks".into()),
-    });
+    }).unwrap();
 
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();

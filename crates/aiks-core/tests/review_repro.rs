@@ -255,7 +255,7 @@ async fn b12_worker_marks_failed_on_provider_error() {
         source: "claude_code".into(),
         session_title: None,
         project_name: None,
-    });
+    }).unwrap();
     // Wait for worker to process
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let status: String = db.conn()

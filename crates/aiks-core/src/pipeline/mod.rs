@@ -9,6 +9,7 @@ pub mod knowledge_repo;
 pub mod embedding_client;
 pub mod embedding_stage;
 pub mod search;
+pub mod job_repo;
 pub mod worker;
 
 pub use orchestrator::PipelineOrchestrator;
