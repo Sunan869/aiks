@@ -13,7 +13,14 @@ use crate::model::NormalizedMessage;
 use crate::storage::StateDb;
 
 const CHARS_PER_TOKEN: f64 = 3.5;
-const TARGET_TOKENS: usize = 20_000;
+/// Token budget per chunk (ESTIMATED via chars/3.5).
+///
+/// 20_000 was too generous: the estimate undercounts code/symbol-heavy
+/// content by ~1.6x (observed live: an estimated-20K chunk cost 31.7K real
+/// Qwen tokens and could never fit a 32K context at any max_tokens).
+/// 12_000 estimated keeps the worst case (~19K real tokens) well inside
+/// the window after adding the prompt frame + 8K output budget.
+const TARGET_TOKENS: usize = 12_000;
 const MAX_MESSAGES: usize = 40;
 
 pub struct SessionChunk {

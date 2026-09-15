@@ -24,6 +24,16 @@ pub struct AiStage {
     config: AiModelConfig,
 }
 
+/// Conservative chars-per-token used ONLY for prompt budgeting. The chunker
+/// estimates with 3.5 chars/token, but code/symbol-heavy text can be as dense
+/// as ~2.2 chars/token in the real Qwen tokenizer (observed live: an
+/// estimated-20K-token chunk cost 31.7K real tokens). Budgeting at 2.0
+/// chars/token keeps any rendered prompt inside the window even in the worst
+/// case.
+const BUDGET_CHARS_PER_TOKEN: f64 = 2.0;
+/// Tokens reserved for the system prompt + prompt frame + /no_think suffix.
+const PROMPT_OVERHEAD_TOKENS: usize = 2_000;
+
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
         let client = AiClient::new(config.clone())?;
@@ -32,6 +42,42 @@ impl AiStage {
             sanitizer: SecretSanitizer::new(),
             config,
         })
+    }
+
+    /// Max characters the variable part of a prompt may occupy so that
+    /// (prompt + max_tokens) fits inside the model context window.
+    fn prompt_char_budget(&self) -> usize {
+        let usable = self
+            .config
+            .max_context_tokens
+            .saturating_sub(self.config.max_tokens as usize)
+            .saturating_sub(PROMPT_OVERHEAD_TOKENS);
+        ((usable as f64) * BUDGET_CHARS_PER_TOKEN) as usize
+    }
+
+    /// Keep the first 2/3 and the last 1/3 of an oversized prompt, dropping
+    /// the middle with an explicit marker. Losing middle content is strictly
+    /// better than a request that can never succeed at ANY output budget
+    /// (chat() only halves max_tokens down to 1024 before giving up).
+    fn fit_to_budget(&self, prompt: &str) -> String {
+        let max_chars = self.prompt_char_budget();
+        let total = prompt.chars().count();
+        if total <= max_chars {
+            return prompt.to_string();
+        }
+        let head = max_chars * 2 / 3;
+        let tail = max_chars - head;
+        let dropped = total - max_chars;
+        let head_s: String = prompt.chars().take(head).collect();
+        let tail_s: String = prompt.chars().skip(total - tail).collect();
+        tracing::warn!(
+            chars = total, max_chars, dropped,
+            "Prompt exceeds model context budget; truncating middle"
+        );
+        format!(
+            "{}\n\n[...中间内容过长，已截断 {} 字符...]\n\n{}",
+            head_s, dropped, tail_s
+        )
     }
 
     /// Run AI extraction on a session's LLM chunks.
@@ -60,7 +106,7 @@ impl AiStage {
         let result = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let prompt = make_v3_extraction_prompt(&sanitized);
+            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
             let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
@@ -117,7 +163,7 @@ impl AiStage {
 
         for (idx, (_, text)) in chunks.iter().enumerate() {
             let sanitized = self.sanitizer.sanitize(text);
-            let prompt = make_v3_chunk_prompt(&sanitized, idx, total);
+            let prompt = self.fit_to_budget(&make_v3_chunk_prompt(&sanitized, idx, total));
             // R10: a failed chunk means the map-reduce input is incomplete —
             // propagate the error instead of fabricating a degraded summary.
             let resp = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
@@ -125,7 +171,9 @@ impl AiStage {
         }
 
         let title = session_title.unwrap_or("未知会话");
-        let final_prompt = make_v3_final_prompt(title, project_name, &chunk_summaries);
+        // The final prompt concatenates every chunk summary — with hundreds of
+        // chunks this alone can exceed the window (observed: 175 summaries).
+        let final_prompt = self.fit_to_budget(&make_v3_final_prompt(title, project_name, &chunk_summaries));
         let response = self.client.chat(SYSTEM_PROMPT_V3, &final_prompt).await?;
         // R10: final parse errors propagate as real failures.
         parse_v3_result_typed(&response)
@@ -832,6 +880,59 @@ mod tests {
         assert!(make_v3_extraction_prompt("内容").ends_with("/no_think"));
         assert!(make_v3_chunk_prompt("内容", 0, 2).ends_with("/no_think"));
         assert!(make_v3_final_prompt("标题", None, &["摘要".into()]).ends_with("/no_think"));
+    }
+
+    /// Prompts that fit the budget must pass through unchanged.
+    #[test]
+    fn fit_to_budget_passes_short_prompt_through() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let prompt = "短内容".repeat(100);
+        assert_eq!(stage.fit_to_budget(&prompt), prompt);
+    }
+
+    /// An oversized prompt keeps head and tail and marks the dropped middle —
+    /// the request becomes merely degraded instead of impossible.
+    #[test]
+    fn fit_to_budget_truncates_oversized_prompt_middle() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let budget = stage.prompt_char_budget();
+        assert!(budget > 0);
+
+        let head_marker = "HEAD_START_ABCDEF";
+        let tail_marker = "TAIL_END_UVWXYZ";
+        let filler = "x".repeat(budget); // alone already over budget
+        let prompt = format!("{}{}{}", head_marker, filler, tail_marker);
+
+        let fitted = stage.fit_to_budget(&prompt);
+        assert!(fitted.chars().count() < prompt.chars().count());
+        assert!(fitted.starts_with(head_marker), "head must be preserved");
+        assert!(fitted.ends_with(tail_marker), "tail must be preserved");
+        assert!(fitted.contains("已截断"), "drop marker must be present");
+    }
+
+    /// Default config numbers must leave room for output: budget chars at
+    /// 2.0 chars/token must stay under (context - max_tokens - overhead).
+    #[test]
+    fn prompt_budget_fits_inside_context_window() {
+        let cfg = AiModelConfig::default();
+        let stage = AiStage::new(cfg.clone()).unwrap();
+        let budget = stage.prompt_char_budget();
+        let usable_tokens = cfg.max_context_tokens - cfg.max_tokens as usize - PROMPT_OVERHEAD_TOKENS;
+        assert!(
+            (budget as f64) <= usable_tokens as f64 * BUDGET_CHARS_PER_TOKEN,
+            "budget {} chars exceeds usable {} tokens",
+            budget,
+            usable_tokens
+        );
+        // The chunker's worst-case estimated budget (12K tokens * 3.5 chars)
+        // must also fit inside the prompt budget.
+        let chunker_max_chars = (12_000.0_f64 * 3.5) as usize;
+        assert!(
+            chunker_max_chars <= budget,
+            "chunker max chars {} exceeds prompt budget {}",
+            chunker_max_chars,
+            budget
+        );
     }
 
     /// max_tokens truncation mid-array (observed live: "EOF while parsing a

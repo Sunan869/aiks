@@ -27,6 +27,11 @@ pub struct AiModelConfig {
     /// (vLLM). Leaked reasoning text both pollutes the JSON output and
     /// burns the max_tokens budget, producing truncated unparseable JSON.
     pub disable_thinking: bool,
+    /// Total model context window (prompt + output must fit inside it).
+    /// Used by the pipeline to cap chunk/prompt sizes BEFORE the request;
+    /// without it a single oversized chunk can never succeed at any
+    /// max_tokens (observed: 31.7K-token chunk against a 32K window).
+    pub max_context_tokens: usize,
 }
 
 impl Default for AiModelConfig {
@@ -48,6 +53,7 @@ impl Default for AiModelConfig {
             debounce_minutes: 10,
             auto_extract: true,
             disable_thinking: true,
+            max_context_tokens: 32768,
         }
     }
 }
