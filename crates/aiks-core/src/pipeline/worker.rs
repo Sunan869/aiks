@@ -4,9 +4,9 @@
 ///       → EMBED_CHUNKED → EMBEDDED → INDEXED → READY
 ///
 /// Runs automatically when new sessions are discovered via sync.
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, oneshot, Semaphore};
 use tracing::{error, info, warn};
 
 use crate::ai::config::AiModelConfig;
@@ -14,6 +14,7 @@ use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::embedding_stage::EmbeddingStage;
+use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::ProviderRegistry;
@@ -29,12 +30,18 @@ pub struct PipelineJob {
     pub project_name: Option<String>,
 }
 
+/// Durable pipeline worker.
+///
+/// Job payloads live in SQLite (`pipeline_job`). The in-memory channel is only
+/// a capacity-1 wake-up signal, so producers cannot create an unbounded memory
+/// backlog. A periodic poll guarantees persisted work is still discovered if a
+/// wake signal is coalesced or lost during restart.
 pub struct PipelineWorker {
-    tx: mpsc::UnboundedSender<PipelineJob>,
+    db: Arc<StateDb>,
+    wake_tx: mpsc::Sender<()>,
 }
 
 impl PipelineWorker {
-    /// Start the background pipeline worker with default concurrency (max_concurrent from ai_config)
     pub fn start(
         db: Arc<StateDb>,
         registry: Arc<ProviderRegistry>,
@@ -45,7 +52,6 @@ impl PipelineWorker {
         Self::start_with_limit(db, registry, ai_config, embedding_config, max_concurrent)
     }
 
-    /// Start with an explicit concurrency limit (B13)
     pub fn start_with_limit(
         db: Arc<StateDb>,
         registry: Arc<ProviderRegistry>,
@@ -53,35 +59,48 @@ impl PipelineWorker {
         embedding_config: EmbeddingConfig,
         max_concurrent: usize,
     ) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (wake_tx, wake_rx) = mpsc::channel(1);
         let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
+        let worker_wake_tx = wake_tx.clone();
+        let worker_db = Arc::clone(&db);
 
         tokio::spawn(async move {
-            run_worker(rx, db, registry, ai_config, embedding_config, semaphore).await;
+            run_worker(
+                wake_rx,
+                worker_db,
+                registry,
+                ai_config,
+                embedding_config,
+                worker_wake_tx,
+                semaphore,
+            )
+            .await;
         });
 
-        Self { tx }
+        let worker = Self { db, wake_tx };
+        let _ = worker.wake_tx.try_send(());
+        worker
     }
 
-    /// Submit a job to the pipeline
-    pub fn submit(&self, job: PipelineJob) {
-        let _ = self.tx.send(job);
+    /// Persist first, then wake the worker. A full wake channel is fine: it
+    /// means a wake is already pending and the durable row is still safe.
+    pub fn submit(&self, job: PipelineJob) -> anyhow::Result<()> {
+        PipelineJobRepo::new(&self.db).enqueue(&job)?;
+        let _ = self.wake_tx.try_send(());
+        Ok(())
     }
 }
 
-/// R13: crash recovery — requeue pipeline runs left in PROCESSING by a
-/// previous process and submit them to the current worker. Runs found in
-/// DISCOVERED (never processed) are submitted as well.
-pub fn recover_interrupted_runs(
-    db: &Arc<StateDb>,
-    worker: &PipelineWorker,
-) -> usize {
-    let repo = PipelineRepo::new(db);
+/// Seed the durable queue for legacy pipeline runs that pre-date pipeline_job,
+/// and reset interrupted pipeline observability. Existing durable rows — even
+/// terminal failures — are not silently resurrected on every restart.
+pub fn recover_interrupted_runs(db: &Arc<StateDb>, worker: &PipelineWorker) -> usize {
+    let pipeline_repo = PipelineRepo::new(db);
+    let job_repo = PipelineJobRepo::new(db);
 
-    // Step 1: requeue runs stuck in PROCESSING (previous process died mid-run)
-    let _ = repo.requeue_processing_runs();
+    let _ = pipeline_repo.requeue_processing_runs();
+    let _ = job_repo.recover_expired_leases();
 
-    // Step 2: submit every run that still needs processing
     let rows: Vec<(String, i64, String, String, Option<String>, Option<String>)> = {
         let conn = db.conn();
         let result = conn
@@ -115,100 +134,181 @@ pub fn recover_interrupted_runs(
         }
     };
 
-    let count = rows.len();
+    let mut seeded = 0;
     for (pipeline_run_id, session_id, source, session_external_id, session_title, project_name) in rows {
-        worker.submit(PipelineJob {
+        match job_repo.has_any_job(&source, &session_external_id) {
+            Ok(true) => continue,
+            Err(e) => {
+                warn!(source, session_external_id, error = %e, "[PIPELINE] Durable recovery lookup failed");
+                continue;
+            }
+            Ok(false) => {}
+        }
+
+        if let Err(e) = worker.submit(PipelineJob {
             pipeline_run_id,
             session_id,
             session_external_id,
             source,
             session_title,
             project_name,
-        });
+        }) {
+            warn!(error = %e, "[PIPELINE] Failed to seed durable recovery job");
+        } else {
+            seeded += 1;
+        }
     }
-    if count > 0 {
-        info!("[PIPELINE] Recovered {} interrupted/pending run(s)", count);
+
+    if seeded > 0 {
+        info!("[PIPELINE] Seeded {} legacy run(s) into durable queue", seeded);
     }
-    count
+    seeded
 }
 
 async fn run_worker(
-    mut rx: mpsc::UnboundedReceiver<PipelineJob>,
+    mut wake_rx: mpsc::Receiver<()>,
     db: Arc<StateDb>,
     registry: Arc<ProviderRegistry>,
     ai_config: AiModelConfig,
     embedding_config: EmbeddingConfig,
-    semaphore: Arc<Semaphore>,  // B13: concurrency limit
+    wake_tx: mpsc::Sender<()>,
+    semaphore: Arc<Semaphore>,
 ) {
-    info!("[PIPELINE] Worker started");
+    info!("[PIPELINE] Durable worker started");
+    let mut poll = tokio::time::interval(Duration::from_millis(500));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // R13: per-session in-flight dedup — a session already being processed is
-    // not re-spawned (the run row stays DISCOVERED and the periodic backfill
-    // picks it up later). Prevents duplicate work and racing writes.
-    let in_flight: Arc<tokio::sync::Mutex<std::collections::HashSet<i64>>> =
-        Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
-
-    while let Some(job) = rx.recv().await {
-        // R13: dedup — skip if this session is already queued/running.
-        {
-            let mut set = in_flight.lock().await;
-            if !set.insert(job.session_id) {
-                warn!(
-                    session_id = job.session_id,
-                    run_id = %job.pipeline_run_id,
-                    "[PIPELINE] Session already in flight — job skipped (will be picked up by backfill)"
-                );
-                continue;
-            }
-        }
-
-        let db = Arc::clone(&db);
-        let registry = Arc::clone(&registry);
-        let ai = ai_config.clone();
-        let emb = embedding_config.clone();
-        let sem = Arc::clone(&semaphore);
-        let inflight = Arc::clone(&in_flight);
-
-        // B13 + R13: acquire the permit BEFORE spawning — at most
-        // `max_concurrent` tasks exist at any moment, so the backlog cannot
-        // pile up as unbounded waiting tasks.
-        let permit = match sem.acquire_owned().await {
-            Ok(p) => p,
-            Err(_) => {
-                inflight.lock().await.remove(&job.session_id);
-                break;
-            }
-        };
-
-        tokio::spawn(async move {
-            if let Err(e) = run_pipeline(&db, &registry, &ai, &emb, &job).await {
-                error!(
-                    run_id = %job.pipeline_run_id,
-                    session_id = job.session_id,
-                    error = %e,
-                    "[PIPELINE] Job failed"
-                );
-                // B12 + R13: safety-net mark_failed — but do NOT overwrite the
-                // accurate failure stage already recorded by run_pipeline.
-                let repo = PipelineRepo::new(&db);
-                let already_failed = repo
-                    .get_run_detail(&job.pipeline_run_id)
-                    .ok()
-                    .flatten()
-                    .map(|d| d.status == "FAILED")
-                    .unwrap_or(false);
-                if !already_failed {
-                    let stage = extract_failed_stage(&e.to_string());
-                    let _ = repo.mark_failed(&job.pipeline_run_id, stage, &e.to_string());
+    loop {
+        tokio::select! {
+            signal = wake_rx.recv() => {
+                if signal.is_none() {
+                    break;
                 }
             }
-            // Release: remove from in-flight set + drop the semaphore permit.
-            inflight.lock().await.remove(&job.session_id);
-            drop(permit);
-        });
+            _ = poll.tick() => {}
+        }
+
+        loop {
+            let permit = match Arc::clone(&semaphore).try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(tokio::sync::TryAcquireError::NoPermits) => break,
+                Err(tokio::sync::TryAcquireError::Closed) => return,
+            };
+
+            let claimed = match PipelineJobRepo::new(&db).claim_next() {
+                Ok(Some(claimed)) => claimed,
+                Ok(None) => {
+                    drop(permit);
+                    break;
+                }
+                Err(e) => {
+                    drop(permit);
+                    warn!(error = %e, "[PIPELINE] Failed to claim durable job");
+                    break;
+                }
+            };
+
+            let task_db = Arc::clone(&db);
+            let task_registry = Arc::clone(&registry);
+            let task_ai = ai_config.clone();
+            let task_embedding = embedding_config.clone();
+            let task_wake = wake_tx.clone();
+
+            tokio::spawn(async move {
+                let durable_job_id = claimed.durable_job_id.clone();
+                let attempt = claimed.attempt;
+                let job = claimed.job;
+
+                // Keep long AI/embedding jobs leased while they are alive. A
+                // crashed process stops heartbeating and the lease becomes
+                // claimable by the next worker after LEASE_SECONDS.
+                let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+                let lease_db = Arc::clone(&task_db);
+                let lease_job_id = durable_job_id.clone();
+                let heartbeat = tokio::spawn(async move {
+                    let mut tick = tokio::time::interval(Duration::from_secs(10));
+                    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    tick.tick().await;
+                    loop {
+                        tokio::select! {
+                            _ = &mut stop_rx => break,
+                            _ = tick.tick() => {
+                                if let Err(e) = PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id) {
+                                    warn!(job_id = %lease_job_id, error = %e, "[PIPELINE] Lease renewal failed");
+                                }
+                            }
+                        }
+                    }
+                });
+
+                let result = run_pipeline(
+                    &task_db,
+                    &task_registry,
+                    &task_ai,
+                    &task_embedding,
+                    &job,
+                )
+                .await;
+
+                let _ = stop_tx.send(());
+                let _ = heartbeat.await;
+
+                let durable_repo = PipelineJobRepo::new(&task_db);
+                match result {
+                    Ok(()) => {
+                        if let Err(e) = durable_repo.mark_succeeded(&durable_job_id) {
+                            error!(job_id = %durable_job_id, error = %e, "[PIPELINE] Failed to mark durable job DONE");
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            run_id = %job.pipeline_run_id,
+                            session_id = job.session_id,
+                            attempt,
+                            error = %e,
+                            "[PIPELINE] Job attempt failed"
+                        );
+
+                        // Keep pipeline_run's accurate stage failure. run_pipeline
+                        // normally records it; this is a safety net for unexpected
+                        // errors outside a stage boundary.
+                        let pipeline_repo = PipelineRepo::new(&task_db);
+                        let already_failed = pipeline_repo
+                            .get_run_detail(&job.pipeline_run_id)
+                            .ok()
+                            .flatten()
+                            .map(|d| d.status == "FAILED")
+                            .unwrap_or(false);
+                        if !already_failed {
+                            let stage = extract_failed_stage(&e.to_string());
+                            let _ = pipeline_repo.mark_failed(
+                                &job.pipeline_run_id,
+                                stage,
+                                &e.to_string(),
+                            );
+                        }
+
+                        match durable_repo.mark_failed(&durable_job_id, &e.to_string()) {
+                            Ok(FailureDisposition::Retry) => {
+                                info!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job scheduled for retry");
+                            }
+                            Ok(FailureDisposition::Terminal) => {
+                                warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job exhausted retry budget");
+                            }
+                            Err(mark_err) => {
+                                error!(job_id = %durable_job_id, error = %mark_err, "[PIPELINE] Failed to persist retry state");
+                            }
+                        }
+                    }
+                }
+
+                drop(permit);
+                let _ = task_wake.try_send(());
+            });
+        }
     }
 
-    info!("[PIPELINE] Worker stopped");
+    info!("[PIPELINE] Durable worker stopped");
 }
 
 /// R13: map a run_pipeline error message back to its pipeline stage.

@@ -423,7 +423,7 @@ impl AiksEngine {
             source,
             session_title,
             project_name,
-        });
+        })?;
         Ok(run_id)
     }
 
@@ -579,14 +579,16 @@ impl AiksEngine {
 
                 if let Some((db_id, source, session_ext_id, title, project_name, content_hash)) = session_data {
                     if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
-                        self.pipeline_worker.submit(PipelineJob {
+                        if let Err(e) = self.pipeline_worker.submit(PipelineJob {
                             pipeline_run_id: run_id,
                             session_id: db_id,
                             session_external_id: session_ext_id,
                             source,
                             session_title: title,
                             project_name,
-                        });
+                        }) {
+                            tracing::warn!(session_id = db_id, error = %e, "[PIPELINE] Durable enqueue failed");
+                        }
                     }
                 }
             }
@@ -651,15 +653,17 @@ impl AiksEngine {
 
         let mut submitted = 0;
         for (run_id, session_id, source, ext_id, title, project) in rows {
-            self.pipeline_worker.submit(PipelineJob {
+            match self.pipeline_worker.submit(PipelineJob {
                 pipeline_run_id: run_id,
                 session_id,
                 session_external_id: ext_id,
                 source,
                 session_title: title,
                 project_name: project,
-            });
-            submitted += 1;
+            }) {
+                Ok(()) => submitted += 1,
+                Err(e) => tracing::warn!(session_id, error = %e, "[PIPELINE] Backfill durable enqueue failed"),
+            }
         }
 
         info!(

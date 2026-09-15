@@ -34,7 +34,11 @@ impl<'a> PipelineRepo<'a> {
 
         if let Some(id) = existing {
             conn.execute(
-                "UPDATE pipeline_run SET source_hash = ?1, status = 'DISCOVERED', updated_at = ?2 WHERE id = ?3",
+                "UPDATE pipeline_run
+                 SET source_hash = ?1,
+                     status = CASE WHEN status = 'PROCESSING' THEN status ELSE 'DISCOVERED' END,
+                     updated_at = ?2
+                 WHERE id = ?3",
                 params![source_hash, now, id],
             )?;
             Ok(id)

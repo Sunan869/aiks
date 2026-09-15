@@ -164,7 +164,7 @@ async fn b13_concurrency_limit_respected() {
             source: "claude_code".into(),
             session_title: None,
             project_name: None,
-        });
+        }).unwrap();
     }
 
     // Wait long enough for all to complete (they fail fast with no provider)
