@@ -557,15 +557,20 @@ impl AiksEngine {
 
             let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
 
-            for ext_id in &stats.extraction_candidates {
-                // Collect data while holding conn, then release before submitting
+            for candidate in &stats.extraction_candidates {
+                // Resolve by canonical DB identity and verify the redundant source
+                // identity. This prevents cross-provider external-ID collisions.
                 let session_data: Option<(i64, String, String, Option<String>, Option<String>, Option<String>)> = {
                     let conn = self.db.conn();
                     conn.query_row(
                         "SELECT id, source, external_session_id, title, project_name, content_hash
-                         FROM source_session WHERE external_session_id = ?1
-                         ORDER BY updated_at DESC LIMIT 1",
-                        rusqlite::params![ext_id],
+                         FROM source_session
+                         WHERE id = ?1 AND source = ?2 AND external_session_id = ?3",
+                        rusqlite::params![
+                            candidate.session_id,
+                            candidate.source,
+                            candidate.external_session_id
+                        ],
                         |row| Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,

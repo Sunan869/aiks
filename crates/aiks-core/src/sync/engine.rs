@@ -38,6 +38,14 @@ pub struct SyncOptions {
     pub overwrite: bool,
 }
 
+/// Exact canonical identity of a session that should enter the knowledge pipeline.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ExtractionCandidate {
+    pub session_id: i64,
+    pub source: String,
+    pub external_session_id: String,
+}
+
 /// Statistics for a completed sync run.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SyncStats {
@@ -48,8 +56,8 @@ pub struct SyncStats {
     pub skipped_count: usize,
     pub conflict_count: usize,
     pub failed_count: usize,
-    /// Session IDs newly created/updated — eligible for extraction
-    pub extraction_candidates: Vec<String>,
+    /// Canonical sessions newly created/updated — eligible for extraction.
+    pub extraction_candidates: Vec<ExtractionCandidate>,
 }
 
 /// R05: stable hash over SiYuan's exported markdown — the conflict baseline.
@@ -65,6 +73,41 @@ pub struct SyncEngine {
 impl SyncEngine {
     pub fn new(config: Arc<Config>) -> Self {
         Self { config }
+    }
+
+    fn record_extraction_candidate(
+        &self,
+        db: &StateDb,
+        summary: &SessionSummary,
+        opts: &SyncOptions,
+        stats: &mut SyncStats,
+    ) {
+        // A dry-run must never create executable follow-up work. New dry-run
+        // sessions do not even have a canonical source_session row yet.
+        if opts.dry_run {
+            return;
+        }
+
+        match SourceSessionRepo::new(db)
+            .find_by_source_and_id(summary.source.as_str(), &summary.external_session_id)
+        {
+            Ok(Some(session)) => stats.extraction_candidates.push(ExtractionCandidate {
+                session_id: session.id,
+                source: session.source,
+                external_session_id: session.external_session_id,
+            }),
+            Ok(None) => warn!(
+                source = %summary.source.as_str(),
+                external_session_id = %summary.external_session_id,
+                "[PIPELINE] Synced session missing canonical row; not enqueueing extraction"
+            ),
+            Err(e) => warn!(
+                source = %summary.source.as_str(),
+                external_session_id = %summary.external_session_id,
+                error = %e,
+                "[PIPELINE] Failed to resolve canonical extraction candidate"
+            ),
+        }
     }
 
     /// Run a full sync cycle.
@@ -141,7 +184,7 @@ impl SyncEngine {
                         "[SYNC] Created"
                     );
                     stats.new_count += 1;
-                    stats.extraction_candidates.push(summary.external_session_id.clone());
+                    self.record_extraction_candidate(db, summary, opts, &mut stats);
                 }
                 SyncOutcome::Updated { doc_id } => {
                     info!(
@@ -150,7 +193,7 @@ impl SyncEngine {
                         "[SYNC] Updated"
                     );
                     stats.updated_count += 1;
-                    stats.extraction_candidates.push(summary.external_session_id.clone());
+                    self.record_extraction_candidate(db, summary, opts, &mut stats);
                 }
                 SyncOutcome::Unchanged => {
                     debug!(session_id = %summary.external_session_id, "Unchanged");

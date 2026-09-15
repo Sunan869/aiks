@@ -20,7 +20,7 @@ pub use config::Config;
 pub use model::{NormalizedSession, NormalizedMessage, ContentBlock, MessageRole, SourceKind};
 pub use model::pipeline::{PipelineStage, KnowledgeItem, KnowledgeChunk, PipelineStats};
 pub use providers::SessionSummary;
-pub use sync::{SyncOptions, SyncStats, SyncOutcome};
+pub use sync::{ExtractionCandidate, SyncOptions, SyncStats, SyncOutcome};
 pub use ai::AiModelConfig;
 pub use knowledge::model::ExtractionStats;
 pub use pipeline::{PipelineOrchestrator, PipelineWorker, PipelineJob, EmbeddingConfig, KnowledgeRepo};
