@@ -28,6 +28,8 @@ pub enum SyncStatus {
     Conflict,
     /// Source session is missing
     MissingSource,
+    /// Knowledge item was removed by a later extraction, while its sink mapping is retained as a tombstone
+    Removed,
 }
 
 impl SyncStatus {
@@ -42,6 +44,7 @@ impl SyncStatus {
             SyncStatus::FailedPermanent => "FAILED_PERMANENT",
             SyncStatus::Conflict => "CONFLICT",
             SyncStatus::MissingSource => "MISSING_SOURCE",
+            SyncStatus::Removed => "REMOVED",
         }
     }
 
@@ -56,6 +59,7 @@ impl SyncStatus {
             "FAILED_PERMANENT" => Some(SyncStatus::FailedPermanent),
             "CONFLICT" => Some(SyncStatus::Conflict),
             "MISSING_SOURCE" => Some(SyncStatus::MissingSource),
+            "REMOVED" => Some(SyncStatus::Removed),
             _ => None,
         }
     }
@@ -523,6 +527,20 @@ impl<'a> KnowledgeSyncRepo<'a> {
                error_message = excluded.error_message,
                updated_at = excluded.updated_at",
             params![knowledge_id, sink, error, now],
+        )?;
+        Ok(())
+    }
+
+    /// Keep the remote target identity when an extracted knowledge item disappears.
+    /// This explicit tombstone prevents a remote SiYuan document from becoming
+    /// an untraceable orphan and leaves enough information for later cleanup.
+    pub fn mark_removed(&self, knowledge_id: &str, sink: &str) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.db.conn().execute(
+            "UPDATE knowledge_sync_target
+             SET status = 'REMOVED', error_message = NULL, updated_at = ?3
+             WHERE knowledge_id = ?1 AND sink = ?2",
+            params![knowledge_id, sink, now],
         )?;
         Ok(())
     }
