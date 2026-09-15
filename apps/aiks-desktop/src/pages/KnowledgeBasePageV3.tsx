@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { KnowledgeSummary, KnowledgePage } from "../api/types";
+import SiYuanWorkspace from "../components/SiYuanWorkspace";
 
 const CATEGORY_LABELS: Record<string, string> = {
   troubleshooting: "故障排查",
@@ -55,8 +56,10 @@ function KnowledgeCard({ item }: { item: KnowledgeSummary }) {
 }
 
 interface Props { onViewDetail?: (id: string) => void; }
+type KnowledgeSurface = "extracted" | "siyuan";
 
 export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
+  const [surface, setSurface] = useState<KnowledgeSurface>("extracted");
   const [data, setData] = useState<KnowledgePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,87 +107,121 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
   const categories = ["", ...Object.keys(CATEGORY_LABELS)];
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex h-full min-h-0 flex-col p-6">
+      <div className="flex items-start justify-between gap-4 mb-3">
         <div>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
-          {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
+          <p className="text-sm text-gray-500 mt-0.5">
+            {surface === "extracted"
+              ? (data ? `共 ${data.total} 条 AI 提炼知识` : "AI 提炼知识与来源追踪")
+              : "创建、编辑、收藏、归档和知识组织直接复用 SiYuan 原生能力"}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {syncResult && (
-            <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
-              {syncResult}
-            </span>
-          )}
-          <button
-            onClick={handleSyncToSiyuan}
-            disabled={syncing}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
-            title="将提炼的知识推送到 SiYuan 知识库"
-          >
-            {syncing ? (
-              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+
+        {surface === "extracted" && (
+          <div className="flex items-center gap-2">
+            {syncResult && (
+              <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
+                {syncResult}
+              </span>
             )}
-            {syncing ? "同步中..." : "同步到 SiYuan"}
-          </button>
-          <select
-            value={category}
-            onChange={e => { setCategory(e.target.value); setPage(0); }}
-            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-          >
-            {categories.map(c => (
-              <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
-            ))}
-          </select>
-        </div>
+            <button
+              onClick={handleSyncToSiyuan}
+              disabled={syncing}
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
+              title="将提炼的知识推送到 SiYuan 知识库"
+            >
+              {syncing ? (
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              )}
+              {syncing ? "同步中..." : "同步到 SiYuan"}
+            </button>
+            <select
+              value={category}
+              onChange={e => { setCategory(e.target.value); setPage(0); }}
+              className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+            >
+              {categories.map(c => (
+                <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {error && (
-        <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      <div className="mb-4 flex items-center gap-1 rounded-lg bg-gray-100 p-1 self-start dark:bg-gray-800">
+        <button
+          type="button"
+          onClick={() => setSurface("extracted")}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${surface === "extracted"
+            ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
+            : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}
+        >
+          AI 提炼
+        </button>
+        <button
+          type="button"
+          onClick={() => setSurface("siyuan")}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${surface === "siyuan"
+            ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
+            : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}
+        >
+          SiYuan 工作区
+        </button>
+      </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
-      ) : data?.total === 0 ? (
-        <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-          <p className="text-sm">暂无知识条目</p>
-          <p className="text-xs mt-1">请先处理工作记录以提炼知识</p>
-        </div>
+      {surface === "siyuan" ? (
+        <SiYuanWorkspace />
       ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {data?.items.map((item: KnowledgeSummary) => (
-              <div key={item.id} onClick={() => onViewDetail?.(item.id)}>
-                <KnowledgeCard item={item} />
-              </div>
-            ))}
-        </div>
-      )}
+        <>
+          {error && (
+            <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
-      {data && data.total > PAGE_SIZE && (
-        <div className="flex items-center justify-between mt-6">
-          <span className="text-xs text-gray-500">
-            第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条
-          </span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(p => p - 1)} disabled={page === 0}
-              className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
-              上一页
-            </button>
-            <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
-              className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
-              下一页
-            </button>
-          </div>
-        </div>
+          {loading ? (
+            <div className="flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
+          ) : data?.total === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+              <p className="text-sm">暂无知识条目</p>
+              <p className="text-xs mt-1">请先处理工作记录以提炼知识，手工笔记可在 SiYuan 工作区直接创建</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+              {data?.items.map((item: KnowledgeSummary) => (
+                <div key={item.id} onClick={() => onViewDetail?.(item.id)}>
+                  <KnowledgeCard item={item} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {data && data.total > PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-6">
+              <span className="text-xs text-gray-500">
+                第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条
+              </span>
+              <div className="flex gap-2">
+                <button onClick={() => setPage(p => p - 1)} disabled={page === 0}
+                  className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
+                  上一页
+                </button>
+                <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
+                  className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
