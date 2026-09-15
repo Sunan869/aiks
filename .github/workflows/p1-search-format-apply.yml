@@ -1,0 +1,34 @@
+name: P1 Search Format Apply
+
+on:
+  push:
+    branches:
+      - fix/p1-search-semantics-vector-scaling
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/p1-search-semantics-vector-scaling
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format touched Rust files
+        run: |
+          rustfmt --edition 2021 crates/aiks-core/src/engine/mod.rs apps/aiks-desktop/src-tauri/src/commands.rs
+      - name: Commit formatting
+        run: |
+          if git diff --quiet -- crates/aiks-core/src/engine/mod.rs apps/aiks-desktop/src-tauri/src/commands.rs; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/aiks-core/src/engine/mod.rs apps/aiks-desktop/src-tauri/src/commands.rs
+          git commit -m "style(p1): format search caller changes"
+          git push origin HEAD:fix/p1-search-semantics-vector-scaling
