@@ -108,6 +108,10 @@ export class TauriAiksApi implements AiksApi {
     return invoke("get_siyuan_url");
   }
 
+  async openSiyuanWorkspace(): Promise<void> {
+    await invoke("open_knowledge_window");
+  }
+
   async testAiConnection(): Promise<boolean> {
     return invoke("test_ai_connection");
   }
