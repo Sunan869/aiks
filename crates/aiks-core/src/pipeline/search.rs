@@ -1,7 +1,8 @@
 /// Vector + FTS5 Hybrid Search
 ///
-/// In-process cosine similarity search over BLOB-stored embeddings.
-/// Falls back to text search when embeddings are not available.
+/// Text search is always the baseline. Optional vector search can improve
+/// ranking, but failures are reported as degradations instead of being silently
+/// converted into an empty vector result.
 use tracing::info;
 
 use crate::pipeline::embedding_client::{cosine_sim, EmbeddingClient, EmbeddingConfig};
@@ -17,17 +18,68 @@ pub struct SearchHit {
     pub match_type: String,
 }
 
-/// Hybrid search: FTS5 keyword + vector similarity (when available)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchDegradationKind {
+    FtsFallback,
+    VectorUnavailable,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchDegradation {
+    pub kind: SearchDegradationKind,
+    pub message: String,
+}
+
+#[derive(Debug)]
+pub struct SearchOutcome {
+    pub hits: Vec<SearchHit>,
+    pub degradations: Vec<SearchDegradation>,
+}
+
+impl SearchOutcome {
+    pub fn degraded(&self) -> bool {
+        !self.degradations.is_empty()
+    }
+}
+
+/// Compatibility wrapper for existing callers that only need hits.
 pub async fn hybrid_search(
     db: &StateDb,
     query: &str,
     limit: usize,
     embedding_config: Option<&EmbeddingConfig>,
 ) -> anyhow::Result<Vec<SearchHit>> {
-    let fts_results = fts_search(db, query, limit * 2)?;
+    Ok(search_with_status(db, query, limit, embedding_config)
+        .await?
+        .hits)
+}
+
+/// Hybrid search with explicit degraded-state reporting.
+pub async fn search_with_status(
+    db: &StateDb,
+    query: &str,
+    limit: usize,
+    embedding_config: Option<&EmbeddingConfig>,
+) -> anyhow::Result<SearchOutcome> {
+    let (fts_results, fts_degradation) = fts_search(db, query, limit.saturating_mul(2))?;
+    let mut degradations = Vec::new();
+    if let Some(degradation) = fts_degradation {
+        degradations.push(degradation);
+    }
+
     let vector_results = if let Some(cfg) = embedding_config {
-        if cfg.enabled && !cfg.base_url.is_empty() {
-            vector_search(db, cfg, query, limit * 2).await.unwrap_or_default()
+        if cfg.enabled && !cfg.base_url.trim().is_empty() {
+            match vector_search(db, cfg, query, limit.saturating_mul(2)).await {
+                Ok(results) => results,
+                Err(e) => {
+                    tracing::warn!(error = %e, "[SEARCH] Vector search unavailable; returning text results");
+                    degradations.push(SearchDegradation {
+                        kind: SearchDegradationKind::VectorUnavailable,
+                        message: format!("Vector search unavailable: {}", e),
+                    });
+                    vec![]
+                }
+            }
         } else {
             vec![]
         }
@@ -35,7 +87,7 @@ pub async fn hybrid_search(
         vec![]
     };
 
-    // Merge: deduplicate by knowledge_id, taking the higher score
+    // Merge: deduplicate by knowledge_id, taking the higher/combined score.
     let mut merged: std::collections::HashMap<String, SearchHit> =
         std::collections::HashMap::new();
 
@@ -53,16 +105,16 @@ pub async fn hybrid_search(
             .or_insert(hit);
     }
 
-    let mut results: Vec<SearchHit> = merged.into_values().collect();
-    results.sort_by(|a, b| {
+    let mut hits: Vec<SearchHit> = merged.into_values().collect();
+    hits.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    results.truncate(limit);
+    hits.truncate(limit);
 
-    info!(query, results = results.len(), "[SEARCH] Complete");
-    Ok(results)
+    info!(query, results = hits.len(), degraded = !degradations.is_empty(), "[SEARCH] Complete");
+    Ok(SearchOutcome { hits, degradations })
 }
 
 /// Turn arbitrary user text into an FTS5 expression that treats every token as
@@ -117,10 +169,14 @@ fn like_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<Se
 /// FTS5 full-text search. User input is always converted to a literal FTS
 /// expression. Any FTS preparation/execution/row-decoding failure degrades to a
 /// parameterized LIKE search instead of becoming a false empty result.
-fn fts_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<SearchHit>> {
+fn fts_search(
+    db: &StateDb,
+    query: &str,
+    limit: usize,
+) -> anyhow::Result<(Vec<SearchHit>, Option<SearchDegradation>)> {
     let trimmed = query.trim();
     if trimmed.is_empty() || limit == 0 {
-        return Ok(vec![]);
+        return Ok((vec![], None));
     }
 
     let conn = db.conn();
@@ -135,11 +191,18 @@ fn fts_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<Sea
 
     if !fts_exists {
         drop(conn);
-        return like_search(db, trimmed, limit);
+        let hits = like_search(db, trimmed, limit)?;
+        return Ok((
+            hits,
+            Some(SearchDegradation {
+                kind: SearchDegradationKind::FtsFallback,
+                message: "FTS index unavailable; used LIKE fallback".to_string(),
+            }),
+        ));
     }
 
     let Some(fts_query) = literal_fts_query(trimmed) else {
-        return Ok(vec![]);
+        return Ok((vec![], None));
     };
 
     let fts_result: anyhow::Result<Vec<SearchHit>> = (|| {
@@ -164,23 +227,29 @@ fn fts_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<Sea
     })();
 
     match fts_result {
-        Ok(rows) => Ok(rows),
+        Ok(rows) => Ok((rows, None)),
         Err(e) => {
             tracing::warn!(error = %e, query = trimmed, "[SEARCH] FTS failed; degrading to LIKE");
             drop(conn);
-            like_search(db, trimmed, limit)
+            let hits = like_search(db, trimmed, limit)?;
+            Ok((
+                hits,
+                Some(SearchDegradation {
+                    kind: SearchDegradationKind::FtsFallback,
+                    message: format!("FTS search failed; used LIKE fallback: {}", e),
+                }),
+            ))
         }
     }
 }
 
-/// Vector similarity search (in-process cosine sim)
+/// Vector similarity search (in-process cosine sim).
 async fn vector_search(
     db: &StateDb,
     cfg: &EmbeddingConfig,
     query: &str,
     limit: usize,
 ) -> anyhow::Result<Vec<SearchHit>> {
-    // Embed the query
     let client = EmbeddingClient::new(cfg.clone())?;
     let embeddings = client.embed_batch(vec![query.to_string()]).await?;
     let query_vec = embeddings.into_iter().next().unwrap_or_default();
@@ -188,11 +257,9 @@ async fn vector_search(
         return Ok(vec![]);
     }
 
-    // Load all stored embeddings
     let knowledge_repo = KnowledgeRepo::new(db);
     let stored = knowledge_repo.load_all_embeddings(&cfg.model)?;
 
-    // Compute cosine similarity
     let mut hits: Vec<SearchHit> = stored
         .into_iter()
         .map(|row| {
