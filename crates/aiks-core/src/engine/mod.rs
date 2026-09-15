@@ -10,10 +10,10 @@ use tracing::info;
 
 use crate::ai::{AiClient, AiModelConfig};
 use crate::config::Config;
-use crate::knowledge::service::{extract_session, get_extraction_stats};
 use crate::knowledge::model::ExtractionStats;
+use crate::knowledge::service::{extract_session, get_extraction_stats};
 use crate::model::SourceKind;
-use crate::pipeline::{EmbeddingConfig, PipelineOrchestrator, PipelineWorker, PipelineJob};
+use crate::pipeline::{EmbeddingConfig, PipelineJob, PipelineOrchestrator, PipelineWorker};
 use crate::providers::{build_registry, ProviderRegistry, SessionSummary};
 use crate::sink::SiYuanSink;
 use crate::storage::StateDb;
@@ -187,7 +187,11 @@ impl AiksEngine {
             .clone()
             .filter(|t| !t.is_empty())
             .or_else(|| {
-                if config.siyuan.token.is_empty() { None } else { Some(config.siyuan.token.clone()) }
+                if config.siyuan.token.is_empty() {
+                    None
+                } else {
+                    Some(config.siyuan.token.clone())
+                }
             });
 
         let config = Arc::new(config);
@@ -249,7 +253,9 @@ impl AiksEngine {
 
         // SiYuan
         let siyuan_ok = if !self.siyuan_base_url.is_empty() {
-            if let Ok(sink) = SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name) {
+            if let Ok(sink) =
+                SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)
+            {
                 sink.health_check().await
             } else {
                 false
@@ -267,7 +273,12 @@ impl AiksEngine {
             },
         });
 
-        let all_ok = checks.iter().all(|c| c.ok || c.name.contains("Claude") || c.name.contains("Codex") || c.name.contains("Gemini") || c.name.contains("OpenCode"));
+        let all_ok = checks.iter().all(|c| {
+            c.ok || c.name.contains("Claude")
+                || c.name.contains("Codex")
+                || c.name.contains("Gemini")
+                || c.name.contains("OpenCode")
+        });
 
         DoctorResult { checks, all_ok }
     }
@@ -286,7 +297,9 @@ impl AiksEngine {
         let mut by_source: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for s in &filtered {
-            *by_source.entry(s.source.display_name().to_string()).or_insert(0) += 1;
+            *by_source
+                .entry(s.source.display_name().to_string())
+                .or_insert(0) += 1;
         }
 
         let total = filtered.len();
@@ -317,10 +330,7 @@ impl AiksEngine {
             SiYuanSink::new(cfg)?
         } else {
             // Embedded mode: no token required
-            SiYuanSink::embedded(
-                &self.siyuan_base_url,
-                &self.config.siyuan.notebook_name,
-            )?
+            SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)?
         };
         self.sync_engine
             .run_sync(&self.db, &self.registry, &sink, &opts)
@@ -346,12 +356,9 @@ impl AiksEngine {
             if let Ok(Some(target)) = target_repo.find(session.id, "siyuan") {
                 match target.status {
                     SyncStatus::Synced => synced += 1,
-                    SyncStatus::Pending
-                    | SyncStatus::New
-                    | SyncStatus::Updated => pending += 1,
+                    SyncStatus::Pending | SyncStatus::New | SyncStatus::Updated => pending += 1,
                     SyncStatus::Conflict => conflict += 1,
-                    SyncStatus::FailedRetryable
-                    | SyncStatus::FailedPermanent => failed += 1,
+                    SyncStatus::FailedRetryable | SyncStatus::FailedPermanent => failed += 1,
                     _ => {}
                 }
             }
@@ -485,10 +492,14 @@ impl AiksEngine {
         let summary = summaries
             .into_iter()
             .find(|s| s.source == source && s.external_session_id == session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {} / {}", source.as_str(), session_id))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("Session not found: {} / {}", source.as_str(), session_id)
+            })?;
 
         // Load full session
-        let provider = self.registry.get(source)
+        let provider = self
+            .registry
+            .get(source)
             .ok_or_else(|| anyhow::anyhow!("Provider not found for {:?}", source))?;
         let session = provider.load_session(&summary).await?;
 
@@ -543,32 +554,48 @@ impl AiksEngine {
 
             let stats = self.sync_unlocked(opts.clone()).await?;
 
-        // B15: After a successful scan (no source_filter = full scan),
-        // mark sessions that are no longer visible in any provider as MISSING.
-        if opts.source_filter.is_none() && !opts.dry_run {
-            match self.sync_engine.mark_missing_sessions(&self.db, &self.registry).await {
-                Ok(n) if n > 0 => info!("[SYNC] Marked {} sessions as MISSING (source removed)", n),
-                Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
-                _ => {}
+            // B15: After a successful scan (no source_filter = full scan),
+            // mark sessions that are no longer visible in any provider as MISSING.
+            if opts.source_filter.is_none() && !opts.dry_run {
+                match self
+                    .sync_engine
+                    .mark_missing_sessions(&self.db, &self.registry)
+                    .await
+                {
+                    Ok(n) if n > 0 => {
+                        info!("[SYNC] Marked {} sessions as MISSING (source removed)", n)
+                    }
+                    Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
+                    _ => {}
+                }
             }
-        }
 
-        // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
-        // the ai.enabled AND ai.auto_extract switches.
-        if !stats.extraction_candidates.is_empty() && self.config.ai.enabled && self.config.ai.auto_extract {
-            info!(
-                count = stats.extraction_candidates.len(),
-                "[PIPELINE] Enqueueing new/updated sessions"
-            );
+            // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
+            // the ai.enabled AND ai.auto_extract switches.
+            if !stats.extraction_candidates.is_empty()
+                && self.config.ai.enabled
+                && self.config.ai.auto_extract
+            {
+                info!(
+                    count = stats.extraction_candidates.len(),
+                    "[PIPELINE] Enqueueing new/updated sessions"
+                );
 
-            let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
+                let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
 
-            for candidate in &stats.extraction_candidates {
-                // Resolve by canonical DB identity and verify the redundant source
-                // identity. This prevents cross-provider external-ID collisions.
-                let session_data: Option<(i64, String, String, Option<String>, Option<String>, Option<String>)> = {
-                    let conn = self.db.conn();
-                    conn.query_row(
+                for candidate in &stats.extraction_candidates {
+                    // Resolve by canonical DB identity and verify the redundant source
+                    // identity. This prevents cross-provider external-ID collisions.
+                    let session_data: Option<(
+                        i64,
+                        String,
+                        String,
+                        Option<String>,
+                        Option<String>,
+                        Option<String>,
+                    )> = {
+                        let conn = self.db.conn();
+                        conn.query_row(
                         "SELECT id, source, external_session_id, title, project_name, content_hash
                          FROM source_session
                          WHERE id = ?1 AND source = ?2 AND external_session_id = ?3",
@@ -586,24 +613,32 @@ impl AiksEngine {
                             row.get::<_, Option<String>>(5)?,
                         )),
                     ).ok()
-                };
+                    };
 
-                if let Some((db_id, source, session_ext_id, title, project_name, content_hash)) = session_data {
-                    if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
-                        if let Err(e) = self.pipeline_worker.submit(PipelineJob {
-                            pipeline_run_id: run_id,
-                            session_id: db_id,
-                            session_external_id: session_ext_id,
-                            source,
-                            session_title: title,
-                            project_name,
-                        }) {
-                            tracing::warn!(session_id = db_id, error = %e, "[PIPELINE] Durable enqueue failed");
+                    if let Some((
+                        db_id,
+                        source,
+                        session_ext_id,
+                        title,
+                        project_name,
+                        content_hash,
+                    )) = session_data
+                    {
+                        if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
+                            if let Err(e) = self.pipeline_worker.submit(PipelineJob {
+                                pipeline_run_id: run_id,
+                                session_id: db_id,
+                                session_external_id: session_ext_id,
+                                source,
+                                session_title: title,
+                                project_name,
+                            }) {
+                                tracing::warn!(session_id = db_id, error = %e, "[PIPELINE] Durable enqueue failed");
+                            }
                         }
                     }
                 }
             }
-        }
 
             stats
         };
@@ -634,7 +669,9 @@ impl AiksEngine {
         }
 
         // Step 1: ensure pipeline_run rows exist for every session
-        let ensured = self.sync_engine.enqueue_all_pending_for_pipeline(&self.db)?;
+        let ensured = self
+            .sync_engine
+            .enqueue_all_pending_for_pipeline(&self.db)?;
 
         // Step 2: submit jobs for runs that still need processing
         let rows: Vec<(String, i64, String, String, Option<String>, Option<String>)> = {
@@ -674,7 +711,9 @@ impl AiksEngine {
                 project_name: project,
             }) {
                 Ok(()) => submitted += 1,
-                Err(e) => tracing::warn!(session_id, error = %e, "[PIPELINE] Backfill durable enqueue failed"),
+                Err(e) => {
+                    tracing::warn!(session_id, error = %e, "[PIPELINE] Backfill durable enqueue failed")
+                }
             }
         }
 
@@ -712,7 +751,20 @@ impl AiksEngine {
 
         // (k_id, title, category, project, summary, content, tags, confidence,
         //  source, session_db_id, ext_id, session_title)
-        let items: Vec<(String, String, String, Option<String>, String, String, String, f64, String, i64, String, Option<String>)> = {
+        let items: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            f64,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = {
             let conn = self.db.conn();
             let mut stmt = conn.prepare(
                 "SELECT ki.id, ki.title, ki.category, ki.project_name, ki.summary, ki.content,
@@ -743,8 +795,20 @@ impl AiksEngine {
         let target_repo = SyncTargetRepo::new(&self.db);
         let ks_repo = KnowledgeSyncRepo::new(&self.db);
 
-        for (k_id, title, category, project, summary, content, tags, confidence,
-             source_str, session_db_id, ext_id, session_title) in items
+        for (
+            k_id,
+            title,
+            category,
+            project,
+            summary,
+            content,
+            tags,
+            confidence,
+            source_str,
+            session_db_id,
+            ext_id,
+            session_title,
+        ) in items
         {
             let result: anyhow::Result<Outcome> = async {
                 // Deep link target: the raw session doc, if already synced.
@@ -812,8 +876,7 @@ impl AiksEngine {
                     if e.status == SyncStatus::Synced {
                         if let Some(baseline) = e.target_hash.as_deref() {
                             if let Ok(remote_md) = sink.get_document_markdown(id).await {
-                                let remote_hash =
-                                    hex::encode(Sha256::digest(remote_md.as_bytes()));
+                                let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));
                                 if remote_hash != baseline {
                                     ks_repo.mark_conflict(&k_id, "siyuan")?;
                                     return Ok(Outcome::Conflict);
@@ -828,9 +891,7 @@ impl AiksEngine {
                     ks_repo.record_target_doc(&k_id, "siyuan", id, &path)?;
                     id.clone()
                 } else {
-                    let new_id = sink
-                        .create_document(&notebook_id, &path, &markdown)
-                        .await?;
+                    let new_id = sink.create_document(&notebook_id, &path, &markdown).await?;
                     ks_repo.record_target_doc(&k_id, "siyuan", &new_id, &path)?;
                     new_id
                 };
@@ -903,8 +964,12 @@ impl AiksEngine {
         let mut moved = 0usize;
         for row in rows {
             let (Some(doc_id), Some(hpath)) = (
-                row.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                row.get("hpath").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                row.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                row.get("hpath")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             ) else {
                 continue;
             };
@@ -915,7 +980,10 @@ impl AiksEngine {
                 Some(idx) => hpath[..idx].to_string(),
                 None => "/".to_string(),
             };
-            match sink.move_docs(&[doc_id.clone()], &session_nb, &parent).await {
+            match sink
+                .move_docs(&[doc_id.clone()], &session_nb, &parent)
+                .await
+            {
                 Ok(()) => moved += 1,
                 Err(e) => tracing::warn!(doc_id = %doc_id, error = %e, "[MIGRATE] move failed"),
             }
