@@ -1,5 +1,8 @@
+use std::{ffi::OsString, path::Path, sync::OnceLock};
+
 use aiks_core::{
     ai::schema_v3::V3ExtractionResult,
+    engine::{AiksEngine, AiksEngineConfig},
     pipeline::{
         embedding_client::EmbeddingConfig,
         hybrid_search,
@@ -9,6 +12,58 @@ use aiks_core::{
     storage::{SourceSessionRepo, StateDb},
 };
 use rusqlite::params;
+
+fn env_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+struct DataDirGuard {
+    previous: Option<OsString>,
+}
+
+impl DataDirGuard {
+    fn set(path: &Path) -> Self {
+        let previous = std::env::var_os("AIKS_DATA_DIR");
+        std::env::set_var("AIKS_DATA_DIR", path);
+        Self { previous }
+    }
+}
+
+impl Drop for DataDirGuard {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(value) => std::env::set_var("AIKS_DATA_DIR", value),
+            None => std::env::remove_var("AIKS_DATA_DIR"),
+        }
+    }
+}
+
+fn write_engine_config(dir: &Path) -> std::path::PathBuf {
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        r#"
+[providers.claude]
+enabled = false
+[providers.codex]
+enabled = false
+[providers.gemini]
+enabled = false
+[providers.opencode]
+enabled = false
+
+[ai]
+enabled = false
+auto_extract = false
+
+[embedding]
+enabled = false
+"#,
+    )
+    .unwrap();
+    path
+}
 
 fn extraction() -> V3ExtractionResult {
     serde_json::from_value(serde_json::json!({
@@ -27,13 +82,11 @@ fn extraction() -> V3ExtractionResult {
     .unwrap()
 }
 
-fn seeded_db() -> (tempfile::TempDir, StateDb) {
-    let dir = tempfile::tempdir().unwrap();
-    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
-    let session_id = SourceSessionRepo::new(&db)
+fn seed_into(db: &StateDb, external_id: &str) {
+    let session_id = SourceSessionRepo::new(db)
         .upsert(
             "claude_code",
-            "search-session",
+            external_id,
             None,
             None,
             Some("search"),
@@ -43,9 +96,15 @@ fn seeded_db() -> (tempfile::TempDir, StateDb) {
             Some("search-v1"),
         )
         .unwrap();
-    KnowledgeRepo::new(&db)
+    KnowledgeRepo::new(db)
         .save_items(session_id, Some("search"), &extraction())
         .unwrap();
+}
+
+fn seeded_db() -> (tempfile::TempDir, StateDb) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    seed_into(&db, "search-session");
     (dir, db)
 }
 
@@ -80,6 +139,28 @@ async fn unavailable_vector_search_keeps_text_hits_and_reports_degradation() {
         .degradations
         .iter()
         .any(|d| d.kind == SearchDegradationKind::VectorUnavailable));
+}
+
+#[tokio::test]
+async fn engine_search_returns_typed_outcome_instead_of_silently_defaulting_errors() {
+    let _env = env_lock().lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let _data_dir = DataDirGuard::set(dir.path());
+    let config_path = write_engine_config(dir.path());
+    let engine = AiksEngine::initialize(AiksEngineConfig {
+        config_path: Some(config_path),
+        siyuan_base_url: None,
+        siyuan_token: None,
+    })
+    .unwrap();
+    seed_into(&engine.db(), "engine-search-session");
+
+    let outcome = engine
+        .search_knowledge("alpha OR", 20)
+        .await
+        .expect("engine search should return a Result<SearchOutcome>");
+
+    assert_eq!(outcome.hits.len(), 1);
 }
 
 #[test]
