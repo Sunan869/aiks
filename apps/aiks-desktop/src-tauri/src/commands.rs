@@ -707,7 +707,10 @@ pub async fn list_knowledge(
     }))
 }
 
-/// Search knowledge (FTS5 + fallback to LIKE)
+/// Search knowledge through the Core search pipeline.
+///
+/// The response keeps the existing desktop result shape while also surfacing
+/// degraded search state (for example, vector backend unavailable).
 #[tauri::command]
 pub async fn search_knowledge(
     query: String,
@@ -715,81 +718,45 @@ pub async fn search_knowledge(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let degraded = outcome.degraded();
+    let warnings: Vec<String> = outcome
+        .degradations
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+
     let db = engine.db();
-    let conn = db.conn();
-    let limit = limit.unwrap_or(20);
-
-    // Check if FTS table exists
-    let fts_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_fts'",
-        [], |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
-
-    let ki_exists: bool = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_item'",
-        [], |row| row.get::<_, i64>(0),
-    ).unwrap_or(0) > 0;
-
-    if !ki_exists {
-        return Ok(serde_json::json!({"results": [], "query": query, "total": 0}));
+    let repo = aiks_core::KnowledgeRepo::new(&db);
+    let mut results = Vec::new();
+    for hit in outcome.hits {
+        if let Some(detail) = repo
+            .get_by_id(&hit.knowledge_id)
+            .map_err(|e| e.to_string())?
+        {
+            results.push(serde_json::json!({
+                "id": detail.id,
+                "title": detail.title,
+                "category": detail.category,
+                "summary": detail.summary,
+                "project_name": detail.project_name,
+                "tags": detail.tags,
+                "confidence": detail.confidence,
+                "match_type": hit.match_type
+            }));
+        }
     }
-
-    let results: Vec<serde_json::Value> = if fts_exists {
-        // FTS5 search
-        let mut stmt = conn.prepare(
-            "SELECT ki.id, ki.title, ki.category, ki.summary, ki.project_name, ki.tags, ki.confidence
-             FROM knowledge_fts kf
-             JOIN knowledge_item ki ON ki.id = kf.knowledge_id
-             WHERE knowledge_fts MATCH ?1
-             ORDER BY rank
-             LIMIT ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let mapped = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "category": row.get::<_, String>(2)?,
-                "summary": row.get::<_, String>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "tags": row.get::<_, String>(5)?,
-                "confidence": row.get::<_, f64>(6)?,
-                "match_type": "fts"
-            }))
-        }).map_err(|e| e.to_string())?;
-        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
-        r
-    } else {
-        // Fallback: LIKE search
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn.prepare(
-            "SELECT id, title, category, summary, project_name, tags, confidence
-             FROM knowledge_item
-             WHERE title LIKE ?1 OR summary LIKE ?1 OR content LIKE ?1
-             ORDER BY updated_at DESC
-             LIMIT ?2"
-        ).map_err(|e| e.to_string())?;
-
-        let mapped = stmt.query_map(rusqlite::params![pattern, limit as i64], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "category": row.get::<_, String>(2)?,
-                "summary": row.get::<_, String>(3)?,
-                "project_name": row.get::<_, Option<String>>(4)?,
-                "tags": row.get::<_, String>(5)?,
-                "confidence": row.get::<_, f64>(6)?,
-                "match_type": "like"
-            }))
-        }).map_err(|e| e.to_string())?;
-        let r: Vec<serde_json::Value> = mapped.filter_map(|r| r.ok()).collect();
-        r
-    };
 
     Ok(serde_json::json!({
         "results": results,
         "query": query,
-        "total": results.len()
+        "total": results.len(),
+        "degraded": degraded,
+        "warnings": warnings
     }))
 }
 
@@ -985,7 +952,7 @@ pub async fn run_pipeline_for_session(
         .map_err(|e| e.to_string())
 }
 
-/// Get hybrid search results (FTS5 + vector)
+/// Get hybrid search results (FTS5 + vector) through Core.
 #[tauri::command]
 pub async fn hybrid_search(
     query: String,
@@ -993,18 +960,34 @@ pub async fn hybrid_search(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
-    let results = engine.search_knowledge(&query, limit.unwrap_or(20)).await;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let items: Vec<serde_json::Value> = results.into_iter().map(|hit| serde_json::json!({
-        "knowledge_id": hit.knowledge_id,
-        "chunk_text": hit.chunk_text,
-        "score": hit.score,
-        "match_type": hit.match_type
-    })).collect();
+    let degraded = outcome.degraded();
+    let warnings: Vec<String> = outcome
+        .degradations
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    let items: Vec<serde_json::Value> = outcome
+        .hits
+        .into_iter()
+        .map(|hit| serde_json::json!({
+            "knowledge_id": hit.knowledge_id,
+            "chunk_id": hit.chunk_id,
+            "chunk_text": hit.chunk_text,
+            "score": hit.score,
+            "match_type": hit.match_type
+        }))
+        .collect();
 
     Ok(serde_json::json!({
         "results": items,
         "query": query,
-        "total": items.len()
+        "total": items.len(),
+        "degraded": degraded,
+        "warnings": warnings
     }))
 }
