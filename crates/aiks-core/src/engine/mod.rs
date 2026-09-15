@@ -156,11 +156,14 @@ pub struct AiksEngine {
     siyuan_token: Option<String>,
     /// V3 pipeline worker (started on init)
     pipeline_worker: Arc<PipelineWorker>,
-    /// Global sync mutex — serializes all sync flows (startup, watcher-triggered,
-    /// manual, knowledge). Without it two overlapping syncs can both observe a
-    /// NULL target_id for the same session and each create a document, producing
-    /// duplicates in SiYuan.
+    /// Raw/session sync mutex — serializes startup, watcher-triggered, and manual
+    /// session sync flows so overlapping runs cannot create duplicate session docs.
     sync_lock: tokio::sync::Mutex<()>,
+    /// Knowledge-only sync mutex. Knowledge pushes may spend a long time awaiting
+    /// SiYuan network I/O, so they must not hold the raw/session sync mutex. A
+    /// dedicated single-writer lock still prevents concurrent knowledge pushes
+    /// from observing a missing mapping and creating duplicate knowledge docs.
+    knowledge_sync_lock: tokio::sync::Mutex<()>,
 }
 
 impl AiksEngine {
@@ -214,6 +217,7 @@ impl AiksEngine {
             siyuan_token,
             pipeline_worker,
             sync_lock: tokio::sync::Mutex::new(()),
+            knowledge_sync_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -604,8 +608,9 @@ impl AiksEngine {
 
         // Knowledge → SiYuan: push new/updated knowledge docs into the
         // knowledge notebook (non-blocking for the sync result).
-        // NOTE: intentionally OUTSIDE the sync_lock block above — this call
-        // takes the lock itself, and tokio Mutexes are not re-entrant.
+        // NOTE: intentionally OUTSIDE the raw sync_lock block above. Knowledge
+        // sync uses its own single-writer mutex, so slow network I/O cannot hold
+        // up startup/watcher/manual raw sync work.
         if !opts.dry_run && opts.source_filter.is_none() {
             if let Err(e) = self.sync_knowledge_to_siyuan(false).await {
                 tracing::warn!("[SYNC] Knowledge sync failed: {}", e);
@@ -693,9 +698,10 @@ impl AiksEngine {
         use crate::storage::{KnowledgeSyncRepo, SyncStatus, SyncTargetRepo};
         use sha2::{Digest, Sha256};
 
-        // Share the global sync lock with session sync so SiYuan writes never
-        // interleave (see `sync` for the duplicate-document rationale).
-        let _guard = self.sync_lock.lock().await;
+        // Serialize knowledge writers independently from raw/session sync. This
+        // preserves duplicate-document protection without holding the raw sync
+        // mutex across potentially slow SiYuan network I/O.
+        let _guard = self.knowledge_sync_lock.lock().await;
 
         let sink = self.make_sink()?;
         let stats = KnowledgeSyncStats::default();
