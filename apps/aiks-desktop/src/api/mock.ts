@@ -274,6 +274,10 @@ export class MockAiksApi implements AiksApi {
     return "http://127.0.0.1:6812";
   }
 
+  async openSiyuanWorkspace(): Promise<void> {
+    return;
+  }
+
   async testAiConnection(): Promise<boolean> {
     await delay(500);
     return true;
