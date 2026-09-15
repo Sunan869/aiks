@@ -1,0 +1,15 @@
+name: P1 Search Validation
+
+on:
+  push:
+    branches:
+      - fix/p1-search-semantics-vector-scaling
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Search semantics regression
+        run: cargo test -p aiks-core --test p1_search_semantics -- --test-threads=1
