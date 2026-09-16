@@ -11,6 +11,7 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
   FullStatus,
@@ -37,6 +38,7 @@ export interface AiksApi {
 
   // V4.1 Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
+  mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
