@@ -4,7 +4,7 @@ import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
-  SearchResponse, FullStatus, AiStatus,
+  SearchResponse, WorkbenchStatus, WorkspaceMode, FullStatus, AiStatus,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -50,6 +50,7 @@ function makeKnowledge(i: number): KnowledgeSummary {
 
 const sessions = Array.from({ length: 60 }, (_, i) => makeSession(i + 1));
 let knowledge = Array.from({ length: 36 }, (_, i) => makeKnowledge(i + 1));
+let workbenchMode: WorkspaceMode = "knowledge";
 
 function detailOf(item: KnowledgeSummary): KnowledgeDetail {
   return {
@@ -190,6 +191,29 @@ export class MockAiksApi implements AiksApi {
       .slice(0, limit ?? 20)
       .map(k => ({ ...k, match_type: "like" }));
     return { results, query, total: results.length };
+  }
+
+  async getWorkbenchStatus(): Promise<WorkbenchStatus> {
+    return {
+      available: true,
+      ready: true,
+      mode: workbenchMode,
+      origin: "http://127.0.0.1:6812/",
+    };
+  }
+
+  async showWorkbench(mode: WorkspaceMode): Promise<void> {
+    workbenchMode = mode;
+  }
+
+  async hideWorkbench(): Promise<void> {}
+
+  async openSiyuanDocument(_docId: string, mode: WorkspaceMode): Promise<void> {
+    workbenchMode = mode;
+  }
+
+  async openSiyuanBlock(_docId: string, _blockId: string, mode: WorkspaceMode): Promise<void> {
+    workbenchMode = mode;
   }
 
   async getFullStatus(): Promise<FullStatus> {
