@@ -83,6 +83,17 @@ describe("V4.1 Tauri workbench API mapping", () => {
     expect(invokeMock).toHaveBeenCalledWith("get_workbench_status");
   });
 
+  it("mounts the persistent child webview into the host rectangle", async () => {
+    await new TauriAiksApi().mountWorkbench({ x: 248, y: 156, width: 960, height: 620 });
+
+    expect(invokeMock).toHaveBeenCalledWith("mount_workbench", {
+      x: 248,
+      y: 156,
+      width: 960,
+      height: 620,
+    });
+  });
+
   it("shows the workbench and selects the requested root", async () => {
     await new TauriAiksApi().showWorkbench("session");
 
