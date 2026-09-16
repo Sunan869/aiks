@@ -1,281 +1,214 @@
 // Mock API — provides realistic data for browser dev mode
-// Enable with: VITE_AIKS_MOCK=true npm run dev
 import type { AiksApi } from "./index";
 import type {
-  Overview,
-  SessionPage,
-  SessionItem,
-  PipelineSummary,
-  PipelineStats,
-  KnowledgePage,
-  KnowledgeSummary,
-  SearchResponse,
-  FullStatus,
-  AiStatus,
+  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
+  KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
+  SearchResponse, FullStatus, AiStatus,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
-const CATEGORIES = ["troubleshooting", "architecture", "implementation", "configuration", "decision"];
-const PROJECTS = ["AIKS", "Pipeline", "SiYuan-Integration", "Frontend-V3", "DevOps"];
+const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
 
-const PIPELINE_STAGES = ["DISCOVERED", "PARSED", "NORMALIZED", "CLEANED", "LLM_CHUNKED", "AI_EXTRACTED", "KNOWLEDGE_SPLIT", "EMBED_CHUNKED", "EMBEDDED", "INDEXED", "READY"];
-
-function rng(seed: number) {
-  let s = seed;
-  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
-}
+function delay(ms = 120): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
 
 function makeSession(i: number): SessionItem {
-  const r = rng(i * 7);
-  const source = SOURCES[Math.floor(r() * SOURCES.length)];
-  const project = PROJECTS[Math.floor(r() * PROJECTS.length)];
-  const pipelineStatuses = ["READY", "READY", "READY", "PROCESSING", "FAILED", "RAW_ONLY"];
-  const ps = pipelineStatuses[Math.floor(r() * pipelineStatuses.length)];
-  const stage = ps === "PROCESSING" ? PIPELINE_STAGES[Math.floor(r() * 8)] : null;
   return {
     id: i,
-    source,
+    source: SOURCES[i % SOURCES.length],
     session_id: `ses_${i.toString(16).padStart(4, "0")}`,
-    title: `${project} - Task ${i}`,
-    project_name: project,
-    project_path: `/home/user/projects/${project.toLowerCase()}`,
-    updated_at: new Date(Date.now() - i * 3600 * 1000).toISOString(),
+    title: `AIKS Task ${i}`,
+    project_name: PROJECTS[i % PROJECTS.length],
+    project_path: `/projects/${PROJECTS[i % PROJECTS.length].toLowerCase()}`,
+    updated_at: new Date(Date.now() - i * 3600_000).toISOString(),
     content_hash: `hash_${i}`,
-    run_id: ps ? `run_${i}` : null,
-    pipeline_status: ps || null,
-    current_stage: stage,
+    run_id: `run_${i}`,
+    pipeline_status: i % 7 === 0 ? "PROCESSING" : "READY",
+    current_stage: i % 7 === 0 ? "AI_EXTRACTED" : null,
   };
 }
 
 function makeKnowledge(i: number): KnowledgeSummary {
-  const r = rng(i * 13);
-  const category = CATEGORIES[Math.floor(r() * CATEGORIES.length)];
-  const project = PROJECTS[Math.floor(r() * PROJECTS.length)];
-  const titles: Record<string, string[]> = {
-    troubleshooting: ["PowerShell NativeCommandError Fix", "SiYuan Runtime 崩溃排查", "Tauri Build 失败处理", "SQLite UNIQUE 约束冲突"],
-    architecture: ["Pipeline 分层设计决策", "Embedding 模块接口设计", "Provider 解耦方案"],
-    implementation: ["FTS5 全文检索实现", "Mock API 层实现", "V3 数据库迁移方案"],
-    configuration: ["NSIS 安装脚本优化", "Vite 多模式构建配置"],
-    decision: ["V3 架构选型：sqlite-vec vs Qdrant", "SiYuan 弱化方案确认"],
-  };
-  const t = titles[category] || [];
-  const title = t[Math.floor(r() * t.length)] || `Knowledge Item ${i}`;
+  const manual = i % 4 === 0;
   return {
     id: `kn_${i.toString(16).padStart(4, "0")}`,
-    session_id: i * 3,
-    project_name: project,
-    title,
-    category,
-    summary: `关于 ${title} 的核心要点：问题根因分析、解决方案、关键命令和经验总结。`,
-    tags: JSON.stringify([project, category, "AIKS"]),
-    confidence: 0.75 + r() * 0.25,
-    created_at: new Date(Date.now() - i * 3600 * 1000).toISOString(),
-    updated_at: new Date(Date.now() - i * 1800 * 1000).toISOString(),
+    session_id: manual ? null : i,
+    project_name: PROJECTS[i % PROJECTS.length],
+    title: manual ? `手工知识 ${i}` : `AI 提炼知识 ${i}`,
+    category: i % 3 === 0 ? "architecture" : i % 3 === 1 ? "implementation" : "troubleshooting",
+    summary: manual ? "由用户在 AIKS 中手工创建的知识。" : "从 AI 工作记录中自动提炼，并可继续在 AIKS 中编辑。",
+    tags: JSON.stringify(manual ? ["manual", "AIKS"] : ["AI", "AIKS"]),
+    confidence: manual ? 1 : 0.9,
+    source_type: manual ? "manual" : "conversation",
+    managed_by: manual ? "user" : "pipeline",
+    status: i % 13 === 0 ? "archived" : "active",
+    is_favorite: i % 5 === 0,
+    created_at: new Date(Date.now() - i * 7200_000).toISOString(),
+    updated_at: new Date(Date.now() - i * 3600_000).toISOString(),
   };
 }
 
-function makePipelineRun(i: number): PipelineSummary {
-  const session = makeSession(i);
-  const stageIdx = Math.floor(rng(i)() * PIPELINE_STAGES.length);
-  const status = i % 10 === 0 ? "FAILED" : i % 7 === 0 ? "PROCESSING" : "READY";
-  const currentStage = status === "PROCESSING" ? PIPELINE_STAGES[stageIdx] : null;
+const sessions = Array.from({ length: 60 }, (_, i) => makeSession(i + 1));
+let knowledge = Array.from({ length: 36 }, (_, i) => makeKnowledge(i + 1));
 
-  const stageRuns = PIPELINE_STAGES.slice(0, status === "READY" ? PIPELINE_STAGES.length : stageIdx + 1).map((s, j) => ({
-    stage: s,
-    status: j < stageIdx ? "SUCCESS" : j === stageIdx && status === "FAILED" ? "FAILED" : j === stageIdx && status === "PROCESSING" ? "RUNNING" : "SUCCESS",
-    input_count: 140 - j * 10,
-    output_count: 130 - j * 10,
-    latency_ms: 50 + j * 200,
-    error_message: status === "FAILED" && j === stageIdx ? "Connection timeout to AI endpoint" : null,
-    detail: null,
-  }));
-
+function detailOf(item: KnowledgeSummary): KnowledgeDetail {
   return {
-    run_id: `run_${i}`,
-    session_id: i,
-    session_title: session.title,
-    source: session.source,
-    status,
-    current_stage: currentStage,
-    pipeline_version: "v3",
-    started_at: new Date(Date.now() - i * 3600 * 1000).toISOString(),
-    finished_at: status !== "PROCESSING" ? new Date(Date.now() - i * 1800 * 1000).toISOString() : null,
-    error_stage: status === "FAILED" ? PIPELINE_STAGES[stageIdx] : null,
-    error_message: status === "FAILED" ? "AI extraction failed: timeout" : null,
-    stage_runs: stageRuns,
-    knowledge_count: status === "READY" ? 1 + (i % 4) : 0,
+    ...item,
+    content: `# ${item.title}\n\n${item.summary}\n\n这里是可直接在 AIKS Native Editor 中维护的 Markdown 内容。`,
+    source: item.source_type === "manual" ? null : "opencode",
+    session_external_id: item.source_type === "manual" ? null : `ses_${item.session_id}`,
+    session_title: item.source_type === "manual" ? null : "来源工作记录",
+    chunks: [],
   };
-}
-
-const ALL_SESSIONS = Array.from({ length: 660 }, (_, i) => makeSession(i + 1));
-const ALL_KNOWLEDGE = Array.from({ length: 238 }, (_, i) => makeKnowledge(i + 1));
-const ALL_PIPELINES = Array.from({ length: 200 }, (_, i) => makePipelineRun(i + 1));
-
-function delay(ms = 300): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
 }
 
 export class MockAiksApi implements AiksApi {
   async getOverview(): Promise<Overview> {
     await delay();
     return {
-      session_count: 660,
-      knowledge_count: 238,
-      processing_count: 12,
-      failed_count: 3,
+      session_count: sessions.length,
+      knowledge_count: knowledge.length,
+      processing_count: 3,
+      failed_count: 0,
       ai_ready: true,
       ai_model: "qwen3",
       siyuan_ready: true,
-      last_sync_at: new Date(Date.now() - 600 * 1000).toISOString(),
-      recent_knowledge: ALL_KNOWLEDGE.slice(0, 5),
-      active_pipelines: ALL_PIPELINES.filter(p => p.status === "PROCESSING").slice(0, 3),
+      last_sync_at: new Date().toISOString(),
+      recent_knowledge: knowledge.filter(k => k.status === "active").slice(0, 5),
+      active_pipelines: [],
     };
   }
 
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     await delay();
-    let items = ALL_SESSIONS;
-    if (opts?.source) {
-      items = items.filter(s => s.source === opts.source);
-    }
+    const filtered = opts?.source ? sessions.filter(s => s.source === opts.source) : sessions;
     const offset = opts?.offset ?? 0;
     const limit = opts?.limit ?? 50;
-    return {
-      items: items.slice(offset, offset + limit),
-      total: items.length,
-      limit,
-      offset,
-    };
+    return { items: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset };
   }
 
-  async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> {
-    await delay();
-    return ALL_PIPELINES.slice(0, limit ?? 100);
-  }
-
+  async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> {
-    await delay();
-    return ALL_PIPELINES.find(p => p.run_id === runId) ?? ALL_PIPELINES[0];
+    throw new Error(`Mock pipeline detail not available: ${runId}`);
   }
-
   async getPipelineStats(): Promise<PipelineStats> {
-    await delay(100);
-    return {
-      total: 660,
-      processing: 12,
-      ready: 598,
-      raw_only: 47,
-      failed: 3,
-      knowledge_items: 238,
-      knowledge_chunks: 1042,
-      embeddings: 0, // Embedding not yet configured
-    };
+    return { total: sessions.length, processing: 3, ready: 57, raw_only: 0, failed: 0, knowledge_items: knowledge.length, knowledge_chunks: 0, embeddings: 0 };
   }
 
-  async getKnowledge(opts?: { limit?: number; offset?: number }): Promise<KnowledgePage> {
+  async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
     await delay();
+    let items = [...knowledge];
+    if (opts?.project) items = items.filter(k => k.project_name === opts.project);
+    if (opts?.category) items = items.filter(k => k.category === opts.category);
+    if (opts?.sourceType) items = items.filter(k => k.source_type === opts.sourceType);
+    if (opts?.status) items = items.filter(k => k.status === opts.status);
+    if (opts?.favorite !== undefined) items = items.filter(k => k.is_favorite === opts.favorite);
+    items.sort((a, b) => Number(b.is_favorite) - Number(a.is_favorite) || b.updated_at.localeCompare(a.updated_at));
     const offset = opts?.offset ?? 0;
     const limit = opts?.limit ?? 50;
-    return {
-      items: ALL_KNOWLEDGE.slice(offset, offset + limit),
-      total: ALL_KNOWLEDGE.length,
-      limit,
-      offset,
+    return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+  }
+
+  async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {
+    await delay();
+    const item = knowledge.find(k => k.id === knowledgeId);
+    if (!item) throw new Error(`Knowledge not found: ${knowledgeId}`);
+    return detailOf(item);
+  }
+
+  async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
+    await delay();
+    const now = new Date().toISOString();
+    const item: KnowledgeSummary = {
+      id: `kn_manual_${Date.now()}`,
+      session_id: null,
+      project_name: input.project_name ?? null,
+      title: input.title.trim(),
+      category: input.category || "general",
+      summary: input.summary ?? "",
+      tags: JSON.stringify(input.tags),
+      confidence: 1,
+      source_type: "manual",
+      managed_by: "user",
+      status: "active",
+      is_favorite: false,
+      created_at: now,
+      updated_at: now,
     };
+    knowledge = [item, ...knowledge];
+    return { ...detailOf(item), content: input.content };
+  }
+
+  async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> {
+    await delay();
+    const index = knowledge.findIndex(k => k.id === knowledgeId);
+    if (index < 0) throw new Error(`Knowledge not found: ${knowledgeId}`);
+    const next: KnowledgeSummary = {
+      ...knowledge[index],
+      title: input.title,
+      category: input.category,
+      project_name: input.project_name ?? null,
+      summary: input.summary,
+      tags: JSON.stringify(input.tags),
+      managed_by: "user",
+      updated_at: new Date().toISOString(),
+    };
+    knowledge[index] = next;
+    return { ...detailOf(next), content: input.content };
+  }
+
+  async setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail> {
+    const current = await this.getKnowledgeDetail(knowledgeId);
+    const index = knowledge.findIndex(k => k.id === knowledgeId);
+    knowledge[index] = { ...knowledge[index], is_favorite: favorite, updated_at: new Date().toISOString() };
+    return { ...current, ...knowledge[index] };
+  }
+
+  async archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail> {
+    const current = await this.getKnowledgeDetail(knowledgeId);
+    const index = knowledge.findIndex(k => k.id === knowledgeId);
+    knowledge[index] = { ...knowledge[index], status: "archived", updated_at: new Date().toISOString() };
+    return { ...current, ...knowledge[index] };
+  }
+
+  async restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail> {
+    const current = await this.getKnowledgeDetail(knowledgeId);
+    const index = knowledge.findIndex(k => k.id === knowledgeId);
+    knowledge[index] = { ...knowledge[index], status: "active", updated_at: new Date().toISOString() };
+    return { ...current, ...knowledge[index] };
+  }
+
+  async publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult> {
+    await delay(300);
+    return { knowledge_id: knowledgeId, outcome: "created", target_id: `siyuan_${knowledgeId}` };
   }
 
   async searchKnowledge(query: string, limit?: number): Promise<SearchResponse> {
-    await delay(200);
     const q = query.toLowerCase();
-    const results = ALL_KNOWLEDGE
-      .filter(k => k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q))
+    const results = knowledge
+      .filter(k => k.status === "active" && (k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q)))
       .slice(0, limit ?? 20)
-      .map(k => ({
-        id: k.id,
-        title: k.title,
-        category: k.category,
-        summary: k.summary,
-        project_name: k.project_name,
-        tags: k.tags,
-        confidence: k.confidence,
-        match_type: "like",
-      }));
+      .map(k => ({ ...k, match_type: "like" }));
     return { results, query, total: results.length };
   }
 
   async getFullStatus(): Promise<FullStatus> {
-    await delay(100);
     return {
-      scan_total: 660,
-      scan_by_source: { OpenCode: 518, "Claude Code": 95, Codex: 32, "Gemini CLI": 15 },
-      db_total: 652,
-      db_synced: 640,
-      db_pending: 8,
-      db_conflict: 1,
-      db_failed: 3,
-      last_sync_at: new Date(Date.now() - 600 * 1000).toISOString(),
-      last_sync_discovered: 660,
-      last_sync_new: 12,
-      last_sync_updated: 8,
-      last_sync_failed: 0,
-      extraction_total: 652,
-      extraction_success: 598,
-      extraction_skipped: 47,
-      extraction_failed: 7,
-      extraction_pending: 0,
-      siyuan_ready: true,
-      ai_ready: true,
-      ai_model: "qwen3",
+      scan_total: sessions.length, scan_by_source: { opencode: 30, claude_code: 10, codex: 10, gemini_cli: 10 },
+      db_total: sessions.length, db_synced: 60, db_pending: 0, db_conflict: 0, db_failed: 0,
+      last_sync_at: new Date().toISOString(), last_sync_discovered: 60, last_sync_new: 0, last_sync_updated: 0, last_sync_failed: 0,
+      extraction_total: 60, extraction_success: 60, extraction_skipped: 0, extraction_failed: 0, extraction_pending: 0,
+      siyuan_ready: true, ai_ready: true, ai_model: "qwen3",
     };
   }
 
   async getAiStatus(): Promise<AiStatus> {
-    await delay(100);
-    return {
-      enabled: true,
-      healthy: true,
-      model: "qwen3",
-      display_name: "本地 AI 服务",
-      base_url: "http://127.0.0.1:11434/v1",
-      extraction_stats: {
-        total: 652,
-        success: 598,
-        skipped: 47,
-        failed: 7,
-        pending: 0,
-      },
-    };
+    return { enabled: true, healthy: true, model: "qwen3", display_name: "Mock AI", base_url: "http://127.0.0.1:11434/v1", extraction_stats: { total: 60, success: 60, skipped: 0, failed: 0, pending: 0 } };
   }
-
-  async syncAndExtract(): Promise<{ discovered: number; new_count: number; updated_count: number }> {
-    await delay(1000);
-    return { discovered: 660, new_count: 0, updated_count: 0 };
-  }
-
-  async scanSources(): Promise<{ total: number; by_source: Record<string, number> }> {
-    await delay(500);
-    return {
-      total: 660,
-      by_source: { OpenCode: 518, "Claude Code": 95, Codex: 32, "Gemini CLI": 15 },
-    };
-  }
-
-  async backfillExtractions(): Promise<{ submitted: number }> {
-    await delay(800);
-    return { submitted: 0 };
-  }
-
-  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> {
-    await delay(1200);
-    return { created: 3, updated: 5, unchanged: 230, conflict: 0, failed: 0 };
-  }
-
-  async getSiyuanUrl(): Promise<string | null> {
-    return "http://127.0.0.1:6812";
-  }
-
-  async testAiConnection(): Promise<boolean> {
-    await delay(500);
-    return true;
-  }
+  async syncAndExtract(): Promise<{ discovered: number; new_count: number; updated_count: number }> { return { discovered: 60, new_count: 0, updated_count: 0 }; }
+  async scanSources(): Promise<{ total: number; by_source: Record<string, number> }> { return { total: 60, by_source: { opencode: 30, claude_code: 10, codex: 10, gemini_cli: 10 } }; }
+  async backfillExtractions(): Promise<{ submitted: number }> { return { submitted: 0 }; }
+  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> { return { created: 0, updated: 0, unchanged: knowledge.length, conflict: 0, failed: 0 }; }
+  async getSiyuanUrl(): Promise<string | null> { return "http://127.0.0.1:6812"; }
+  async testAiConnection(): Promise<boolean> { return true; }
 }
