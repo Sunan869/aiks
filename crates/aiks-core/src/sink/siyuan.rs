@@ -42,8 +42,8 @@ pub struct SiYuanSink {
     base_url: String,
     /// Canonical content notebook.
     notebook_name: String,
-    /// Session notebook. Embedded V4.1 deliberately points this at the same
-    /// notebook as `notebook_name`; external/dev mode remains config-driven.
+    /// Raw Session notebook. V4.1 intentionally resolves this to the same
+    /// canonical notebook as Knowledge in every runtime mode.
     session_notebook_name: String,
     session_root: String,
     knowledge_root: String,
@@ -78,7 +78,9 @@ impl SiYuanSink {
         })
     }
 
-    /// External mode: uses token from config (CLI / developer mode).
+    /// External/developer mode keeps its URL/token/path configuration, but V4.1
+    /// ignores the legacy separate session notebook so the content model stays
+    /// identical to embedded mode.
     pub fn new(config: SiYuanConfig) -> anyhow::Result<Self> {
         let token = if config.token.is_empty() {
             None
@@ -88,10 +90,11 @@ impl SiYuanSink {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()?;
+        let notebook_name = config.notebook_name;
         Ok(Self {
             base_url: config.base_url,
-            notebook_name: config.notebook_name,
-            session_notebook_name: config.session_notebook_name,
+            notebook_name: notebook_name.clone(),
+            session_notebook_name: notebook_name,
             session_root: config.session_root,
             knowledge_root: config.knowledge_root,
             token,
@@ -131,8 +134,8 @@ impl SiYuanSink {
         self.ensure_notebook_named(&self.notebook_name).await
     }
 
-    /// Get or create the notebook that stores raw Sessions. In embedded V4.1
-    /// this resolves to the same canonical content notebook as Knowledge.
+    /// Get or create the notebook that stores raw Sessions. In V4.1 this is
+    /// always the same canonical content notebook as Knowledge.
     pub async fn ensure_session_notebook(&self) -> anyhow::Result<String> {
         self.ensure_notebook_named(&self.session_notebook_name)
             .await
@@ -653,13 +656,17 @@ mod tests {
     }
 
     #[test]
-    fn external_sink_with_token() {
+    fn external_sink_with_token_uses_one_content_notebook() {
         let config = crate::config::SiYuanConfig {
             token: "my-test-token".to_string(),
+            notebook_name: "Company Knowledge".to_string(),
+            session_notebook_name: "Legacy Session Archive".to_string(),
             ..Default::default()
         };
         let sink = SiYuanSink::new(config).unwrap();
         assert_eq!(sink.token.as_deref(), Some("my-test-token"));
+        assert_eq!(sink.notebook_name, "Company Knowledge");
+        assert_eq!(sink.session_notebook_name, sink.notebook_name);
     }
 
     #[test]
@@ -667,5 +674,6 @@ mod tests {
         let config = crate::config::SiYuanConfig::default();
         let sink = SiYuanSink::new(config).unwrap();
         assert!(sink.token.is_none());
+        assert_eq!(sink.session_notebook_name, sink.notebook_name);
     }
 }
