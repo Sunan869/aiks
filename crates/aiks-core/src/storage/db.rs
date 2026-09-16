@@ -11,6 +11,7 @@ const SCHEMA_V4_SQL: &str = include_str!("../../migrations/003_pipeline_job.sql"
 const SCHEMA_V5_SQL: &str = include_str!("../../migrations/004_knowledge_sync.sql");
 const SCHEMA_V6_SQL: &str = include_str!("../../migrations/005_knowledge_baseline.sql");
 const SCHEMA_V7_SQL: &str = include_str!("../../migrations/006_pipeline_job_identity.sql");
+const SCHEMA_V8_SQL: &str = include_str!("../../migrations/007_v4_native_knowledge.sql");
 
 /// AIKS state database.
 ///
@@ -39,7 +40,6 @@ impl StateDb {
         let conn =
             Connection::open(path).with_context(|| format!("open state DB: {}", path.display()))?;
 
-        // Enable WAL mode for better concurrent access
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
@@ -74,8 +74,7 @@ impl StateDb {
             .context("run V4 pipeline job migrations")?;
         conn.execute_batch(SCHEMA_V5_SQL)
             .context("run V5 knowledge sync migrations")?;
-        // V6 adds knowledge_sync_target.target_hash. SQLite's ALTER TABLE ADD
-        // COLUMN fails on rerun (no IF NOT EXISTS), so guard with pragma.
+
         let has_target_hash: i64 = {
             let mut stmt = conn
                 .prepare("SELECT COUNT(*) FROM pragma_table_info('knowledge_sync_target') WHERE name = 'target_hash'")
@@ -88,9 +87,6 @@ impl StateDb {
                 .context("run V6 knowledge baseline migrations")?;
         }
 
-        // V7 turns the previously dormant pipeline_job table into the durable
-        // production queue. Add exact DB identities with guarded ALTERs so
-        // existing installations migrate idempotently.
         let has_job_session_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'session_id'",
@@ -103,11 +99,13 @@ impl StateDb {
                 .context("add pipeline_job.session_id")?;
         }
 
-        let has_job_run_id: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'pipeline_run_id'",
-            [],
-            |row| row.get(0),
-        ).context("run V7 pipeline_run_id pragma check")?;
+        let has_job_run_id: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('pipeline_job') WHERE name = 'pipeline_run_id'",
+                [],
+                |row| row.get(0),
+            )
+            .context("run V7 pipeline_run_id pragma check")?;
         if has_job_run_id == 0 {
             conn.execute_batch("ALTER TABLE pipeline_job ADD COLUMN pipeline_run_id TEXT;")
                 .context("add pipeline_job.pipeline_run_id")?;
@@ -115,6 +113,22 @@ impl StateDb {
 
         conn.execute_batch(SCHEMA_V7_SQL)
             .context("run V7 pipeline job identity migrations")?;
+
+        // V8 turns knowledge_item into the canonical Native First entity. The
+        // migration rebuilds the table to relax source_session_id to NULL, so
+        // only run it when the first V4 metadata column is absent.
+        let has_source_type: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('knowledge_item') WHERE name = 'source_type'",
+                [],
+                |row| row.get(0),
+            )
+            .context("run V8 knowledge source_type pragma check")?;
+        if has_source_type == 0 {
+            conn.execute_batch(SCHEMA_V8_SQL)
+                .context("run V8 native knowledge workbench migrations")?;
+        }
+
         Ok(())
     }
 
@@ -155,7 +169,6 @@ impl StateDb {
             let src = source.unwrap_or("");
             for id in session_ids {
                 if src.is_empty() {
-                    // Reset by external_session_id regardless of source
                     conn.execute(
                         "UPDATE source_session SET content_hash = NULL, updated_at = ?2 WHERE external_session_id = ?1",
                         rusqlite::params![id, now],
@@ -185,7 +198,6 @@ mod tests {
 
         let conn = db.conn();
 
-        // V1 tables
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('source_session','sync_target','source_file_state','sync_run')",
@@ -195,7 +207,6 @@ mod tests {
             .unwrap();
         assert_eq!(count, 4);
 
-        // V3 pipeline tables
         let v3_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('pipeline_run','pipeline_stage_run','knowledge_item','knowledge_chunk','embedding_record','session_chunk')",
@@ -204,6 +215,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v3_count, 6);
+
+        let v4_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('knowledge_item') WHERE name IN ('source_type','managed_by','status','is_favorite')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(v4_columns, 4);
     }
 
     #[test]
