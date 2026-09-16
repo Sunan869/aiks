@@ -1,26 +1,39 @@
-// V3 API interface — all Tauri commands go through this abstraction
+// Desktop API interface — all Tauri commands go through this abstraction
 import type {
   Overview,
   SessionPage,
   PipelineSummary,
   PipelineStats,
   KnowledgePage,
+  KnowledgeDetail,
+  KnowledgeListOptions,
+  KnowledgeWriteInput,
+  KnowledgeUpdateInput,
+  PublishKnowledgeResult,
   SearchResponse,
   FullStatus,
   AiStatus,
 } from "./types";
 
 export interface AiksApi {
-  // V3 unified API
   getOverview(): Promise<Overview>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
-  getKnowledge(opts?: { project?: string; category?: string; limit?: number; offset?: number }): Promise<KnowledgePage>;
+
+  // V4 Native Knowledge Workbench
+  getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
+  getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
+  createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
+  updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
+  setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;
+  archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail>;
+  restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail>;
+  publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
 
-  // V2.5 compatibility
+  // Compatibility / operational APIs
   getFullStatus(): Promise<FullStatus>;
   getAiStatus(): Promise<AiStatus>;
   syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }>;
@@ -31,12 +44,10 @@ export interface AiksApi {
   testAiConnection(): Promise<boolean>;
 }
 
-// Detect if running in Tauri context
 export function isTauriContext(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-// Use VITE_AIKS_MOCK=true OR non-Tauri context to enable Mock API
 export function shouldUseMock(): boolean {
   if (import.meta.env.VITE_AIKS_MOCK === "true") return true;
   return !isTauriContext();
