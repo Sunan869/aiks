@@ -136,10 +136,7 @@ fn v41_manual_control_row_is_created_with_canonical_siyuan_binding() {
 
     assert_eq!(created.id, "manual-v41-1");
     assert_eq!(created.siyuan_doc_id.as_deref(), Some("doc-v41-1"));
-    assert_eq!(
-        created.generated_hash.as_deref(),
-        Some("generated-hash-1")
-    );
+    assert_eq!(created.generated_hash.as_deref(), Some("generated-hash-1"));
     assert_eq!(created.source_type, "manual");
     assert_eq!(created.managed_by, "user");
 }
