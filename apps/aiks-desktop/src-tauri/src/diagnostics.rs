@@ -55,10 +55,8 @@ mod tests {
     #[test]
     fn bundled_siyuan_runtime_is_pinned() {
         // This compile-time include makes a missing runtime contract fail loudly.
-        let manifest: serde_json::Value = serde_json::from_str(include_str!(
-            "../resources/siyuan-runtime.json"
-        ))
-        .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../resources/siyuan-runtime.json")).unwrap();
         assert_eq!(manifest["siyuanBaseVersion"], "3.8.3");
         assert_eq!(
             manifest["siyuanUpstreamCommit"],
