@@ -72,8 +72,12 @@ pub fn validate_loopback_origin(origin: &str) -> anyhow::Result<Url> {
     let host = url
         .host_str()
         .ok_or_else(|| anyhow::anyhow!("workbench origin must have a host"))?;
-    let is_loopback = host.eq_ignore_ascii_case("localhost")
-        || host
+    let normalized_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
+    let is_loopback = normalized_host.eq_ignore_ascii_case("localhost")
+        || normalized_host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
     if !is_loopback {
