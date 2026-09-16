@@ -33,7 +33,6 @@ export default function WorkbenchHost({ mode, docId }: Props) {
 
   useEffect(() => {
     void open();
-    return () => { void getApi().hideWorkbench(); };
   }, [mode, docId]);
 
   return (
