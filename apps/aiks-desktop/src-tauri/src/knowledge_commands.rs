@@ -68,17 +68,8 @@ pub async fn list_knowledge_v4(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let result = KnowledgeService::new(&db)
-        .list(KnowledgeListFilter {
-            project,
-            category,
-            source_type,
-            status,
-            favorite,
-            limit,
-            offset,
-        })
+        .list(KnowledgeListFilter { project, category, source_type, status, favorite, limit, offset })
         .map_err(|e| e.to_string())?;
-
     Ok(serde_json::json!({
         "items": result.items.into_iter().map(to_json).collect::<Vec<_>>(),
         "total": result.total,
@@ -130,17 +121,14 @@ pub async fn update_knowledge(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let item = KnowledgeService::new(&db)
-        .update(
-            &knowledge_id,
-            UpdateKnowledgeInput {
-                title: input.title,
-                category: input.category,
-                project_name: input.project_name,
-                summary: input.summary,
-                content: input.content,
-                tags: input.tags,
-            },
-        )
+        .update(&knowledge_id, UpdateKnowledgeInput {
+            title: input.title,
+            category: input.category,
+            project_name: input.project_name,
+            summary: input.summary,
+            content: input.content,
+            tags: input.tags,
+        })
         .map_err(|e| e.to_string())?;
     Ok(to_json(item))
 }
@@ -186,6 +174,48 @@ pub async fn restore_knowledge(
 }
 
 #[tauri::command]
+pub async fn search_knowledge_v4(
+    query: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
+    let db = engine.db();
+    let service = KnowledgeService::new(&db);
+    let warnings: Vec<String> = outcome.degradations.iter().map(|d| d.message.clone()).collect();
+    let degraded = outcome.degraded();
+    let mut results = Vec::new();
+    for hit in outcome.hits {
+        if let Some(item) = service.get(&hit.knowledge_id).map_err(|e| e.to_string())? {
+            if item.status != "active" { continue; }
+            results.push(serde_json::json!({
+                "id": item.id,
+                "title": item.title,
+                "category": item.category,
+                "summary": item.summary,
+                "project_name": item.project_name,
+                "tags": serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
+                "confidence": item.confidence,
+                "source_type": item.source_type,
+                "is_favorite": item.is_favorite,
+                "match_type": hit.match_type
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "results": results,
+        "query": query,
+        "total": results.len(),
+        "degraded": degraded,
+        "warnings": warnings
+    }))
+}
+
+#[tauri::command]
 pub async fn publish_knowledge(
     knowledge_id: String,
     state: State<'_, AppState>,
@@ -194,21 +224,14 @@ pub async fn publish_knowledge(
     let db = engine.db();
     let runtime_url = state.siyuan_url().await;
     let config = engine.config();
-
     let sink = if let Some(url) = runtime_url {
         aiks_core::sink::SiYuanSink::embedded(url, config.siyuan.notebook_name.clone())
             .map_err(|e| e.to_string())?
     } else {
         aiks_core::sink::SiYuanSink::new(config.siyuan.clone()).map_err(|e| e.to_string())?
     };
-
-    let result = aiks_core::knowledge::publish_knowledge_to_siyuan(
-        &db,
-        &sink,
-        &knowledge_id,
-        false,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let result = aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
