@@ -4,7 +4,7 @@ import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
-  SearchResponse, WorkbenchBounds, WorkbenchStatus, WorkspaceMode, FullStatus, AiStatus,
+  SearchResponse, WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -199,6 +199,22 @@ export class MockAiksApi implements AiksApi {
       ready: true,
       mode: workbenchMode,
       origin: "http://127.0.0.1:6812/",
+      protocol_version: 1,
+    };
+  }
+
+  async getV41Diagnostics(): Promise<V41Diagnostics> {
+    return {
+      siyuan_ready: true,
+      workbench: await this.getWorkbenchStatus(),
+      migration: {
+        total: knowledge.length,
+        pending: 0,
+        migrated: knowledge.length,
+        reused: 0,
+        conflicts: 0,
+        failed: 0,
+      },
     };
   }
 
