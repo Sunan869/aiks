@@ -1,15 +1,33 @@
 use aiks_core::knowledge::{ContentMigrationService, ContentMigrationStats};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::app_state::AppState;
 use crate::workbench::controller::{WorkbenchController, WorkbenchStatus};
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SiyuanRuntimeManifest {
+    workbench_version: String,
+    siyuan_base_version: String,
+    siyuan_upstream_commit: String,
+    bridge_protocol_version: u16,
+}
+
+fn siyuan_runtime_manifest() -> SiyuanRuntimeManifest {
+    serde_json::from_str(include_str!("../resources/siyuan-runtime.json"))
+        .expect("bundled SiYuan runtime manifest must be valid JSON")
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct V41Diagnostics {
     pub siyuan_ready: bool,
     pub workbench: WorkbenchStatus,
     pub migration: ContentMigrationStats,
+    pub workbench_version: String,
+    pub siyuan_base_version: String,
+    pub siyuan_upstream_commit: String,
+    pub bridge_protocol_version: u16,
 }
 
 pub fn compose_v41_diagnostics(
@@ -17,10 +35,15 @@ pub fn compose_v41_diagnostics(
     workbench: WorkbenchStatus,
     migration: ContentMigrationStats,
 ) -> V41Diagnostics {
+    let runtime = siyuan_runtime_manifest();
     V41Diagnostics {
         siyuan_ready,
         workbench,
         migration,
+        workbench_version: runtime.workbench_version,
+        siyuan_base_version: runtime.siyuan_base_version,
+        siyuan_upstream_commit: runtime.siyuan_upstream_commit,
+        bridge_protocol_version: runtime.bridge_protocol_version,
     }
 }
 
@@ -54,9 +77,9 @@ mod tests {
 
     #[test]
     fn bundled_siyuan_runtime_is_pinned() {
-        // This compile-time include makes a missing runtime contract fail loudly.
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../resources/siyuan-runtime.json")).unwrap();
+        assert_eq!(manifest["workbenchVersion"], "4.2.0");
         assert_eq!(manifest["siyuanBaseVersion"], "3.8.3");
         assert_eq!(
             manifest["siyuanUpstreamCommit"],
@@ -90,6 +113,13 @@ mod tests {
         assert!(diagnostics.workbench.ready);
         assert_eq!(diagnostics.workbench.mode, WorkspaceMode::Session);
         assert_eq!(diagnostics.workbench.protocol_version, 1);
+        assert_eq!(diagnostics.workbench_version, "4.2.0");
+        assert_eq!(diagnostics.siyuan_base_version, "3.8.3");
+        assert_eq!(
+            diagnostics.siyuan_upstream_commit,
+            "8641553a1f07374001902d3ce773285db1292b2d"
+        );
+        assert_eq!(diagnostics.bridge_protocol_version, 2);
         assert_eq!(diagnostics.migration.total, 7);
         assert_eq!(diagnostics.migration.pending, 2);
         assert_eq!(diagnostics.migration.migrated, 2);
