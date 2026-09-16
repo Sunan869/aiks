@@ -77,9 +77,22 @@ impl<'a> ContentMigrationService<'a> {
     pub fn stats(&self) -> anyhow::Result<ContentMigrationStats> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
-            "SELECT status, COUNT(*)
-             FROM content_migration
-             WHERE entity_type = 'knowledge'
+            "WITH migration_statuses AS (
+                 SELECT status
+                 FROM content_migration
+                 WHERE entity_type = 'knowledge'
+                 UNION ALL
+                 SELECT 'pending'
+                 FROM knowledge_item ki
+                 WHERE NOT EXISTS (
+                     SELECT 1
+                     FROM content_migration cm
+                     WHERE cm.entity_type = 'knowledge'
+                       AND cm.entity_id = ki.id
+                 )
+             )
+             SELECT status, COUNT(*)
+             FROM migration_statuses
              GROUP BY status",
         )?;
         let rows = stmt.query_map([], |row| {
