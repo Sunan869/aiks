@@ -52,6 +52,23 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace -- --test-threads=1
 
+  windows-desktop-compile:
+    name: Windows desktop compile
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare CI-only Tauri resource directory
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force apps/aiks-desktop/src-tauri/resources/siyuan | Out-Null
+          Set-Content -Path apps/aiks-desktop/src-tauri/resources/siyuan/placeholder.txt -Value 'CI-only placeholder for Tauri resource glob'
+
+      - name: Compile Windows desktop target
+        run: cargo check -p aiks-desktop --no-default-features
+
   frontend:
     name: Desktop frontend
     runs-on: ubuntu-24.04
