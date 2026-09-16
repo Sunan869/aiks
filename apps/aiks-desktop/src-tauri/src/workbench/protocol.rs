@@ -39,9 +39,7 @@ pub enum WorkbenchAction {
 
 pub fn validate_protocol_version(version: u16) -> anyhow::Result<()> {
     if version != BRIDGE_PROTOCOL_VERSION {
-        bail!(
-            "unsupported bridge protocol version: {version}; expected {BRIDGE_PROTOCOL_VERSION}"
-        );
+        bail!("unsupported bridge protocol version: {version}; expected {BRIDGE_PROTOCOL_VERSION}");
     }
     Ok(())
 }
@@ -115,7 +113,10 @@ mod tests {
             WorkspaceMode::parse("knowledge").unwrap(),
             WorkspaceMode::Knowledge
         );
-        assert_eq!(WorkspaceMode::parse("session").unwrap(), WorkspaceMode::Session);
+        assert_eq!(
+            WorkspaceMode::parse("session").unwrap(),
+            WorkspaceMode::Session
+        );
         assert!(WorkspaceMode::parse("admin").is_err());
         assert!(WorkspaceMode::parse("").is_err());
     }
