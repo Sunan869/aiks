@@ -54,6 +54,9 @@ fn to_json(item: KnowledgeRecord) -> serde_json::Value {
     })
 }
 
+// Keep the invoke payload flat so the Tauri boundary matches the Desktop API's
+// individual list filters without wrapping them in a transport-only DTO.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn list_knowledge_v4(
     project: Option<String>,
