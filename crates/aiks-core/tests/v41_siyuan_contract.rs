@@ -19,13 +19,40 @@ fn knowledge_binding_attrs_include_v41_management_metadata() {
     }
     .to_block_attrs();
 
-    assert_eq!(attrs.get("custom-aiks-managed").map(String::as_str), Some("true"));
-    assert_eq!(attrs.get("custom-aiks-kind").map(String::as_str), Some("knowledge"));
-    assert_eq!(attrs.get("custom-aiks-id").map(String::as_str), Some("knowledge-1"));
-    assert_eq!(attrs.get("custom-aiks-source-type").map(String::as_str), Some("conversation"));
-    assert_eq!(attrs.get("custom-aiks-managed-by").map(String::as_str), Some("pipeline"));
-    assert_eq!(attrs.get("custom-aiks-session-id").map(String::as_str), Some("session-1"));
-    assert_eq!(attrs.get("custom-aiks-project").map(String::as_str), Some("AIKS"));
-    assert_eq!(attrs.get("custom-aiks-category").map(String::as_str), Some("architecture"));
-    assert_eq!(attrs.get("custom-aiks-generated-hash").map(String::as_str), Some("abc123"));
+    assert_eq!(
+        attrs.get("custom-aiks-managed").map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-kind").map(String::as_str),
+        Some("knowledge")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-id").map(String::as_str),
+        Some("knowledge-1")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-source-type").map(String::as_str),
+        Some("conversation")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-managed-by").map(String::as_str),
+        Some("pipeline")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-session-id").map(String::as_str),
+        Some("session-1")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-project").map(String::as_str),
+        Some("AIKS")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-category").map(String::as_str),
+        Some("architecture")
+    );
+    assert_eq!(
+        attrs.get("custom-aiks-generated-hash").map(String::as_str),
+        Some("abc123")
+    );
 }
