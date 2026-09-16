@@ -187,6 +187,22 @@ export interface WorkbenchStatus {
   ready: boolean;
   mode: WorkspaceMode;
   origin: string | null;
+  protocol_version: number;
+}
+
+export interface ContentMigrationStats {
+  total: number;
+  pending: number;
+  migrated: number;
+  reused: number;
+  conflicts: number;
+  failed: number;
+}
+
+export interface V41Diagnostics {
+  siyuan_ready: boolean;
+  workbench: WorkbenchStatus;
+  migration: ContentMigrationStats;
 }
 
 export interface FullStatus {
