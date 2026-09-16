@@ -235,7 +235,8 @@ impl<'a> ContentMigrationService<'a> {
                 )?;
             }
             MigrationDecision::Reuse { doc_id } => {
-                let unknown_baseline = snapshot.synced_hash.is_none() || snapshot.target_hash.is_none();
+                let unknown_baseline =
+                    snapshot.synced_hash.is_none() || snapshot.target_hash.is_none();
                 let mut reuse_attrs = attrs;
                 if unknown_baseline {
                     reuse_attrs.managed_by = "user".into();
