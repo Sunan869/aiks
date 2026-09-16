@@ -1,9 +1,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::webview::WebviewBuilder;
-use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl,
-};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
 use uuid::Uuid;
 
 use crate::app_state::AppState;
@@ -184,12 +182,9 @@ pub async fn mount_workbench(
     let expected_origin = origin.clone();
     let nonce = serde_json::to_string(controller.nonce()).map_err(|e| e.to_string())?;
     let initialization_script = format!("window.__AIKS_WORKBENCH_NONCE__ = {nonce};");
-    let builder = WebviewBuilder::new(
-        WORKBENCH_WEBVIEW_LABEL,
-        WebviewUrl::External(origin),
-    )
-    .initialization_script(initialization_script)
-    .on_navigation(move |url| same_origin(url, &expected_origin));
+    let builder = WebviewBuilder::new(WORKBENCH_WEBVIEW_LABEL, WebviewUrl::External(origin))
+        .initialization_script(initialization_script)
+        .on_navigation(move |url| same_origin(url, &expected_origin));
 
     controller.set_ready(false);
     let webview = parent
