@@ -175,6 +175,13 @@ export interface SearchResponse {
 
 export type WorkspaceMode = "knowledge" | "session";
 
+export interface WorkbenchBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface WorkbenchStatus {
   available: boolean;
   ready: boolean;
