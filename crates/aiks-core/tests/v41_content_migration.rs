@@ -1,6 +1,7 @@
 use aiks_core::knowledge::migration::{
     decide_migration, ContentMigrationService, MigrationDecision, MigrationSnapshot,
 };
+use aiks_core::knowledge::refresh_siyuan_document_read_model;
 use aiks_core::storage::StateDb;
 use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use rusqlite::params;
@@ -190,12 +191,12 @@ fn siyuan_refresh_rebuilds_read_model_and_fts_from_canonical_markdown() {
         .unwrap();
 
     service.invalidate_siyuan_document("siyuan-doc-1").unwrap();
-    let refreshed = service
-        .refresh_siyuan_document_read_model(
-            "siyuan-doc-1",
-            "# Canonical knowledge\n\nfresh text edited in SiYuan",
-        )
-        .unwrap();
+    let refreshed = refresh_siyuan_document_read_model(
+        &db,
+        "siyuan-doc-1",
+        "# Canonical knowledge\n\nfresh text edited in SiYuan",
+    )
+    .unwrap();
     assert_eq!(refreshed.as_deref(), Some("knowledge-1"));
 
     let item = service.get("knowledge-1").unwrap().unwrap();
