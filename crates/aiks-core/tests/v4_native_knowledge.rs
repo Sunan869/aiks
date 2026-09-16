@@ -1,9 +1,7 @@
 use aiks_core::ai::{V3ExtractionResult, V3KnowledgeItem};
 use aiks_core::pipeline::search::search_with_status;
 use aiks_core::storage::StateDb;
-use aiks_core::{
-    CreateKnowledgeInput, KnowledgeRepo, KnowledgeService, UpdateKnowledgeInput,
-};
+use aiks_core::{CreateKnowledgeInput, KnowledgeRepo, KnowledgeService, UpdateKnowledgeInput};
 use tempfile::tempdir;
 
 fn db() -> (tempfile::TempDir, StateDb) {
@@ -145,7 +143,11 @@ fn reextraction_never_overwrites_or_deletes_user_managed_session_knowledge() {
     let repo = KnowledgeRepo::new(&db);
 
     let ids = repo
-        .save_items(session_id, Some("AIKS"), &extracted("V4 identity", "AI original"))
+        .save_items(
+            session_id,
+            Some("AIKS"),
+            &extracted("V4 identity", "AI original"),
+        )
         .unwrap();
     let id = ids[0].clone();
 
@@ -165,7 +167,11 @@ fn reextraction_never_overwrites_or_deletes_user_managed_session_knowledge() {
         .unwrap();
 
     let ids = repo
-        .save_items(session_id, Some("AIKS"), &extracted("V4 identity", "AI overwrite attempt"))
+        .save_items(
+            session_id,
+            Some("AIKS"),
+            &extracted("V4 identity", "AI overwrite attempt"),
+        )
         .unwrap();
     assert_eq!(ids, vec![id.clone()]);
     let preserved = service.get(&id).unwrap().unwrap();
@@ -173,7 +179,11 @@ fn reextraction_never_overwrites_or_deletes_user_managed_session_knowledge() {
     assert_eq!(preserved.managed_by, "user");
 
     let new_ids = repo
-        .save_items(session_id, Some("AIKS"), &extracted("V4 new identity", "new AI item"))
+        .save_items(
+            session_id,
+            Some("AIKS"),
+            &extracted("V4 new identity", "new AI item"),
+        )
         .unwrap();
     assert_eq!(new_ids.len(), 1);
     assert_ne!(new_ids[0], id);
