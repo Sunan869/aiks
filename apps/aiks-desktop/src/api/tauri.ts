@@ -101,6 +101,16 @@ export class TauriAiksApi implements AiksApi {
     await invoke("open_siyuan_block", { docId, blockId });
   }
 
+  async showWorkbenchDatabase(): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("show_workbench_database");
+  }
+
+  async showWorkbenchGraph(): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("show_workbench_graph");
+  }
+
   async getFullStatus(): Promise<FullStatus> { return invoke("get_full_status"); }
   async getAiStatus(): Promise<AiStatus> { return invoke("get_ai_status"); }
   async syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }> { return invoke("sync_and_extract", { source }); }
