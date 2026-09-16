@@ -2,7 +2,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
-use aiks_core::KnowledgeService;
+use aiks_core::{
+    knowledge::refresh_siyuan_document_read_model, sink::SiYuanSink, KnowledgeService,
+};
 
 use crate::app_state::AppState;
 
@@ -118,6 +120,64 @@ pub fn register(app: &AppHandle) {
                                         "docId": doc_id,
                                     }),
                                 );
+
+                                let app_bg = app_handle.clone();
+                                let engine_bg = engine.clone();
+                                let siyuan_url = state.siyuan_url.clone();
+                                let doc_id_bg = doc_id.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    let runtime_url = siyuan_url.lock().await.clone();
+                                    let mut siyuan_config = engine_bg.config().siyuan.clone();
+                                    if let Some(runtime_url) = runtime_url {
+                                        siyuan_config.base_url = runtime_url;
+                                    }
+
+                                    let sink = match SiYuanSink::new(siyuan_config) {
+                                        Ok(sink) => sink,
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                error = %error,
+                                                doc_id = %doc_id_bg,
+                                                "[WORKBENCH] could not initialize SiYuan read-model refresh"
+                                            );
+                                            return;
+                                        }
+                                    };
+                                    let markdown = match sink.get_document_markdown(&doc_id_bg).await {
+                                        Ok(markdown) => markdown,
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                error = %error,
+                                                doc_id = %doc_id_bg,
+                                                "[WORKBENCH] could not read changed SiYuan document"
+                                            );
+                                            return;
+                                        }
+                                    };
+
+                                    let db = engine_bg.db();
+                                    match refresh_siyuan_document_read_model(
+                                        db.as_ref(),
+                                        &doc_id_bg,
+                                        &markdown,
+                                    ) {
+                                        Ok(Some(refreshed_id)) => {
+                                            let _ = app_bg.emit(
+                                                "knowledge-index-refreshed",
+                                                serde_json::json!({
+                                                    "knowledgeId": refreshed_id,
+                                                    "docId": doc_id_bg,
+                                                }),
+                                            );
+                                        }
+                                        Ok(None) => {}
+                                        Err(error) => tracing::warn!(
+                                            error = %error,
+                                            doc_id = %doc_id_bg,
+                                            "[WORKBENCH] failed to rebuild knowledge read model"
+                                        ),
+                                    }
+                                });
                             }
                             Ok(None) => {}
                             Err(error) => tracing::warn!(
