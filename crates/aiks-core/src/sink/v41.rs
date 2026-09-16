@@ -32,10 +32,7 @@ impl KnowledgeBindingAttrs {
                 "custom-aiks-managed-by".to_string(),
                 self.managed_by.clone(),
             ),
-            (
-                "custom-aiks-category".to_string(),
-                self.category.clone(),
-            ),
+            ("custom-aiks-category".to_string(), self.category.clone()),
             (
                 "custom-aiks-generated-hash".to_string(),
                 self.generated_hash.clone(),
