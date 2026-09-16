@@ -61,13 +61,8 @@ pub async fn create_manual_knowledge_in_siyuan(
     let remote_hash = store.document_hash(&doc_id).await?;
 
     let service = KnowledgeService::new(db);
-    let item = service.create_manual_bound(
-        &id,
-        input,
-        &doc_id,
-        &generated_hash,
-        Some(&remote_hash),
-    )?;
+    let item =
+        service.create_manual_bound(&id, input, &doc_id, &generated_hash, Some(&remote_hash))?;
 
     let repo = KnowledgeSyncRepo::new(db);
     repo.record_target_doc(&id, "siyuan", &doc_id, &path)?;
@@ -139,11 +134,10 @@ pub async fn publish_knowledge_to_siyuan(
         }
     }
 
-    let candidate_remote_id = item.siyuan_doc_id.clone().or_else(|| {
-        existing
-            .as_ref()
-            .and_then(|value| value.target_id.clone())
-    });
+    let candidate_remote_id = item
+        .siyuan_doc_id
+        .clone()
+        .or_else(|| existing.as_ref().and_then(|value| value.target_id.clone()));
     let remote_id = match candidate_remote_id {
         Some(id) if store.document_exists(&id).await? => Some(id),
         _ => None,
@@ -153,13 +147,7 @@ pub async fn publish_knowledge_to_siyuan(
         if existing.status == SyncStatus::Synced && !overwrite_conflict {
             let Some(baseline) = existing.target_hash.as_deref() else {
                 repo.mark_conflict(&item.id, "siyuan")?;
-                let _ = service.bind_siyuan_document(
-                    &item.id,
-                    id,
-                    &hash,
-                    None,
-                    "conflict",
-                )?;
+                let _ = service.bind_siyuan_document(&item.id, id, &hash, None, "conflict")?;
                 return Ok(PublishKnowledgeResult {
                     knowledge_id: item.id,
                     outcome: "conflict".into(),
@@ -224,13 +212,8 @@ pub async fn publish_knowledge_to_siyuan(
 
     let remote_hash = store.document_hash(&doc_id).await?;
     repo.record_target_hash(&item.id, "siyuan", &remote_hash)?;
-    let _ = service.bind_siyuan_document(
-        &item.id,
-        &doc_id,
-        &hash,
-        Some(&remote_hash),
-        "migrated",
-    )?;
+    let _ =
+        service.bind_siyuan_document(&item.id, &doc_id, &hash, Some(&remote_hash), "migrated")?;
 
     Ok(PublishKnowledgeResult {
         knowledge_id: item.id,
