@@ -216,6 +216,10 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
+  async showWorkbenchDatabase(): Promise<void> {}
+
+  async showWorkbenchGraph(): Promise<void> {}
+
   async getFullStatus(): Promise<FullStatus> {
     return {
       scan_total: sessions.length, scan_by_source: { opencode: 30, claude_code: 10, codex: 10, gemini_cli: 10 },
