@@ -45,6 +45,8 @@ fn to_json(item: KnowledgeRecord) -> serde_json::Value {
         "managed_by": item.managed_by,
         "status": item.status,
         "is_favorite": item.is_favorite,
+        "siyuan_doc_id": item.siyuan_doc_id,
+        "generated_hash": item.generated_hash,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
         "source": item.source,
@@ -52,6 +54,19 @@ fn to_json(item: KnowledgeRecord) -> serde_json::Value {
         "session_title": item.session_title,
         "chunks": []
     })
+}
+
+fn siyuan_sink(
+    engine: &aiks_core::AiksEngine,
+    runtime_url: Option<String>,
+) -> Result<aiks_core::sink::SiYuanSink, String> {
+    let config = engine.config();
+    if let Some(url) = runtime_url {
+        aiks_core::sink::SiYuanSink::embedded(url, config.siyuan.notebook_name.clone())
+            .map_err(|e| e.to_string())
+    } else {
+        aiks_core::sink::SiYuanSink::new(config.siyuan.clone()).map_err(|e| e.to_string())
+    }
 }
 
 // Keep the invoke payload flat so the Tauri boundary matches the Desktop API's
@@ -110,16 +125,21 @@ pub async fn create_knowledge(
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
-    let item = KnowledgeService::new(&db)
-        .create_manual(CreateKnowledgeInput {
+    let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
+    let item = aiks_core::knowledge::create_manual_knowledge_in_siyuan(
+        &db,
+        &sink,
+        CreateKnowledgeInput {
             title: input.title,
             category: input.category,
             project_name: input.project_name,
             summary: input.summary,
             content: input.content,
             tags: input.tags,
-        })
-        .map_err(|e| e.to_string())?;
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(to_json(item))
 }
 
@@ -222,6 +242,7 @@ pub async fn search_knowledge_v4(
                 "confidence": item.confidence,
                 "source_type": item.source_type,
                 "is_favorite": item.is_favorite,
+                "siyuan_doc_id": item.siyuan_doc_id,
                 "match_type": hit.match_type
             }));
         }
@@ -242,14 +263,7 @@ pub async fn publish_knowledge(
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
-    let runtime_url = state.siyuan_url().await;
-    let config = engine.config();
-    let sink = if let Some(url) = runtime_url {
-        aiks_core::sink::SiYuanSink::embedded(url, config.siyuan.notebook_name.clone())
-            .map_err(|e| e.to_string())?
-    } else {
-        aiks_core::sink::SiYuanSink::new(config.siyuan.clone()).map_err(|e| e.to_string())?
-    };
+    let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
     let result =
         aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)
             .await
