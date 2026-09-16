@@ -85,6 +85,7 @@ pub fn run() {
             knowledge_commands::set_knowledge_favorite,
             knowledge_commands::archive_knowledge,
             knowledge_commands::restore_knowledge,
+            knowledge_commands::search_knowledge_v4,
             knowledge_commands::publish_knowledge,
         ])
         .on_window_event(|window, event| {
