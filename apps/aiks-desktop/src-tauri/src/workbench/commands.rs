@@ -1,6 +1,9 @@
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, State, Url};
+use tauri::webview::WebviewBuilder;
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl,
+};
 use uuid::Uuid;
 
 use crate::app_state::AppState;
@@ -10,6 +13,8 @@ use super::protocol::{
     validate_identifier, validate_protocol_version, WorkbenchAction, WorkspaceMode,
     BRIDGE_PROTOCOL_VERSION,
 };
+
+const WORKBENCH_WEBVIEW_LABEL: &str = "siyuan-workbench";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,25 +94,47 @@ fn same_origin(left: &Url, right: &Url) -> bool {
         && left.port_or_known_default() == right.port_or_known_default()
 }
 
+fn validate_bounds(x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
+    if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
+        return Err("workbench bounds must be finite".to_string());
+    }
+    if x < 0.0 || y < 0.0 || width < 1.0 || height < 1.0 {
+        return Err("workbench bounds are outside the control window".to_string());
+    }
+    Ok(())
+}
+
 fn dispatch_action(
     app: &AppHandle,
     controller: &WorkbenchController,
     action: WorkbenchAction,
 ) -> Result<(), String> {
+    if !controller.status().ready {
+        return Err("SiYuan bridge is still initializing".to_string());
+    }
+
     let expected_origin = controller
         .origin()
         .ok_or_else(|| "SiYuan workbench is unavailable".to_string())?;
-    let window = app
-        .get_webview_window("knowledge")
-        .ok_or_else(|| "knowledge webview is unavailable".to_string())?;
-    let current_url = window.url().map_err(|e| e.to_string())?;
-    if !same_origin(&current_url, &expected_origin) {
-        return Err("SiYuan workbench is not loaded yet".to_string());
-    }
-
     let envelope = BridgeEnvelope::for_action(controller, action).map_err(|e| e.to_string())?;
     let message = serde_json::to_string(&envelope).map_err(|e| e.to_string())?;
     let script = format!("window.postMessage({message}, window.location.origin);");
+
+    if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
+        let current_url = webview.url().map_err(|e| e.to_string())?;
+        if !same_origin(&current_url, &expected_origin) {
+            return Err("SiYuan child workbench is not loaded yet".to_string());
+        }
+        return webview.eval(&script).map_err(|e| e.to_string());
+    }
+
+    let window = app
+        .get_webview_window("knowledge")
+        .ok_or_else(|| "knowledge workbench is unavailable".to_string())?;
+    let current_url = window.url().map_err(|e| e.to_string())?;
+    if !same_origin(&current_url, &expected_origin) {
+        return Err("SiYuan fallback workbench is not loaded yet".to_string());
+    }
     window.eval(&script).map_err(|e| e.to_string())
 }
 
@@ -121,6 +148,61 @@ pub async fn get_workbench_status(
 }
 
 #[tauri::command]
+pub async fn mount_workbench(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    controller: State<'_, WorkbenchController>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    validate_bounds(x, y, width, height)?;
+    let origin = sync_origin(app_state.inner(), controller.inner())
+        .await?
+        .ok_or_else(|| "SiYuan workbench is unavailable".to_string())?;
+
+    if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
+        let current_url = webview.url().map_err(|e| e.to_string())?;
+        if !same_origin(&current_url, &origin) {
+            controller.set_ready(false);
+            webview.navigate(origin).map_err(|e| e.to_string())?;
+        }
+        webview
+            .set_position(LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        webview
+            .set_size(LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+        webview.show().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let parent = app
+        .get_window("control")
+        .ok_or_else(|| "control window is unavailable".to_string())?;
+    let expected_origin = origin.clone();
+    let nonce = serde_json::to_string(controller.nonce()).map_err(|e| e.to_string())?;
+    let initialization_script = format!("window.__AIKS_WORKBENCH_NONCE__ = {nonce};");
+    let builder = WebviewBuilder::new(
+        WORKBENCH_WEBVIEW_LABEL,
+        WebviewUrl::External(origin),
+    )
+    .initialization_script(initialization_script)
+    .on_navigation(move |url| same_origin(url, &expected_origin));
+
+    controller.set_ready(false);
+    let webview = parent
+        .add_child(
+            builder,
+            LogicalPosition::new(x, y),
+            LogicalSize::new(width, height),
+        )
+        .map_err(|e| e.to_string())?;
+    webview.show().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn show_workbench(
     app: AppHandle,
     app_state: State<'_, AppState>,
@@ -129,11 +211,23 @@ pub async fn show_workbench(
     let origin = sync_origin(app_state.inner(), controller.inner())
         .await?
         .ok_or_else(|| "SiYuan workbench is unavailable".to_string())?;
+
+    if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
+        let current_url = webview.url().map_err(|e| e.to_string())?;
+        if !same_origin(&current_url, &origin) {
+            controller.set_ready(false);
+            webview.navigate(origin).map_err(|e| e.to_string())?;
+        }
+        webview.show().map_err(|e| e.to_string())?;
+        return webview.set_focus().map_err(|e| e.to_string());
+    }
+
     let window = app
         .get_webview_window("knowledge")
-        .ok_or_else(|| "knowledge webview is unavailable".to_string())?;
+        .ok_or_else(|| "knowledge fallback workbench is unavailable".to_string())?;
     let current_url = window.url().map_err(|e| e.to_string())?;
     if !same_origin(&current_url, &origin) {
+        controller.set_ready(false);
         window.navigate(origin).map_err(|e| e.to_string())?;
     }
     window.show().map_err(|e| e.to_string())?;
@@ -143,10 +237,13 @@ pub async fn show_workbench(
 
 #[tauri::command]
 pub fn hide_workbench(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("knowledge")
-        .ok_or_else(|| "knowledge webview is unavailable".to_string())?;
-    window.hide().map_err(|e| e.to_string())
+    if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
+        webview.hide().map_err(|e| e.to_string())?;
+    }
+    if let Some(window) = app.get_webview_window("knowledge") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -344,5 +441,13 @@ mod tests {
 
         assert_eq!(json["action"], "setWorkspaceMode");
         assert_eq!(json["payload"]["mode"], "session");
+    }
+
+    #[test]
+    fn rejects_invalid_child_workbench_bounds() {
+        assert!(validate_bounds(10.0, 10.0, 500.0, 300.0).is_ok());
+        assert!(validate_bounds(-1.0, 10.0, 500.0, 300.0).is_err());
+        assert!(validate_bounds(10.0, 10.0, 0.0, 300.0).is_err());
+        assert!(validate_bounds(10.0, 10.0, f64::NAN, 300.0).is_err());
     }
 }
