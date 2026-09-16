@@ -1,4 +1,4 @@
-import { Plugin, openTab } from "siyuan";
+import { Plugin, getAllEditor, openTab } from "siyuan";
 
 const PROTOCOL_VERSION = 1;
 const AIKS_EVENT_CHANNEL = "aiks-workbench-event";
@@ -33,6 +33,8 @@ class SiyuanAdapter {
   constructor(app) {
     this.app = app;
     this.readOnly = false;
+    this.disabledEditors = new Set();
+    this.readOnlyRefreshTimers = new Set();
   }
 
   openDocument(docId) {
@@ -40,6 +42,7 @@ class SiyuanAdapter {
     if (!id) return false;
     try {
       openTab({ app: this.app, doc: { id } });
+      this.scheduleReadOnlyRefresh();
       return true;
     } catch (error) {
       console.warn("[AIKS Bridge] openDocument failed", error);
@@ -68,12 +71,69 @@ class SiyuanAdapter {
     return true;
   }
 
+  applyEditorReadOnly() {
+    if (!this.readOnly) return;
+    let editors = [];
+    try {
+      editors = getAllEditor();
+    } catch (error) {
+      console.warn("[AIKS Bridge] getAllEditor failed", error);
+      return;
+    }
+    for (const editor of editors) {
+      if (!editor || this.disabledEditors.has(editor)) continue;
+      if (typeof editor.disable === "function") {
+        try {
+          editor.disable();
+          this.disabledEditors.add(editor);
+        } catch (error) {
+          console.warn("[AIKS Bridge] failed to disable Protyle", error);
+        }
+      }
+    }
+  }
+
+  restoreEditors() {
+    for (const editor of this.disabledEditors) {
+      if (typeof editor?.enable !== "function") continue;
+      try {
+        editor.enable();
+      } catch (error) {
+        console.warn("[AIKS Bridge] failed to re-enable Protyle", error);
+      }
+    }
+    this.disabledEditors.clear();
+  }
+
+  scheduleReadOnlyRefresh() {
+    if (!this.readOnly) return;
+    this.applyEditorReadOnly();
+    for (const delay of [0, 120, 500]) {
+      const timer = window.setTimeout(() => {
+        this.readOnlyRefreshTimers.delete(timer);
+        this.applyEditorReadOnly();
+      }, delay);
+      this.readOnlyRefreshTimers.add(timer);
+    }
+  }
+
   setReadOnly(value) {
-    this.readOnly = Boolean(value);
-    document.documentElement.dataset.aiksReadonly = this.readOnly
-      ? "true"
-      : "false";
+    const next = Boolean(value);
+    this.readOnly = next;
+    document.documentElement.dataset.aiksReadonly = next ? "true" : "false";
+    if (next) {
+      this.scheduleReadOnlyRefresh();
+    } else {
+      this.restoreEditors();
+    }
     return this.readOnly;
+  }
+
+  clearReadOnlyTimers() {
+    for (const timer of this.readOnlyRefreshTimers) {
+      window.clearTimeout(timer);
+    }
+    this.readOnlyRefreshTimers.clear();
   }
 
   clickFirst(selectors) {
@@ -153,6 +213,8 @@ class SiyuanAdapter {
   }
 
   clearAiksLayout() {
+    this.clearReadOnlyTimers();
+    this.restoreEditors();
     document.documentElement.classList.remove("aiks-embedded-workbench");
     delete document.documentElement.dataset.aiksReadonly;
   }
@@ -183,6 +245,13 @@ export default class AIKSBridgePlugin extends Plugin {
     document.addEventListener("keydown", this.onKeyDown, true);
     document.addEventListener("input", this.onEditorInput, true);
 
+    this.readOnlyObserver = new MutationObserver(() => {
+      if (this.adapter?.readOnly) {
+        this.adapter.scheduleReadOnlyRefresh();
+      }
+    });
+    this.readOnlyObserver.observe(document.body, { childList: true, subtree: true });
+
     const bridge = {
       protocolVersion: 1,
       adapter: this.adapter,
@@ -202,6 +271,7 @@ export default class AIKSBridgePlugin extends Plugin {
     document.removeEventListener("drop", this.onDrop, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
     document.removeEventListener("input", this.onEditorInput, true);
+    this.readOnlyObserver?.disconnect?.();
     for (const timer of this.changeTimers?.values?.() || []) {
       window.clearTimeout(timer);
     }
