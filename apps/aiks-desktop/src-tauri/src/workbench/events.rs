@@ -117,7 +117,7 @@ pub fn register(app: &AppHandle) {
                                     "knowledge-index-invalidated",
                                     serde_json::json!({
                                         "knowledgeId": knowledge_id,
-                                        "docId": doc_id,
+                                        "docId": &doc_id,
                                     }),
                                 );
 
@@ -166,7 +166,7 @@ pub fn register(app: &AppHandle) {
                                                 "knowledge-index-refreshed",
                                                 serde_json::json!({
                                                     "knowledgeId": refreshed_id,
-                                                    "docId": doc_id_bg,
+                                                    "docId": &doc_id_bg,
                                                 }),
                                             );
                                         }
