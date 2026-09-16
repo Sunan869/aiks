@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { getApi } from "../api/client";
-import type { WorkbenchBounds, WorkbenchStatus, WorkspaceMode } from "../api/types";
-
-export type WorkbenchSurface = WorkspaceMode | "database" | "graph";
+import type { WorkbenchBounds, WorkbenchStatus } from "../api/types";
+import {
+  boundWorkbenchMode,
+  type WorkbenchSurface,
+} from "../api/workbench";
 
 interface Props {
   surface: WorkbenchSurface;
@@ -72,8 +74,9 @@ export default function WorkbenchHost({ surface, docId }: Props) {
       if (!readyStatus.available) throw new Error("SiYuan Workbench 当前不可用");
       if (!readyStatus.ready) throw new Error("SiYuan Bridge 初始化超时");
 
-      if (surface === "knowledge" && docId) {
-        await getApi().openSiyuanDocument(docId, "knowledge");
+      const boundMode = boundWorkbenchMode(surface, docId);
+      if (boundMode && docId) {
+        await getApi().openSiyuanDocument(docId, boundMode);
       } else {
         await getApi().showWorkbenchSurface(surface);
       }
