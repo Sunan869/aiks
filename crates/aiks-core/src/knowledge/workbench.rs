@@ -352,7 +352,7 @@ impl<'a> KnowledgeService<'a> {
             Some((doc_id, hash, remote_hash)) => {
                 (Some(doc_id), Some(hash), remote_hash, Some("migrated"))
             }
-            None => (None, None, None, None),
+            None => (None, None, None, Some("pending")),
         };
 
         let conn = self.db.conn();
