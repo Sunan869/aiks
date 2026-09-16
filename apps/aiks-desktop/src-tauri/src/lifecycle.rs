@@ -80,7 +80,11 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         Ok(target) => info!(path = %target.display(), "AIKS bridge plugin ready"),
         Err(e) => {
             warn!(error = %e, "AIKS bridge plugin could not be installed; workbench will degrade");
-            emit_error(&app, &format!("知识工作台桥接组件未就绪：{}", e));
+            emit_progress(
+                &app,
+                "workbench_warning",
+                "知识工作台桥接组件未就绪，将以降级模式继续启动",
+            );
         }
     }
 
@@ -458,15 +462,15 @@ async fn set_runtime(app: &AppHandle, runtime: Option<SiyuanRuntime>) {
     }
 }
 
-fn emit_progress(app: &AppHandle, stage: &str, message: &str) {
+fn emit_progress(app: &AppHandle, step: &str, message: &str) {
     let _ = app.emit(
         "startup-progress",
-        serde_json::json!({"stage": stage, "message": message}),
+        serde_json::json!({"step": step, "message": message}),
     );
 }
 
 fn emit_error(app: &AppHandle, message: &str) {
-    let _ = app.emit("startup-error", serde_json::json!({"message": message}));
+    let _ = app.emit("startup-error", serde_json::json!({"error": message}));
 }
 
 fn show_control_center(app: &AppHandle) {
