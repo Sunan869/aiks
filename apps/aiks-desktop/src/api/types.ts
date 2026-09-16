@@ -203,6 +203,10 @@ export interface V41Diagnostics {
   siyuan_ready: boolean;
   workbench: WorkbenchStatus;
   migration: ContentMigrationStats;
+  workbench_version: string;
+  siyuan_base_version: string;
+  siyuan_upstream_commit: string;
+  bridge_protocol_version: number;
 }
 
 export interface FullStatus {
