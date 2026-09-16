@@ -14,6 +14,7 @@ import type {
   WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
+  V41Diagnostics,
   FullStatus,
   AiStatus,
 } from "./types";
@@ -38,6 +39,7 @@ export interface AiksApi {
 
   // V4.1 Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
+  getV41Diagnostics(): Promise<V41Diagnostics>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
   hideWorkbench(): Promise<void>;
