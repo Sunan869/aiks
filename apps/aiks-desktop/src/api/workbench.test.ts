@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import pluginManifest from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/plugin.json";
+import pluginSource from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/index.js?raw";
 import {
   BRIDGE_PROTOCOL_VERSION,
   WORKBENCH_ACTIONS,
@@ -9,12 +8,6 @@ import {
   isWorkbenchAction,
   type WorkbenchActionName,
 } from "./workbench";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const pluginRoot = resolve(
-  here,
-  "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge",
-);
 
 describe("V4.1 workbench bridge contract", () => {
   it("keeps the version-one workspace modes stable", () => {
@@ -47,16 +40,11 @@ describe("V4.1 workbench bridge contract", () => {
   });
 
   it("ships a SiYuan plugin resource that exposes protocol v1", () => {
-    const manifest = JSON.parse(
-      readFileSync(resolve(pluginRoot, "plugin.json"), "utf8"),
-    ) as { name: string; version: string };
-    const source = readFileSync(resolve(pluginRoot, "index.js"), "utf8");
-
-    expect(manifest.name).toBe("aiks-bridge");
-    expect(manifest.version).toMatch(/^1\./);
-    expect(source).toContain("window.__AIKS_BRIDGE__");
-    expect(source).toContain("protocolVersion: 1");
-    expect(source).toContain("setReadOnly");
-    expect(source).toContain("bridgeReady");
+    expect(pluginManifest.name).toBe("aiks-bridge");
+    expect(pluginManifest.version).toMatch(/^1\./);
+    expect(pluginSource).toContain("window.__AIKS_BRIDGE__");
+    expect(pluginSource).toContain("protocolVersion: 1");
+    expect(pluginSource).toContain("setReadOnly");
+    expect(pluginSource).toContain("bridgeReady");
   });
 });
