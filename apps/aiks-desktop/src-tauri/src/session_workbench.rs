@@ -5,9 +5,7 @@ use crate::app_state::AppState;
 
 pub fn lookup_session_doc_id(db: &StateDb, session_id: i64) -> anyhow::Result<Option<String>> {
     let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT siyuan_doc_id FROM source_session WHERE id = ?1",
-    )?;
+    let mut stmt = conn.prepare("SELECT siyuan_doc_id FROM source_session WHERE id = ?1")?;
     let mut rows = stmt.query([session_id])?;
     let Some(row) = rows.next()? else {
         return Ok(None);
