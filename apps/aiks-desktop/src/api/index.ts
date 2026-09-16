@@ -41,6 +41,8 @@ export interface AiksApi {
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
+  showWorkbenchDatabase(): Promise<void>;
+  showWorkbenchGraph(): Promise<void>;
 
   // Compatibility / operational APIs
   getFullStatus(): Promise<FullStatus>;
