@@ -19,6 +19,15 @@ function readBounds(element: HTMLElement): WorkbenchBounds | null {
   };
 }
 
+async function waitForBridgeReady(): Promise<WorkbenchStatus> {
+  let status = await getApi().getWorkbenchStatus();
+  for (let attempt = 0; attempt < 30 && status.available && !status.ready; attempt += 1) {
+    await new Promise(resolve => window.setTimeout(resolve, 100));
+    status = await getApi().getWorkbenchStatus();
+  }
+  return status;
+}
+
 export default function WorkbenchHost({ mode, docId }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -30,6 +39,11 @@ export default function WorkbenchHost({ mode, docId }: Props) {
     setLoading(true);
     setError(null);
     try {
+      const readyStatus = await waitForBridgeReady();
+      setStatus(readyStatus);
+      if (!readyStatus.available) throw new Error("SiYuan Workbench 当前不可用");
+      if (!readyStatus.ready) throw new Error("SiYuan Bridge 初始化超时");
+
       if (docId) {
         await getApi().openSiyuanDocument(docId, mode);
       } else {
