@@ -1,6 +1,7 @@
 mod app_state;
 mod bootstrap;
 mod commands;
+mod diagnostics;
 mod knowledge_commands;
 mod lifecycle;
 mod tray;
