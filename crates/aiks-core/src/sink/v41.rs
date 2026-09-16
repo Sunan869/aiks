@@ -103,8 +103,7 @@ impl<'a> SiYuanContentStore<'a> {
         doc_id: &str,
         attrs: &KnowledgeBindingAttrs,
     ) -> anyhow::Result<()> {
-        self.sink
-            .set_block_attrs(doc_id, attrs.to_block_attrs())
-            .await
+        let block_attrs = attrs.to_block_attrs();
+        self.sink.set_block_attrs(doc_id, &block_attrs).await
     }
 }
