@@ -37,10 +37,7 @@ impl BridgeEnvelope {
             WorkbenchAction::OpenBlock { doc_id, block_id } => {
                 let doc_id = validate_identifier("doc_id", &doc_id)?;
                 let block_id = validate_identifier("block_id", &block_id)?;
-                (
-                    "openBlock",
-                    json!({ "docId": doc_id, "blockId": block_id }),
-                )
+                ("openBlock", json!({ "docId": doc_id, "blockId": block_id }))
             }
             WorkbenchAction::SetWorkspaceMode { mode } => {
                 ("setWorkspaceMode", json!({ "mode": mode }))
