@@ -65,15 +65,17 @@ impl<'a> KnowledgeRepo<'a> {
                      WHERE source_session_id = ?1 AND source_type = 'conversation'
                      ORDER BY rowid",
                 )?;
-                stmt.query_map(params![session_id], |row| {
-                    Ok(ExistingIdentity {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        category: row.get(2)?,
-                        managed_by: row.get(3)?,
-                    })
-                })?
-                .collect::<Result<Vec<_>, _>>()?
+                let rows = stmt
+                    .query_map(params![session_id], |row| {
+                        Ok(ExistingIdentity {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            category: row.get(2)?,
+                            managed_by: row.get(3)?,
+                        })
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
             };
 
             let mut old_by_key: std::collections::HashMap<String, Vec<usize>> =
