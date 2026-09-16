@@ -15,7 +15,7 @@ mod tests {
         assert!(validate_loopback_origin("http://localhost:6806").is_ok());
         assert!(validate_loopback_origin("http://[::1]:6806").is_ok());
         assert!(validate_loopback_origin("https://example.com").is_err());
-        assert!(validate_loopback_origin("http://10.10.23.16:6806").is_err());
+        assert!(validate_loopback_origin("http://192.0.2.1:6806").is_err());
     }
 
     #[test]
