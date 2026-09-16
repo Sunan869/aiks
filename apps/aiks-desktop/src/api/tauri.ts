@@ -13,6 +13,7 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
   FullStatus,
@@ -78,6 +79,10 @@ export class TauriAiksApi implements AiksApi {
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
     return invoke("get_workbench_status");
+  }
+
+  async mountWorkbench(bounds: WorkbenchBounds): Promise<void> {
+    await invoke("mount_workbench", bounds);
   }
 
   async showWorkbench(mode: WorkspaceMode): Promise<void> {
