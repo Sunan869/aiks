@@ -113,6 +113,69 @@ fn manual_knowledge_crud_is_native_and_invalidates_derived_content() {
     assert_eq!(service.restore(&created.id).unwrap().status, "active");
 }
 
+#[test]
+fn v41_manual_control_row_is_created_with_canonical_siyuan_binding() {
+    let (_dir, db) = db();
+    let service = KnowledgeService::new(&db);
+    let created = service
+        .create_manual_bound(
+            "manual-v41-1",
+            CreateKnowledgeInput {
+                title: "SiYuan 主内容".into(),
+                category: Some("implementation".into()),
+                project_name: Some("AIKS".into()),
+                summary: Some("控制元数据".into()),
+                content: "兼容快照".into(),
+                tags: vec!["SiYuan".into()],
+            },
+            "doc-v41-1",
+            "generated-hash-1",
+            Some("remote-hash-1"),
+        )
+        .unwrap();
+
+    assert_eq!(created.id, "manual-v41-1");
+    assert_eq!(created.siyuan_doc_id.as_deref(), Some("doc-v41-1"));
+    assert_eq!(
+        created.generated_hash.as_deref(),
+        Some("generated-hash-1")
+    );
+    assert_eq!(created.source_type, "manual");
+    assert_eq!(created.managed_by, "user");
+}
+
+#[test]
+fn v41_existing_knowledge_can_record_canonical_siyuan_binding() {
+    let (_dir, db) = db();
+    let service = KnowledgeService::new(&db);
+    let created = service
+        .create_manual(CreateKnowledgeInput {
+            title: "待绑定".into(),
+            category: None,
+            project_name: None,
+            summary: None,
+            content: "snapshot".into(),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let bound = service
+        .bind_siyuan_document(
+            &created.id,
+            "doc-existing-1",
+            "generated-existing-1",
+            Some("remote-existing-1"),
+            "migrated",
+        )
+        .unwrap();
+
+    assert_eq!(bound.siyuan_doc_id.as_deref(), Some("doc-existing-1"));
+    assert_eq!(
+        bound.generated_hash.as_deref(),
+        Some("generated-existing-1")
+    );
+}
+
 #[tokio::test]
 async fn archived_knowledge_is_excluded_from_search() {
     let (_dir, db) = db();
