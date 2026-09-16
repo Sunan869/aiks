@@ -4,7 +4,7 @@ import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
-  SearchResponse, WorkbenchStatus, WorkspaceMode, FullStatus, AiStatus,
+  SearchResponse, WorkbenchBounds, WorkbenchStatus, WorkspaceMode, FullStatus, AiStatus,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -201,6 +201,8 @@ export class MockAiksApi implements AiksApi {
       origin: "http://127.0.0.1:6812/",
     };
   }
+
+  async mountWorkbench(_bounds: WorkbenchBounds): Promise<void> {}
 
   async showWorkbench(mode: WorkspaceMode): Promise<void> {
     workbenchMode = mode;
