@@ -233,7 +233,10 @@ impl<'a> KnowledgeService<'a> {
     /// Mark the SQLite read model and all derived search/vector artifacts stale
     /// after the canonical SiYuan document changes. This never writes body text
     /// back to SiYuan; it only removes rebuildable local derivatives.
-    pub fn invalidate_siyuan_document(&self, siyuan_doc_id: &str) -> anyhow::Result<Option<String>> {
+    pub fn invalidate_siyuan_document(
+        &self,
+        siyuan_doc_id: &str,
+    ) -> anyhow::Result<Option<String>> {
         let siyuan_doc_id = required_text("siyuan_doc_id", siyuan_doc_id)?;
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
