@@ -86,6 +86,12 @@ export default function App() {
     };
   }, [refreshStatus, isMock]);
 
+  useEffect(() => {
+    if (nav.page !== "knowledge") {
+      void getApi().hideWorkbench().catch(() => {});
+    }
+  }, [nav.page]);
+
   if (!isReady) return <StartupScreen step={startupStep} error={startupError} />;
 
   const sessionCount = fullStatus?.scan_total ?? 0;
