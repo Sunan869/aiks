@@ -58,6 +58,7 @@ pub fn decide_migration(snapshot: &MigrationSnapshot) -> MigrationDecision {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentMigrationStats {
     pub total: usize,
+    pub pending: usize,
     pub migrated: usize,
     pub reused: usize,
     pub conflicts: usize,
@@ -73,47 +74,58 @@ impl<'a> ContentMigrationService<'a> {
         Self { db }
     }
 
+    pub fn stats(&self) -> anyhow::Result<ContentMigrationStats> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*)
+             FROM content_migration
+             WHERE entity_type = 'knowledge'
+             GROUP BY status",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut stats = ContentMigrationStats::default();
+        for row in rows {
+            let (status, count) = row?;
+            let count = count.max(0) as usize;
+            stats.total += count;
+            match status.as_str() {
+                "pending" => stats.pending += count,
+                "migrated" => stats.migrated += count,
+                "reused" => stats.reused += count,
+                "conflict" => stats.conflicts += count,
+                "failed" => stats.failed += count,
+                _ => {}
+            }
+        }
+        Ok(stats)
+    }
+
     pub async fn migrate(&self, sink: &SiYuanSink) -> anyhow::Result<ContentMigrationStats> {
         let items = self.load_items()?;
-        let mut stats = ContentMigrationStats {
-            total: items.len(),
-            ..ContentMigrationStats::default()
-        };
         let store = SiYuanContentStore::new(sink);
 
         for item in items {
             if let Some(status) = self.completed_status(&item.id)? {
-                match status.as_str() {
-                    "migrated" => stats.migrated += 1,
-                    "reused" => stats.reused += 1,
-                    _ => {}
-                }
                 if matches!(status.as_str(), "migrated" | "reused") {
                     continue;
                 }
             }
 
-            match self.migrate_item(sink, &store, &item).await {
-                Ok(MigrationDecision::Create | MigrationDecision::Update { .. }) => {
-                    stats.migrated += 1;
-                }
-                Ok(MigrationDecision::Reuse { .. }) => stats.reused += 1,
-                Ok(MigrationDecision::Conflict { .. }) => stats.conflicts += 1,
-                Err(error) => {
-                    stats.failed += 1;
-                    self.record_migration(
-                        &item.id,
-                        "failed",
-                        self.bound_doc_id(&item.id)?.as_deref(),
-                        None,
-                        None,
-                        Some(&error.to_string()),
-                    )?;
-                }
+            if let Err(error) = self.migrate_item(sink, &store, &item).await {
+                self.record_migration(
+                    &item.id,
+                    "failed",
+                    self.bound_doc_id(&item.id)?.as_deref(),
+                    None,
+                    None,
+                    Some(&error.to_string()),
+                )?;
             }
         }
 
-        Ok(stats)
+        self.stats()
     }
 
     fn load_items(&self) -> anyhow::Result<Vec<KnowledgeRecord>> {
