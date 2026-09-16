@@ -98,7 +98,16 @@ impl<'a> KnowledgeService<'a> {
                   is_favorite, created_at, updated_at)
                  VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, 1.0, 1,
                          'manual', 'user', 'active', 0, ?8, ?8)",
-                params![id, project_name, title, category, summary, content, tags_json, now],
+                params![
+                    id,
+                    project_name,
+                    title,
+                    category,
+                    summary,
+                    content,
+                    tags_json,
+                    now
+                ],
             )?;
             upsert_fts(&conn, &id, &title, &summary, &content, &tags_json)?;
             Ok(())
@@ -145,7 +154,16 @@ impl<'a> KnowledgeService<'a> {
                  SET project_name = ?2, title = ?3, category = ?4, summary = ?5,
                      content = ?6, tags = ?7, managed_by = 'user', updated_at = ?8
                  WHERE id = ?1",
-                params![id, project_name, title, category, summary, content, tags_json, now],
+                params![
+                    id,
+                    project_name,
+                    title,
+                    category,
+                    summary,
+                    content,
+                    tags_json,
+                    now
+                ],
             )?;
             if changed == 0 {
                 anyhow::bail!("Knowledge item not found: {id}");
@@ -215,13 +233,32 @@ impl<'a> KnowledgeService<'a> {
         let mut where_parts: Vec<String> = Vec::new();
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
 
-        push_text_filter(&mut where_parts, &mut values, "ki.project_name", filter.project);
-        push_text_filter(&mut where_parts, &mut values, "ki.category", filter.category);
-        push_text_filter(&mut where_parts, &mut values, "ki.source_type", filter.source_type);
+        push_text_filter(
+            &mut where_parts,
+            &mut values,
+            "ki.project_name",
+            filter.project,
+        );
+        push_text_filter(
+            &mut where_parts,
+            &mut values,
+            "ki.category",
+            filter.category,
+        );
+        push_text_filter(
+            &mut where_parts,
+            &mut values,
+            "ki.source_type",
+            filter.source_type,
+        );
         push_text_filter(&mut where_parts, &mut values, "ki.status", filter.status);
         if let Some(favorite) = filter.favorite {
             where_parts.push("ki.is_favorite = ?".to_string());
-            values.push(rusqlite::types::Value::Integer(if favorite { 1 } else { 0 }));
+            values.push(rusqlite::types::Value::Integer(if favorite {
+                1
+            } else {
+                0
+            }));
         }
 
         let where_clause = if where_parts.is_empty() {
@@ -251,11 +288,9 @@ impl<'a> KnowledgeService<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         let count_sql = format!("SELECT COUNT(*) FROM knowledge_item ki {where_clause}");
-        let total: i64 = conn.query_row(
-            &count_sql,
-            params_from_iter(values.iter()),
-            |row| row.get(0),
-        )?;
+        let total: i64 = conn.query_row(&count_sql, params_from_iter(values.iter()), |row| {
+            row.get(0)
+        })?;
 
         Ok(KnowledgeListResult {
             items,
