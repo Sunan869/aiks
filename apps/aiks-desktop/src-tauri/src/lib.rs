@@ -34,6 +34,7 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             tray::setup_tray(app)?;
+            workbench::events::register(&app_handle);
             tauri::async_runtime::spawn(async move {
                 match lifecycle::startup(app_handle.clone()).await {
                     Ok(()) => tracing::info!("AIKS startup complete"),
