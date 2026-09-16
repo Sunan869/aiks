@@ -230,6 +230,58 @@ impl<'a> KnowledgeService<'a> {
             .ok_or_else(|| anyhow::anyhow!("Knowledge item not found after update: {id}"))
     }
 
+    /// Mark the SQLite read model and all derived search/vector artifacts stale
+    /// after the canonical SiYuan document changes. This never writes body text
+    /// back to SiYuan; it only removes rebuildable local derivatives.
+    pub fn invalidate_siyuan_document(&self, siyuan_doc_id: &str) -> anyhow::Result<Option<String>> {
+        let siyuan_doc_id = required_text("siyuan_doc_id", siyuan_doc_id)?;
+        let now = Utc::now().to_rfc3339();
+        let conn = self.db.conn();
+        let knowledge_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM knowledge_item WHERE siyuan_doc_id = ?1",
+                params![siyuan_doc_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(knowledge_id) = knowledge_id else {
+            return Ok(None);
+        };
+
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result: anyhow::Result<()> = (|| {
+            conn.execute(
+                "DELETE FROM embedding_record
+                 WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
+                params![knowledge_id],
+            )?;
+            conn.execute(
+                "DELETE FROM knowledge_chunk WHERE knowledge_id = ?1",
+                params![knowledge_id],
+            )?;
+            conn.execute(
+                "DELETE FROM knowledge_fts WHERE knowledge_id = ?1",
+                params![knowledge_id],
+            )?;
+            conn.execute(
+                "UPDATE knowledge_item
+                 SET current_remote_hash = NULL, managed_by = 'user', updated_at = ?2
+                 WHERE id = ?1",
+                params![knowledge_id, now],
+            )?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT")?,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+        }
+
+        Ok(Some(knowledge_id))
+    }
+
     pub fn set_favorite(&self, id: &str, favorite: bool) -> anyhow::Result<KnowledgeRecord> {
         self.update_flag(id, "is_favorite", if favorite { 1 } else { 0 })
     }
