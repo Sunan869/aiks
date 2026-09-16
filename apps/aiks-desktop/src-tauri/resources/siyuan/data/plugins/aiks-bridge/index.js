@@ -160,7 +160,10 @@ class SiyuanAdapter {
 
 export default class AIKSBridgePlugin extends Plugin {
   onload() {
-    this.runtimeNonce = null;
+    const injectedNonce = window.__AIKS_WORKBENCH_NONCE__;
+    this.runtimeNonce = typeof injectedNonce === "string" && injectedNonce
+      ? injectedNonce
+      : null;
     this.mode = "knowledge";
     this.changeTimers = new Map();
     this.adapter = new SiyuanAdapter(this.app);
