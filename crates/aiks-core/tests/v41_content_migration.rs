@@ -1,6 +1,6 @@
 use aiks_core::knowledge::migration::{decide_migration, MigrationDecision, MigrationSnapshot};
-use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use aiks_core::storage::StateDb;
+use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use rusqlite::params;
 
 fn snapshot(
@@ -149,9 +149,7 @@ fn siyuan_edit_invalidates_fts_chunks_and_embeddings_without_deleting_knowledge(
         )
         .unwrap();
 
-    let invalidated = service
-        .invalidate_siyuan_document("siyuan-doc-1")
-        .unwrap();
+    let invalidated = service.invalidate_siyuan_document("siyuan-doc-1").unwrap();
     assert_eq!(invalidated.as_deref(), Some("knowledge-1"));
 
     let conn = db.conn();
@@ -170,7 +168,11 @@ fn siyuan_edit_invalidates_fts_chunks_and_embeddings_without_deleting_knowledge(
         )
         .unwrap();
     let embedding_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM embedding_record WHERE id = 'embedding-1'", [], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM embedding_record WHERE id = 'embedding-1'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     let managed_by: String = conn
         .query_row(
