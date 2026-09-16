@@ -168,6 +168,64 @@ fn knowledge_without_a_migration_row_is_reported_as_pending() {
 }
 
 #[test]
+fn siyuan_refresh_rebuilds_read_model_and_fts_from_canonical_markdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
+    let service = KnowledgeService::new(&db);
+    service
+        .create_manual_bound(
+            "knowledge-1",
+            CreateKnowledgeInput {
+                title: "Canonical knowledge".into(),
+                category: Some("general".into()),
+                project_name: Some("AIKS".into()),
+                summary: Some("summary".into()),
+                content: "old cached body".into(),
+                tags: vec!["v4.1".into()],
+            },
+            "siyuan-doc-1",
+            "generated-hash",
+            Some("old-remote-hash"),
+        )
+        .unwrap();
+
+    service.invalidate_siyuan_document("siyuan-doc-1").unwrap();
+    let refreshed = service
+        .refresh_siyuan_document_read_model(
+            "siyuan-doc-1",
+            "# Canonical knowledge\n\nfresh text edited in SiYuan",
+        )
+        .unwrap();
+    assert_eq!(refreshed.as_deref(), Some("knowledge-1"));
+
+    let item = service.get("knowledge-1").unwrap().unwrap();
+    assert_eq!(
+        item.content,
+        "# Canonical knowledge\n\nfresh text edited in SiYuan"
+    );
+    assert_eq!(item.managed_by, "user");
+
+    let conn = db.conn();
+    let fts_content: String = conn
+        .query_row(
+            "SELECT content FROM knowledge_fts WHERE knowledge_id = 'knowledge-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let remote_hash: Option<String> = conn
+        .query_row(
+            "SELECT current_remote_hash FROM knowledge_item WHERE id = 'knowledge-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(fts_content, item.content);
+    assert!(remote_hash.is_some_and(|hash| !hash.is_empty()));
+}
+
+#[test]
 fn siyuan_edit_invalidates_fts_chunks_and_embeddings_without_deleting_knowledge() {
     let dir = tempfile::tempdir().unwrap();
     let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
