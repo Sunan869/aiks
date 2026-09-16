@@ -71,6 +71,10 @@ impl<'a> SiYuanContentStore<'a> {
         self.sink.ensure_notebook().await
     }
 
+    pub async fn document_exists(&self, doc_id: &str) -> anyhow::Result<bool> {
+        Ok(self.sink.get_doc_notebook(doc_id).await?.is_some())
+    }
+
     pub async fn create_knowledge_document(
         &self,
         path: &str,
@@ -80,6 +84,14 @@ impl<'a> SiYuanContentStore<'a> {
         self.sink
             .create_document(&notebook_id, path, markdown)
             .await
+    }
+
+    pub async fn update_knowledge_document(
+        &self,
+        doc_id: &str,
+        markdown: &str,
+    ) -> anyhow::Result<()> {
+        self.sink.update_document(doc_id, markdown).await
     }
 
     pub async fn move_documents_to_content_notebook(
