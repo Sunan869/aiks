@@ -169,6 +169,15 @@ export interface SearchResponse {
   warnings?: string[];
 }
 
+export type WorkspaceMode = "knowledge" | "session";
+
+export interface WorkbenchStatus {
+  available: boolean;
+  ready: boolean;
+  mode: WorkspaceMode;
+  origin: string | null;
+}
+
 export interface FullStatus {
   scan_total: number;
   scan_by_source: Record<string, number>;
