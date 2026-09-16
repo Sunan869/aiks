@@ -52,7 +52,11 @@ pub async fn migrate_sessions_to_content_notebook(
                     .await
                     .unwrap_or_else(|| parent_path(target.target_path.as_deref()));
                 match sink
-                    .move_docs(&[target.doc_id.clone()], &target_notebook, &parent)
+                    .move_docs(
+                        std::slice::from_ref(&target.doc_id),
+                        &target_notebook,
+                        &parent,
+                    )
                     .await
                 {
                     Ok(()) => stats.moved += 1,
