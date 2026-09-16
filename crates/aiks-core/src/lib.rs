@@ -22,6 +22,10 @@ pub use engine::{
     ScanResult,
 };
 pub use knowledge::model::ExtractionStats;
+pub use knowledge::{
+    CreateKnowledgeInput, KnowledgeListFilter, KnowledgeListResult, KnowledgeRecord,
+    KnowledgeService, UpdateKnowledgeInput,
+};
 pub use model::pipeline::{KnowledgeChunk, KnowledgeItem, PipelineStage, PipelineStats};
 pub use model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
 pub use pipeline::{
