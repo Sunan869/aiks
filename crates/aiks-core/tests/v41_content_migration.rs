@@ -1,4 +1,6 @@
-use aiks_core::knowledge::migration::{decide_migration, MigrationDecision, MigrationSnapshot};
+use aiks_core::knowledge::migration::{
+    decide_migration, ContentMigrationService, MigrationDecision, MigrationSnapshot,
+};
 use aiks_core::storage::StateDb;
 use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use rusqlite::params;
@@ -108,6 +110,37 @@ fn existing_document_without_a_baseline_is_reused_conservatively() {
             doc_id: "doc-1".into()
         }
     );
+}
+
+#[test]
+fn persisted_migration_stats_are_aggregated_for_diagnostics() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
+    let conn = db.conn();
+    for (entity_id, status) in [
+        ("knowledge-1", "migrated"),
+        ("knowledge-2", "reused"),
+        ("knowledge-3", "conflict"),
+        ("knowledge-4", "failed"),
+        ("knowledge-5", "pending"),
+    ] {
+        conn.execute(
+            "INSERT INTO content_migration
+             (entity_type, entity_id, status, updated_at)
+             VALUES ('knowledge', ?1, ?2, '2026-09-16T00:00:00Z')",
+            params![entity_id, status],
+        )
+        .unwrap();
+    }
+    drop(conn);
+
+    let stats = ContentMigrationService::new(&db).stats().unwrap();
+    assert_eq!(stats.total, 5);
+    assert_eq!(stats.pending, 1);
+    assert_eq!(stats.migrated, 1);
+    assert_eq!(stats.reused, 1);
+    assert_eq!(stats.conflicts, 1);
+    assert_eq!(stats.failed, 1);
 }
 
 #[test]
