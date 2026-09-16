@@ -1,29 +1,14 @@
-// Shared Desktop API types
-
-export interface Overview {
-  session_count: number;
-  knowledge_count: number;
-  processing_count: number;
-  failed_count: number;
-  ai_ready: boolean;
-  ai_model: string;
-  siyuan_ready: boolean;
-  last_sync_at: string | null;
-  recent_knowledge: KnowledgeSummary[];
-  active_pipelines: PipelineSummary[];
-}
-
 export interface SessionItem {
   id: number;
   source: string;
   session_id: string;
-  title: string | null;
+  title: string;
   project_name: string | null;
   project_path: string | null;
-  updated_at: string | null;
-  content_hash: string | null;
+  updated_at: string;
+  content_hash: string;
   run_id: string | null;
-  pipeline_status: string | null;
+  pipeline_status: string;
   current_stage: string | null;
 }
 
@@ -37,27 +22,15 @@ export interface SessionPage {
 export interface PipelineSummary {
   run_id: string;
   session_id: number;
-  session_title: string | null;
   source: string;
+  title: string;
+  project_name: string | null;
   status: string;
   current_stage: string | null;
-  pipeline_version: string;
-  started_at: string | null;
-  finished_at: string | null;
-  error_stage: string | null;
+  started_at: string;
+  updated_at: string;
+  error_code: string | null;
   error_message: string | null;
-  stage_runs: StageRun[];
-  knowledge_count: number;
-}
-
-export interface StageRun {
-  stage: string;
-  status: string;
-  input_count: number | null;
-  output_count: number | null;
-  latency_ms: number | null;
-  error_message: string | null;
-  detail: unknown | null;
 }
 
 export interface PipelineStats {
@@ -69,6 +42,19 @@ export interface PipelineStats {
   knowledge_items: number;
   knowledge_chunks: number;
   embeddings: number;
+}
+
+export interface Overview {
+  session_count: number;
+  knowledge_count: number;
+  processing_count: number;
+  failed_count: number;
+  ai_ready: boolean;
+  ai_model: string;
+  siyuan_ready: boolean;
+  last_sync_at: string | null;
+  recent_knowledge: KnowledgeSummary[];
+  active_pipelines: PipelineSummary[];
 }
 
 export type KnowledgeSourceType = "conversation" | "manual";
@@ -88,6 +74,8 @@ export interface KnowledgeSummary {
   managed_by: KnowledgeManagedBy;
   status: KnowledgeStatus;
   is_favorite: boolean;
+  siyuan_doc_id?: string | null;
+  generated_hash?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +147,8 @@ export interface SearchResult {
   match_type: string;
   source_type?: KnowledgeSourceType;
   is_favorite?: boolean;
+  siyuan_doc_id?: string | null;
+  siyuan_block_id?: string | null;
 }
 
 export interface SearchResponse {
