@@ -1,4 +1,4 @@
-// V3 API types — shared between Tauri and Mock implementations
+// Shared Desktop API types
 
 export interface Overview {
   session_count: number;
@@ -71,17 +71,40 @@ export interface PipelineStats {
   embeddings: number;
 }
 
+export type KnowledgeSourceType = "conversation" | "manual";
+export type KnowledgeManagedBy = "pipeline" | "user";
+export type KnowledgeStatus = "active" | "archived";
+
 export interface KnowledgeSummary {
   id: string;
-  session_id: number;
+  session_id: number | null;
   project_name: string | null;
   title: string;
   category: string;
   summary: string;
   tags: string;
   confidence: number;
+  source_type: KnowledgeSourceType;
+  managed_by: KnowledgeManagedBy;
+  status: KnowledgeStatus;
+  is_favorite: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface KnowledgeDetail extends KnowledgeSummary {
+  content: string;
+  source: string | null;
+  session_external_id: string | null;
+  session_title: string | null;
+  chunks: Array<{
+    id: string;
+    heading: string | null;
+    chunk_index: number;
+    token_count: number;
+    text: string;
+    has_embedding: boolean;
+  }>;
 }
 
 export interface KnowledgePage {
@@ -89,6 +112,40 @@ export interface KnowledgePage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface KnowledgeListOptions {
+  project?: string;
+  category?: string;
+  sourceType?: KnowledgeSourceType;
+  status?: KnowledgeStatus;
+  favorite?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface KnowledgeWriteInput {
+  title: string;
+  category?: string;
+  project_name?: string | null;
+  summary?: string;
+  content: string;
+  tags: string[];
+}
+
+export interface KnowledgeUpdateInput {
+  title: string;
+  category: string;
+  project_name?: string | null;
+  summary: string;
+  content: string;
+  tags: string[];
+}
+
+export interface PublishKnowledgeResult {
+  knowledge_id: string;
+  outcome: "created" | "updated" | "unchanged" | "conflict" | string;
+  target_id: string | null;
 }
 
 export interface SearchResult {
@@ -100,6 +157,8 @@ export interface SearchResult {
   tags: string;
   confidence: number;
   match_type: string;
+  source_type?: KnowledgeSourceType;
+  is_favorite?: boolean;
 }
 
 export interface SearchResponse {
@@ -110,7 +169,6 @@ export interface SearchResponse {
   warnings?: string[];
 }
 
-// Legacy V2.5 types kept for backward compat
 export interface FullStatus {
   scan_total: number;
   scan_by_source: Record<string, number>;
