@@ -50,18 +50,9 @@ export class TauriAiksApi implements AiksApi {
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     return invoke("list_sessions_v3", { source: opts?.source, limit: opts?.limit, offset: opts?.offset });
   }
-
-  async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> {
-    return invoke("list_pipeline_runs", { limit });
-  }
-
-  async getPipelineDetail(runId: string): Promise<PipelineSummary> {
-    return invoke("get_pipeline_detail", { runId });
-  }
-
-  async getPipelineStats(): Promise<PipelineStats> {
-    return invoke("get_pipeline_stats");
-  }
+  async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> { return invoke("list_pipeline_runs", { limit }); }
+  async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
+  async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
     return invoke("list_knowledge_v4", {
@@ -74,59 +65,24 @@ export class TauriAiksApi implements AiksApi {
       offset: opts?.offset,
     });
   }
-
-  async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {
-    return invoke("get_knowledge_detail_v4", { knowledgeId });
-  }
-
-  async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
-    return invoke("create_knowledge", { input });
-  }
-
-  async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> {
-    return invoke("update_knowledge", { knowledgeId, input });
-  }
-
-  async setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail> {
-    return invoke("set_knowledge_favorite", { knowledgeId, favorite });
-  }
-
-  async archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail> {
-    return invoke("archive_knowledge", { knowledgeId });
-  }
-
-  async restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail> {
-    return invoke("restore_knowledge", { knowledgeId });
-  }
-
-  async publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult> {
-    return invoke("publish_knowledge", { knowledgeId });
-  }
-
-  async searchKnowledge(query: string, limit?: number): Promise<SearchResponse> {
-    return invoke("search_knowledge", { query, limit });
-  }
+  async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
+  async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> { return invoke("create_knowledge", { input }); }
+  async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> { return invoke("update_knowledge", { knowledgeId, input }); }
+  async setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail> { return invoke("set_knowledge_favorite", { knowledgeId, favorite }); }
+  async archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("archive_knowledge", { knowledgeId }); }
+  async restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("restore_knowledge", { knowledgeId }); }
+  async publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult> { return invoke("publish_knowledge", { knowledgeId }); }
+  async searchKnowledge(query: string, limit?: number): Promise<SearchResponse> { return invoke("search_knowledge_v4", { query, limit }); }
 
   async getFullStatus(): Promise<FullStatus> { return invoke("get_full_status"); }
   async getAiStatus(): Promise<AiStatus> { return invoke("get_ai_status"); }
-
-  async syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }> {
-    return invoke("sync_and_extract", { source });
-  }
-
-  async scanSources(source?: string): Promise<{ total: number; by_source: Record<string, number> }> {
-    return invoke("scan_sources", { source });
-  }
-
+  async syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }> { return invoke("sync_and_extract", { source }); }
+  async scanSources(source?: string): Promise<{ total: number; by_source: Record<string, number> }> { return invoke("scan_sources", { source }); }
   async backfillExtractions(): Promise<{ submitted: number }> {
     const r = await invoke<{ submitted: number }>("backfill_extractions");
     return { submitted: typeof r === "number" ? r : (r?.submitted ?? 0) };
   }
-
-  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> {
-    return invoke("sync_knowledge_to_siyuan");
-  }
-
+  async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> { return invoke("sync_knowledge_to_siyuan"); }
   async getSiyuanUrl(): Promise<string | null> { return invoke("get_siyuan_url"); }
   async testAiConnection(): Promise<boolean> { return invoke("test_ai_connection"); }
 }
