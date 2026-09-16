@@ -64,7 +64,6 @@ impl WorkbenchController {
         self.ready.store(false, Ordering::Release);
     }
 
-    #[cfg(test)]
     pub fn set_ready(&self, ready: bool) {
         self.ready.store(ready, Ordering::Release);
     }
