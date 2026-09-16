@@ -218,6 +218,10 @@ export class MockAiksApi implements AiksApi {
     };
   }
 
+  async getSessionWorkbenchDocId(_sessionId: number): Promise<string | null> {
+    return null;
+  }
+
   async mountWorkbench(_bounds: WorkbenchBounds): Promise<void> {}
 
   async showWorkbench(mode: WorkspaceMode): Promise<void> {
