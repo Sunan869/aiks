@@ -15,17 +15,6 @@ pub struct KnowledgeWritePayload {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct KnowledgeUpdatePayload {
-    pub title: String,
-    pub category: String,
-    pub project_name: Option<String>,
-    pub summary: String,
-    pub content: String,
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
 fn to_json(item: KnowledgeRecord) -> serde_json::Value {
     let tags = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
     serde_json::json!({
@@ -147,7 +136,7 @@ pub async fn create_knowledge(
 #[tauri::command]
 pub fn update_knowledge(
     _knowledge_id: String,
-    _input: KnowledgeUpdatePayload,
+    _input: serde_json::Value,
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     Err("V4.1 knowledge content must be edited in the embedded SiYuan workbench".to_string())
