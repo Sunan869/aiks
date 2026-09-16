@@ -86,6 +86,10 @@ export class TauriAiksApi implements AiksApi {
     return invoke("get_v41_diagnostics");
   }
 
+  async getSessionWorkbenchDocId(sessionId: number): Promise<string | null> {
+    return invoke("get_session_workbench_doc_id", { sessionId });
+  }
+
   async mountWorkbench(bounds: WorkbenchBounds): Promise<void> {
     await invoke("mount_workbench", {
       x: bounds.x,
