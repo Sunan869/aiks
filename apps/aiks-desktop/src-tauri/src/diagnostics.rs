@@ -53,6 +53,20 @@ mod tests {
     use crate::workbench::protocol::WorkspaceMode;
 
     #[test]
+    fn bundled_siyuan_runtime_is_pinned() {
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
+            "../resources/siyuan-runtime.json"
+        ))
+        .unwrap();
+        assert_eq!(manifest["siyuanBaseVersion"], "3.8.3");
+        assert_eq!(
+            manifest["siyuanUpstreamCommit"],
+            "8641553a1f07374001902d3ce773285db1292b2d"
+        );
+        assert_eq!(manifest["bridgeProtocolVersion"], 2);
+    }
+
+    #[test]
     fn aggregates_siyuan_workbench_bridge_and_migration_status() {
         let workbench = WorkbenchStatus {
             available: true,
