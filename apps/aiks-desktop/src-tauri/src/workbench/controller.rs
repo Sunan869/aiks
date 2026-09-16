@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use serde::Serialize;
-use url::Url;
+use tauri::Url;
 use uuid::Uuid;
 
 use super::protocol::{validate_loopback_origin, WorkspaceMode, BRIDGE_PROTOCOL_VERSION};
@@ -51,8 +51,11 @@ impl WorkbenchController {
 
     pub fn set_origin(&self, origin: &str) -> anyhow::Result<()> {
         let origin = validate_loopback_origin(origin)?;
-        *lock_recover(&self.origin) = Some(origin);
-        self.ready.store(false, Ordering::Release);
+        let mut current = lock_recover(&self.origin);
+        if current.as_ref() != Some(&origin) {
+            *current = Some(origin);
+            self.ready.store(false, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -61,6 +64,7 @@ impl WorkbenchController {
         self.ready.store(false, Ordering::Release);
     }
 
+    #[cfg(test)]
     pub fn set_ready(&self, ready: bool) {
         self.ready.store(ready, Ordering::Release);
     }

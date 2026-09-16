@@ -1,6 +1,8 @@
+use std::net::IpAddr;
+
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
-use url::{Host, Url};
+use tauri::Url;
 
 pub const BRIDGE_PROTOCOL_VERSION: u16 = 1;
 
@@ -67,12 +69,13 @@ pub fn validate_loopback_origin(origin: &str) -> anyhow::Result<Url> {
         bail!("workbench origin must not contain a path");
     }
 
-    let is_loopback = match url.host() {
-        Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(Host::Ipv6(ip)) => ip.is_loopback(),
-        None => false,
-    };
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("workbench origin must have a host"))?;
+    let is_loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
     if !is_loopback {
         bail!("workbench origin must resolve to loopback");
     }

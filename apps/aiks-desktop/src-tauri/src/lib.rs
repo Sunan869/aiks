@@ -30,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(runtime_container)
+        .manage(workbench::controller::WorkbenchController::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
             tray::setup_tray(app)?;
@@ -88,6 +89,20 @@ pub fn run() {
             knowledge_commands::restore_knowledge,
             knowledge_commands::search_knowledge_v4,
             knowledge_commands::publish_knowledge,
+            // V4.1 SiYuan Embedded Workbench
+            workbench::commands::get_workbench_status,
+            workbench::commands::show_workbench,
+            workbench::commands::hide_workbench,
+            workbench::commands::set_workbench_mode,
+            workbench::commands::show_workbench_root,
+            workbench::commands::open_siyuan_document,
+            workbench::commands::open_siyuan_block,
+            workbench::commands::show_workbench_backlinks,
+            workbench::commands::show_workbench_outline,
+            workbench::commands::show_workbench_database,
+            workbench::commands::show_workbench_graph,
+            workbench::commands::show_workbench_search,
+            workbench::commands::refresh_siyuan_document,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
