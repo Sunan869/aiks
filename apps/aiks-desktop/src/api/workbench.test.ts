@@ -74,13 +74,42 @@ describe("V4.1 Tauri workbench API mapping", () => {
       ready: false,
       mode: "knowledge" as const,
       origin: "http://127.0.0.1:6812/",
+      protocol_version: 1,
     };
     invokeMock.mockResolvedValueOnce(expected);
 
     const result = await new TauriAiksApi().getWorkbenchStatus();
 
     expect(result).toEqual(expected);
+    expect(result.protocol_version).toBe(1);
     expect(invokeMock).toHaveBeenCalledWith("get_workbench_status");
+  });
+
+  it("reads aggregate V4.1 diagnostics from one command", async () => {
+    const expected = {
+      siyuan_ready: true,
+      workbench: {
+        available: true,
+        ready: true,
+        mode: "session" as const,
+        origin: "http://127.0.0.1:6812/",
+        protocol_version: 1,
+      },
+      migration: {
+        total: 7,
+        pending: 2,
+        migrated: 2,
+        reused: 1,
+        conflicts: 1,
+        failed: 1,
+      },
+    };
+    invokeMock.mockResolvedValueOnce(expected);
+
+    const result = await new TauriAiksApi().getV41Diagnostics();
+
+    expect(result).toEqual(expected);
+    expect(invokeMock).toHaveBeenCalledWith("get_v41_diagnostics");
   });
 
   it("mounts the persistent child webview into the host rectangle", async () => {
