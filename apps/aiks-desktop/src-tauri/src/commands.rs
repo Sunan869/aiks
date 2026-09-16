@@ -275,7 +275,7 @@ pub async fn save_settings(
 }
 
 #[tauri::command]
-pub async fn open_data_folder(_state: State<'_, AppState>) -> Result<(), String> {
+pub async fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> {
     #[cfg(windows)]
     {
         std::process::Command::new("explorer")
@@ -283,6 +283,8 @@ pub async fn open_data_folder(_state: State<'_, AppState>) -> Result<(), String>
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(not(windows))]
+    let _ = state;
     Ok(())
 }
 
