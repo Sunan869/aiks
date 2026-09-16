@@ -12,6 +12,7 @@ const SCHEMA_V5_SQL: &str = include_str!("../../migrations/004_knowledge_sync.sq
 const SCHEMA_V6_SQL: &str = include_str!("../../migrations/005_knowledge_baseline.sql");
 const SCHEMA_V7_SQL: &str = include_str!("../../migrations/006_pipeline_job_identity.sql");
 const SCHEMA_V8_SQL: &str = include_str!("../../migrations/007_v4_native_knowledge.sql");
+const SCHEMA_V9_SQL: &str = include_str!("../../migrations/008_v41_siyuan_content_source.sql");
 
 /// AIKS state database.
 ///
@@ -129,6 +130,63 @@ impl StateDb {
                 .context("run V8 native knowledge workbench migrations")?;
         }
 
+        // V9 is deliberately additive. V4 content columns remain in place as
+        // migration snapshots/cache while SiYuan becomes the canonical content
+        // store. Each ALTER is guarded so upgrading an existing V4 database is
+        // safe and opening the same database repeatedly remains idempotent.
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "siyuan_doc_id",
+            "ALTER TABLE knowledge_item ADD COLUMN siyuan_doc_id TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "generated_hash",
+            "ALTER TABLE knowledge_item ADD COLUMN generated_hash TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "current_remote_hash",
+            "ALTER TABLE knowledge_item ADD COLUMN current_remote_hash TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "migration_status",
+            "ALTER TABLE knowledge_item ADD COLUMN migration_status TEXT NOT NULL DEFAULT 'pending';",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "source_session",
+            "siyuan_doc_id",
+            "ALTER TABLE source_session ADD COLUMN siyuan_doc_id TEXT;",
+        )?;
+        conn.execute_batch(SCHEMA_V9_SQL)
+            .context("run V9 SiYuan content source migrations")?;
+
+        Ok(())
+    }
+
+    fn ensure_column(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        alter_sql: &str,
+    ) -> anyhow::Result<()> {
+        let sql = format!(
+            "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
+            table.replace('\'', "''")
+        );
+        let exists: i64 = conn
+            .query_row(&sql, [column], |row| row.get(0))
+            .with_context(|| format!("check {table}.{column}"))?;
+        if exists == 0 {
+            conn.execute_batch(alter_sql)
+                .with_context(|| format!("add {table}.{column}"))?;
+        }
         Ok(())
     }
 
@@ -224,6 +282,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v4_columns, 4);
+
+        let v41_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('knowledge_item') WHERE name IN ('siyuan_doc_id','generated_hash','current_remote_hash','migration_status')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(v41_columns, 4);
     }
 
     #[test]
