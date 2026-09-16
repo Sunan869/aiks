@@ -92,6 +92,7 @@ pub fn run() {
             knowledge_commands::search_knowledge_v4,
             knowledge_commands::publish_knowledge,
             // V4.1 SiYuan Embedded Workbench
+            diagnostics::get_v41_diagnostics,
             workbench::commands::get_workbench_status,
             workbench::commands::mount_workbench,
             workbench::commands::show_workbench,
