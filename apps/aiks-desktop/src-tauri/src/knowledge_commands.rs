@@ -30,6 +30,7 @@ pub struct KnowledgeUpdatePayload {
 }
 
 fn to_json(item: KnowledgeRecord) -> serde_json::Value {
+    let tags = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
     serde_json::json!({
         "id": item.id,
         "session_id": item.source_session_id,
@@ -38,7 +39,7 @@ fn to_json(item: KnowledgeRecord) -> serde_json::Value {
         "category": item.category,
         "summary": item.summary,
         "content": item.content,
-        "tags": item.tags,
+        "tags": tags,
         "confidence": item.confidence,
         "source_type": item.source_type,
         "managed_by": item.managed_by,
