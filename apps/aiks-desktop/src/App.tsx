@@ -13,6 +13,7 @@ import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
 import StartupScreen from "./components/StartupScreen";
 import { getApi, shouldUseMock } from "./api/client";
+import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
 
 export type Page = "overview" | "sessions" | "knowledge" | "processing" | "search" | "sources" | "settings" | "diagnostics";
@@ -87,10 +88,14 @@ export default function App() {
   }, [refreshStatus, isMock]);
 
   useEffect(() => {
-    if (nav.page !== "knowledge") {
+    const keepMounted = shouldKeepWorkbenchMounted(
+      nav.page,
+      nav.page === "sessions" && nav.sessionDetailId != null,
+    );
+    if (!keepMounted) {
       void getApi().hideWorkbench().catch(() => {});
     }
-  }, [nav.page]);
+  }, [nav.page, nav.sessionDetailId]);
 
   if (!isReady) return <StartupScreen step={startupStep} error={startupError} />;
 
