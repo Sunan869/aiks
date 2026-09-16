@@ -8,6 +8,7 @@ use crate::sink::v41::{KnowledgeBindingAttrs, SiYuanContentStore};
 use crate::sink::SiYuanSink;
 use crate::storage::{KnowledgeSyncRepo, StateDb};
 
+use super::session_migration::migrate_sessions_to_content_notebook;
 use super::{KnowledgeListFilter, KnowledgeRecord, KnowledgeService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,12 +117,22 @@ impl<'a> ContentMigrationService<'a> {
     }
 
     pub async fn migrate(&self, sink: &SiYuanSink) -> anyhow::Result<ContentMigrationStats> {
+        let session_stats = migrate_sessions_to_content_notebook(self.db, sink).await?;
+        tracing::info!(
+            total = session_stats.total,
+            moved = session_stats.moved,
+            reused = session_stats.reused,
+            missing = session_stats.missing,
+            failed = session_stats.failed,
+            "[MIGRATION] raw Session canonical notebook migration complete"
+        );
+
         let items = self.load_items()?;
         let store = SiYuanContentStore::new(sink);
 
         for item in items {
             if let Some(status) = self.completed_status(&item.id)? {
-                if matches!(status.as_str(), "migrated" | "reused") {
+                if matches!(status.as_str(), "migrated" | "reused" | "conflict") {
                     continue;
                 }
             }
