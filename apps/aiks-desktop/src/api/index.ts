@@ -11,6 +11,8 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  WorkbenchStatus,
+  WorkspaceMode,
   FullStatus,
   AiStatus,
 } from "./types";
@@ -32,6 +34,13 @@ export interface AiksApi {
   restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail>;
   publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
+
+  // V4.1 Embedded SiYuan Workbench
+  getWorkbenchStatus(): Promise<WorkbenchStatus>;
+  showWorkbench(mode: WorkspaceMode): Promise<void>;
+  hideWorkbench(): Promise<void>;
+  openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
+  openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
 
   // Compatibility / operational APIs
   getFullStatus(): Promise<FullStatus>;
