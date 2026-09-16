@@ -82,7 +82,12 @@ export class TauriAiksApi implements AiksApi {
   }
 
   async mountWorkbench(bounds: WorkbenchBounds): Promise<void> {
-    await invoke("mount_workbench", bounds);
+    await invoke("mount_workbench", {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    });
   }
 
   async showWorkbench(mode: WorkspaceMode): Promise<void> {
