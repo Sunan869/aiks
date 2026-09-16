@@ -42,6 +42,7 @@ export interface AiksApi {
   getV41Diagnostics(): Promise<V41Diagnostics>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
+  showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void>;
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
