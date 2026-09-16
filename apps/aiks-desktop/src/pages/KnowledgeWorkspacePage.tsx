@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Database, GitFork, Library, MessagesSquare } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail, WorkspaceMode } from "../api/types";
+import type { KnowledgeDetail } from "../api/types";
 import WorkbenchHost from "../components/WorkbenchHost";
 
 type WorkspaceSection = "knowledge" | "session" | "database" | "graph";
@@ -34,18 +34,11 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
     return () => { cancelled = true; };
   }, [knowledgeId]);
 
-  const select = async (next: WorkspaceSection) => {
-    setSection(next);
+  const select = (next: WorkspaceSection) => {
     setError(null);
-    try {
-      if (next === "database") await getApi().showWorkbenchDatabase();
-      if (next === "graph") await getApi().showWorkbenchGraph();
-    } catch (e) {
-      setError(String(e));
-    }
+    setSection(next);
   };
 
-  const mode: WorkspaceMode = section === "session" ? "session" : "knowledge";
   const boundDocId = section === "knowledge" ? detail?.siyuan_doc_id : null;
 
   return (
@@ -67,7 +60,7 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
             <button
               key={tab.key}
               type="button"
-              onClick={() => void select(tab.key)}
+              onClick={() => select(tab.key)}
               className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${section === tab.key
                 ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
                 : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
@@ -87,16 +80,7 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
         </div>
       ) : null}
 
-      {section === "knowledge" || section === "session" ? (
-        <WorkbenchHost mode={mode} docId={boundDocId} />
-      ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-800">
-          <div>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{section === "database" ? "SiYuan 数据库视图已打开" : "SiYuan 图谱已打开"}</p>
-            <p className="mt-2 text-xs text-gray-500">该能力由原生 Workbench 提供，AIKS 不重复实现第二套视图。</p>
-          </div>
-        </div>
-      )}
+      <WorkbenchHost surface={section} docId={boundDocId} />
     </div>
   );
 }
