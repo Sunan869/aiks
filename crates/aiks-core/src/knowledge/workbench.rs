@@ -53,6 +53,8 @@ pub struct KnowledgeRecord {
     pub managed_by: String,
     pub status: String,
     pub is_favorite: bool,
+    pub siyuan_doc_id: Option<String>,
+    pub generated_hash: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub source: Option<String>,
@@ -77,52 +79,83 @@ impl<'a> KnowledgeService<'a> {
         Self { db }
     }
 
-    pub fn create_manual(&self, input: CreateKnowledgeInput) -> anyhow::Result<KnowledgeRecord> {
-        let title = required_text("title", &input.title)?;
-        let content = required_text("content", &input.content)?;
-        let category = normalize_category(input.category.as_deref().unwrap_or("general"));
-        let project_name = normalize_optional(input.project_name.as_deref());
-        let summary = input.summary.unwrap_or_default().trim().to_string();
-        let tags = normalize_tags(input.tags);
-        let tags_json = serde_json::to_string(&tags)?;
-        let now = Utc::now().to_rfc3339();
-        let id = Uuid::new_v4().to_string();
+    pub fn normalize_manual_input(
+        input: CreateKnowledgeInput,
+    ) -> anyhow::Result<CreateKnowledgeInput> {
+        Ok(CreateKnowledgeInput {
+            title: required_text("title", &input.title)?,
+            category: Some(normalize_category(
+                input.category.as_deref().unwrap_or("general"),
+            )),
+            project_name: normalize_optional(input.project_name.as_deref()),
+            summary: Some(input.summary.unwrap_or_default().trim().to_string()),
+            content: required_text("content", &input.content)?,
+            tags: normalize_tags(input.tags),
+        })
+    }
 
+    pub fn create_manual(&self, input: CreateKnowledgeInput) -> anyhow::Result<KnowledgeRecord> {
+        let input = Self::normalize_manual_input(input)?;
+        let id = Uuid::new_v4().to_string();
+        self.insert_manual(&id, input, None)
+    }
+
+    pub fn create_manual_bound(
+        &self,
+        id: &str,
+        input: CreateKnowledgeInput,
+        siyuan_doc_id: &str,
+        generated_hash: &str,
+        current_remote_hash: Option<&str>,
+    ) -> anyhow::Result<KnowledgeRecord> {
+        let id = required_text("id", id)?;
+        let siyuan_doc_id = required_text("siyuan_doc_id", siyuan_doc_id)?;
+        let generated_hash = required_text("generated_hash", generated_hash)?;
+        let input = Self::normalize_manual_input(input)?;
+        self.insert_manual(
+            &id,
+            input,
+            Some((
+                siyuan_doc_id.as_str(),
+                generated_hash.as_str(),
+                current_remote_hash,
+            )),
+        )
+    }
+
+    pub fn bind_siyuan_document(
+        &self,
+        id: &str,
+        siyuan_doc_id: &str,
+        generated_hash: &str,
+        current_remote_hash: Option<&str>,
+        migration_status: &str,
+    ) -> anyhow::Result<KnowledgeRecord> {
+        let siyuan_doc_id = required_text("siyuan_doc_id", siyuan_doc_id)?;
+        let generated_hash = required_text("generated_hash", generated_hash)?;
+        let migration_status = required_text("migration_status", migration_status)?;
+        let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
-        conn.execute_batch("BEGIN IMMEDIATE")?;
-        let result: anyhow::Result<()> = (|| {
-            conn.execute(
-                "INSERT INTO knowledge_item
-                 (id, source_session_id, project_name, title, category, summary, content,
-                  tags, confidence, worth_extracting, source_type, managed_by, status,
-                  is_favorite, created_at, updated_at)
-                 VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, 1.0, 1,
-                         'manual', 'user', 'active', 0, ?8, ?8)",
-                params![
-                    id,
-                    project_name,
-                    title,
-                    category,
-                    summary,
-                    content,
-                    tags_json,
-                    now
-                ],
-            )?;
-            upsert_fts(&conn, &id, &title, &summary, &content, &tags_json)?;
-            Ok(())
-        })();
-        match result {
-            Ok(()) => conn.execute_batch("COMMIT")?,
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(e);
-            }
+        let changed = conn.execute(
+            "UPDATE knowledge_item
+             SET siyuan_doc_id = ?2, generated_hash = ?3, current_remote_hash = ?4,
+                 migration_status = ?5, updated_at = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                siyuan_doc_id,
+                generated_hash,
+                current_remote_hash,
+                migration_status,
+                now
+            ],
+        )?;
+        if changed == 0 {
+            anyhow::bail!("Knowledge item not found: {id}");
         }
         drop(conn);
-
-        self.get(&id)?
-            .ok_or_else(|| anyhow::anyhow!("new knowledge item disappeared: {id}"))
+        self.get(id)?
+            .ok_or_else(|| anyhow::anyhow!("Knowledge item not found after SiYuan binding: {id}"))
     }
 
     pub fn update(&self, id: &str, input: UpdateKnowledgeInput) -> anyhow::Result<KnowledgeRecord> {
@@ -215,7 +248,8 @@ impl<'a> KnowledgeService<'a> {
             .query_row(
                 "SELECT ki.id, ki.source_session_id, ki.project_name, ki.title, ki.category,
                         ki.summary, ki.content, ki.tags, ki.confidence, ki.source_type,
-                        ki.managed_by, ki.status, ki.is_favorite, ki.created_at, ki.updated_at,
+                        ki.managed_by, ki.status, ki.is_favorite, ki.siyuan_doc_id,
+                        ki.generated_hash, ki.created_at, ki.updated_at,
                         ss.source, ss.external_session_id, ss.title
                  FROM knowledge_item ki
                  LEFT JOIN source_session ss ON ss.id = ki.source_session_id
@@ -271,7 +305,8 @@ impl<'a> KnowledgeService<'a> {
         let sql = format!(
             "SELECT ki.id, ki.source_session_id, ki.project_name, ki.title, ki.category,
                     ki.summary, ki.content, ki.tags, ki.confidence, ki.source_type,
-                    ki.managed_by, ki.status, ki.is_favorite, ki.created_at, ki.updated_at,
+                    ki.managed_by, ki.status, ki.is_favorite, ki.siyuan_doc_id,
+                    ki.generated_hash, ki.created_at, ki.updated_at,
                     ss.source, ss.external_session_id, ss.title
              FROM knowledge_item ki
              LEFT JOIN source_session ss ON ss.id = ki.source_session_id
@@ -298,6 +333,68 @@ impl<'a> KnowledgeService<'a> {
             limit,
             offset,
         })
+    }
+
+    fn insert_manual(
+        &self,
+        id: &str,
+        input: CreateKnowledgeInput,
+        binding: Option<(&str, &str, Option<&str>)>,
+    ) -> anyhow::Result<KnowledgeRecord> {
+        let title = input.title;
+        let content = input.content;
+        let category = input.category.unwrap_or_else(|| "general".to_string());
+        let project_name = input.project_name;
+        let summary = input.summary.unwrap_or_default();
+        let tags_json = serde_json::to_string(&input.tags)?;
+        let now = Utc::now().to_rfc3339();
+        let (siyuan_doc_id, generated_hash, current_remote_hash, migration_status) = match binding {
+            Some((doc_id, hash, remote_hash)) => {
+                (Some(doc_id), Some(hash), remote_hash, Some("migrated"))
+            }
+            None => (None, None, None, None),
+        };
+
+        let conn = self.db.conn();
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result: anyhow::Result<()> = (|| {
+            conn.execute(
+                "INSERT INTO knowledge_item
+                 (id, source_session_id, project_name, title, category, summary, content,
+                  tags, confidence, worth_extracting, source_type, managed_by, status,
+                  is_favorite, siyuan_doc_id, generated_hash, current_remote_hash,
+                  migration_status, created_at, updated_at)
+                 VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, 1.0, 1,
+                         'manual', 'user', 'active', 0, ?8, ?9, ?10, ?11, ?12, ?12)",
+                params![
+                    id,
+                    project_name,
+                    title,
+                    category,
+                    summary,
+                    content,
+                    tags_json,
+                    siyuan_doc_id,
+                    generated_hash,
+                    current_remote_hash,
+                    migration_status,
+                    now
+                ],
+            )?;
+            upsert_fts(&conn, id, &title, &summary, &content, &tags_json)?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT")?,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+        }
+        drop(conn);
+
+        self.get(id)?
+            .ok_or_else(|| anyhow::anyhow!("new knowledge item disappeared: {id}"))
     }
 
     fn update_status(&self, id: &str, status: &str) -> anyhow::Result<KnowledgeRecord> {
@@ -349,11 +446,13 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnowledgeRecord> {
         managed_by: row.get(10)?,
         status: row.get(11)?,
         is_favorite: row.get::<_, i64>(12)? != 0,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        source: row.get(15)?,
-        session_external_id: row.get(16)?,
-        session_title: row.get(17)?,
+        siyuan_doc_id: row.get(13)?,
+        generated_hash: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        source: row.get(17)?,
+        session_external_id: row.get(18)?,
+        session_title: row.get(19)?,
     })
 }
 
