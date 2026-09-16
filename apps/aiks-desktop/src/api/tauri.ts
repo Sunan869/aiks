@@ -16,6 +16,7 @@ import type {
   WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
+  V41Diagnostics,
   FullStatus,
   AiStatus,
 } from "./types";
@@ -79,6 +80,10 @@ export class TauriAiksApi implements AiksApi {
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
     return invoke("get_workbench_status");
+  }
+
+  async getV41Diagnostics(): Promise<V41Diagnostics> {
+    return invoke("get_v41_diagnostics");
   }
 
   async mountWorkbench(bounds: WorkbenchBounds): Promise<void> {
