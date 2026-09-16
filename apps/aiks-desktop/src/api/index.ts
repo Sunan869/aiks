@@ -40,6 +40,7 @@ export interface AiksApi {
   // V4.1 Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
   getV41Diagnostics(): Promise<V41Diagnostics>;
+  getSessionWorkbenchDocId(sessionId: number): Promise<string | null>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
   showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void>;
