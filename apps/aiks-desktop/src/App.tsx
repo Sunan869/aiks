@@ -4,8 +4,7 @@ import Sidebar from "./components/Sidebar";
 import OverviewPage from "./pages/OverviewPage";
 import SessionsPage from "./pages/SessionsPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
-import KnowledgeWorkbenchPage from "./pages/KnowledgeWorkbenchPage";
-import KnowledgeDetailPage from "./pages/KnowledgeDetailPage";
+import KnowledgeWorkspacePage from "./pages/KnowledgeWorkspacePage";
 import ProcessingPage from "./pages/ProcessingPage";
 import ProcessingDetailPage from "./pages/ProcessingDetailPage";
 import SearchPage from "./pages/SearchPage";
@@ -102,7 +101,7 @@ export default function App() {
       return <SessionDetailPage sessionId={nav.sessionDetailId} onBack={() => setNav({ page: "sessions" })} onViewKnowledge={viewKnowledgeDetail} onViewPipeline={viewPipelineDetail} />;
     }
     if (nav.page === "knowledge" && nav.knowledgeDetailId) {
-      return <KnowledgeDetailPage knowledgeId={nav.knowledgeDetailId} onBack={() => { setNav({ page: "knowledge" }); void refreshStatus(); }} onViewSession={viewSessionDetail} />;
+      return <KnowledgeWorkspacePage knowledgeId={nav.knowledgeDetailId} />;
     }
     if (nav.page === "processing" && nav.pipelineDetailRunId) {
       return <ProcessingDetailPage runId={nav.pipelineDetailRunId} onBack={() => setNav({ page: "processing" })} />;
@@ -111,7 +110,7 @@ export default function App() {
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
-      case "knowledge": return <KnowledgeWorkbenchPage onViewDetail={viewKnowledgeDetail} />;
+      case "knowledge": return <KnowledgeWorkspacePage />;
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
       case "search": return <SearchPage onViewKnowledge={viewKnowledgeDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
@@ -125,7 +124,7 @@ export default function App() {
       <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
-          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">V4 Native</span>
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.1 Workbench</span>
           {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-400">
