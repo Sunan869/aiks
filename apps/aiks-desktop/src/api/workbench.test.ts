@@ -117,4 +117,22 @@ describe("V4.1 Tauri workbench API mapping", () => {
       ["open_siyuan_block", { docId: "doc-123", blockId: "block-456" }],
     ]);
   });
+
+  it("opens the native SiYuan database view through the Rust bridge", async () => {
+    await new TauriAiksApi().showWorkbenchDatabase();
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_database"],
+    ]);
+  });
+
+  it("opens the native SiYuan graph through the Rust bridge", async () => {
+    await new TauriAiksApi().showWorkbenchGraph();
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_graph"],
+    ]);
+  });
 });
