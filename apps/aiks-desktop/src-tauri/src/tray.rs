@@ -80,11 +80,13 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
             });
         }
         "data_dir" => {
-            if let Some(_state) = app.try_state::<crate::app_state::AppState>() {
+            if let Some(state) = app.try_state::<crate::app_state::AppState>() {
                 #[cfg(windows)]
                 let _ = std::process::Command::new("explorer")
                     .arg(&state.data_dir)
                     .spawn();
+                #[cfg(not(windows))]
+                let _ = state;
             }
         }
         "quit" => {
