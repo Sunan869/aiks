@@ -48,6 +48,8 @@ export default function DiagnosticsPage() {
       : "等待 Bridge";
   const workbenchHealthy = Boolean(v41?.workbench.available && v41.workbench.ready);
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
+  const upstreamCommit = v41?.siyuan_upstream_commit ?? "";
+  const shortCommit = upstreamCommit ? upstreamCommit.slice(0, 12) : "-";
 
   return (
     <div className="p-6 max-w-2xl">
@@ -109,8 +111,8 @@ export default function DiagnosticsPage() {
       <section className="mb-6">
         <div className="flex items-end justify-between mb-2">
           <div>
-            <h2 className="text-sm font-semibold">V4.1 知识工作台</h2>
-            <p className="text-xs text-gray-400 mt-0.5">SiYuan Child WebView / AIKS Bridge</p>
+            <h2 className="text-sm font-semibold">知识工作台运行时</h2>
+            <p className="text-xs text-gray-400 mt-0.5">AIKS Workbench / SiYuan Runtime / Bridge</p>
           </div>
           {v41?.workbench.origin && (
             <span className="max-w-[260px] truncate font-mono text-[10px] text-gray-400" title={v41.workbench.origin}>
@@ -125,22 +127,30 @@ export default function DiagnosticsPage() {
             <div className={`text-sm font-medium mt-1 ${v41?.siyuan_ready ? "text-green-600" : "text-yellow-500"}`}>
               {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : "检测中"}
             </div>
+            {v41 && <div className="mt-1 text-[10px] text-gray-400">Base v{v41.siyuan_base_version}</div>}
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
-            <div className="text-[11px] text-gray-400">Embedded Workbench</div>
+            <div className="text-[11px] text-gray-400">AIKS Workbench</div>
             <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
               {v41 ? workbenchStatus : "检测中"}
             </div>
+            {v41 && <div className="mt-1 text-[10px] text-gray-400">v{v41.workbench_version}</div>}
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
-            <div className="text-[11px] text-gray-400">AIKS Bridge</div>
+            <div className="text-[11px] text-gray-400">Active Bridge</div>
             <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : "text-gray-500"}`}>
               {v41 ? `Protocol v${v41.workbench.protocol_version}` : "检测中"}
             </div>
+            {v41 && <div className="mt-1 text-[10px] text-gray-400">V4.2 contract v{v41.bridge_protocol_version}</div>}
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">当前工作区</div>
             <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : "检测中"}</div>
+            {v41 && (
+              <div className="mt-1 font-mono text-[10px] text-gray-400" title={upstreamCommit}>
+                upstream {shortCommit}
+              </div>
+            )}
           </div>
         </div>
 
