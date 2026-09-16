@@ -1,6 +1,7 @@
 import { Plugin, openTab } from "siyuan";
 
 const PROTOCOL_VERSION = 1;
+const AIKS_EVENT_CHANNEL = "aiks-workbench-event";
 const ACTIONS = new Set([
   "showKnowledgeRoot",
   "showSessionRoot",
@@ -161,6 +162,7 @@ export default class AIKSBridgePlugin extends Plugin {
   onload() {
     this.runtimeNonce = null;
     this.mode = "knowledge";
+    this.changeTimers = new Map();
     this.adapter = new SiyuanAdapter(this.app);
     this.adapter.applyAiksLayout();
 
@@ -197,6 +199,10 @@ export default class AIKSBridgePlugin extends Plugin {
     document.removeEventListener("drop", this.onDrop, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
     document.removeEventListener("input", this.onEditorInput, true);
+    for (const timer of this.changeTimers?.values?.() || []) {
+      window.clearTimeout(timer);
+    }
+    this.changeTimers?.clear?.();
     this.adapter?.clearAiksLayout();
     delete window.__AIKS_BRIDGE__;
   }
@@ -312,8 +318,20 @@ export default class AIKSBridgePlugin extends Plugin {
     const docId = root?.getAttribute("data-root-id") ||
       block?.getAttribute("data-node-id") || null;
     if (docId) {
-      this.emit("documentChanged", { docId });
+      this.scheduleDocumentChanged(docId);
     }
+  }
+
+  scheduleDocumentChanged(docId) {
+    const id = safeId(docId);
+    if (!id) return;
+    const existing = this.changeTimers.get(id);
+    if (existing) window.clearTimeout(existing);
+    const timer = window.setTimeout(() => {
+      this.changeTimers.delete(id);
+      this.emit("documentChanged", { docId: id });
+    }, 500);
+    this.changeTimers.set(id, timer);
   }
 
   emit(eventName, payload = {}) {
@@ -324,12 +342,23 @@ export default class AIKSBridgePlugin extends Plugin {
         detail[key] = value;
       }
     }
-    window.postMessage({
+    const envelope = {
       source: "aiks-bridge",
       version: PROTOCOL_VERSION,
       nonce: this.runtimeNonce,
       event: eventName,
       payload: detail,
-    }, window.location.origin);
+    };
+    window.postMessage(envelope, window.location.origin);
+
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (this.runtimeNonce && typeof invoke === "function") {
+      Promise.resolve(invoke("plugin:event|emit", {
+        event: AIKS_EVENT_CHANNEL,
+        payload: envelope,
+      })).catch((error) => {
+        console.debug("[AIKS Bridge] backend event channel unavailable", error);
+      });
+    }
   }
 }
