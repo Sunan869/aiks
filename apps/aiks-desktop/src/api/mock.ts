@@ -224,6 +224,10 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
+  async showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void> {
+    workbenchMode = surface === "session" ? "session" : "knowledge";
+  }
+
   async hideWorkbench(): Promise<void> {}
 
   async openSiyuanDocument(_docId: string, mode: WorkspaceMode): Promise<void> {
