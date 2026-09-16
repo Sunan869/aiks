@@ -3,8 +3,10 @@ import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { getApi } from "../api/client";
 import type { WorkbenchBounds, WorkbenchStatus, WorkspaceMode } from "../api/types";
 
+export type WorkbenchSurface = WorkspaceMode | "database" | "graph";
+
 interface Props {
-  mode: WorkspaceMode;
+  surface: WorkbenchSurface;
   docId?: string | null;
 }
 
@@ -28,12 +30,38 @@ async function waitForBridgeReady(): Promise<WorkbenchStatus> {
   return status;
 }
 
-export default function WorkbenchHost({ mode, docId }: Props) {
+function surfaceCopy(surface: WorkbenchSurface): { title: string; description: string } {
+  switch (surface) {
+    case "session":
+      return {
+        title: "原始 Session 工作台",
+        description: "正在以只读模式嵌入原始 Session，保留搜索、复制、折叠、反链和图谱能力。",
+      };
+    case "database":
+      return {
+        title: "SiYuan 数据库",
+        description: "正在复用 SiYuan 原生数据库视图、Relation、Rollup 和多视图能力。",
+      };
+    case "graph":
+      return {
+        title: "SiYuan 图谱",
+        description: "正在复用 SiYuan 原生关系图谱，并保持当前 AIKS 工作台不切窗。",
+      };
+    default:
+      return {
+        title: "SiYuan 知识工作台",
+        description: "正在将 SiYuan 文档树、编辑器、标签、反链、历史等能力嵌入当前区域。",
+      };
+  }
+}
+
+export default function WorkbenchHost({ surface, docId }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<WorkbenchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const copy = surfaceCopy(surface);
 
   const open = useCallback(async () => {
     setLoading(true);
@@ -44,10 +72,10 @@ export default function WorkbenchHost({ mode, docId }: Props) {
       if (!readyStatus.available) throw new Error("SiYuan Workbench 当前不可用");
       if (!readyStatus.ready) throw new Error("SiYuan Bridge 初始化超时");
 
-      if (docId) {
-        await getApi().openSiyuanDocument(docId, mode);
+      if (surface === "knowledge" && docId) {
+        await getApi().openSiyuanDocument(docId, "knowledge");
       } else {
-        await getApi().showWorkbench(mode);
+        await getApi().showWorkbenchSurface(surface);
       }
       setStatus(await getApi().getWorkbenchStatus());
     } catch (e) {
@@ -58,7 +86,7 @@ export default function WorkbenchHost({ mode, docId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [docId, mode]);
+  }, [docId, surface]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -116,12 +144,10 @@ export default function WorkbenchHost({ mode, docId }: Props) {
           <ExternalLink className="mx-auto h-8 w-8 text-blue-500" />
         )}
         <h2 className="mt-4 text-base font-semibold text-gray-900 dark:text-gray-100">
-          {mode === "knowledge" ? "SiYuan 知识工作台" : "原始 Session 工作台"}
+          {copy.title}
         </h2>
         <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-          {mode === "knowledge"
-            ? "正在将 SiYuan 文档树、编辑器、标签、反链、历史等能力嵌入当前区域。"
-            : "正在以只读模式嵌入原始 Session，保留搜索、复制、折叠、反链和图谱能力。"}
+          {copy.description}
         </p>
         {status && (
           <div className="mt-4 flex justify-center gap-3 text-xs text-gray-400">
