@@ -215,6 +215,10 @@ export class MockAiksApi implements AiksApi {
         conflicts: 0,
         failed: 0,
       },
+      workbench_version: "4.2.0",
+      siyuan_base_version: "3.8.3",
+      siyuan_upstream_commit: "8641553a1f07374001902d3ce773285db1292b2d",
+      bridge_protocol_version: 2,
     };
   }
 
