@@ -9,9 +9,6 @@ use crate::pipeline::embedding_client::{cosine_sim, EmbeddingClient, EmbeddingCo
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::storage::StateDb;
 
-/// Hard upper bound on embedding rows loaded for one vector rerank request.
-/// This keeps query cost independent from total corpus size until a dedicated
-/// ANN/vector index is introduced.
 pub const VECTOR_CANDIDATE_CAP: usize = 512;
 
 #[derive(Debug)]
@@ -47,7 +44,6 @@ impl SearchOutcome {
     }
 }
 
-/// Compatibility wrapper for existing callers that only need hits.
 pub async fn hybrid_search(
     db: &StateDb,
     query: &str,
@@ -59,7 +55,6 @@ pub async fn hybrid_search(
         .hits)
 }
 
-/// Hybrid search with explicit degraded-state reporting.
 pub async fn search_with_status(
     db: &StateDb,
     query: &str,
@@ -72,8 +67,6 @@ pub async fn search_with_status(
         degradations.push(degradation);
     }
 
-    // Preserve text/metadata matches as preferred vector candidates. Keep the
-    // list bounded and stable in FTS rank order.
     let mut preferred_seen = std::collections::HashSet::new();
     let preferred_knowledge_ids: Vec<String> = fts_results
         .iter()
@@ -115,9 +108,7 @@ pub async fn search_with_status(
         vec![]
     };
 
-    // Merge: deduplicate by knowledge_id, taking the higher/combined score.
     let mut merged: std::collections::HashMap<String, SearchHit> = std::collections::HashMap::new();
-
     for hit in fts_results {
         merged.entry(hit.knowledge_id.clone()).or_insert(hit);
     }
@@ -125,8 +116,7 @@ pub async fn search_with_status(
         merged
             .entry(hit.knowledge_id.clone())
             .and_modify(|existing| {
-                let combined = 0.35 * existing.score + 0.65 * hit.score;
-                existing.score = combined;
+                existing.score = 0.35 * existing.score + 0.65 * hit.score;
                 existing.match_type = "hybrid".to_string();
             })
             .or_insert(hit);
@@ -149,9 +139,6 @@ pub async fn search_with_status(
     Ok(SearchOutcome { hits, degradations })
 }
 
-/// Turn arbitrary user text into an FTS5 expression that treats every token as
-/// literal text rather than allowing operators such as `OR`, `NOT`, `-`, `*`,
-/// parentheses, or unmatched quotes to alter/invalidates the query grammar.
 fn literal_fts_query(query: &str) -> Option<String> {
     let terms: Vec<String> = query
         .split_whitespace()
@@ -179,9 +166,10 @@ fn like_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<Se
     let pattern = literal_like_pattern(query);
     let mut stmt = conn.prepare(
         "SELECT id, summary FROM knowledge_item
-         WHERE title LIKE ?1 ESCAPE '\\'
-            OR summary LIKE ?1 ESCAPE '\\'
-            OR content LIKE ?1 ESCAPE '\\'
+         WHERE status = 'active'
+           AND (title LIKE ?1 ESCAPE '\\'
+             OR summary LIKE ?1 ESCAPE '\\'
+             OR content LIKE ?1 ESCAPE '\\')
          ORDER BY updated_at DESC LIMIT ?2",
     )?;
     let rows = stmt
@@ -198,9 +186,6 @@ fn like_search(db: &StateDb, query: &str, limit: usize) -> anyhow::Result<Vec<Se
     Ok(rows)
 }
 
-/// FTS5 full-text search. User input is always converted to a literal FTS
-/// expression. Any FTS preparation/execution/row-decoding failure degrades to a
-/// parameterized LIKE search instead of becoming a false empty result.
 fn fts_search(
     db: &StateDb,
     query: &str,
@@ -239,9 +224,10 @@ fn fts_search(
 
     let fts_result: anyhow::Result<Vec<SearchHit>> = (|| {
         let mut stmt = conn.prepare(
-            "SELECT knowledge_id, title, summary
+            "SELECT knowledge_fts.knowledge_id, knowledge_fts.title, knowledge_fts.summary
              FROM knowledge_fts
-             WHERE knowledge_fts MATCH ?1
+             JOIN knowledge_item ki ON ki.id = knowledge_fts.knowledge_id
+             WHERE knowledge_fts MATCH ?1 AND ki.status = 'active'
              ORDER BY rank LIMIT ?2",
         )?;
         let rows = stmt
@@ -275,7 +261,6 @@ fn fts_search(
     }
 }
 
-/// Vector similarity search over a bounded candidate pool.
 async fn vector_search(
     db: &StateDb,
     cfg: &EmbeddingConfig,
@@ -297,9 +282,6 @@ async fn vector_search(
         VECTOR_CANDIDATE_CAP,
     )?;
 
-    // If the text-ranked set is small, supplement it with recent candidates.
-    // This second query is also capped, so database reads remain O(cap) rather
-    // than O(total_embeddings).
     if !preferred_knowledge_ids.is_empty() && stored.len() < VECTOR_CANDIDATE_CAP {
         let recent =
             knowledge_repo.load_embedding_candidates(&cfg.model, &[], VECTOR_CANDIDATE_CAP)?;
@@ -317,15 +299,12 @@ async fn vector_search(
 
     let mut hits: Vec<SearchHit> = stored
         .into_iter()
-        .map(|row| {
-            let score = cosine_sim(&query_vec, &row.vector);
-            SearchHit {
-                knowledge_id: row.knowledge_id,
-                chunk_id: row.chunk_id,
-                chunk_text: row.chunk_text,
-                score,
-                match_type: "vector".to_string(),
-            }
+        .map(|row| SearchHit {
+            score: cosine_sim(&query_vec, &row.vector),
+            knowledge_id: row.knowledge_id,
+            chunk_id: row.chunk_id,
+            chunk_text: row.chunk_text,
+            match_type: "vector".to_string(),
         })
         .collect();
 
