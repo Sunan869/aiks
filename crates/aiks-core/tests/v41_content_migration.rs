@@ -302,5 +302,6 @@ fn siyuan_edit_invalidates_fts_chunks_and_embeddings_without_deleting_knowledge(
     assert_eq!(chunk_count, 0);
     assert_eq!(embedding_count, 0);
     assert_eq!(managed_by, "user");
+    drop(conn);
     assert!(service.get("knowledge-1").unwrap().is_some());
 }
