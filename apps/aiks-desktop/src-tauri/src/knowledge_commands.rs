@@ -1,7 +1,4 @@
-use aiks_core::{
-    CreateKnowledgeInput, KnowledgeListFilter, KnowledgeRecord, KnowledgeService,
-    UpdateKnowledgeInput,
-};
+use aiks_core::{CreateKnowledgeInput, KnowledgeListFilter, KnowledgeRecord, KnowledgeService};
 use serde::Deserialize;
 use tauri::State;
 
@@ -143,28 +140,17 @@ pub async fn create_knowledge(
     Ok(to_json(item))
 }
 
+/// V4.1 canonical knowledge content is edited inside the embedded SiYuan
+/// workbench. Keep this command registered for transport compatibility with
+/// older UI bundles, but never allow it to turn SQLite back into a content
+/// master.
 #[tauri::command]
-pub async fn update_knowledge(
-    knowledge_id: String,
-    input: KnowledgeUpdatePayload,
-    state: State<'_, AppState>,
+pub fn update_knowledge(
+    _knowledge_id: String,
+    _input: KnowledgeUpdatePayload,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let engine = state.engine().ok_or("Engine not initialized")?;
-    let db = engine.db();
-    let item = KnowledgeService::new(&db)
-        .update(
-            &knowledge_id,
-            UpdateKnowledgeInput {
-                title: input.title,
-                category: input.category,
-                project_name: input.project_name,
-                summary: input.summary,
-                content: input.content,
-                tags: input.tags,
-            },
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(to_json(item))
+    Err("V4.1 knowledge content must be edited in the embedded SiYuan workbench".to_string())
 }
 
 #[tauri::command]
