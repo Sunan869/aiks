@@ -209,14 +209,7 @@ impl<'a> KnowledgeRepo<'a> {
                             now,
                         ],
                     )?;
-                    insert_fts(
-                        &conn,
-                        &id,
-                        &item.title,
-                        &item.summary,
-                        &content,
-                        &tags_json,
-                    )?;
+                    insert_fts(&conn, &id, &item.title, &item.summary, &content, &tags_json)?;
                     id
                 };
                 item_ids.push(id);
@@ -486,7 +479,10 @@ fn build_content(item: &V3KnowledgeItem) -> String {
         if !rc.is_empty() {
             parts.push(format!(
                 "**根因：**\n{}",
-                rc.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")
+                rc.iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
     }
@@ -494,7 +490,10 @@ fn build_content(item: &V3KnowledgeItem) -> String {
         if !sol.is_empty() {
             parts.push(format!(
                 "**解决方案：**\n{}",
-                sol.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")
+                sol.iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
     }
@@ -507,7 +506,11 @@ fn build_content(item: &V3KnowledgeItem) -> String {
         if !files.is_empty() {
             parts.push(format!(
                 "**关键文件：**\n{}",
-                files.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")
+                files
+                    .iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
     }
