@@ -4,6 +4,7 @@ mod commands;
 mod knowledge_commands;
 mod lifecycle;
 mod tray;
+mod workbench;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
