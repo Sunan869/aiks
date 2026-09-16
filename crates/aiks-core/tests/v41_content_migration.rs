@@ -144,6 +144,30 @@ fn persisted_migration_stats_are_aggregated_for_diagnostics() {
 }
 
 #[test]
+fn knowledge_without_a_migration_row_is_reported_as_pending() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
+    KnowledgeService::new(&db)
+        .create_manual(CreateKnowledgeInput {
+            title: "Not migrated yet".into(),
+            category: Some("general".into()),
+            project_name: Some("AIKS".into()),
+            summary: Some("pending migration".into()),
+            content: "pending body".into(),
+            tags: vec!["v4.1".into()],
+        })
+        .unwrap();
+
+    let stats = ContentMigrationService::new(&db).stats().unwrap();
+    assert_eq!(stats.total, 1);
+    assert_eq!(stats.pending, 1);
+    assert_eq!(stats.migrated, 0);
+    assert_eq!(stats.reused, 0);
+    assert_eq!(stats.conflicts, 0);
+    assert_eq!(stats.failed, 0);
+}
+
+#[test]
 fn siyuan_edit_invalidates_fts_chunks_and_embeddings_without_deleting_knowledge() {
     let dir = tempfile::tempdir().unwrap();
     let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
