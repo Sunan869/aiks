@@ -175,4 +175,21 @@ describe("V4.1 Tauri workbench API mapping", () => {
       ["show_workbench_graph"],
     ]);
   });
+
+  it("keeps database and graph surfaces inside the persistent workbench", async () => {
+    const api = new TauriAiksApi();
+
+    await api.showWorkbenchSurface("database");
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_database"],
+    ]);
+
+    invokeMock.mockClear();
+    await api.showWorkbenchSurface("graph");
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_graph"],
+    ]);
+  });
 });
