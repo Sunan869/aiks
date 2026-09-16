@@ -8,12 +8,14 @@
 ///  5. ensure Notebook
 ///  6. initialize AIKS Engine (with loaded config)
 ///  7. register AppState (including watcher handle B08)
-///  8. background: scan + sync_and_enqueue (B09)
-///  9. start Watcher → sync_and_enqueue on events (B08, B09)
+///  8. background: migrate V4.1 canonical content, then scan + sync_and_enqueue
+///  9. start Watcher → sync_and_enqueue on events
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
+use aiks_core::knowledge::ContentMigrationService;
 use aiks_core::runtime::SiyuanRuntime;
+use aiks_core::sink::SiYuanSink;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};
@@ -170,8 +172,9 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     emit_progress(&app, "ready", "AIKS 已就绪");
     show_control_center(&app);
 
-    // ── B09/R08: initial sync + watcher loop + periodic scan (shared scheduler)
-    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
+    // V4.1: keep the shell responsive, but serialize the startup migration
+    // before the initial raw sync/extraction scheduler begins.
+    spawn_startup_migration_then_tasks(&app, engine, None, watcher_rx);
 
     info!("AIKS startup complete");
     Ok(())
@@ -206,6 +209,87 @@ fn start_watcher_for_engine(
         }
         None => (None, watcher_rx),
     }
+}
+
+/// V4.1 migration is resumable, so startup may safely invoke it on every launch.
+/// Completed items are skipped by ContentMigrationService. The control shell is
+/// already visible while this job runs; failure is diagnostic-only and must not
+/// prevent normal raw-session collection from starting afterwards.
+fn spawn_startup_migration_then_tasks(
+    app: &AppHandle,
+    engine: Arc<AiksEngine>,
+    external_token: Option<String>,
+    watcher_rx: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+) {
+    let app_bg = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let config = engine.config();
+        let sink_result = if let Some(token) = external_token {
+            let mut siyuan = config.siyuan.clone();
+            siyuan.base_url = engine.siyuan_base_url().to_string();
+            siyuan.token = token;
+            SiYuanSink::new(siyuan)
+        } else {
+            SiYuanSink::embedded(engine.siyuan_base_url(), &config.siyuan.notebook_name)
+        };
+
+        match sink_result {
+            Ok(sink) if sink.health_check().await => {
+                let db = engine.db();
+                let migration = ContentMigrationService::new(db.as_ref());
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "running"}),
+                );
+                match migration.migrate(&sink).await {
+                    Ok(stats) => {
+                        info!(
+                            total = stats.total,
+                            migrated = stats.migrated,
+                            reused = stats.reused,
+                            conflicts = stats.conflicts,
+                            failed = stats.failed,
+                            "[MIGRATION] V4.1 canonical content migration complete"
+                        );
+                        let _ = app_bg.emit(
+                            "content-migration",
+                            serde_json::json!({
+                                "status": "completed",
+                                "total": stats.total,
+                                "migrated": stats.migrated,
+                                "reused": stats.reused,
+                                "conflicts": stats.conflicts,
+                                "failed": stats.failed,
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "[MIGRATION] V4.1 content migration failed");
+                        let _ = app_bg.emit(
+                            "content-migration",
+                            serde_json::json!({"status": "failed", "error": e.to_string()}),
+                        );
+                    }
+                }
+            }
+            Ok(_) => {
+                warn!("[MIGRATION] SiYuan health check failed; migration deferred");
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "deferred", "reason": "siyuan_unhealthy"}),
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "[MIGRATION] Could not create SiYuan sink; migration deferred");
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "deferred", "error": e.to_string()}),
+                );
+            }
+        }
+
+        spawn_background_tasks(&app_bg, Some(engine), watcher_rx);
+    });
 }
 
 /// R08: unified background scheduling shared by ALL startup modes:
@@ -364,7 +448,7 @@ async fn startup_with_external_siyuan(
             None
         },
         siyuan_base_url: Some(base_url.clone()),
-        siyuan_token: token,
+        siyuan_token: token.clone(),
     };
 
     let engine = Arc::new(AiksEngine::initialize(engine_config)?);
@@ -382,7 +466,7 @@ async fn startup_with_external_siyuan(
     app.manage(state);
     show_control_center(&app);
 
-    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
+    spawn_startup_migration_then_tasks(&app, engine, token, watcher_rx);
     Ok(())
 }
 
