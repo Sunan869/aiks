@@ -13,6 +13,8 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  WorkbenchStatus,
+  WorkspaceMode,
   FullStatus,
   AiStatus,
 } from "./types";
@@ -73,6 +75,31 @@ export class TauriAiksApi implements AiksApi {
   async restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("restore_knowledge", { knowledgeId }); }
   async publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult> { return invoke("publish_knowledge", { knowledgeId }); }
   async searchKnowledge(query: string, limit?: number): Promise<SearchResponse> { return invoke("search_knowledge_v4", { query, limit }); }
+
+  async getWorkbenchStatus(): Promise<WorkbenchStatus> {
+    return invoke("get_workbench_status");
+  }
+
+  async showWorkbench(mode: WorkspaceMode): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("show_workbench_root", { mode });
+  }
+
+  async hideWorkbench(): Promise<void> {
+    await invoke("hide_workbench");
+  }
+
+  async openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("set_workbench_mode", { mode });
+    await invoke("open_siyuan_document", { docId });
+  }
+
+  async openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("set_workbench_mode", { mode });
+    await invoke("open_siyuan_block", { docId, blockId });
+  }
 
   async getFullStatus(): Promise<FullStatus> { return invoke("get_full_status"); }
   async getAiStatus(): Promise<AiStatus> { return invoke("get_ai_status"); }
