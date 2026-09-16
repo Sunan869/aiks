@@ -40,7 +40,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     info!("Data directory: {}", data_dir.display());
     emit_progress(&app, "init", "正在初始化...");
 
-    // ── Check developer override ───────────────────────────────────────────────
     let dev_override = DevOverride::from_env();
     if dev_override.is_active() {
         warn!(
@@ -54,7 +53,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         return startup_with_external_siyuan(app, base_url, dev_override.token, data_dir).await;
     }
 
-    // ── Find runtime root ─────────────────────────────────────────────────────
     let runtime_root = match find_runtime_root(&app) {
         Ok(p) => p,
         Err(e) => {
@@ -65,7 +63,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
     info!("Runtime root: {}", runtime_root.display());
 
-    // ── Validate runtime ──────────────────────────────────────────────────────
     emit_progress(&app, "validate", "正在验证知识引擎...");
     let bootstrap_cfg =
         BootstrapConfig::new(runtime_root.clone(), data_dir.clone(), "AI Knowledge");
@@ -75,7 +72,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         return startup_without_siyuan(app, data_dir).await;
     }
 
-    // ── V4.1: install/update Bridge Plugin before the kernel starts ───────────
     let bridge_source = runtime_root
         .join("data")
         .join("plugins")
@@ -88,7 +84,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         }
     }
 
-    // ── Start SiYuan Kernel ───────────────────────────────────────────────────
     emit_progress(&app, "starting_siyuan", "正在启动知识引擎...");
     let runtime_cfg = bootstrap_cfg.runtime_config();
     let runtime = SiyuanRuntime::new(runtime_cfg);
@@ -107,9 +102,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             error!("SiYuan failed to start: {}", e);
             emit_error(&app, &format!("知识引擎启动失败：{}", e));
             show_control_center(&app);
-            // R08: keep the collection engine alive even without SiYuan so the
-            // watcher and periodic scanner can run; syncs will retry once the
-            // kernel becomes available (e.g. after restart_siyuan).
             let engine = AiksEngine::initialize(AiksEngineConfig {
                 config_path: config_file_path().exists().then_some(config_file_path()),
                 siyuan_base_url: None,
@@ -453,12 +445,9 @@ pub async fn shutdown(app: &AppHandle) {
     info!("Shutting down AIKS...");
     if let Some(runtime_container) = app.try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>() {
         let mut guard = runtime_container.lock().await;
-        if let Some(runtime) = guard.as_mut() {
-            if let Err(e) = runtime.stop().await {
-                error!("Error stopping SiYuan: {}", e);
-            }
+        if let Some(runtime) = guard.take() {
+            runtime.stop().await;
         }
-        *guard = None;
     }
     info!("AIKS shutdown complete");
 }
