@@ -8,6 +8,7 @@ import {
   WORKBENCH_ACTIONS,
   WORKSPACE_MODES,
   isWorkbenchAction,
+  isWorkbenchSearchShortcut,
   type WorkbenchActionName,
 } from "./workbench";
 
@@ -59,6 +60,15 @@ describe("V4.1 workbench bridge contract", () => {
     expect(pluginSource).toContain("protocolVersion: 1");
     expect(pluginSource).toContain("setReadOnly");
     expect(pluginSource).toContain("bridgeReady");
+  });
+});
+
+describe("V4.2 native workbench navigation", () => {
+  it("maps Ctrl/Cmd+K to native Workbench search", () => {
+    expect(isWorkbenchSearchShortcut({ key: "k", ctrlKey: true, metaKey: false })).toBe(true);
+    expect(isWorkbenchSearchShortcut({ key: "K", ctrlKey: false, metaKey: true })).toBe(true);
+    expect(isWorkbenchSearchShortcut({ key: "k", ctrlKey: false, metaKey: false })).toBe(false);
+    expect(isWorkbenchSearchShortcut({ key: "p", ctrlKey: true, metaKey: false })).toBe(false);
   });
 });
 
@@ -187,6 +197,39 @@ describe("V4.1 Tauri workbench API mapping", () => {
 
     invokeMock.mockClear();
     await api.showWorkbenchSurface("graph");
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_graph"],
+    ]);
+  });
+
+  it("opens native Workbench search through the bridge", async () => {
+    await new TauriAiksApi().openWorkbenchSearch();
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_search"],
+    ]);
+  });
+
+  it("maps document/database/graph mode to the persistent workbench", async () => {
+    const api = new TauriAiksApi();
+
+    await api.showWorkbenchMode("document");
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_root", { mode: "knowledge" }],
+    ]);
+
+    invokeMock.mockClear();
+    await api.showWorkbenchMode("database");
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_database"],
+    ]);
+
+    invokeMock.mockClear();
+    await api.showWorkbenchMode("graph");
     expect(invokeMock.mock.calls).toEqual([
       ["show_workbench"],
       ["show_workbench_graph"],
