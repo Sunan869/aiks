@@ -15,6 +15,7 @@ const SCHEMA_V8_SQL: &str = include_str!("../../migrations/007_v4_native_knowled
 const SCHEMA_V9_SQL: &str = include_str!("../../migrations/008_v41_siyuan_content_source.sql");
 const SCHEMA_V10_SQL: &str = include_str!("../../migrations/009_v42_knowledge_index.sql");
 const SCHEMA_V11_SQL: &str = include_str!("../../migrations/010_v42_deleted_knowledge_status.sql");
+const SCHEMA_V12_SQL: &str = include_str!("../../migrations/011_v42_session_search.sql");
 
 /// AIKS state database.
 ///
@@ -232,6 +233,11 @@ impl StateDb {
                 .context("run V11 deleted knowledge status migration")?;
         }
 
+        // V12 adds first-class retrieval state for raw AI sessions. It is fully
+        // additive and idempotent, so it is safe to run on every database open.
+        conn.execute_batch(SCHEMA_V12_SQL)
+            .context("run V12 AI session search migrations")?;
+
         Ok(())
     }
 
@@ -284,7 +290,7 @@ impl StateDb {
                 )?;
             } else {
                 conn.execute(
-                    "UPDATE source_session SET content_hash = NULL, updated_at = ?1",
+                    "UPDATE source_session SET content_hash = NULL, updated_at = ?1 WHERE 1 = 1",
                     rusqlite::params![now],
                 )?;
             }
@@ -356,6 +362,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(v41_columns, 4);
+
+        let v42_session_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('session_search_chunk','session_embedding_record','session_index_state','session_search_fts')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(v42_session_tables, 4);
     }
 
     #[test]
