@@ -18,6 +18,7 @@ import type {
   FullStatus,
   AiStatus,
 } from "./types";
+import type { WorkbenchMode } from "./workbench";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
@@ -37,13 +38,16 @@ export interface AiksApi {
   publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
 
-  // V4.1 Embedded SiYuan Workbench
+  // Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
   getV41Diagnostics(): Promise<V41Diagnostics>;
   getSessionWorkbenchDocId(sessionId: number): Promise<string | null>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
   showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void>;
+  showWorkbenchMode(mode: WorkbenchMode): Promise<void>;
+  openWorkbenchSearch(): Promise<void>;
+  restoreWorkbenchLocation(): Promise<void>;
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
