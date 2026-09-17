@@ -1,5 +1,6 @@
 // Mock API — provides realistic data for browser dev mode
 import type { AiksApi } from "./index";
+import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
@@ -231,6 +232,27 @@ export class MockAiksApi implements AiksApi {
       degraded: false,
       warnings: [],
     };
+  }
+
+  async assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion> {
+    await delay(240);
+    const base: AiAssistSuggestion = {
+      operation: input.operation,
+      title: null,
+      summary: null,
+      tags: [],
+      category: null,
+      text: null,
+    };
+    switch (input.operation) {
+      case "summary": return { ...base, summary: `摘要建议：${input.title}` };
+      case "tags": return { ...base, tags: ["AIKS", "knowledge", "mock"] };
+      case "category": return { ...base, category: input.existingCategory ?? "general" };
+      case "title": return { ...base, title: `${input.title || "知识"}（优化）` };
+      case "key_conclusions": return { ...base, text: "- 关键结论一\n- 关键结论二" };
+      case "structure": return { ...base, text: `# ${input.title}\n\n## 背景\n\n${input.content}` };
+      case "rewrite": return { ...base, text: input.content };
+    }
   }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
