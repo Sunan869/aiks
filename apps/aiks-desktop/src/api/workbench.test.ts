@@ -60,6 +60,12 @@ describe("V4.2 workbench bridge contract", () => {
     expect(pluginSource).toContain("setReadOnly");
     expect(pluginSource).toContain("bridgeReady");
   });
+
+  it("prefers the V4.2 center Graph host API before legacy dock selectors", () => {
+    expect(pluginSource).toContain("window.aiksWorkbench");
+    expect(pluginSource).toContain("openGraph");
+    expect(pluginSource.indexOf("openGraph")).toBeLessThan(pluginSource.indexOf("#barGraph"));
+  });
 });
 
 describe("V4.2 Tauri workbench API mapping", () => {
