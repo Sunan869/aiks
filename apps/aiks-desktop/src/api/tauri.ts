@@ -90,15 +90,7 @@ export class TauriAiksApi implements AiksApi {
     });
   }
   async assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion> {
-    return invoke("assist_knowledge_v42", {
-      siyuanDocId: input.siyuanDocId,
-      operation: input.operation,
-      title: input.title,
-      content: input.content,
-      existingSummary: input.existingSummary,
-      existingTags: input.existingTags,
-      existingCategory: input.existingCategory,
-    });
+    return invoke("assist_knowledge_v42", { request: input });
   }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
