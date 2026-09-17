@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import pluginSource from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/index.js?raw";
+import eventsSource from "../../src-tauri/src/workbench/events.rs?raw";
+import protocolSource from "../../src-tauri/src/workbench/protocol.rs?raw";
 import { TauriAiksApi } from "./tauri";
 import { WORKBENCH_ACTIONS } from "./workbench";
 
@@ -18,10 +20,12 @@ describe("V4.2 cross-system bridge boundary", () => {
     }
   });
 
-  it("supports AI Assist request and structured result across the bridge", () => {
+  it("supports AI Assist request and structured result across the full bridge", () => {
     expect(WORKBENCH_ACTIONS).toContain("aiAssistResult");
     expect(pluginSource).toContain("requestAiAssist");
     expect(pluginSource).toContain("aiAssistResult");
+    expect(eventsSource).toContain('"requestAiAssist"');
+    expect(protocolSource).toContain("AiAssistResult");
   });
 
   it("does not expose native presentation forwarding methods on the AIKS API", () => {
