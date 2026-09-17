@@ -42,19 +42,15 @@ export interface AiksApi {
   searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome>;
   assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion>;
 
-  // Embedded SiYuan Workbench
+  // Embedded SiYuan Workbench — cross-system coordination only
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
   getV41Diagnostics(): Promise<V41Diagnostics>;
   getSessionWorkbenchDocId(sessionId: number): Promise<string | null>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
-  showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void>;
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
-  showWorkbenchSearch(): Promise<void>;
-  showWorkbenchDatabase(): Promise<void>;
-  showWorkbenchGraph(): Promise<void>;
 
   // Compatibility / operational APIs
   getFullStatus(): Promise<FullStatus>;
