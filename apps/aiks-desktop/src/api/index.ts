@@ -11,6 +11,8 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  UnifiedSearchOptions,
+  UnifiedSearchOutcome,
   WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
@@ -36,6 +38,7 @@ export interface AiksApi {
   restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail>;
   publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
+  searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome>;
 
   // Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
