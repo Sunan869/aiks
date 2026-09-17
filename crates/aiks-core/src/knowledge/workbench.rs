@@ -55,6 +55,13 @@ pub struct KnowledgeRecord {
     pub is_favorite: bool,
     pub siyuan_doc_id: Option<String>,
     pub generated_hash: Option<String>,
+    pub index_status: String,
+    pub indexed_hash: Option<String>,
+    pub indexed_at: Option<String>,
+    pub embedding_model: Option<String>,
+    pub embedding_dimensions: Option<i64>,
+    pub index_chunk_count: i64,
+    pub last_index_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub source: Option<String>,
@@ -304,7 +311,9 @@ impl<'a> KnowledgeService<'a> {
                 "SELECT ki.id, ki.source_session_id, ki.project_name, ki.title, ki.category,
                         ki.summary, ki.content, ki.tags, ki.confidence, ki.source_type,
                         ki.managed_by, ki.status, ki.is_favorite, ki.siyuan_doc_id,
-                        ki.generated_hash, ki.created_at, ki.updated_at,
+                        ki.generated_hash, ki.index_status, ki.indexed_hash, ki.indexed_at,
+                        ki.embedding_model, ki.embedding_dimensions, ki.index_chunk_count,
+                        ki.last_index_error, ki.created_at, ki.updated_at,
                         ss.source, ss.external_session_id, ss.title
                  FROM knowledge_item ki
                  LEFT JOIN source_session ss ON ss.id = ki.source_session_id
@@ -361,7 +370,9 @@ impl<'a> KnowledgeService<'a> {
             "SELECT ki.id, ki.source_session_id, ki.project_name, ki.title, ki.category,
                     ki.summary, ki.content, ki.tags, ki.confidence, ki.source_type,
                     ki.managed_by, ki.status, ki.is_favorite, ki.siyuan_doc_id,
-                    ki.generated_hash, ki.created_at, ki.updated_at,
+                    ki.generated_hash, ki.index_status, ki.indexed_hash, ki.indexed_at,
+                    ki.embedding_model, ki.embedding_dimensions, ki.index_chunk_count,
+                    ki.last_index_error, ki.created_at, ki.updated_at,
                     ss.source, ss.external_session_id, ss.title
              FROM knowledge_item ki
              LEFT JOIN source_session ss ON ss.id = ki.source_session_id
@@ -503,11 +514,18 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnowledgeRecord> {
         is_favorite: row.get::<_, i64>(12)? != 0,
         siyuan_doc_id: row.get(13)?,
         generated_hash: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
-        source: row.get(17)?,
-        session_external_id: row.get(18)?,
-        session_title: row.get(19)?,
+        index_status: row.get(15)?,
+        indexed_hash: row.get(16)?,
+        indexed_at: row.get(17)?,
+        embedding_model: row.get(18)?,
+        embedding_dimensions: row.get(19)?,
+        index_chunk_count: row.get(20)?,
+        last_index_error: row.get(21)?,
+        created_at: row.get(22)?,
+        updated_at: row.get(23)?,
+        source: row.get(24)?,
+        session_external_id: row.get(25)?,
+        session_title: row.get(26)?,
     })
 }
 
