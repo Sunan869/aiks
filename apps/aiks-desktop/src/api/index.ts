@@ -20,6 +20,7 @@ import type {
   FullStatus,
   AiStatus,
 } from "./types";
+import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
@@ -39,6 +40,7 @@ export interface AiksApi {
   publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
   searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome>;
+  assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion>;
 
   // Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
