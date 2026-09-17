@@ -28,6 +28,13 @@ describe("V4.2 cross-system bridge boundary", () => {
     expect(protocolSource).toContain("AiAssistResult");
   });
 
+  it("handles AI Assist in AIKS from canonical SiYuan content instead of window message body", () => {
+    expect(eventsSource).toContain("AiAssistService");
+    expect(eventsSource).toContain("get_document_markdown");
+    expect(eventsSource).toContain("WorkbenchAction::AiAssistResult");
+    expect(pluginSource).toContain('this.emit("requestAiAssist", {requestId, docId: id, operation: op})');
+  });
+
   it("does not expose native presentation forwarding methods on the AIKS API", () => {
     const api = new TauriAiksApi() as unknown as Record<string, unknown>;
     expect(api.showWorkbenchSearch).toBeUndefined();
