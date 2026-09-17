@@ -1,0 +1,158 @@
+name: V4.2 Clippy Autofix
+
+on:
+  push:
+    branches:
+      - feature/v4.2-unified-knowledge-backend
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: contains(github.event.head_commit.message, '[clippy-v42]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v4.2-unified-knowledge-backend
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply deterministic Clippy fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          session_path = Path('crates/aiks-core/src/indexing/session.rs')
+          session = session_path.read_text(encoding='utf-8')
+
+          old_call = '''        self.begin_rebuild(
+              input.session_id,
+              external_id,
+              source,
+              &title,
+              project_name.as_deref(),
+              &input.normalized_text,
+              &content_hash,
+              &prepared,
+          )?;
+          '''
+          new_call = '''        let rebuild = SessionRebuildContext {
+              session_id: input.session_id,
+              external_id,
+              source,
+              title: &title,
+              project_name: project_name.as_deref(),
+              normalized_text: &input.normalized_text,
+              content_hash: &content_hash,
+              chunks: &prepared,
+          };
+          self.begin_rebuild(&rebuild)?;
+          '''
+          if old_call not in session:
+              raise SystemExit('expected begin_rebuild call block not found')
+          session = session.replace(old_call, new_call, 1)
+
+          old_signature = '''    fn begin_rebuild(
+              &self,
+              session_id: i64,
+              external_id: &str,
+              source: &str,
+              title: &str,
+              project_name: Option<&str>,
+              normalized_text: &str,
+              content_hash: &str,
+              chunks: &[PreparedSessionChunk],
+          ) -> anyhow::Result<()> {
+              let now = Utc::now().to_rfc3339();
+          '''
+          new_signature = '''    fn begin_rebuild(&self, rebuild: &SessionRebuildContext<'_>) -> anyhow::Result<()> {
+              let session_id = rebuild.session_id;
+              let external_id = rebuild.external_id;
+              let source = rebuild.source;
+              let title = rebuild.title;
+              let project_name = rebuild.project_name;
+              let normalized_text = rebuild.normalized_text;
+              let content_hash = rebuild.content_hash;
+              let chunks = rebuild.chunks;
+              let now = Utc::now().to_rfc3339();
+          '''
+          if old_signature not in session:
+              raise SystemExit('expected begin_rebuild signature block not found')
+          session = session.replace(old_signature, new_signature, 1)
+
+          chunk_struct = '''#[derive(Debug)]
+          struct PreparedSessionChunk {
+              id: String,
+              index: usize,
+              text: String,
+              hash: String,
+          }
+          '''
+          rebuild_struct = chunk_struct + '''
+          #[derive(Debug)]
+          struct SessionRebuildContext<'a> {
+              session_id: i64,
+              external_id: &'a str,
+              source: &'a str,
+              title: &'a str,
+              project_name: Option<&'a str>,
+              normalized_text: &'a str,
+              content_hash: &'a str,
+              chunks: &'a [PreparedSessionChunk],
+          }
+          '''
+          if chunk_struct not in session:
+              raise SystemExit('expected PreparedSessionChunk block not found')
+          session = session.replace(chunk_struct, rebuild_struct, 1)
+          session_path.write_text(session, encoding='utf-8')
+
+          search_path = Path('crates/aiks-core/src/search/mod.rs')
+          search = search_path.read_text(encoding='utf-8')
+          old_decoder = '''fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
+              if bytes.len() % 4 != 0 {
+                  anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
+              }
+              Ok(bytes
+                  .chunks_exact(4)
+                  .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                  .collect())
+          }
+          '''
+          new_decoder = '''fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
+              if !bytes.len().is_multiple_of(4) {
+                  anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
+              }
+              let (chunks, _) = bytes.as_chunks::<4>();
+              Ok(chunks
+                  .iter()
+                  .map(|chunk| f32::from_le_bytes(*chunk))
+                  .collect())
+          }
+          '''
+          if old_decoder not in search:
+              raise SystemExit('expected decode_vector block not found')
+          search = search.replace(old_decoder, new_decoder, 1)
+          search_path.write_text(search, encoding='utf-8')
+          PY
+
+      - name: Format Rust
+        run: cargo fmt --all
+
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/v42-clippy-autofix.yml
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/aiks-core/src/indexing/session.rs crates/aiks-core/src/search/mod.rs .github/workflows/v42-clippy-autofix.yml
+          git commit -m "fix(v4.2): satisfy Rust 1.98 clippy"
+          git push origin HEAD:feature/v4.2-unified-knowledge-backend
