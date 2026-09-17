@@ -2,6 +2,7 @@ use std::net::IpAddr;
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::Url;
 
 pub const BRIDGE_PROTOCOL_VERSION: u16 = 1;
@@ -23,7 +24,7 @@ impl WorkspaceMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum WorkbenchAction {
     ShowKnowledgeRoot,
@@ -31,12 +32,13 @@ pub enum WorkbenchAction {
     OpenDocument { doc_id: String },
     OpenBlock { doc_id: String, block_id: String },
     SetWorkspaceMode { mode: WorkspaceMode },
-    ShowBacklinks { block_id: String },
-    ShowOutline,
-    ShowDatabase,
-    ShowGraph,
-    ShowSearch,
     RefreshDocument { doc_id: String },
+    AiAssistResult {
+        request_id: String,
+        ok: bool,
+        suggestion: Option<Value>,
+        error: Option<String>,
+    },
 }
 
 pub fn validate_protocol_version(version: u16) -> anyhow::Result<()> {
@@ -112,6 +114,8 @@ mod tests {
         assert!(validate_identifier("doc_id", "20260916000100-abcdefg").is_ok());
         assert!(validate_identifier("doc_id", "").is_err());
         assert!(validate_identifier("block_id", "   ").is_err());
+        assert!(validate_identifier("request_id", "request-123").is_ok());
+        assert!(validate_identifier("request_id", " ").is_err());
     }
 
     #[test]
@@ -126,5 +130,18 @@ mod tests {
         );
         assert!(WorkspaceMode::parse("admin").is_err());
         assert!(WorkspaceMode::parse("").is_err());
+    }
+
+    #[test]
+    fn ai_assist_result_is_part_of_the_cross_system_protocol() {
+        let action = WorkbenchAction::AiAssistResult {
+            request_id: "request-123".to_string(),
+            ok: true,
+            suggestion: Some(serde_json::json!({"operation": "summary"})),
+            error: None,
+        };
+        let json = serde_json::to_value(action).unwrap();
+        assert_eq!(json["action"], "aiAssistResult");
+        assert_eq!(json["request_id"], "request-123");
     }
 }
