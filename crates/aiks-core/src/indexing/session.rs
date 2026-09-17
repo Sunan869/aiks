@@ -165,21 +165,25 @@ impl SessionIndexService {
             Ok((Vec::new(), None))
         };
 
-        let (vectors, actual_dimensions) = match embed_result {
-            Ok(value) => value,
-            Err(error) => {
-                self.mark_failed(input.session_id, &content_hash, &error.to_string())?;
-                return Err(error);
-            }
-        };
+        let (vectors, actual_dimensions, final_embedding_model, embedding_error) =
+            match embed_result {
+                Ok((vectors, dimensions)) => {
+                    (vectors, dimensions, embedding_model.as_deref(), None)
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    (Vec::new(), None, None, Some(message))
+                }
+            };
 
         self.finish_rebuild(
             input.session_id,
             &content_hash,
             &prepared,
-            embedding_model.as_deref(),
+            final_embedding_model,
             actual_dimensions,
             &vectors,
+            embedding_error.as_deref(),
         )?;
 
         Ok(SessionIndexResult {
@@ -353,6 +357,7 @@ impl SessionIndexService {
         embedding_model: Option<&str>,
         dimensions: Option<usize>,
         vectors: &[Vec<f32>],
+        last_error: Option<&str>,
     ) -> anyhow::Result<()> {
         if embedding_model.is_some() && chunks.len() != vectors.len() {
             anyhow::bail!(
@@ -400,7 +405,7 @@ impl SessionIndexService {
             let changed = conn.execute(
                 "UPDATE session_index_state
                  SET status = 'ready', indexed_at = ?3, embedding_model = ?4,
-                     embedding_dimensions = ?5, chunk_count = ?6, last_error = NULL
+                     embedding_dimensions = ?5, chunk_count = ?6, last_error = ?7
                  WHERE session_id = ?1 AND indexed_hash = ?2 AND status = 'indexing'",
                 params![
                     session_id,
@@ -408,7 +413,8 @@ impl SessionIndexService {
                     now,
                     embedding_model,
                     dimensions.map(|value| value as i64),
-                    chunks.len() as i64
+                    chunks.len() as i64,
+                    last_error
                 ],
             )?;
             if changed != 1 {
@@ -423,18 +429,6 @@ impl SessionIndexService {
                 return Err(error);
             }
         }
-        Ok(())
-    }
-
-    fn mark_failed(&self, session_id: i64, content_hash: &str, error: &str) -> anyhow::Result<()> {
-        let conn = self.db.conn();
-        conn.execute(
-            "UPDATE session_index_state
-             SET status = 'failed', indexed_at = NULL, embedding_model = NULL,
-                 embedding_dimensions = NULL, last_error = ?3
-             WHERE session_id = ?1 AND indexed_hash = ?2",
-            params![session_id, content_hash, error],
-        )?;
         Ok(())
     }
 
