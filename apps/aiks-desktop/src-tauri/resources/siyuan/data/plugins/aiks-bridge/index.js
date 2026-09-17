@@ -29,6 +29,14 @@ function escapeSelector(value) {
   return value.replace(/["\\]/g, "\\$&");
 }
 
+function createdDocumentId(data) {
+  const direct = safeId(data?.id) || safeId(data?.rootID);
+  if (direct) return direct;
+  if (typeof data?.path !== "string") return null;
+  const filename = data.path.split("/").filter(Boolean).pop() || "";
+  return safeId(filename.endsWith(".sy") ? filename.slice(0, -3) : filename);
+}
+
 class SiyuanAdapter {
   constructor(app) {
     this.app = app;
@@ -247,6 +255,7 @@ export default class AIKSBridgePlugin extends Plugin {
     this.onDrop = (event) => this.blockEdit(event);
     this.onKeyDown = (event) => this.blockKeyDown(event);
     this.onEditorInput = (event) => this.handleEditorInput(event);
+    this.onKernelMessage = (event) => this.handleKernelMessage(event);
 
     window.addEventListener("message", this.onMessage);
     document.addEventListener("beforeinput", this.onBeforeInput, true);
@@ -254,6 +263,7 @@ export default class AIKSBridgePlugin extends Plugin {
     document.addEventListener("drop", this.onDrop, true);
     document.addEventListener("keydown", this.onKeyDown, true);
     document.addEventListener("input", this.onEditorInput, true);
+    this.eventBus.on("ws-main", this.onKernelMessage);
 
     this.readOnlyObserver = new MutationObserver(() => {
       if (this.adapter?.readOnly) {
@@ -281,6 +291,7 @@ export default class AIKSBridgePlugin extends Plugin {
     document.removeEventListener("drop", this.onDrop, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
     document.removeEventListener("input", this.onEditorInput, true);
+    this.eventBus.off("ws-main", this.onKernelMessage);
     this.readOnlyObserver?.disconnect?.();
     for (const timer of this.changeTimers?.values?.() || []) {
       window.clearTimeout(timer);
@@ -308,6 +319,33 @@ export default class AIKSBridgePlugin extends Plugin {
       ? message.payload
       : {};
     this.dispatch(message.action, payload);
+  }
+
+  handleKernelMessage(event) {
+    const message = event?.detail;
+    if (!message || typeof message !== "object") return;
+
+    switch (message.cmd) {
+      case "create": {
+        const docId = createdDocumentId(message.data);
+        if (docId) {
+          this.emit("documentCreated", { docId });
+        }
+        break;
+      }
+      case "removeDoc": {
+        const ids = Array.isArray(message.data?.ids) ? message.data.ids : [];
+        for (const rawId of ids) {
+          const docId = safeId(rawId);
+          if (docId) {
+            this.emit("documentDeleted", { docId });
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   dispatch(action, payload) {
