@@ -656,12 +656,13 @@ fn add_ranked_list(
 }
 
 fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
     }
-    Ok(bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    let (chunks, _) = bytes.as_chunks::<4>();
+    Ok(chunks
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
         .collect())
 }
 

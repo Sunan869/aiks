@@ -147,16 +147,17 @@ impl SessionIndexService {
             })
             .collect();
 
-        self.begin_rebuild(
-            input.session_id,
+        let rebuild = SessionRebuildContext {
+            session_id: input.session_id,
             external_id,
             source,
-            &title,
-            project_name.as_deref(),
-            &input.normalized_text,
-            &content_hash,
-            &prepared,
-        )?;
+            title: &title,
+            project_name: project_name.as_deref(),
+            normalized_text: &input.normalized_text,
+            content_hash: &content_hash,
+            chunks: &prepared,
+        };
+        self.begin_rebuild(&rebuild)?;
 
         let embed_result = if embedding_enabled {
             self.embed_chunks(&prepared, configured_dimensions).await
@@ -222,17 +223,15 @@ impl SessionIndexService {
         Ok(())
     }
 
-    fn begin_rebuild(
-        &self,
-        session_id: i64,
-        external_id: &str,
-        source: &str,
-        title: &str,
-        project_name: Option<&str>,
-        normalized_text: &str,
-        content_hash: &str,
-        chunks: &[PreparedSessionChunk],
-    ) -> anyhow::Result<()> {
+    fn begin_rebuild(&self, rebuild: &SessionRebuildContext<'_>) -> anyhow::Result<()> {
+        let session_id = rebuild.session_id;
+        let external_id = rebuild.external_id;
+        let source = rebuild.source;
+        let title = rebuild.title;
+        let project_name = rebuild.project_name;
+        let normalized_text = rebuild.normalized_text;
+        let content_hash = rebuild.content_hash;
+        let chunks = rebuild.chunks;
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
         conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -485,6 +484,18 @@ struct PreparedSessionChunk {
     index: usize,
     text: String,
     hash: String,
+}
+
+#[derive(Debug)]
+struct SessionRebuildContext<'a> {
+    session_id: i64,
+    external_id: &'a str,
+    source: &'a str,
+    title: &'a str,
+    project_name: Option<&'a str>,
+    normalized_text: &'a str,
+    content_hash: &'a str,
+    chunks: &'a [PreparedSessionChunk],
 }
 
 fn can_skip(
