@@ -2,7 +2,7 @@ export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 
 export const WORKSPACE_MODES = ["knowledge", "session"] as const;
 export type WorkspaceMode = (typeof WORKSPACE_MODES)[number];
-export type WorkbenchSurface = WorkspaceMode | "database" | "graph";
+export type WorkbenchSurface = WorkspaceMode;
 
 export const WORKBENCH_ACTIONS = [
   "showKnowledgeRoot",
@@ -10,12 +10,8 @@ export const WORKBENCH_ACTIONS = [
   "openDocument",
   "openBlock",
   "setWorkspaceMode",
-  "showBacklinks",
-  "showOutline",
-  "showDatabase",
-  "showGraph",
-  "showSearch",
   "refreshDocument",
+  "aiAssistResult",
 ] as const;
 
 export type WorkbenchActionName = (typeof WORKBENCH_ACTIONS)[number];
@@ -33,7 +29,7 @@ export function boundWorkbenchMode(
   docId?: string | null,
 ): WorkspaceMode | null {
   if (!docId?.trim()) return null;
-  return surface === "knowledge" || surface === "session" ? surface : null;
+  return surface;
 }
 
 export function shouldKeepWorkbenchMounted(
