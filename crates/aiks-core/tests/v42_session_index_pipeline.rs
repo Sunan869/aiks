@@ -231,9 +231,7 @@ async fn embedding_failure_degrades_to_lexical_session_index() {
         )
         .unwrap();
     assert_eq!(status, "ready");
-    assert!(
-        last_error
-            .as_deref()
-            .is_some_and(|error| error.contains("forced embedding failure"))
-    );
+    assert!(last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("forced embedding failure")));
 }
