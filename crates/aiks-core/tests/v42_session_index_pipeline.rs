@@ -112,6 +112,7 @@ async fn wait_for_terminal(db: &StateDb, run_id: &str) -> String {
     panic!("pipeline run did not reach a terminal state");
 }
 
+// Contract: lexical session search is available independently of AI extraction.
 #[tokio::test]
 async fn ai_disabled_pipeline_still_builds_searchable_session_index() {
     let dir = tempfile::tempdir().unwrap();
@@ -191,6 +192,7 @@ impl EmbeddingProvider for FailingEmbedding {
     }
 }
 
+// Contract: semantic indexing may degrade, but lexical search must remain ready.
 #[tokio::test]
 async fn embedding_failure_degrades_to_lexical_session_index() {
     let dir = tempfile::tempdir().unwrap();
