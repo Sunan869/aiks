@@ -1,6 +1,7 @@
 // Tauri API implementation — wraps invoke() calls
 import { invoke } from "@tauri-apps/api/core";
 import type { AiksApi } from "./index";
+import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type {
   Overview,
   SessionPage,
@@ -86,6 +87,17 @@ export class TauriAiksApi implements AiksApi {
       corpora: options?.corpora,
       project: options?.project,
       source: options?.source,
+    });
+  }
+  async assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion> {
+    return invoke("assist_knowledge_v42", {
+      siyuanDocId: input.siyuanDocId,
+      operation: input.operation,
+      title: input.title,
+      content: input.content,
+      existingSummary: input.existingSummary,
+      existingTags: input.existingTags,
+      existingCategory: input.existingCategory,
     });
   }
 
