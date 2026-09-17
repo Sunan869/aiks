@@ -37,7 +37,7 @@ export interface AiksApi {
   publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult>;
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
 
-  // V4.1 Embedded SiYuan Workbench
+  // Embedded SiYuan Workbench
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
   getV41Diagnostics(): Promise<V41Diagnostics>;
   getSessionWorkbenchDocId(sessionId: number): Promise<string | null>;
@@ -47,6 +47,7 @@ export interface AiksApi {
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;
+  showWorkbenchSearch(): Promise<void>;
   showWorkbenchDatabase(): Promise<void>;
   showWorkbenchGraph(): Promise<void>;
 
