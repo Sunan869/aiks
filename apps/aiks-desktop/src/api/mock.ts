@@ -290,10 +290,6 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
-  async showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void> {
-    workbenchMode = surface === "session" ? "session" : "knowledge";
-  }
-
   async hideWorkbench(): Promise<void> {}
 
   async openSiyuanDocument(_docId: string, mode: WorkspaceMode): Promise<void> {
@@ -304,11 +300,6 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
-  async showWorkbenchSearch(): Promise<void> {}
-
-  async showWorkbenchDatabase(): Promise<void> {}
-
-  async showWorkbenchGraph(): Promise<void> {}
 
   async getFullStatus(): Promise<FullStatus> {
     return {

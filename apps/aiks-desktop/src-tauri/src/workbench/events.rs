@@ -31,6 +31,7 @@ const ALLOWED_EVENTS: &[&str] = &[
     "requestOpenSession",
     "requestOpenKnowledge",
     "requestShowPipeline",
+    "requestAiAssist",
     "workspaceModeChanged",
 ];
 

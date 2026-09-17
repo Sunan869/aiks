@@ -45,14 +45,23 @@ impl BridgeEnvelope {
             WorkbenchAction::SetWorkspaceMode { mode } => {
                 ("setWorkspaceMode", json!({ "mode": mode }))
             }
-            WorkbenchAction::ShowBacklinks { block_id } => {
-                let block_id = validate_identifier("block_id", &block_id)?;
-                ("showBacklinks", json!({ "blockId": block_id }))
+            WorkbenchAction::AiAssistResult {
+                request_id,
+                ok,
+                suggestion,
+                error,
+            } => {
+                let request_id = validate_identifier("request_id", &request_id)?;
+                (
+                    "aiAssistResult",
+                    json!({
+                        "requestId": request_id,
+                        "ok": ok,
+                        "suggestion": suggestion,
+                        "error": error,
+                    }),
+                )
             }
-            WorkbenchAction::ShowOutline => ("showOutline", json!({})),
-            WorkbenchAction::ShowDatabase => ("showDatabase", json!({})),
-            WorkbenchAction::ShowGraph => ("showGraph", json!({})),
-            WorkbenchAction::ShowSearch => ("showSearch", json!({})),
             WorkbenchAction::RefreshDocument { doc_id } => {
                 let doc_id = validate_identifier("doc_id", &doc_id)?;
                 ("refreshDocument", json!({ "docId": doc_id }))
@@ -304,61 +313,6 @@ pub async fn open_siyuan_block(
         controller.inner(),
         WorkbenchAction::OpenBlock { doc_id, block_id },
     )
-}
-
-#[tauri::command]
-pub async fn show_workbench_backlinks(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    controller: State<'_, WorkbenchController>,
-    block_id: String,
-) -> Result<(), String> {
-    sync_origin(app_state.inner(), controller.inner()).await?;
-    dispatch_action(
-        &app,
-        controller.inner(),
-        WorkbenchAction::ShowBacklinks { block_id },
-    )
-}
-
-#[tauri::command]
-pub async fn show_workbench_outline(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    controller: State<'_, WorkbenchController>,
-) -> Result<(), String> {
-    sync_origin(app_state.inner(), controller.inner()).await?;
-    dispatch_action(&app, controller.inner(), WorkbenchAction::ShowOutline)
-}
-
-#[tauri::command]
-pub async fn show_workbench_database(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    controller: State<'_, WorkbenchController>,
-) -> Result<(), String> {
-    sync_origin(app_state.inner(), controller.inner()).await?;
-    dispatch_action(&app, controller.inner(), WorkbenchAction::ShowDatabase)
-}
-
-#[tauri::command]
-pub async fn show_workbench_graph(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    controller: State<'_, WorkbenchController>,
-) -> Result<(), String> {
-    sync_origin(app_state.inner(), controller.inner()).await?;
-    dispatch_action(&app, controller.inner(), WorkbenchAction::ShowGraph)
-}
-
-#[tauri::command]
-pub async fn show_workbench_search(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    controller: State<'_, WorkbenchController>,
-) -> Result<(), String> {
-    sync_origin(app_state.inner(), controller.inner()).await?;
-    dispatch_action(&app, controller.inner(), WorkbenchAction::ShowSearch)
 }
 
 #[tauri::command]

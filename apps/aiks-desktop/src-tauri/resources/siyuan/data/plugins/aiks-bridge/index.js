@@ -8,12 +8,8 @@ const ACTIONS = new Set([
   "openDocument",
   "openBlock",
   "setWorkspaceMode",
-  "showBacklinks",
-  "showOutline",
-  "showDatabase",
-  "showGraph",
-  "showSearch",
   "refreshDocument",
+  "aiAssistResult",
 ]);
 
 const EDIT_KEYS = new Set(["Backspace", "Delete", "Enter", "Tab"]);
@@ -144,75 +140,6 @@ class SiyuanAdapter {
     this.readOnlyRefreshTimers.clear();
   }
 
-  clickFirst(selectors) {
-    for (const selector of selectors) {
-      try {
-        const element = document.querySelector(selector);
-        if (element instanceof HTMLElement) {
-          element.click();
-          return true;
-        }
-      } catch (error) {
-        console.debug("[AIKS Bridge] selector unavailable", selector, error);
-      }
-    }
-    return false;
-  }
-
-  showBacklinks() {
-    return this.clickFirst([
-      '[data-type="backlink"]',
-      '[data-type="backlinks"]',
-      '[data-key="dialog-backlink"]',
-    ]);
-  }
-
-  showOutline() {
-    return this.clickFirst([
-      '[data-type="outline"]',
-      '[data-key="dialog-outline"]',
-      '[aria-label*="Outline"]',
-      '[aria-label*="大纲"]',
-    ]);
-  }
-
-  showDatabase() {
-    return this.clickFirst([
-      '[data-type="database"]',
-      '[data-type="av"]',
-      '[aria-label*="Database"]',
-      '[aria-label*="数据库"]',
-    ]);
-  }
-
-  async showGraph() {
-    try {
-      const host = window.aiksWorkbench;
-      if (host && typeof host.openGraph === "function") {
-        const opened = await host.openGraph();
-        if (opened === true) return true;
-      }
-    } catch (error) {
-      console.warn("[AIKS Bridge] native Graph host API failed", error);
-    }
-
-    return this.clickFirst([
-      "#barGraph",
-      '[data-type="graph"]',
-      '[aria-label*="Graph"]',
-      '[aria-label*="关系图"]',
-    ]);
-  }
-
-  showSearch() {
-    return this.clickFirst([
-      "#barSearch",
-      '[data-type="search"]',
-      '[aria-label*="Search"]',
-      '[aria-label*="搜索"]',
-    ]);
-  }
-
   refreshDocument(docId) {
     const id = safeId(docId);
     if (!id) return false;
@@ -246,6 +173,7 @@ export default class AIKSBridgePlugin extends Plugin {
       : null;
     this.mode = "knowledge";
     this.changeTimers = new Map();
+    this.aiAssistRequests = new Map();
     this.adapter = new SiyuanAdapter(this.app);
     this.adapter.applyAiksLayout();
 
@@ -278,6 +206,7 @@ export default class AIKSBridgePlugin extends Plugin {
       get mode() {
         return document.documentElement.dataset.aiksWorkspaceMode || "knowledge";
       },
+      requestAiAssist: (docId, operation) => this.requestAiAssist(docId, operation),
     };
     window.__AIKS_BRIDGE__ = bridge;
     this.setMode("knowledge");
@@ -297,6 +226,11 @@ export default class AIKSBridgePlugin extends Plugin {
       window.clearTimeout(timer);
     }
     this.changeTimers?.clear?.();
+    for (const pending of this.aiAssistRequests?.values?.() || []) {
+      window.clearTimeout(pending.timer);
+      pending.reject(new Error("AIKS AI Assist bridge unloaded"));
+    }
+    this.aiAssistRequests?.clear?.();
     this.adapter?.clearAiksLayout();
     delete window.__AIKS_BRIDGE__;
   }
@@ -372,20 +306,8 @@ export default class AIKSBridgePlugin extends Plugin {
       case "setWorkspaceMode":
         this.setMode(payload.mode);
         break;
-      case "showBacklinks":
-        this.adapter.showBacklinks(payload.blockId);
-        break;
-      case "showOutline":
-        this.adapter.showOutline();
-        break;
-      case "showDatabase":
-        this.adapter.showDatabase();
-        break;
-      case "showGraph":
-        this.adapter.showGraph();
-        break;
-      case "showSearch":
-        this.adapter.showSearch();
+      case "aiAssistResult":
+        this.resolveAiAssist(payload);
         break;
       case "refreshDocument":
         this.adapter.refreshDocument(payload.docId);
@@ -393,6 +315,39 @@ export default class AIKSBridgePlugin extends Plugin {
       default:
         break;
     }
+  }
+
+  requestAiAssist(docId, operation) {
+    const id = safeId(docId);
+    const op = safeId(operation);
+    if (!id || !op) {
+      return Promise.reject(new Error("AI Assist requires docId and operation"));
+    }
+    const requestId = window.crypto?.randomUUID?.() ||
+      `aiks-ai-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        this.aiAssistRequests.delete(requestId);
+        reject(new Error("AI Assist request timed out"));
+      }, 60_000);
+      this.aiAssistRequests.set(requestId, {resolve, reject, timer});
+      this.emit("requestAiAssist", {requestId, docId: id, operation: op});
+    });
+  }
+
+  resolveAiAssist(payload) {
+    const requestId = safeId(payload?.requestId);
+    if (!requestId) return false;
+    const pending = this.aiAssistRequests.get(requestId);
+    if (!pending) return false;
+    this.aiAssistRequests.delete(requestId);
+    window.clearTimeout(pending.timer);
+    if (payload?.ok === true) {
+      pending.resolve(payload.suggestion || {});
+    } else {
+      pending.reject(new Error(safeId(payload?.error) || "AI Assist failed"));
+    }
+    return true;
   }
 
   setMode(mode) {

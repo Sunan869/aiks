@@ -108,11 +108,6 @@ pub fn run() {
             workbench::commands::show_workbench_root,
             workbench::commands::open_siyuan_document,
             workbench::commands::open_siyuan_block,
-            workbench::commands::show_workbench_backlinks,
-            workbench::commands::show_workbench_outline,
-            workbench::commands::show_workbench_database,
-            workbench::commands::show_workbench_graph,
-            workbench::commands::show_workbench_search,
             workbench::commands::refresh_siyuan_document,
         ])
         .on_window_event(|window, event| {

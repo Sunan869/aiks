@@ -29,10 +29,19 @@ impl WorkspaceMode {
 pub enum WorkbenchAction {
     ShowKnowledgeRoot,
     ShowSessionRoot,
-    OpenDocument { doc_id: String },
-    OpenBlock { doc_id: String, block_id: String },
-    SetWorkspaceMode { mode: WorkspaceMode },
-    RefreshDocument { doc_id: String },
+    OpenDocument {
+        doc_id: String,
+    },
+    OpenBlock {
+        doc_id: String,
+        block_id: String,
+    },
+    SetWorkspaceMode {
+        mode: WorkspaceMode,
+    },
+    RefreshDocument {
+        doc_id: String,
+    },
     AiAssistResult {
         request_id: String,
         ok: bool,
