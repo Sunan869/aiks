@@ -28,43 +28,40 @@ describe("V4.2 workbench bridge contract", () => {
     expect(WORKSPACE_MODES).toEqual(["knowledge", "session"]);
   });
 
-  it("contains the supported workbench actions", () => {
-    expect(WORKBENCH_ACTIONS).toContain("showKnowledgeRoot");
-    expect(WORKBENCH_ACTIONS).toContain("showSessionRoot");
-    expect(WORKBENCH_ACTIONS).toContain("openDocument");
-    expect(WORKBENCH_ACTIONS).toContain("openBlock");
-    expect(WORKBENCH_ACTIONS).toContain("setWorkspaceMode");
-    expect(WORKBENCH_ACTIONS).toContain("showBacklinks");
-    expect(WORKBENCH_ACTIONS).toContain("showOutline");
-    expect(WORKBENCH_ACTIONS).toContain("showDatabase");
-    expect(WORKBENCH_ACTIONS).toContain("showGraph");
-    expect(WORKBENCH_ACTIONS).toContain("showSearch");
-    expect(WORKBENCH_ACTIONS).toContain("refreshDocument");
+  it("contains only cross-system workbench actions", () => {
+    expect(WORKBENCH_ACTIONS).toEqual([
+      "showKnowledgeRoot",
+      "showSessionRoot",
+      "openDocument",
+      "openBlock",
+      "setWorkspaceMode",
+      "refreshDocument",
+      "aiAssistResult",
+    ]);
   });
 
-  it("rejects arbitrary bridge actions", () => {
+  it("rejects arbitrary bridge actions and local presentation actions", () => {
     expect(isWorkbenchAction("openDocument")).toBe(true);
+    expect(isWorkbenchAction("aiAssistResult")).toBe(true);
+    expect(isWorkbenchAction("showSearch")).toBe(false);
+    expect(isWorkbenchAction("showGraph")).toBe(false);
     expect(isWorkbenchAction("runShellCommand")).toBe(false);
   });
 
   it("derives the action-name type from the allowlist", () => {
-    const action: WorkbenchActionName = "openBlock";
-    expect(action).toBe("openBlock");
+    const action: WorkbenchActionName = "aiAssistResult";
+    expect(action).toBe("aiAssistResult");
   });
 
-  it("ships a SiYuan plugin resource that exposes protocol v1", () => {
+  it("ships a SiYuan plugin resource that exposes protocol v1 and AI Assist", () => {
     expect(pluginManifest.name).toBe("aiks-bridge");
     expect(pluginManifest.version).toMatch(/^1\./);
     expect(pluginSource).toContain("window.__AIKS_BRIDGE__");
     expect(pluginSource).toContain("protocolVersion: 1");
     expect(pluginSource).toContain("setReadOnly");
     expect(pluginSource).toContain("bridgeReady");
-  });
-
-  it("prefers the V4.2 center Graph host API before legacy dock selectors", () => {
-    expect(pluginSource).toContain("window.aiksWorkbench");
-    expect(pluginSource).toContain("openGraph");
-    expect(pluginSource.indexOf("openGraph")).toBeLessThan(pluginSource.indexOf("#barGraph"));
+    expect(pluginSource).toContain("requestAiAssist");
+    expect(pluginSource).toContain("aiAssistResult");
   });
 });
 
@@ -161,50 +158,6 @@ describe("V4.2 Tauri workbench API mapping", () => {
       ["show_workbench"],
       ["set_workbench_mode", { mode: "session" }],
       ["open_siyuan_block", { docId: "doc-123", blockId: "block-456" }],
-    ]);
-  });
-
-  it("opens native SiYuan search through the Rust bridge", async () => {
-    await new TauriAiksApi().showWorkbenchSearch();
-
-    expect(invokeMock.mock.calls).toEqual([
-      ["show_workbench"],
-      ["show_workbench_search"],
-    ]);
-  });
-
-  it("opens the native SiYuan database view through the Rust bridge", async () => {
-    await new TauriAiksApi().showWorkbenchDatabase();
-
-    expect(invokeMock.mock.calls).toEqual([
-      ["show_workbench"],
-      ["show_workbench_database"],
-    ]);
-  });
-
-  it("opens the native SiYuan graph through the Rust bridge", async () => {
-    await new TauriAiksApi().showWorkbenchGraph();
-
-    expect(invokeMock.mock.calls).toEqual([
-      ["show_workbench"],
-      ["show_workbench_graph"],
-    ]);
-  });
-
-  it("keeps database and graph surfaces inside the persistent workbench", async () => {
-    const api = new TauriAiksApi();
-
-    await api.showWorkbenchSurface("database");
-    expect(invokeMock.mock.calls).toEqual([
-      ["show_workbench"],
-      ["show_workbench_database"],
-    ]);
-
-    invokeMock.mockClear();
-    await api.showWorkbenchSurface("graph");
-    expect(invokeMock.mock.calls).toEqual([
-      ["show_workbench"],
-      ["show_workbench_graph"],
     ]);
   });
 });
