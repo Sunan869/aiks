@@ -1,0 +1,38 @@
+name: V4.2 one-shot rustfmt
+
+on:
+  push:
+    branches:
+      - feature/v4.2-unified-knowledge-backend
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: contains(github.event.head_commit.message, '[fmt-v42]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v4.2-unified-knowledge-backend
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply rustfmt
+        run: cargo fmt --all
+
+      - name: Commit formatting
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "style(v4.2): apply rustfmt"
+          git push origin HEAD:feature/v4.2-unified-knowledge-backend
