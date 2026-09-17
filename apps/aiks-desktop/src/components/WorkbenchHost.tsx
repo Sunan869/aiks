@@ -2,13 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { getApi } from "../api/client";
 import type { WorkbenchBounds, WorkbenchStatus } from "../api/types";
-import {
-  boundWorkbenchMode,
-  type WorkbenchSurface,
-} from "../api/workbench";
+import { boundWorkbenchMode, type WorkspaceMode } from "../api/workbench";
 
 interface Props {
-  surface: WorkbenchSurface;
+  surface: WorkspaceMode;
   docId?: string | null;
 }
 
@@ -32,29 +29,17 @@ async function waitForBridgeReady(): Promise<WorkbenchStatus> {
   return status;
 }
 
-function surfaceCopy(surface: WorkbenchSurface): { title: string; description: string } {
-  switch (surface) {
-    case "session":
-      return {
-        title: "原始 Session 工作台",
-        description: "正在以只读模式嵌入原始 Session，保留搜索、复制、折叠、反链和图谱能力。",
-      };
-    case "database":
-      return {
-        title: "SiYuan 数据库",
-        description: "正在复用 SiYuan 原生数据库视图、Relation、Rollup 和多视图能力。",
-      };
-    case "graph":
-      return {
-        title: "SiYuan 图谱",
-        description: "正在复用 SiYuan 原生关系图谱，并保持当前 AIKS 工作台不切窗。",
-      };
-    default:
-      return {
-        title: "SiYuan 知识工作台",
-        description: "正在将 SiYuan 文档树、编辑器、标签、反链、历史等能力嵌入当前区域。",
-      };
+function surfaceCopy(surface: WorkspaceMode): { title: string; description: string } {
+  if (surface === "session") {
+    return {
+      title: "原始 Session 工作台",
+      description: "正在以只读模式嵌入原始 Session；搜索、图谱、反链、数据库等原生展示由 SiYuan Workbench 自身负责。",
+    };
   }
+  return {
+    title: "SiYuan 知识工作台",
+    description: "正在嵌入 Canonical SiYuan 文档工作台；原生搜索、图谱、反链、数据库等展示均在 Workbench 内完成。",
+  };
 }
 
 export default function WorkbenchHost({ surface, docId }: Props) {
@@ -78,7 +63,7 @@ export default function WorkbenchHost({ surface, docId }: Props) {
       if (boundMode && docId) {
         await getApi().openSiyuanDocument(docId, boundMode);
       } else {
-        await getApi().showWorkbenchSurface(surface);
+        await getApi().showWorkbench(surface);
       }
       setStatus(await getApi().getWorkbenchStatus());
     } catch (e) {
