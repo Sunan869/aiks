@@ -102,6 +102,13 @@ export default function App() {
   const viewKnowledgeDetail = (id: string) => setNav({ page: "knowledge", knowledgeDetailId: id });
   const viewPipelineDetail = (runId: string) => setNav({ page: "processing", pipelineDetailRunId: runId });
   const viewRawConversation = (docId: string | null) => setNav(rawConversationNavState(docId));
+  const viewUnifiedSessionResult = (sessionId: number, docId: string | null) => {
+    if (docId) {
+      viewRawConversation(docId);
+    } else {
+      viewSessionDetail(sessionId);
+    }
+  };
 
   const renderMain = () => {
     if (nav.page === "sessions" && nav.sessionDetailId != null) {
@@ -116,7 +123,13 @@ export default function App() {
       );
     }
     if (nav.page === "knowledge" && nav.knowledgeDetailId) {
-      return <KnowledgeWorkspacePage knowledgeId={nav.knowledgeDetailId} />;
+      return (
+        <KnowledgeWorkspacePage
+          knowledgeId={nav.knowledgeDetailId}
+          onOpenKnowledge={viewKnowledgeDetail}
+          onOpenSession={viewUnifiedSessionResult}
+        />
+      );
     }
     if (nav.page === "processing" && nav.pipelineDetailRunId) {
       return <ProcessingDetailPage runId={nav.pipelineDetailRunId} onBack={() => setNav({ page: "processing" })} />;
@@ -125,7 +138,14 @@ export default function App() {
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
-      case "knowledge": return <KnowledgeWorkspacePage workspaceMode={nav.workbenchMode} workbenchDocId={nav.workbenchDocId} />;
+      case "knowledge": return (
+        <KnowledgeWorkspacePage
+          workspaceMode={nav.workbenchMode}
+          workbenchDocId={nav.workbenchDocId}
+          onOpenKnowledge={viewKnowledgeDetail}
+          onOpenSession={viewUnifiedSessionResult}
+        />
+      );
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
       case "settings": return <SettingsPage />;
