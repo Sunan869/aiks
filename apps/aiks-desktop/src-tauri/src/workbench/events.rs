@@ -153,13 +153,17 @@ pub fn register(app: &AppHandle) {
 
 fn validated_doc_id(payload: &Value, action: &str) -> Option<String> {
     let Some(doc_id) = payload.get("docId").and_then(Value::as_str) else {
-        tracing::warn!(action, "[WORKBENCH] document lifecycle event missing docId");
+        tracing::warn!(action = %action, "[WORKBENCH] document lifecycle event missing docId");
         return None;
     };
     match validate_identifier("doc_id", doc_id) {
         Ok(value) => Some(value),
         Err(error) => {
-            tracing::warn!(error = %error, action, "[WORKBENCH] invalid lifecycle document id");
+            tracing::warn!(
+                error = %error,
+                action = %action,
+                "[WORKBENCH] invalid lifecycle document id"
+            );
             None
         }
     }
@@ -189,7 +193,14 @@ fn spawn_document_index(app: &AppHandle, doc_id: String) {
                 doc_id = %doc_id,
                 "[WORKBENCH] canonical knowledge indexing failed"
             );
-            emit_index_status(&app_bg, &doc_id, None, "failed", Some(&error.to_string()));
+            let error_message = error.to_string();
+            emit_index_status(
+                &app_bg,
+                &doc_id,
+                None,
+                "failed",
+                Some(error_message.as_str()),
+            );
         }
     });
 }
@@ -204,8 +215,7 @@ async fn index_siyuan_document(
     let escaped_doc_id = doc_id.replace('\'', "''");
     let rows = sink
         .query_sql(&format!(
-            "SELECT id, content, hpath FROM blocks \
-             WHERE id = '{escaped_doc_id}' AND type = 'd' LIMIT 1"
+            "SELECT id, content, hpath FROM blocks WHERE id = '{escaped_doc_id}' AND type = 'd' LIMIT 1"
         ))
         .await?;
     let Some(row) = rows.first() else {
@@ -348,8 +358,19 @@ fn handle_document_deleted(app: &AppHandle, doc_id: &str) {
     let model_service = match ModelService::new(config.ai.clone(), config.embedding.clone()) {
         Ok(service) => Arc::new(service),
         Err(error) => {
-            tracing::warn!(error = %error, doc_id, "[WORKBENCH] failed to initialize index service for delete");
-            emit_index_status(app, doc_id, None, "failed", Some(&error.to_string()));
+            tracing::warn!(
+                error = %error,
+                doc_id = %doc_id,
+                "[WORKBENCH] failed to initialize index service for delete"
+            );
+            let error_message = error.to_string();
+            emit_index_status(
+                app,
+                doc_id,
+                None,
+                "failed",
+                Some(error_message.as_str()),
+            );
             return;
         }
     };
@@ -364,8 +385,19 @@ fn handle_document_deleted(app: &AppHandle, doc_id: &str) {
         ),
         Ok(None) => {}
         Err(error) => {
-            tracing::warn!(error = %error, doc_id, "[WORKBENCH] failed to remove deleted knowledge index");
-            emit_index_status(app, doc_id, None, "failed", Some(&error.to_string()));
+            tracing::warn!(
+                error = %error,
+                doc_id = %doc_id,
+                "[WORKBENCH] failed to remove deleted knowledge index"
+            );
+            let error_message = error.to_string();
+            emit_index_status(
+                app,
+                doc_id,
+                None,
+                "failed",
+                Some(error_message.as_str()),
+            );
         }
     }
 }
