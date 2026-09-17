@@ -107,6 +107,50 @@ impl<'a> KnowledgeService<'a> {
         self.insert_manual(&id, input, None)
     }
 
+    pub fn create_native_siyuan(
+        &self,
+        input: CreateKnowledgeInput,
+        siyuan_doc_id: &str,
+        current_remote_hash: Option<&str>,
+    ) -> anyhow::Result<KnowledgeRecord> {
+        let siyuan_doc_id = required_text("siyuan_doc_id", siyuan_doc_id)?;
+        let input = Self::normalize_manual_input(input)?;
+
+        if let Some(existing) = {
+            let conn = self.db.conn();
+            conn.query_row(
+                "SELECT id FROM knowledge_item WHERE siyuan_doc_id = ?1",
+                params![siyuan_doc_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        } {
+            return self
+                .get(&existing)?
+                .ok_or_else(|| anyhow::anyhow!("Knowledge item disappeared: {existing}"));
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let record = self.insert_manual(&id, input, None)?;
+        let now = Utc::now().to_rfc3339();
+        let conn = self.db.conn();
+        let changed = conn.execute(
+            "UPDATE knowledge_item
+             SET siyuan_doc_id = ?2, generated_hash = NULL, current_remote_hash = ?3,
+                 migration_status = 'native', index_status = 'pending', updated_at = ?4
+             WHERE id = ?1",
+            params![record.id, siyuan_doc_id, current_remote_hash, now],
+        )?;
+        if changed != 1 {
+            anyhow::bail!("Knowledge item disappeared while binding native SiYuan document: {id}");
+        }
+        drop(conn);
+
+        self.get(&id)?.ok_or_else(|| {
+            anyhow::anyhow!("Knowledge item not found after native SiYuan binding: {id}")
+        })
+    }
+
     pub fn create_manual_bound(
         &self,
         id: &str,
@@ -237,9 +281,9 @@ impl<'a> KnowledgeService<'a> {
             .ok_or_else(|| anyhow::anyhow!("Knowledge item not found after update: {id}"))
     }
 
-    /// Mark the SQLite read model and all derived search/vector artifacts stale
-    /// after the canonical SiYuan document changes. This never writes body text
-    /// back to SiYuan; it only removes rebuildable local derivatives.
+    /// Mark all local search derivatives stale immediately after the canonical
+    /// SiYuan document changes. Old vectors are removed before any network
+    /// fetch/re-embedding so stale semantic results can never remain searchable.
     pub fn invalidate_siyuan_document(
         &self,
         siyuan_doc_id: &str,
@@ -275,7 +319,10 @@ impl<'a> KnowledgeService<'a> {
             )?;
             conn.execute(
                 "UPDATE knowledge_item
-                 SET current_remote_hash = NULL, managed_by = 'user', updated_at = ?2
+                 SET current_remote_hash = NULL, managed_by = 'user', index_status = 'stale',
+                     indexed_hash = NULL, indexed_at = NULL, embedding_model = NULL,
+                     embedding_dimensions = NULL, index_chunk_count = 0,
+                     last_index_error = NULL, updated_at = ?2
                  WHERE id = ?1",
                 params![knowledge_id, now],
             )?;
