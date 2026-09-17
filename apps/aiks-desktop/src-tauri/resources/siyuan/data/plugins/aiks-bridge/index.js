@@ -177,7 +177,17 @@ class SiyuanAdapter {
     ]);
   }
 
-  showGraph() {
+  async showGraph() {
+    try {
+      const host = window.aiksWorkbench;
+      if (host && typeof host.openGraph === "function") {
+        const opened = await host.openGraph();
+        if (opened === true) return true;
+      }
+    } catch (error) {
+      console.warn("[AIKS Bridge] native Graph host API failed", error);
+    }
+
     return this.clickFirst([
       "#barGraph",
       '[data-type="graph"]',
