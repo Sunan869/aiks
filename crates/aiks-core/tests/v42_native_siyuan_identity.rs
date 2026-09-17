@@ -25,3 +25,28 @@ fn native_siyuan_document_binds_without_generated_hash() {
     assert_eq!(record.generated_hash, None);
     assert_eq!(record.index_status, "pending");
 }
+
+#[test]
+fn native_siyuan_document_can_start_empty() {
+    let dir = tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let record = KnowledgeService::new(&db)
+        .create_native_siyuan(
+            CreateKnowledgeInput {
+                title: "Empty note".into(),
+                category: Some("general".into()),
+                project_name: None,
+                summary: Some(String::new()),
+                content: String::new(),
+                tags: vec![],
+            },
+            "doc-native-empty",
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(record.siyuan_doc_id.as_deref(), Some("doc-native-empty"));
+    assert_eq!(record.content, "");
+    assert_eq!(record.generated_hash, None);
+    assert_eq!(record.index_status, "pending");
+}
