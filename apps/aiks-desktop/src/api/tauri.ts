@@ -119,16 +119,6 @@ export class TauriAiksApi implements AiksApi {
     await invoke("show_workbench_root", { mode });
   }
 
-  async showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void> {
-    if (surface === "knowledge" || surface === "session") {
-      await this.showWorkbench(surface);
-      return;
-    }
-
-    await invoke("show_workbench");
-    await invoke(surface === "database" ? "show_workbench_database" : "show_workbench_graph");
-  }
-
   async hideWorkbench(): Promise<void> {
     await invoke("hide_workbench");
   }
@@ -143,21 +133,6 @@ export class TauriAiksApi implements AiksApi {
     await invoke("show_workbench");
     await invoke("set_workbench_mode", { mode });
     await invoke("open_siyuan_block", { docId, blockId });
-  }
-
-  async showWorkbenchSearch(): Promise<void> {
-    await invoke("show_workbench");
-    await invoke("show_workbench_search");
-  }
-
-  async showWorkbenchDatabase(): Promise<void> {
-    await invoke("show_workbench");
-    await invoke("show_workbench_database");
-  }
-
-  async showWorkbenchGraph(): Promise<void> {
-    await invoke("show_workbench");
-    await invoke("show_workbench_graph");
   }
 
   async getFullStatus(): Promise<FullStatus> { return invoke("get_full_status"); }
