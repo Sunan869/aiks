@@ -2,6 +2,7 @@ pub mod ai;
 pub mod bootstrap;
 pub mod config;
 pub mod engine;
+pub mod indexing;
 pub mod knowledge;
 pub mod model;
 pub mod pipeline;
@@ -20,6 +21,9 @@ pub use config::Config;
 pub use engine::{
     AiStatus, AiksEngine, AiksEngineConfig, AppStatus, DoctorCheck, DoctorResult, FullStatus,
     ScanResult,
+};
+pub use indexing::{
+    EmbeddingProvider, KnowledgeIndexInput, KnowledgeIndexResult, KnowledgeIndexService,
 };
 pub use knowledge::model::ExtractionStats;
 pub use knowledge::{
