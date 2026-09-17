@@ -1,11 +1,11 @@
-import type { WorkbenchSurface, WorkspaceMode } from "./api/workbench";
+import type { WorkspaceMode } from "./api/workbench";
 
-export const WORKBENCH_MAIN_MODES = ["document", "database", "graph"] as const;
+export const WORKBENCH_MAIN_MODES = ["document"] as const;
 export type WorkbenchMainMode = (typeof WORKBENCH_MAIN_MODES)[number];
 
 export function resolveWorkbenchSurface(
-  mainMode: WorkbenchMainMode,
+  _mainMode: WorkbenchMainMode,
   workspaceMode: WorkspaceMode,
-): WorkbenchSurface {
-  return mainMode === "document" ? workspaceMode : mainMode;
+): WorkspaceMode {
+  return workspaceMode;
 }
