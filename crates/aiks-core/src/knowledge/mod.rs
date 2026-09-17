@@ -1,3 +1,4 @@
+pub mod ai_assist;
 pub mod migration;
 pub mod model;
 pub mod publisher;
@@ -7,6 +8,9 @@ pub mod service;
 pub mod session_migration;
 pub mod workbench;
 
+pub use ai_assist::{
+    AiAssistOperation, AiAssistRequest, AiAssistService, AiAssistSuggestion,
+};
 pub use migration::{ContentMigrationService, ContentMigrationStats};
 pub use model::{ExtractionRecord, ExtractionStats, ExtractionStatus};
 pub use publisher::{
