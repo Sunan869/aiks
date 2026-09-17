@@ -1,5 +1,11 @@
 version=3.8.3
-release_tag=v3.8.3
-asset=siyuan-3.8.3-win.exe
+workbench_version=4.2.0
+release_repo=Sunan869/aiks-siyuan
+release_tag=aiks-runtime-v4.2.0-7b0622af6616
+asset=aiks-siyuan-runtime-windows-x64.zip
 platform=windows-x64
-sha256=49cd67c6e892aff5a04189707007df3046d48c0dc279840433b9824edd374569
+sha256=3825171fdb6c6c71bbb15f1a0b636f4bfc24f88bd8b7068450646f6fc94a3dd8
+upstream_commit=8641553a1f07374001902d3ce773285db1292b2d
+fork_commit=7b0622af66168160953cd43fcafcd8839d44aec2
+profile=aiks-embedded
+bridge_protocol=1
