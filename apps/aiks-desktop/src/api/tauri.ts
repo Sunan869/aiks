@@ -130,6 +130,11 @@ export class TauriAiksApi implements AiksApi {
     await invoke("open_siyuan_block", { docId, blockId });
   }
 
+  async showWorkbenchSearch(): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("show_workbench_search");
+  }
+
   async showWorkbenchDatabase(): Promise<void> {
     await invoke("show_workbench");
     await invoke("show_workbench_database");
