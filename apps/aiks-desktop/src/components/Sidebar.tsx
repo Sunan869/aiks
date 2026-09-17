@@ -1,5 +1,11 @@
-import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch, Search } from "lucide-react";
-import type { Page } from "../App";
+import type { ElementType } from "react";
+import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch } from "lucide-react";
+import {
+  BOTTOM_NAV_ITEMS,
+  MAIN_NAV_ITEMS,
+  type NavigationItem,
+  type Page,
+} from "../navigation";
 
 interface Props {
   page: Page;
@@ -9,21 +15,29 @@ interface Props {
   aiHealthy: boolean;
 }
 
-const mainNavItems: { id: Page; label: string; icon: React.ElementType }[] = [
-  { id: "overview", label: "概览", icon: LayoutDashboard },
-  { id: "sessions", label: "工作记录", icon: FileText },
-  { id: "knowledge", label: "知识库", icon: BookOpen },
-  { id: "processing", label: "处理中心", icon: GitBranch },
-  { id: "search", label: "搜索", icon: Search },
-];
+const icons: Record<Page, ElementType> = {
+  overview: LayoutDashboard,
+  sessions: FileText,
+  knowledge: BookOpen,
+  processing: GitBranch,
+  sources: Database,
+  settings: Settings,
+  diagnostics: HeartPulse,
+};
 
-const bottomNavItems: { id: Page; label: string; icon: React.ElementType }[] = [
-  { id: "sources", label: "数据源", icon: Database },
-  { id: "settings", label: "设置", icon: Settings },
-  { id: "diagnostics", label: "帮助与诊断", icon: HeartPulse },
-];
+type NavItem = NavigationItem & { icon: ElementType };
 
-function NavButton({ item, page, onNavigate }: { item: { id: Page; label: string; icon: React.ElementType }; page: Page; onNavigate: (p: Page) => void }) {
+const mainNavItems: NavItem[] = MAIN_NAV_ITEMS.map(item => ({
+  ...item,
+  icon: icons[item.id],
+}));
+
+const bottomNavItems: NavItem[] = BOTTOM_NAV_ITEMS.map(item => ({
+  ...item,
+  icon: icons[item.id],
+}));
+
+function NavButton({ item, page, onNavigate }: { item: NavItem; page: Page; onNavigate: (p: Page) => void }) {
   const Icon = item.icon;
   const isActive = page === item.id;
   return (
@@ -56,7 +70,6 @@ export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount
         ))}
       </nav>
 
-      {/* Bottom stats */}
       <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 space-y-1 text-xs text-gray-400">
         <div className="flex justify-between">
           <span>工作记录</span>
