@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Database, FileText, GitFork, Search } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail } from "../api/types";
+import type { KnowledgeDetail, UnifiedSearchHit } from "../api/types";
 import type { WorkspaceMode } from "../api/workbench";
+import UnifiedSearchDialog from "../components/UnifiedSearchDialog";
 import WorkbenchHost from "../components/WorkbenchHost";
 import {
   resolveWorkbenchSurface,
@@ -13,6 +14,8 @@ interface Props {
   knowledgeId?: string;
   workspaceMode?: WorkspaceMode;
   workbenchDocId?: string | null;
+  onOpenKnowledge?: (knowledgeId: string) => void;
+  onOpenSession?: (sessionId: number, siyuanDocId: string | null) => void;
 }
 
 const mainModes: Array<{
@@ -29,10 +32,13 @@ export default function KnowledgeWorkspacePage({
   knowledgeId,
   workspaceMode = "knowledge",
   workbenchDocId = null,
+  onOpenKnowledge,
+  onOpenSession,
 }: Props) {
   const [mainMode, setMainMode] = useState<WorkbenchMainMode>("document");
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     setMainMode("document");
@@ -67,17 +73,36 @@ export default function KnowledgeWorkspacePage({
       : detail?.siyuan_doc_id
     : null;
 
-  const openSearch = async () => {
+  const selectSearchHit = async (hit: UnifiedSearchHit) => {
+    setSearchOpen(false);
     setError(null);
     try {
-      await getApi().showWorkbenchSearch();
+      if (hit.corpus === "knowledge") {
+        if (onOpenKnowledge) {
+          onOpenKnowledge(hit.entity_id);
+          return;
+        }
+        if (hit.siyuan_doc_id) {
+          await getApi().openSiyuanDocument(hit.siyuan_doc_id, "knowledge");
+        }
+        return;
+      }
+
+      const sessionId = Number(hit.entity_id);
+      if (onOpenSession && Number.isFinite(sessionId)) {
+        onOpenSession(sessionId, hit.siyuan_doc_id);
+        return;
+      }
+      if (hit.siyuan_doc_id) {
+        await getApi().openSiyuanDocument(hit.siyuan_doc_id, "session");
+      }
     } catch (e) {
       setError(String(e));
     }
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white dark:bg-gray-900">
+    <div className="relative flex h-full min-h-0 flex-col bg-white dark:bg-gray-900">
       <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">知识库</span>
@@ -90,9 +115,9 @@ export default function KnowledgeWorkspacePage({
 
         <button
           type="button"
-          onClick={() => void openSearch()}
+          onClick={() => setSearchOpen(true)}
           className="ml-2 flex min-w-0 max-w-md flex-1 items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-left text-xs text-gray-400 transition-colors hover:border-gray-300 hover:bg-white dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600 dark:hover:bg-gray-800"
-          title="使用 SiYuan 原生搜索"
+          title="AIKS 统一搜索"
         >
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
@@ -137,6 +162,12 @@ export default function KnowledgeWorkspacePage({
       <div className="flex min-h-0 flex-1 p-3">
         <WorkbenchHost surface={surface} docId={boundDocId} />
       </div>
+
+      <UnifiedSearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={hit => void selectSearchHit(hit)}
+      />
     </div>
   );
 }
