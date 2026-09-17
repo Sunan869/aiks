@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import WorkbenchHost from "../components/WorkbenchHost";
 
 interface SessionDetailData {
   session: {
@@ -43,6 +42,7 @@ interface Props {
   onBack: () => void;
   onViewKnowledge: (id: string) => void;
   onViewPipeline: (runId: string) => void;
+  onViewRawConversation: (docId: string | null) => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -60,6 +60,7 @@ export default function SessionDetailPage({
   onBack,
   onViewKnowledge,
   onViewPipeline,
+  onViewRawConversation,
 }: Props) {
   const [data, setData] = useState<SessionDetailData | null>(null);
   const [sessionDocId, setSessionDocId] = useState<string | null>(null);
@@ -157,8 +158,7 @@ export default function SessionDetailPage({
       <div className="mb-4 flex flex-shrink-0 items-center gap-2">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
-        <span className="text-sm text-gray-600 dark:text-gray-400">原始 Session</span>
-        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800">只读</span>
+        <span className="text-sm text-gray-600 dark:text-gray-400">工作记录详情</span>
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-4">
@@ -245,14 +245,31 @@ export default function SessionDetailPage({
           </section>
         </aside>
 
-        <div className="flex min-h-0 flex-col gap-3">
-          {!sessionDocId && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-              该 Session 尚未绑定 SiYuan 文档；工作台将显示 `/10 AI Sessions` 根目录。启动迁移完成后会自动保留并绑定原文档 ID。
+        <section className="flex min-h-0 flex-col justify-between rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">原始对话</h2>
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700">只读</span>
             </div>
-          )}
-          <WorkbenchHost surface="session" docId={sessionDocId} />
-        </div>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+              原始内容统一在知识库的 AI 对话记录中浏览、搜索和引用。工作记录页只保留来源、处理状态和提炼结果等管理信息。
+            </p>
+            {!sessionDocId && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                该工作记录尚未绑定具体 SiYuan 文档，将打开“AI 对话记录”根目录。
+              </p>
+            )}
+          </div>
+          <div className="pt-6">
+            <button
+              type="button"
+              onClick={() => onViewRawConversation(sessionDocId)}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              查看原始对话
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   );
