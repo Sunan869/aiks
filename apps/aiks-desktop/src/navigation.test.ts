@@ -14,7 +14,7 @@ describe("V4.2 product navigation", () => {
       "processing",
     ]);
     expect(
-      [...MAIN_NAV_ITEMS, ...BOTTOM_NAV_ITEMS].some(item => item.id === "search"),
+      [...MAIN_NAV_ITEMS, ...BOTTOM_NAV_ITEMS].some(item => String(item.id) === "search"),
     ).toBe(false);
   });
 
