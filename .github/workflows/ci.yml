@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - review/integration
+      - ci/v4.2-knowledge-index-validation
   pull_request:
     branches:
       - main
