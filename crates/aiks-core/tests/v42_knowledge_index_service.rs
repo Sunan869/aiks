@@ -113,7 +113,10 @@ async fn indexing_is_idempotent_for_same_hash_and_model() {
     assert!(second.skipped);
     assert_eq!(*embedding.calls.lock().unwrap(), 1);
 
-    let record = KnowledgeService::new(&db).get("knowledge-1").unwrap().unwrap();
+    let record = KnowledgeService::new(&db)
+        .get("knowledge-1")
+        .unwrap()
+        .unwrap();
     assert_eq!(record.index_status, "ready");
     assert_eq!(record.embedding_model.as_deref(), Some("embed-v4"));
     assert_eq!(record.embedding_dimensions, Some(3));
@@ -207,10 +210,8 @@ async fn embedding_failure_marks_failed_and_removes_stale_vectors() {
     let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
     create_bound_knowledge(&db, "knowledge-3", "doc-3");
 
-    let good = KnowledgeIndexService::new(
-        db.clone(),
-        Arc::new(FakeEmbedding::ready("embed-v4", 2)),
-    );
+    let good =
+        KnowledgeIndexService::new(db.clone(), Arc::new(FakeEmbedding::ready("embed-v4", 2)));
     good.index_document(KnowledgeIndexInput {
         knowledge_id: "knowledge-3".into(),
         siyuan_doc_id: "doc-3".into(),
@@ -219,10 +220,8 @@ async fn embedding_failure_marks_failed_and_removes_stale_vectors() {
     .await
     .unwrap();
 
-    let failing = KnowledgeIndexService::new(
-        db.clone(),
-        Arc::new(FakeEmbedding::failing("embed-v4", 2)),
-    );
+    let failing =
+        KnowledgeIndexService::new(db.clone(), Arc::new(FakeEmbedding::failing("embed-v4", 2)));
     let error = failing
         .index_document(KnowledgeIndexInput {
             knowledge_id: "knowledge-3".into(),
@@ -233,7 +232,10 @@ async fn embedding_failure_marks_failed_and_removes_stale_vectors() {
         .unwrap_err();
     assert!(error.to_string().contains("synthetic embedding failure"));
 
-    let record = KnowledgeService::new(&db).get("knowledge-3").unwrap().unwrap();
+    let record = KnowledgeService::new(&db)
+        .get("knowledge-3")
+        .unwrap()
+        .unwrap();
     assert_eq!(record.index_status, "failed");
     assert!(record
         .last_index_error
@@ -265,10 +267,8 @@ async fn mark_deleted_removes_all_search_derivatives() {
     let dir = tempdir().unwrap();
     let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
     create_bound_knowledge(&db, "knowledge-4", "doc-4");
-    let service = KnowledgeIndexService::new(
-        db.clone(),
-        Arc::new(FakeEmbedding::ready("embed-v4", 2)),
-    );
+    let service =
+        KnowledgeIndexService::new(db.clone(), Arc::new(FakeEmbedding::ready("embed-v4", 2)));
     service
         .index_document(KnowledgeIndexInput {
             knowledge_id: "knowledge-4".into(),
@@ -278,9 +278,15 @@ async fn mark_deleted_removes_all_search_derivatives() {
         .await
         .unwrap();
 
-    assert_eq!(service.mark_deleted("doc-4").unwrap().as_deref(), Some("knowledge-4"));
+    assert_eq!(
+        service.mark_deleted("doc-4").unwrap().as_deref(),
+        Some("knowledge-4")
+    );
 
-    let record = KnowledgeService::new(&db).get("knowledge-4").unwrap().unwrap();
+    let record = KnowledgeService::new(&db)
+        .get("knowledge-4")
+        .unwrap()
+        .unwrap();
     assert_eq!(record.status, "deleted");
 
     let conn = db.conn();

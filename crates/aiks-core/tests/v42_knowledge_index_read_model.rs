@@ -1,5 +1,5 @@
-use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use aiks_core::storage::StateDb;
+use aiks_core::{CreateKnowledgeInput, KnowledgeService};
 use tempfile::tempdir;
 
 #[test]

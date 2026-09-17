@@ -9,8 +9,7 @@ use tokio::sync::Mutex;
 use aiks_core::ai::ModelService;
 use aiks_core::sink::SiYuanSink;
 use aiks_core::{
-    AiksEngine, CreateKnowledgeInput, KnowledgeIndexInput, KnowledgeIndexService,
-    KnowledgeService,
+    AiksEngine, CreateKnowledgeInput, KnowledgeIndexInput, KnowledgeIndexService, KnowledgeService,
 };
 
 use crate::app_state::AppState;
@@ -180,13 +179,8 @@ fn spawn_document_index(app: &AppHandle, doc_id: String) {
     let app_bg = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = index_siyuan_document(
-            app_bg.clone(),
-            engine,
-            siyuan_url,
-            doc_id.clone(),
-        )
-        .await
+        if let Err(error) =
+            index_siyuan_document(app_bg.clone(), engine, siyuan_url, doc_id.clone()).await
         {
             tracing::warn!(
                 error = %error,
@@ -260,15 +254,12 @@ async fn index_siyuan_document(
         }
     };
 
-    emit_index_status(
-        &app,
-        &doc_id,
-        Some(&knowledge_id),
-        "indexing",
-        None,
-    );
+    emit_index_status(&app, &doc_id, Some(&knowledge_id), "indexing", None);
 
-    let model_service = Arc::new(ModelService::new(config.ai.clone(), config.embedding.clone())?);
+    let model_service = Arc::new(ModelService::new(
+        config.ai.clone(),
+        config.embedding.clone(),
+    )?);
     let index_service = KnowledgeIndexService::new(db, model_service);
     let result = index_service
         .index_document(KnowledgeIndexInput {
@@ -364,25 +355,15 @@ fn handle_document_deleted(app: &AppHandle, doc_id: &str) {
                 "[WORKBENCH] failed to initialize index service for delete"
             );
             let error_message = error.to_string();
-            emit_index_status(
-                app,
-                doc_id,
-                None,
-                "failed",
-                Some(error_message.as_str()),
-            );
+            emit_index_status(app, doc_id, None, "failed", Some(error_message.as_str()));
             return;
         }
     };
     let index_service = KnowledgeIndexService::new(engine.db(), model_service);
     match index_service.mark_deleted(doc_id) {
-        Ok(Some(knowledge_id)) => emit_index_status(
-            app,
-            doc_id,
-            Some(&knowledge_id),
-            "deleted",
-            None,
-        ),
+        Ok(Some(knowledge_id)) => {
+            emit_index_status(app, doc_id, Some(&knowledge_id), "deleted", None)
+        }
         Ok(None) => {}
         Err(error) => {
             tracing::warn!(
@@ -391,13 +372,7 @@ fn handle_document_deleted(app: &AppHandle, doc_id: &str) {
                 "[WORKBENCH] failed to remove deleted knowledge index"
             );
             let error_message = error.to_string();
-            emit_index_status(
-                app,
-                doc_id,
-                None,
-                "failed",
-                Some(error_message.as_str()),
-            );
+            emit_index_status(app, doc_id, None, "failed", Some(error_message.as_str()));
         }
     }
 }

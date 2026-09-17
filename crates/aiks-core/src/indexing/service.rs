@@ -494,7 +494,10 @@ fn can_skip(
     }
 }
 
-fn delete_vector_derivatives(conn: &rusqlite::Connection, knowledge_id: &str) -> anyhow::Result<()> {
+fn delete_vector_derivatives(
+    conn: &rusqlite::Connection,
+    knowledge_id: &str,
+) -> anyhow::Result<()> {
     conn.execute(
         "DELETE FROM embedding_record
          WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
