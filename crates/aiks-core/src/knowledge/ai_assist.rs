@@ -80,9 +80,7 @@ fn validate_request(request: &AiAssistRequest) -> anyhow::Result<()> {
 
 fn build_prompt(request: &AiAssistRequest) -> anyhow::Result<(String, String)> {
     let instruction = match request.operation {
-        AiAssistOperation::Summary => {
-            "生成忠于原文、简洁且可独立理解的摘要。只填写 summary。"
-        }
+        AiAssistOperation::Summary => "生成忠于原文、简洁且可独立理解的摘要。只填写 summary。",
         AiAssistOperation::Tags => {
             "生成 3-8 个高信息密度标签，避免同义重复和过宽泛标签。只填写 tags。"
         }
@@ -117,7 +115,10 @@ fn build_prompt(request: &AiAssistRequest) -> anyhow::Result<(String, String)> {
         "existing_tags": request.existing_tags,
         "existing_category": request.existing_category,
     });
-    let user = format!("请处理下面的知识文档上下文：\n{}", serde_json::to_string_pretty(&context)?);
+    let user = format!(
+        "请处理下面的知识文档上下文：\n{}",
+        serde_json::to_string_pretty(&context)?
+    );
     Ok((system, user))
 }
 
@@ -182,7 +183,10 @@ mod tests {
 
     #[test]
     fn operation_names_use_stable_snake_case_transport() {
-        assert_eq!(serde_json::to_string(&AiAssistOperation::KeyConclusions).unwrap(), "\"key_conclusions\"");
+        assert_eq!(
+            serde_json::to_string(&AiAssistOperation::KeyConclusions).unwrap(),
+            "\"key_conclusions\""
+        );
         assert_eq!(
             serde_json::from_str::<AiAssistOperation>("\"rewrite\"").unwrap(),
             AiAssistOperation::Rewrite

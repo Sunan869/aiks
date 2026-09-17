@@ -85,7 +85,8 @@ impl UnifiedSearchService {
         };
 
         let semantic = if !self.embeddings.enabled() {
-            warnings.push("Semantic search is disabled; returning lexical results only".to_string());
+            warnings
+                .push("Semantic search is disabled; returning lexical results only".to_string());
             Vec::new()
         } else {
             match self.semantic_recall(query, &filter, &corpora).await {
@@ -322,7 +323,11 @@ impl UnifiedSearchService {
                     entity_id: id,
                     chunk_id: Some(chunk_id),
                     title,
-                    snippet: if text.trim().is_empty() { summary } else { truncate_chars(&text, 220) },
+                    snippet: if text.trim().is_empty() {
+                        summary
+                    } else {
+                        truncate_chars(&text, 220)
+                    },
                     score: 0.0,
                     match_types: vec!["semantic".to_string()],
                     siyuan_doc_id,
@@ -410,13 +415,27 @@ fn normalized_corpora(requested: &[SearchCorpus]) -> HashSet<SearchCorpus> {
     }
 }
 
-fn matches_filter(project: Option<&str>, source: Option<&str>, filter: &UnifiedSearchFilter) -> bool {
-    if let Some(expected) = filter.project.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+fn matches_filter(
+    project: Option<&str>,
+    source: Option<&str>,
+    filter: &UnifiedSearchFilter,
+) -> bool {
+    if let Some(expected) = filter
+        .project
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if project.unwrap_or_default() != expected {
             return false;
         }
     }
-    if let Some(expected) = filter.source.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(expected) = filter
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if source.unwrap_or_default() != expected {
             return false;
         }
@@ -430,16 +449,17 @@ pub fn analyze_query(query: &str) -> Vec<String> {
     let mut technical = String::new();
     let mut cjk_run = Vec::new();
 
-    let flush_technical = |buffer: &mut String, terms: &mut Vec<String>, seen: &mut HashSet<String>| {
-        let value = buffer.trim_matches(|ch: char| ch == '.' || ch == ',' || ch == ';');
-        if value.len() >= 2 {
-            let normalized = value.to_ascii_lowercase();
-            if seen.insert(normalized.clone()) {
-                terms.push(normalized);
+    let flush_technical =
+        |buffer: &mut String, terms: &mut Vec<String>, seen: &mut HashSet<String>| {
+            let value = buffer.trim_matches(|ch: char| ch == '.' || ch == ',' || ch == ';');
+            if value.len() >= 2 {
+                let normalized = value.to_ascii_lowercase();
+                if seen.insert(normalized.clone()) {
+                    terms.push(normalized);
+                }
             }
-        }
-        buffer.clear();
-    };
+            buffer.clear();
+        };
     let flush_cjk = |run: &mut Vec<char>, terms: &mut Vec<String>, seen: &mut HashSet<String>| {
         if run.is_empty() {
             return;
@@ -534,7 +554,11 @@ fn lexical_score(
 }
 
 fn make_snippet(secondary: &str, content: &str, terms: &[String]) -> String {
-    let preferred = if !secondary.trim().is_empty() { secondary } else { content };
+    let preferred = if !secondary.trim().is_empty() {
+        secondary
+    } else {
+        content
+    };
     if let Some(position) = first_term_position(preferred, terms) {
         let chars: Vec<char> = preferred.chars().collect();
         let start = position.saturating_sub(50);

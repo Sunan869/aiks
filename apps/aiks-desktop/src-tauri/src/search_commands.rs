@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use aiks_core::{
-    ai::ModelService, SearchCorpus, UnifiedSearchFilter, UnifiedSearchService,
-};
+use aiks_core::{ai::ModelService, SearchCorpus, UnifiedSearchFilter, UnifiedSearchService};
 use tauri::State;
 
 use crate::app_state::AppState;

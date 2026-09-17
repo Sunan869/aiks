@@ -72,10 +72,7 @@ fn extract_json_payload(raw: &str) -> &str {
         .or_else(|| trimmed.strip_prefix("```"))
         .unwrap_or(trimmed)
         .trim_start_matches(['\r', '\n', ' ']);
-    after_open
-        .strip_suffix("```")
-        .unwrap_or(after_open)
-        .trim()
+    after_open.strip_suffix("```").unwrap_or(after_open).trim()
 }
 
 #[cfg(test)]

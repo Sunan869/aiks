@@ -536,7 +536,10 @@ fn split_into_chunks(text: &str, target_tokens: usize, overlap_tokens: usize) ->
 }
 
 fn encode_vector(vector: &[f32]) -> Vec<u8> {
-    vector.iter().flat_map(|value| value.to_le_bytes()).collect()
+    vector
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
