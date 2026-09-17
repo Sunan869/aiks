@@ -38,7 +38,7 @@ export function boundWorkbenchMode(
 
 export function shouldKeepWorkbenchMounted(
   page: string,
-  hasSessionDetail: boolean,
+  _hasSessionDetail: boolean,
 ): boolean {
-  return page === "knowledge" || (page === "sessions" && hasSessionDetail);
+  return page === "knowledge";
 }
