@@ -1,6 +1,7 @@
 // Tauri API implementation — wraps invoke() calls
 import { invoke } from "@tauri-apps/api/core";
 import type { AiksApi } from "./index";
+import type { WorkbenchMode } from "./workbench";
 import type {
   Overview,
   SessionPage,
@@ -112,6 +113,23 @@ export class TauriAiksApi implements AiksApi {
 
     await invoke("show_workbench");
     await invoke(surface === "database" ? "show_workbench_database" : "show_workbench_graph");
+  }
+
+  async showWorkbenchMode(mode: WorkbenchMode): Promise<void> {
+    if (mode === "document") {
+      await this.showWorkbench("knowledge");
+      return;
+    }
+    await this.showWorkbenchSurface(mode);
+  }
+
+  async openWorkbenchSearch(): Promise<void> {
+    await invoke("show_workbench");
+    await invoke("show_workbench_search");
+  }
+
+  async restoreWorkbenchLocation(): Promise<void> {
+    await this.showWorkbench("knowledge");
   }
 
   async hideWorkbench(): Promise<void> {
