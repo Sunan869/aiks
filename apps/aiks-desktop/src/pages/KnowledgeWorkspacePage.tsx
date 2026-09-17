@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { Database, GitFork, Library, MessagesSquare } from "lucide-react";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail } from "../api/types";
+import type { WorkspaceMode } from "../api/workbench";
 import WorkbenchHost from "../components/WorkbenchHost";
 
 type WorkspaceSection = "knowledge" | "session" | "database" | "graph";
 
 interface Props {
   knowledgeId?: string;
+  workspaceMode?: WorkspaceMode;
+  workbenchDocId?: string | null;
 }
 
 const tabs: Array<{ key: WorkspaceSection; label: string; icon: typeof Library }> = [
@@ -17,10 +20,18 @@ const tabs: Array<{ key: WorkspaceSection; label: string; icon: typeof Library }
   { key: "graph", label: "图谱", icon: GitFork },
 ];
 
-export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
-  const [section, setSection] = useState<WorkspaceSection>("knowledge");
+export default function KnowledgeWorkspacePage({
+  knowledgeId,
+  workspaceMode = "knowledge",
+  workbenchDocId = null,
+}: Props) {
+  const [section, setSection] = useState<WorkspaceSection>(workspaceMode);
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSection(workspaceMode);
+  }, [workspaceMode, workbenchDocId]);
 
   useEffect(() => {
     if (!knowledgeId) {
@@ -39,7 +50,11 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
     setSection(next);
   };
 
-  const boundDocId = section === "knowledge" ? detail?.siyuan_doc_id : null;
+  const boundDocId = section === "knowledge"
+    ? detail?.siyuan_doc_id
+    : section === "session"
+      ? workbenchDocId
+      : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col p-6">
@@ -47,9 +62,9 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.1 Workbench</span>
+            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
           </div>
-          <p className="mt-1 text-sm text-gray-500">SiYuan 作为正文 Master；AIKS 负责采集、提炼、搜索、来源关系和工作台编排。</p>
+          <p className="mt-1 text-sm text-gray-500">SiYuan 作为正文 Master；AIKS 负责采集、提炼、来源关系和工作台编排。</p>
         </div>
       </div>
 
@@ -76,7 +91,7 @@ export default function KnowledgeWorkspacePage({ knowledgeId }: Props) {
 
       {knowledgeId && detail && !detail.siyuan_doc_id && section === "knowledge" ? (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          这条知识尚未绑定 Canonical SiYuan 文档，将由 V4.1 内容迁移流程处理；旧 SQLite 正文不会在默认详情页继续作为编辑 Master。
+          这条知识尚未绑定 Canonical SiYuan 文档，将由内容迁移流程处理；旧 SQLite 正文不会在默认详情页继续作为编辑 Master。
         </div>
       ) : null}
 
