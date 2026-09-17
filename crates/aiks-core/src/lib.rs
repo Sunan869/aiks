@@ -9,6 +9,7 @@ pub mod pipeline;
 pub mod providers;
 pub mod renderer;
 pub mod runtime;
+pub mod search;
 pub mod sink;
 pub mod storage;
 pub mod sync;
@@ -37,4 +38,7 @@ pub use pipeline::{
     EmbeddingConfig, KnowledgeRepo, PipelineJob, PipelineOrchestrator, PipelineWorker,
 };
 pub use providers::SessionSummary;
+pub use search::{
+    SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchOutcome, UnifiedSearchService,
+};
 pub use sync::{ExtractionCandidate, SyncOptions, SyncOutcome, SyncStats};
