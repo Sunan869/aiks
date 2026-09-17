@@ -73,7 +73,7 @@ export interface PipelineStats {
 
 export type KnowledgeSourceType = "conversation" | "manual";
 export type KnowledgeManagedBy = "pipeline" | "user";
-export type KnowledgeStatus = "active" | "archived";
+export type KnowledgeStatus = "active" | "archived" | "deleted";
 
 export interface KnowledgeSummary {
   id: string;
@@ -171,6 +171,32 @@ export interface SearchResponse {
   total: number;
   degraded?: boolean;
   warnings?: string[];
+}
+
+export type SearchCorpus = "knowledge" | "session";
+
+export interface UnifiedSearchOptions {
+  limit?: number;
+  corpora?: SearchCorpus[];
+  project?: string;
+  source?: string;
+}
+
+export interface UnifiedSearchHit {
+  corpus: SearchCorpus;
+  entity_id: string;
+  chunk_id: string | null;
+  title: string;
+  snippet: string;
+  score: number;
+  match_types: string[];
+  siyuan_doc_id: string | null;
+}
+
+export interface UnifiedSearchOutcome {
+  hits: UnifiedSearchHit[];
+  degraded: boolean;
+  warnings: string[];
 }
 
 export type WorkspaceMode = "knowledge" | "session";
