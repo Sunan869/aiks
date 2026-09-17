@@ -13,6 +13,7 @@ const SCHEMA_V6_SQL: &str = include_str!("../../migrations/005_knowledge_baselin
 const SCHEMA_V7_SQL: &str = include_str!("../../migrations/006_pipeline_job_identity.sql");
 const SCHEMA_V8_SQL: &str = include_str!("../../migrations/007_v4_native_knowledge.sql");
 const SCHEMA_V9_SQL: &str = include_str!("../../migrations/008_v41_siyuan_content_source.sql");
+const SCHEMA_V10_SQL: &str = include_str!("../../migrations/009_v42_knowledge_index.sql");
 
 /// AIKS state database.
 ///
@@ -166,6 +167,54 @@ impl StateDb {
         )?;
         conn.execute_batch(SCHEMA_V9_SQL)
             .context("run V9 SiYuan content source migrations")?;
+
+        // V10 adds explicit per-document indexing state. All ALTER statements
+        // are guarded so databases created by earlier V4 builds upgrade safely
+        // and repeated opens remain idempotent.
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "index_status",
+            "ALTER TABLE knowledge_item ADD COLUMN index_status TEXT NOT NULL DEFAULT 'pending';",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "indexed_hash",
+            "ALTER TABLE knowledge_item ADD COLUMN indexed_hash TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "indexed_at",
+            "ALTER TABLE knowledge_item ADD COLUMN indexed_at TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "embedding_model",
+            "ALTER TABLE knowledge_item ADD COLUMN embedding_model TEXT;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "embedding_dimensions",
+            "ALTER TABLE knowledge_item ADD COLUMN embedding_dimensions INTEGER;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "index_chunk_count",
+            "ALTER TABLE knowledge_item ADD COLUMN index_chunk_count INTEGER NOT NULL DEFAULT 0;",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "knowledge_item",
+            "last_index_error",
+            "ALTER TABLE knowledge_item ADD COLUMN last_index_error TEXT;",
+        )?;
+        conn.execute_batch(SCHEMA_V10_SQL)
+            .context("run V10 knowledge index lifecycle migrations")?;
 
         Ok(())
     }
