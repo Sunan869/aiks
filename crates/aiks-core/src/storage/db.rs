@@ -14,6 +14,7 @@ const SCHEMA_V7_SQL: &str = include_str!("../../migrations/006_pipeline_job_iden
 const SCHEMA_V8_SQL: &str = include_str!("../../migrations/007_v4_native_knowledge.sql");
 const SCHEMA_V9_SQL: &str = include_str!("../../migrations/008_v41_siyuan_content_source.sql");
 const SCHEMA_V10_SQL: &str = include_str!("../../migrations/009_v42_knowledge_index.sql");
+const SCHEMA_V11_SQL: &str = include_str!("../../migrations/010_v42_deleted_knowledge_status.sql");
 
 /// AIKS state database.
 ///
@@ -215,6 +216,21 @@ impl StateDb {
         )?;
         conn.execute_batch(SCHEMA_V10_SQL)
             .context("run V10 knowledge index lifecycle migrations")?;
+
+        // V11 adds the canonical tombstone state. CHECK constraints cannot be
+        // altered in place in SQLite, so only rebuild databases whose current
+        // knowledge_item definition does not already allow `deleted`.
+        let knowledge_table_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_item'",
+                [],
+                |row| row.get(0),
+            )
+            .context("read knowledge_item schema for V11")?;
+        if !knowledge_table_sql.contains("'deleted'") {
+            conn.execute_batch(SCHEMA_V11_SQL)
+                .context("run V11 deleted knowledge status migration")?;
+        }
 
         Ok(())
     }
