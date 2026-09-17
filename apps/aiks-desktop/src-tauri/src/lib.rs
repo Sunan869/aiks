@@ -4,6 +4,7 @@ mod commands;
 mod diagnostics;
 mod knowledge_commands;
 mod lifecycle;
+mod search_commands;
 pub mod session_workbench;
 mod tray;
 mod workbench;
@@ -92,6 +93,8 @@ pub fn run() {
             knowledge_commands::restore_knowledge,
             knowledge_commands::search_knowledge_v4,
             knowledge_commands::publish_knowledge,
+            // V4.2 Unified Search
+            search_commands::search_all_v42,
             // V4.1 SiYuan Embedded Workbench
             diagnostics::get_v41_diagnostics,
             session_workbench::get_session_workbench_doc_id,
