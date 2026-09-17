@@ -460,6 +460,42 @@ impl AiksEngine {
         crate::pipeline::search::search_with_status(&self.db, query, limit, embedding_config).await
     }
 
+    /// Rebuild derived search state from the canonical SiYuan document.
+    ///
+    /// Publication success is independent from index success: callers may log an
+    /// indexing error and still keep the canonical document that was already written.
+    pub async fn index_canonical_knowledge(
+        &self,
+        knowledge_id: &str,
+        siyuan_doc_id: &str,
+    ) -> anyhow::Result<crate::indexing::KnowledgeIndexResult> {
+        let sink = self.make_sink()?;
+        let markdown = sink.get_document_markdown(siyuan_doc_id).await?;
+        self.index_canonical_markdown(knowledge_id, siyuan_doc_id, markdown)
+            .await
+    }
+
+    async fn index_canonical_markdown(
+        &self,
+        knowledge_id: &str,
+        siyuan_doc_id: &str,
+        markdown: String,
+    ) -> anyhow::Result<crate::indexing::KnowledgeIndexResult> {
+        let model_service = Arc::new(crate::ai::ModelService::new(
+            self.config.ai.clone(),
+            self.config.embedding.clone(),
+        )?);
+        let index_service =
+            crate::indexing::KnowledgeIndexService::new(Arc::clone(&self.db), model_service);
+        index_service
+            .index_document(crate::indexing::KnowledgeIndexInput {
+                knowledge_id: knowledge_id.to_string(),
+                siyuan_doc_id: siyuan_doc_id.to_string(),
+                markdown,
+            })
+            .await
+    }
+
     /// Check AI model health
     pub async fn ai_health_check(&self) -> bool {
         if !self.config.ai.enabled {
@@ -915,6 +951,17 @@ impl AiksEngine {
                 if let Ok(remote_md) = sink.get_document_markdown(&doc_id).await {
                     let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));
                     ks_repo.record_target_hash(&k_id, "siyuan", &remote_hash)?;
+                    if let Err(error) = self
+                        .index_canonical_markdown(&k_id, &doc_id, remote_md)
+                        .await
+                    {
+                        tracing::warn!(
+                            knowledge_id = %k_id,
+                            siyuan_doc_id = %doc_id,
+                            error = %error,
+                            "[KNOWLEDGE-SYNC] canonical index rebuild failed"
+                        );
+                    }
                 }
 
                 Ok(if remote_id.is_some() {

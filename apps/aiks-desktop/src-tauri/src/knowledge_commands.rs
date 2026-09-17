@@ -126,6 +126,19 @@ pub async fn create_knowledge(
     )
     .await
     .map_err(|e| e.to_string())?;
+    if let Some(siyuan_doc_id) = item.siyuan_doc_id.as_deref() {
+        if let Err(error) = engine
+            .index_canonical_knowledge(&item.id, siyuan_doc_id)
+            .await
+        {
+            tracing::warn!(
+                knowledge_id = %item.id,
+                siyuan_doc_id,
+                error = %error,
+                "[KNOWLEDGE] canonical index rebuild failed after manual create"
+            );
+        }
+    }
     Ok(to_json(item))
 }
 
@@ -243,5 +256,20 @@ pub async fn publish_knowledge(
         aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)
             .await
             .map_err(|e| e.to_string())?;
+    if result.outcome != "conflict" {
+        if let Some(siyuan_doc_id) = result.target_id.as_deref() {
+            if let Err(error) = engine
+                .index_canonical_knowledge(&knowledge_id, siyuan_doc_id)
+                .await
+            {
+                tracing::warn!(
+                    knowledge_id = %knowledge_id,
+                    siyuan_doc_id,
+                    error = %error,
+                    "[KNOWLEDGE] canonical index rebuild failed after publish"
+                );
+            }
+        }
+    }
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
