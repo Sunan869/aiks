@@ -1,3 +1,160 @@
+use chrono::Utc;
+use rusqlite::params;
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
+
+use crate::storage::StateDb;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexedChunk {
+    pub heading: Option<String>,
+    pub text: String,
+    pub embedding: Vec<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KnowledgeIndexStats {
+    pub chunk_count: usize,
+    pub embedding_count: usize,
+}
+
+/// Persists a fully prepared knowledge vector index.
+///
+/// Embedding requests must happen before calling this service. The service only
+/// performs local SQLite work so the old index remains intact until every new
+/// vector is available and the replacement can be committed atomically.
+pub struct KnowledgeIndexService<'a> {
+    db: &'a StateDb,
+}
+
+impl<'a> KnowledgeIndexService<'a> {
+    pub fn new(db: &'a StateDb) -> Self {
+        Self { db }
+    }
+
+    pub fn replace_knowledge_index(
+        &self,
+        knowledge_id: &str,
+        model: &str,
+        dimensions: usize,
+        chunks: &[IndexedChunk],
+    ) -> anyhow::Result<KnowledgeIndexStats> {
+        let knowledge_id = knowledge_id.trim();
+        if knowledge_id.is_empty() {
+            anyhow::bail!("knowledge_id is required");
+        }
+
+        let model = model.trim();
+        if model.is_empty() {
+            anyhow::bail!("embedding model is required");
+        }
+        if dimensions == 0 {
+            anyhow::bail!("embedding dimensions must be greater than zero");
+        }
+
+        for (index, chunk) in chunks.iter().enumerate() {
+            if chunk.text.trim().is_empty() {
+                anyhow::bail!("chunk {index} text is required");
+            }
+            if chunk.embedding.len() != dimensions {
+                anyhow::bail!(
+                    "chunk {index} embedding dimension mismatch: expected {dimensions}, got {}",
+                    chunk.embedding.len()
+                );
+            }
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let conn = self.db.conn();
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM knowledge_item WHERE id = ?1)",
+            params![knowledge_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            anyhow::bail!("Knowledge item not found: {knowledge_id}");
+        }
+
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result: anyhow::Result<()> = (|| {
+            conn.execute(
+                "DELETE FROM embedding_record
+                 WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
+                params![knowledge_id],
+            )?;
+            conn.execute(
+                "DELETE FROM knowledge_chunk WHERE knowledge_id = ?1",
+                params![knowledge_id],
+            )?;
+
+            for (chunk_index, chunk) in chunks.iter().enumerate() {
+                let chunk_id = Uuid::new_v4().to_string();
+                let embedding_id = Uuid::new_v4().to_string();
+                let text = chunk.text.trim();
+                let heading = chunk
+                    .heading
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let token_count = text.split_whitespace().count().max(1) as i64;
+                let content_hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+                let vector = encode_vector(&chunk.embedding);
+
+                conn.execute(
+                    "INSERT INTO knowledge_chunk
+                     (id, knowledge_id, heading, chunk_index, token_count, text, content_hash, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        chunk_id,
+                        knowledge_id,
+                        heading,
+                        chunk_index as i64,
+                        token_count,
+                        text,
+                        content_hash,
+                        now
+                    ],
+                )?;
+                conn.execute(
+                    "INSERT INTO embedding_record
+                     (id, chunk_id, model, dimensions, vector, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        embedding_id,
+                        chunk_id,
+                        model,
+                        dimensions as i64,
+                        vector,
+                        now
+                    ],
+                )?;
+            }
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT")?,
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(error);
+            }
+        }
+
+        Ok(KnowledgeIndexStats {
+            chunk_count: chunks.len(),
+            embedding_count: chunks.len(),
+        })
+    }
+}
+
+fn encode_vector(vector: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(vector.len() * std::mem::size_of::<f32>());
+    for value in vector {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
