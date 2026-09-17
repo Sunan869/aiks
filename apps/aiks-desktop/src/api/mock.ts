@@ -242,6 +242,8 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
+  async showWorkbenchSearch(): Promise<void> {}
+
   async showWorkbenchDatabase(): Promise<void> {}
 
   async showWorkbenchGraph(): Promise<void> {}
