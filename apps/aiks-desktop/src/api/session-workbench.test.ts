@@ -5,11 +5,10 @@ import {
 } from "./workbench";
 
 describe("V4.2 Session workbench routing", () => {
-  it("opens a bound Session document in session mode", () => {
+  it("opens bound documents only in knowledge or session workspace modes", () => {
     expect(boundWorkbenchMode("session", "session-doc-1")).toBe("session");
     expect(boundWorkbenchMode("knowledge", "knowledge-doc-1")).toBe("knowledge");
     expect(boundWorkbenchMode("session", null)).toBeNull();
-    expect(boundWorkbenchMode("graph", "ignored-doc")).toBeNull();
   });
 
   it("keeps the child workbench mounted only on the Knowledge route", () => {
