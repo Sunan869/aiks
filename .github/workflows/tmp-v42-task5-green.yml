@@ -1,0 +1,85 @@
+name: TEMP V42 Task5 Green
+
+on:
+  push:
+    branches:
+      - feature/v4.2-unified-knowledge-backend
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v4.2-unified-knowledge-backend
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Implement canonical post-publication indexing
+        shell: python
+        run: |
+          from pathlib import Path
+
+          worker = Path('crates/aiks-core/src/pipeline/worker.rs')
+          s = worker.read_text(encoding='utf-8')
+          old_import = 'use crate::pipeline::embedding_stage::EmbeddingStage;\n'
+          if old_import not in s:
+              raise SystemExit('EmbeddingStage import not found')
+          s = s.replace(old_import, '', 1)
+          old_param = '    embedding_config: &EmbeddingConfig,\n    job: &PipelineJob,\n'
+          if old_param not in s:
+              raise SystemExit('run_pipeline embedding parameter not found')
+          s = s.replace(old_param, '    _embedding_config: &EmbeddingConfig,\n    job: &PipelineJob,\n', 1)
+          start_marker = '    // ── Stage 5: KNOWLEDGE SPLIT (EMBED_CHUNK) ────────────────────────────────\n'
+          end_marker = '    // ── DONE ──────────────────────────────────────────────────────────────────\n'
+          start = s.find(start_marker)
+          end = s.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('legacy embedding stage block not found')
+          replacement = '''    // ── Stage 5-7: CANONICAL INDEX DEFERRED ───────────────────────────────────\n    // Pipeline extraction only produces knowledge candidates. FTS/chunk/vector\n    // indexing belongs to the canonical SiYuan document after publication, so\n    // this worker must never create a second knowledge index from SQLite text.\n    repo.update_status(run_id, "PROCESSING", Some("EMBED_CHUNKED"), None, None)?;\n    let deferred_index = serde_json::json!({\n        "reason": "canonical SiYuan indexing occurs after publication"\n    });\n    repo.record_stage(\n        run_id,\n        "EMBED_CHUNKED",\n        "SKIPPED",\n        None,\n        None,\n        None,\n        Some(&deferred_index),\n        None,\n    )?;\n\n    repo.update_status(run_id, "PROCESSING", Some("EMBEDDED"), None, None)?;\n    repo.record_stage(\n        run_id,\n        "EMBEDDED",\n        "SKIPPED",\n        None,\n        None,\n        None,\n        Some(&deferred_index),\n        None,\n    )?;\n\n    repo.update_status(run_id, "PROCESSING", Some("INDEXED"), None, None)?;\n    repo.record_stage(\n        run_id,\n        "INDEXED",\n        "SKIPPED",\n        None,\n        None,\n        None,\n        Some(&deferred_index),\n        None,\n    )?;\n\n'''
+          s = s[:start] + replacement + s[end:]
+          worker.write_text(s, encoding='utf-8')
+
+          engine = Path('crates/aiks-core/src/engine/mod.rs')
+          s = engine.read_text(encoding='utf-8')
+          marker = '    /// Check AI model health\n'
+          if marker not in s:
+              raise SystemExit('engine method insertion marker not found')
+          methods = '''    /// Rebuild derived search state from the canonical SiYuan document.\n    ///\n    /// Publication success is independent from index success: callers may log an\n    /// indexing error and still keep the canonical document that was already written.\n    pub async fn index_canonical_knowledge(\n        &self,\n        knowledge_id: &str,\n        siyuan_doc_id: &str,\n    ) -> anyhow::Result<crate::indexing::KnowledgeIndexResult> {\n        let sink = self.make_sink()?;\n        let markdown = sink.get_document_markdown(siyuan_doc_id).await?;\n        self.index_canonical_markdown(knowledge_id, siyuan_doc_id, markdown)\n            .await\n    }\n\n    async fn index_canonical_markdown(\n        &self,\n        knowledge_id: &str,\n        siyuan_doc_id: &str,\n        markdown: String,\n    ) -> anyhow::Result<crate::indexing::KnowledgeIndexResult> {\n        let model_service = Arc::new(crate::ai::ModelService::new(\n            self.config.ai.clone(),\n            self.config.embedding.clone(),\n        )?);\n        let index_service = crate::indexing::KnowledgeIndexService::new(\n            Arc::clone(&self.db),\n            model_service,\n        );\n        index_service\n            .index_document(crate::indexing::KnowledgeIndexInput {\n                knowledge_id: knowledge_id.to_string(),\n                siyuan_doc_id: siyuan_doc_id.to_string(),\n                markdown,\n            })\n            .await\n    }\n\n'''
+          s = s.replace(marker, methods + marker, 1)
+          old_baseline = '''                if let Ok(remote_md) = sink.get_document_markdown(&doc_id).await {\n                    let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));\n                    ks_repo.record_target_hash(&k_id, "siyuan", &remote_hash)?;\n                }\n'''
+          if old_baseline not in s:
+              raise SystemExit('knowledge sync baseline block not found')
+          new_baseline = '''                if let Ok(remote_md) = sink.get_document_markdown(&doc_id).await {\n                    let remote_hash = hex::encode(Sha256::digest(remote_md.as_bytes()));\n                    ks_repo.record_target_hash(&k_id, "siyuan", &remote_hash)?;\n                    if let Err(error) = self\n                        .index_canonical_markdown(&k_id, &doc_id, remote_md)\n                        .await\n                    {\n                        tracing::warn!(\n                            knowledge_id = %k_id,\n                            siyuan_doc_id = %doc_id,\n                            error = %error,\n                            "[KNOWLEDGE-SYNC] canonical index rebuild failed"\n                        );\n                    }\n                }\n'''
+          s = s.replace(old_baseline, new_baseline, 1)
+          engine.write_text(s, encoding='utf-8')
+
+          commands = Path('apps/aiks-desktop/src-tauri/src/knowledge_commands.rs')
+          s = commands.read_text(encoding='utf-8')
+          create_tail = '''    .await\n    .map_err(|e| e.to_string())?;\n    Ok(to_json(item))\n}\n\n/// V4.1 canonical knowledge content'''
+          if create_tail not in s:
+              raise SystemExit('manual create tail not found')
+          create_new = '''    .await\n    .map_err(|e| e.to_string())?;\n    if let Some(siyuan_doc_id) = item.siyuan_doc_id.as_deref() {\n        if let Err(error) = engine\n            .index_canonical_knowledge(&item.id, siyuan_doc_id)\n            .await\n        {\n            tracing::warn!(\n                knowledge_id = %item.id,\n                siyuan_doc_id,\n                error = %error,\n                "[KNOWLEDGE] canonical index rebuild failed after manual create"\n            );\n        }\n    }\n    Ok(to_json(item))\n}\n\n/// V4.1 canonical knowledge content'''
+          s = s.replace(create_tail, create_new, 1)
+          publish_tail = '''    let result =\n        aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)\n            .await\n            .map_err(|e| e.to_string())?;\n    serde_json::to_value(result).map_err(|e| e.to_string())\n}\n'''
+          if publish_tail not in s:
+              raise SystemExit('publish tail not found')
+          publish_new = '''    let result =\n        aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)\n            .await\n            .map_err(|e| e.to_string())?;\n    if result.outcome != "conflict" {\n        if let Some(siyuan_doc_id) = result.target_id.as_deref() {\n            if let Err(error) = engine\n                .index_canonical_knowledge(&knowledge_id, siyuan_doc_id)\n                .await\n            {\n                tracing::warn!(\n                    knowledge_id = %knowledge_id,\n                    siyuan_doc_id,\n                    error = %error,\n                    "[KNOWLEDGE] canonical index rebuild failed after publish"\n                );\n            }\n        }\n    }\n    serde_json::to_value(result).map_err(|e| e.to_string())\n}\n'''
+          s = s.replace(publish_tail, publish_new, 1)
+          commands.write_text(s, encoding='utf-8')
+      - name: Format
+        run: cargo fmt --all
+      - name: Verify Task 5 contract
+        run: cargo test -p aiks-core --test v42_canonical_index_wiring
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/aiks-core/src/pipeline/worker.rs crates/aiks-core/src/engine/mod.rs apps/aiks-desktop/src-tauri/src/knowledge_commands.rs
+          git commit -m "feat(v4.2): index knowledge after canonical publication"
+          git push origin HEAD:feature/v4.2-unified-knowledge-backend
