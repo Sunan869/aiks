@@ -21,7 +21,7 @@ CREATE TABLE knowledge_item_v4 (
     managed_by TEXT NOT NULL DEFAULT 'pipeline'
         CHECK(managed_by IN ('pipeline', 'user')),
     status TEXT NOT NULL DEFAULT 'active'
-        CHECK(status IN ('active', 'archived')),
+        CHECK(status IN ('active', 'archived', 'deleted')),
     is_favorite INTEGER NOT NULL DEFAULT 0
         CHECK(is_favorite IN (0, 1)),
     created_at TEXT NOT NULL,
