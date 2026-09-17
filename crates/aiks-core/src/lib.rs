@@ -24,6 +24,7 @@ pub use engine::{
 };
 pub use indexing::{
     EmbeddingProvider, KnowledgeIndexInput, KnowledgeIndexResult, KnowledgeIndexService,
+    SessionIndexInput, SessionIndexResult, SessionIndexService,
 };
 pub use knowledge::model::ExtractionStats;
 pub use knowledge::{
