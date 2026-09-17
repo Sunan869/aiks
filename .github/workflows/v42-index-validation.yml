@@ -1,0 +1,25 @@
+name: V4.2 index validation
+
+on:
+  push:
+    branches:
+      - ci/v4.2-knowledge-index-validation
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Clippy aiks-core
+        run: cargo clippy -p aiks-core --all-targets -- -D warnings
+      - name: aiks-core tests
+        run: cargo test -p aiks-core -- --test-threads=1
