@@ -17,7 +17,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const invokeMock = vi.mocked(invoke);
 
-describe("V4.1 workbench bridge contract", () => {
+describe("V4.2 workbench bridge contract", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(undefined);
@@ -62,7 +62,7 @@ describe("V4.1 workbench bridge contract", () => {
   });
 });
 
-describe("V4.1 Tauri workbench API mapping", () => {
+describe("V4.2 Tauri workbench API mapping", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(undefined);
@@ -155,6 +155,15 @@ describe("V4.1 Tauri workbench API mapping", () => {
       ["show_workbench"],
       ["set_workbench_mode", { mode: "session" }],
       ["open_siyuan_block", { docId: "doc-123", blockId: "block-456" }],
+    ]);
+  });
+
+  it("opens native SiYuan search through the Rust bridge", async () => {
+    await new TauriAiksApi().showWorkbenchSearch();
+
+    expect(invokeMock.mock.calls).toEqual([
+      ["show_workbench"],
+      ["show_workbench_search"],
     ]);
   });
 
