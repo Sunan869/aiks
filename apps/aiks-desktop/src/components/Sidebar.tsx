@@ -1,4 +1,4 @@
-import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch, Search } from "lucide-react";
+import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch } from "lucide-react";
 import type { Page } from "../App";
 
 interface Props {
@@ -9,12 +9,18 @@ interface Props {
   aiHealthy: boolean;
 }
 
+export const MAIN_NAV_PAGE_IDS: Page[] = [
+  "overview",
+  "sessions",
+  "knowledge",
+  "processing",
+];
+
 const mainNavItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "概览", icon: LayoutDashboard },
   { id: "sessions", label: "工作记录", icon: FileText },
   { id: "knowledge", label: "知识库", icon: BookOpen },
   { id: "processing", label: "处理中心", icon: GitBranch },
-  { id: "search", label: "搜索", icon: Search },
 ];
 
 const bottomNavItems: { id: Page; label: string; icon: React.ElementType }[] = [
@@ -56,7 +62,6 @@ export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount
         ))}
       </nav>
 
-      {/* Bottom stats */}
       <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 space-y-1 text-xs text-gray-400">
         <div className="flex justify-between">
           <span>工作记录</span>
