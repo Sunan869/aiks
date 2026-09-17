@@ -4,7 +4,8 @@ import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
-  SearchResponse, WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus,
+  SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
+  WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -191,6 +192,45 @@ export class MockAiksApi implements AiksApi {
       .slice(0, limit ?? 20)
       .map(k => ({ ...k, match_type: "like" }));
     return { results, query, total: results.length };
+  }
+
+  async searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome> {
+    await delay();
+    const q = query.toLowerCase();
+    const allowed = new Set(options?.corpora ?? ["knowledge", "session"]);
+    const knowledgeHits = allowed.has("knowledge")
+      ? knowledge
+          .filter(k => k.status === "active" && (k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q)))
+          .map(k => ({
+            corpus: "knowledge" as const,
+            entity_id: k.id,
+            chunk_id: null,
+            title: k.title,
+            snippet: k.summary,
+            score: 0.02,
+            match_types: ["lexical"],
+            siyuan_doc_id: k.siyuan_doc_id ?? null,
+          }))
+      : [];
+    const sessionHits = allowed.has("session")
+      ? sessions
+          .filter(s => (s.title ?? "").toLowerCase().includes(q) || (s.project_name ?? "").toLowerCase().includes(q))
+          .map(s => ({
+            corpus: "session" as const,
+            entity_id: String(s.id),
+            chunk_id: null,
+            title: s.title ?? `AI Session ${s.id}`,
+            snippet: `${s.source} · ${s.project_name ?? ""}`,
+            score: 0.016,
+            match_types: ["lexical"],
+            siyuan_doc_id: null,
+          }))
+      : [];
+    return {
+      hits: [...knowledgeHits, ...sessionHits].slice(0, options?.limit ?? 30),
+      degraded: false,
+      warnings: [],
+    };
   }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
