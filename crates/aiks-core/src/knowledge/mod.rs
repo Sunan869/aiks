@@ -1,3 +1,4 @@
+pub mod index;
 pub mod migration;
 pub mod model;
 pub mod publisher;
