@@ -13,6 +13,8 @@ import type {
   KnowledgeUpdateInput,
   PublishKnowledgeResult,
   SearchResponse,
+  UnifiedSearchOptions,
+  UnifiedSearchOutcome,
   WorkbenchBounds,
   WorkbenchStatus,
   WorkspaceMode,
@@ -77,6 +79,15 @@ export class TauriAiksApi implements AiksApi {
   async restoreKnowledge(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("restore_knowledge", { knowledgeId }); }
   async publishKnowledge(knowledgeId: string): Promise<PublishKnowledgeResult> { return invoke("publish_knowledge", { knowledgeId }); }
   async searchKnowledge(query: string, limit?: number): Promise<SearchResponse> { return invoke("search_knowledge_v4", { query, limit }); }
+  async searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome> {
+    return invoke("search_all_v42", {
+      query,
+      limit: options?.limit,
+      corpora: options?.corpora,
+      project: options?.project,
+      source: options?.source,
+    });
+  }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
     return invoke("get_workbench_status");
