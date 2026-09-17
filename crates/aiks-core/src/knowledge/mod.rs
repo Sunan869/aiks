@@ -1,4 +1,3 @@
-pub mod index;
 pub mod migration;
 pub mod model;
 pub mod publisher;
@@ -8,7 +7,6 @@ pub mod service;
 pub mod session_migration;
 pub mod workbench;
 
-pub use index::{IndexedChunk, KnowledgeIndexService, KnowledgeIndexStats};
 pub use migration::{ContentMigrationService, ContentMigrationStats};
 pub use model::{ExtractionRecord, ExtractionStats, ExtractionStatus};
 pub use publisher::{
