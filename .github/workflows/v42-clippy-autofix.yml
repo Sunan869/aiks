@@ -27,116 +27,111 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           session_path = Path('crates/aiks-core/src/indexing/session.rs')
           session = session_path.read_text(encoding='utf-8')
 
-          old_call = '''        self.begin_rebuild(
-              input.session_id,
-              external_id,
-              source,
-              &title,
-              project_name.as_deref(),
-              &input.normalized_text,
-              &content_hash,
-              &prepared,
-          )?;
-          '''
-          new_call = '''        let rebuild = SessionRebuildContext {
-              session_id: input.session_id,
-              external_id,
-              source,
-              title: &title,
-              project_name: project_name.as_deref(),
-              normalized_text: &input.normalized_text,
-              content_hash: &content_hash,
-              chunks: &prepared,
-          };
-          self.begin_rebuild(&rebuild)?;
-          '''
-          if old_call not in session:
-              raise SystemExit('expected begin_rebuild call block not found')
-          session = session.replace(old_call, new_call, 1)
+          call_pattern = re.compile(
+              r"        self\.begin_rebuild\(\n"
+              r".*?"
+              r"        \)\?;",
+              re.DOTALL,
+          )
+          new_call = (
+              "        let rebuild = SessionRebuildContext {\n"
+              "            session_id: input.session_id,\n"
+              "            external_id,\n"
+              "            source,\n"
+              "            title: &title,\n"
+              "            project_name: project_name.as_deref(),\n"
+              "            normalized_text: &input.normalized_text,\n"
+              "            content_hash: &content_hash,\n"
+              "            chunks: &prepared,\n"
+              "        };\n"
+              "        self.begin_rebuild(&rebuild)?;"
+          )
+          session, count = call_pattern.subn(new_call, session, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one begin_rebuild call block, replaced {count}')
 
-          old_signature = '''    fn begin_rebuild(
-              &self,
-              session_id: i64,
-              external_id: &str,
-              source: &str,
-              title: &str,
-              project_name: Option<&str>,
-              normalized_text: &str,
-              content_hash: &str,
-              chunks: &[PreparedSessionChunk],
-          ) -> anyhow::Result<()> {
-              let now = Utc::now().to_rfc3339();
-          '''
-          new_signature = '''    fn begin_rebuild(&self, rebuild: &SessionRebuildContext<'_>) -> anyhow::Result<()> {
-              let session_id = rebuild.session_id;
-              let external_id = rebuild.external_id;
-              let source = rebuild.source;
-              let title = rebuild.title;
-              let project_name = rebuild.project_name;
-              let normalized_text = rebuild.normalized_text;
-              let content_hash = rebuild.content_hash;
-              let chunks = rebuild.chunks;
-              let now = Utc::now().to_rfc3339();
-          '''
-          if old_signature not in session:
-              raise SystemExit('expected begin_rebuild signature block not found')
-          session = session.replace(old_signature, new_signature, 1)
+          signature_pattern = re.compile(
+              r"    fn begin_rebuild\(\n"
+              r".*?"
+              r"    \) -> anyhow::Result<\(\)> \{\n"
+              r"        let now = Utc::now\(\)\.to_rfc3339\(\);",
+              re.DOTALL,
+          )
+          new_signature = (
+              "    fn begin_rebuild(&self, rebuild: &SessionRebuildContext<'_>) -> anyhow::Result<()> {\n"
+              "        let session_id = rebuild.session_id;\n"
+              "        let external_id = rebuild.external_id;\n"
+              "        let source = rebuild.source;\n"
+              "        let title = rebuild.title;\n"
+              "        let project_name = rebuild.project_name;\n"
+              "        let normalized_text = rebuild.normalized_text;\n"
+              "        let content_hash = rebuild.content_hash;\n"
+              "        let chunks = rebuild.chunks;\n"
+              "        let now = Utc::now().to_rfc3339();"
+          )
+          session, count = signature_pattern.subn(new_signature, session, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one begin_rebuild signature block, replaced {count}')
 
-          chunk_struct = '''#[derive(Debug)]
-          struct PreparedSessionChunk {
-              id: String,
-              index: usize,
-              text: String,
-              hash: String,
-          }
-          '''
-          rebuild_struct = chunk_struct + '''
-          #[derive(Debug)]
-          struct SessionRebuildContext<'a> {
-              session_id: i64,
-              external_id: &'a str,
-              source: &'a str,
-              title: &'a str,
-              project_name: Option<&'a str>,
-              normalized_text: &'a str,
-              content_hash: &'a str,
-              chunks: &'a [PreparedSessionChunk],
-          }
-          '''
-          if chunk_struct not in session:
-              raise SystemExit('expected PreparedSessionChunk block not found')
+          chunk_struct = (
+              "#[derive(Debug)]\n"
+              "struct PreparedSessionChunk {\n"
+              "    id: String,\n"
+              "    index: usize,\n"
+              "    text: String,\n"
+              "    hash: String,\n"
+              "}\n"
+          )
+          rebuild_struct = chunk_struct + (
+              "\n#[derive(Debug)]\n"
+              "struct SessionRebuildContext<'a> {\n"
+              "    session_id: i64,\n"
+              "    external_id: &'a str,\n"
+              "    source: &'a str,\n"
+              "    title: &'a str,\n"
+              "    project_name: Option<&'a str>,\n"
+              "    normalized_text: &'a str,\n"
+              "    content_hash: &'a str,\n"
+              "    chunks: &'a [PreparedSessionChunk],\n"
+              "}\n"
+          )
+          if session.count(chunk_struct) != 1:
+              raise SystemExit('expected exactly one PreparedSessionChunk block')
           session = session.replace(chunk_struct, rebuild_struct, 1)
           session_path.write_text(session, encoding='utf-8')
 
           search_path = Path('crates/aiks-core/src/search/mod.rs')
           search = search_path.read_text(encoding='utf-8')
-          old_decoder = '''fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
-              if bytes.len() % 4 != 0 {
-                  anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
-              }
-              Ok(bytes
-                  .chunks_exact(4)
-                  .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                  .collect())
-          }
-          '''
-          new_decoder = '''fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
-              if !bytes.len().is_multiple_of(4) {
-                  anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
-              }
-              let (chunks, _) = bytes.as_chunks::<4>();
-              Ok(chunks
-                  .iter()
-                  .map(|chunk| f32::from_le_bytes(*chunk))
-                  .collect())
-          }
-          '''
-          if old_decoder not in search:
-              raise SystemExit('expected decode_vector block not found')
+          old_decoder = (
+              "fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {\n"
+              "    if bytes.len() % 4 != 0 {\n"
+              "        anyhow::bail!(\"invalid f32 vector byte length: {}\", bytes.len());\n"
+              "    }\n"
+              "    Ok(bytes\n"
+              "        .chunks_exact(4)\n"
+              "        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))\n"
+              "        .collect())\n"
+              "}\n"
+          )
+          new_decoder = (
+              "fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {\n"
+              "    if !bytes.len().is_multiple_of(4) {\n"
+              "        anyhow::bail!(\"invalid f32 vector byte length: {}\", bytes.len());\n"
+              "    }\n"
+              "    let (chunks, _) = bytes.as_chunks::<4>();\n"
+              "    Ok(chunks\n"
+              "        .iter()\n"
+              "        .map(|chunk| f32::from_le_bytes(*chunk))\n"
+              "        .collect())\n"
+              "}\n"
+          )
+          if search.count(old_decoder) != 1:
+              raise SystemExit('expected exactly one decode_vector block')
           search = search.replace(old_decoder, new_decoder, 1)
           search_path.write_text(search, encoding='utf-8')
           PY
