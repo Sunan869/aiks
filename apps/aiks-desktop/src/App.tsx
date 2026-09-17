@@ -7,7 +7,6 @@ import SessionDetailPage from "./pages/SessionDetailPage";
 import KnowledgeWorkspacePage from "./pages/KnowledgeWorkspacePage";
 import ProcessingPage from "./pages/ProcessingPage";
 import ProcessingDetailPage from "./pages/ProcessingDetailPage";
-import SearchPage from "./pages/SearchPage";
 import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
@@ -15,15 +14,11 @@ import StartupScreen from "./components/StartupScreen";
 import { getApi, shouldUseMock } from "./api/client";
 import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
-
-export type Page = "overview" | "sessions" | "knowledge" | "processing" | "search" | "sources" | "settings" | "diagnostics";
-
-interface NavState {
-  page: Page;
-  sessionDetailId?: number;
-  knowledgeDetailId?: string;
-  pipelineDetailRunId?: string;
-}
+import {
+  rawConversationNavState,
+  type NavState,
+  type Page,
+} from "./navigation";
 
 export default function App() {
   const [nav, setNav] = useState<NavState>({ page: "overview" });
@@ -106,10 +101,19 @@ export default function App() {
   const viewSessionDetail = (id: number) => setNav({ page: "sessions", sessionDetailId: id });
   const viewKnowledgeDetail = (id: string) => setNav({ page: "knowledge", knowledgeDetailId: id });
   const viewPipelineDetail = (runId: string) => setNav({ page: "processing", pipelineDetailRunId: runId });
+  const viewRawConversation = (docId: string | null) => setNav(rawConversationNavState(docId));
 
   const renderMain = () => {
     if (nav.page === "sessions" && nav.sessionDetailId != null) {
-      return <SessionDetailPage sessionId={nav.sessionDetailId} onBack={() => setNav({ page: "sessions" })} onViewKnowledge={viewKnowledgeDetail} onViewPipeline={viewPipelineDetail} />;
+      return (
+        <SessionDetailPage
+          sessionId={nav.sessionDetailId}
+          onBack={() => setNav({ page: "sessions" })}
+          onViewKnowledge={viewKnowledgeDetail}
+          onViewPipeline={viewPipelineDetail}
+          onViewRawConversation={viewRawConversation}
+        />
+      );
     }
     if (nav.page === "knowledge" && nav.knowledgeDetailId) {
       return <KnowledgeWorkspacePage knowledgeId={nav.knowledgeDetailId} />;
@@ -121,9 +125,8 @@ export default function App() {
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
-      case "knowledge": return <KnowledgeWorkspacePage />;
+      case "knowledge": return <KnowledgeWorkspacePage workspaceMode={nav.workbenchMode} workbenchDocId={nav.workbenchDocId} />;
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
-      case "search": return <SearchPage onViewKnowledge={viewKnowledgeDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
       case "settings": return <SettingsPage />;
       case "diagnostics": return <DiagnosticsPage />;
@@ -135,7 +138,7 @@ export default function App() {
       <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
-          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.1 Workbench</span>
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
           {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-400">
