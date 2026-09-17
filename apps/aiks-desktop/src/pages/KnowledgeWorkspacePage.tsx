@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
-import { Database, FileText, GitFork, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, UnifiedSearchHit } from "../api/types";
 import type { WorkspaceMode } from "../api/workbench";
 import UnifiedSearchDialog from "../components/UnifiedSearchDialog";
 import WorkbenchHost from "../components/WorkbenchHost";
-import {
-  resolveWorkbenchSurface,
-  type WorkbenchMainMode,
-} from "../knowledge-workspace";
 
 interface Props {
   knowledgeId?: string;
@@ -18,16 +14,6 @@ interface Props {
   onOpenSession?: (sessionId: number, siyuanDocId: string | null) => void;
 }
 
-const mainModes: Array<{
-  key: WorkbenchMainMode;
-  label: string;
-  icon: typeof FileText;
-}> = [
-  { key: "document", label: "文档", icon: FileText },
-  { key: "database", label: "数据库", icon: Database },
-  { key: "graph", label: "图谱", icon: GitFork },
-];
-
 export default function KnowledgeWorkspacePage({
   knowledgeId,
   workspaceMode = "knowledge",
@@ -35,13 +21,11 @@ export default function KnowledgeWorkspacePage({
   onOpenKnowledge,
   onOpenSession,
 }: Props) {
-  const [mainMode, setMainMode] = useState<WorkbenchMainMode>("document");
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
-    setMainMode("document");
     setError(null);
   }, [knowledgeId, workspaceMode, workbenchDocId]);
 
@@ -66,12 +50,9 @@ export default function KnowledgeWorkspacePage({
     };
   }, [knowledgeId]);
 
-  const surface = resolveWorkbenchSurface(mainMode, workspaceMode);
-  const boundDocId = mainMode === "document"
-    ? workspaceMode === "session"
-      ? workbenchDocId
-      : detail?.siyuan_doc_id
-    : null;
+  const boundDocId = workspaceMode === "session"
+    ? workbenchDocId
+    : detail?.siyuan_doc_id;
 
   const selectSearchHit = async (hit: UnifiedSearchHit) => {
     setSearchOpen(false);
@@ -122,29 +103,6 @@ export default function KnowledgeWorkspacePage({
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
         </button>
-
-        <div className="ml-auto flex flex-shrink-0 items-center gap-1 rounded-md bg-gray-100 p-0.5 dark:bg-gray-900">
-          {mainModes.map(item => {
-            const Icon = item.icon;
-            const active = mainMode === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  setMainMode(item.key);
-                }}
-                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${active
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
-                  : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"}`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {error && (
@@ -153,14 +111,14 @@ export default function KnowledgeWorkspacePage({
         </div>
       )}
 
-      {knowledgeId && detail && !detail.siyuan_doc_id && mainMode === "document" && workspaceMode === "knowledge" ? (
+      {knowledgeId && detail && !detail.siyuan_doc_id && workspaceMode === "knowledge" ? (
         <div className="mx-3 mt-3 flex-shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           这条知识尚未绑定 Canonical SiYuan 文档，将由内容迁移流程处理。
         </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1 p-3">
-        <WorkbenchHost surface={surface} docId={boundDocId} />
+        <WorkbenchHost surface={workspaceMode} docId={boundDocId} />
       </div>
 
       <UnifiedSearchDialog
