@@ -6,6 +6,7 @@ import type {
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus,
 } from "./types";
+import type { WorkbenchMode } from "./workbench";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
 const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
@@ -234,6 +235,16 @@ export class MockAiksApi implements AiksApi {
 
   async showWorkbenchSurface(surface: WorkspaceMode | "database" | "graph"): Promise<void> {
     workbenchMode = surface === "session" ? "session" : "knowledge";
+  }
+
+  async showWorkbenchMode(mode: WorkbenchMode): Promise<void> {
+    workbenchMode = mode === "document" ? "knowledge" : workbenchMode;
+  }
+
+  async openWorkbenchSearch(): Promise<void> {}
+
+  async restoreWorkbenchLocation(): Promise<void> {
+    workbenchMode = "knowledge";
   }
 
   async hideWorkbench(): Promise<void> {}
