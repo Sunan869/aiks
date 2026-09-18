@@ -118,7 +118,7 @@ impl EmbeddingProvider for LegacyEmbeddingProvider {
 
 /// Compatibility wrapper for existing callers that only need knowledge hits.
 pub async fn hybrid_search(
-    db: &Arc<StateDb>,
+    db: &StateDb,
     query: &str,
     limit: usize,
     embedding_config: Option<&EmbeddingConfig>,
@@ -130,7 +130,7 @@ pub async fn hybrid_search(
 
 /// Compatibility wrapper over the V4.2 unified search service.
 pub async fn search_with_status(
-    db: &Arc<StateDb>,
+    db: &StateDb,
     query: &str,
     limit: usize,
     embedding_config: Option<&EmbeddingConfig>,
@@ -141,7 +141,7 @@ pub async fn search_with_status(
     let embeddings: Arc<dyn EmbeddingProvider> =
         Arc::new(LegacyEmbeddingProvider::new(embedding_config));
 
-    let outcome = UnifiedSearchService::new(Arc::clone(db), embeddings)
+    let outcome = UnifiedSearchService::borrowed(db, embeddings)
         .search(
             query,
             limit,

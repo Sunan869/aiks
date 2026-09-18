@@ -47,14 +47,42 @@ pub struct UnifiedSearchOutcome {
     pub warnings: Vec<String>,
 }
 
-pub struct UnifiedSearchService {
-    db: Arc<StateDb>,
+enum SearchDb<'a> {
+    Owned(Arc<StateDb>),
+    Borrowed(&'a StateDb),
+}
+
+impl std::ops::Deref for SearchDb<'_> {
+    type Target = StateDb;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(db) => db.as_ref(),
+            Self::Borrowed(db) => db,
+        }
+    }
+}
+
+pub struct UnifiedSearchService<'a> {
+    db: SearchDb<'a>,
     embeddings: Arc<dyn EmbeddingProvider>,
 }
 
-impl UnifiedSearchService {
+impl UnifiedSearchService<'static> {
     pub fn new(db: Arc<StateDb>, embeddings: Arc<dyn EmbeddingProvider>) -> Self {
-        Self { db, embeddings }
+        Self {
+            db: SearchDb::Owned(db),
+            embeddings,
+        }
+    }
+}
+
+impl<'a> UnifiedSearchService<'a> {
+    pub fn borrowed(db: &'a StateDb, embeddings: Arc<dyn EmbeddingProvider>) -> Self {
+        Self {
+            db: SearchDb::Borrowed(db),
+            embeddings,
+        }
     }
 
     pub async fn search(
