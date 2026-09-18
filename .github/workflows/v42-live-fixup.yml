@@ -1,0 +1,111 @@
+name: V4.2 Live Follow-up Fixup
+
+on:
+  push:
+    branches:
+      - fix/v4.2-live-pipeline-settings-diagnostics
+
+permissions:
+  contents: write
+
+jobs:
+  fixup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply reviewed fixups
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lifecycle = Path('apps/aiks-desktop/src-tauri/src/lifecycle.rs')
+          text = lifecycle.read_text(encoding='utf-8')
+          old = '''            let state = AppState {
+                          engine,
+                          siyuan_url: Arc::new(Mutex::new(None)),
+                          data_dir,
+                          _watcher_handle: Mutex::new(watcher_handle),
+                      };'''
+          new = '''            let state = AppState {
+                          engine,
+                          siyuan_url: Arc::new(Mutex::new(None)),
+                          data_dir,
+                          close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
+                          _watcher_handle: Mutex::new(watcher_handle),
+                      };'''
+          if text.count(old) != 1:
+              raise SystemExit(f'lifecycle fallback anchor count={text.count(old)}')
+          lifecycle.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          processing = Path('apps/aiks-desktop/src/pages/ProcessingPage.tsx')
+          text = processing.read_text(encoding='utf-8')
+          old_import = 'import { useState, useEffect, useCallback } from "react";'
+          if old_import not in text:
+              old_import = 'import { useCallback, useEffect, useState } from "react";'
+          if text.count(old_import) != 1:
+              raise SystemExit('ProcessingPage React import anchor missing')
+          text = text.replace(old_import, 'import { useCallback, useEffect, useRef, useState } from "react";', 1)
+          state_anchor = '  const [backfillMsg, setBackfillMsg] = useState("");\n\n'
+          if text.count(state_anchor) != 1:
+              raise SystemExit('ProcessingPage state anchor missing')
+          text = text.replace(state_anchor, state_anchor + '  const inFlightRef = useRef(false);\n\n', 1)
+          load_old = '''  const load = useCallback(async (showLoading = false) => {
+            if (showLoading) setLoading(true);
+            try {
+              const [r, s] = await Promise.all([
+                getApi().getPipelineRuns(300),
+                getApi().getPipelineStats(),
+              ]);
+              setRuns(r);
+              setStats(s);
+            } finally {
+              if (showLoading) setLoading(false);
+            }
+          }, []);'''
+          load_new = '''  const load = useCallback(async (showLoading = false) => {
+            if (inFlightRef.current) return;
+            inFlightRef.current = true;
+            if (showLoading) setLoading(true);
+            try {
+              const [r, s] = await Promise.all([
+                getApi().getPipelineRuns(300),
+                getApi().getPipelineStats(),
+              ]);
+              setRuns(r);
+              setStats(s);
+            } finally {
+              inFlightRef.current = false;
+              if (showLoading) setLoading(false);
+            }
+          }, []);'''
+          if text.count(load_old) != 1:
+              raise SystemExit('ProcessingPage load anchor missing')
+          processing.write_text(text.replace(load_old, load_new, 1), encoding='utf-8')
+
+          test = Path('apps/aiks-desktop/src/api/v42_live_pipeline_settings_diagnostics.test.ts')
+          text = test.read_text(encoding='utf-8')
+          anchor = '    expect(processingSource).toContain("clearInterval");\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('frontend test polling anchor missing')
+          text = text.replace(anchor, anchor + '    expect(processingSource).toContain("inFlightRef.current");\n', 1)
+          test.write_text(text, encoding='utf-8')
+          PY
+
+          rm -f .github/workflows/v42-live-fixup.yml
+          git diff --check
+
+      - name: Commit fixups
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(v4.2): harden live polling and fallback state'
+          git push origin HEAD:${GITHUB_REF_NAME}
