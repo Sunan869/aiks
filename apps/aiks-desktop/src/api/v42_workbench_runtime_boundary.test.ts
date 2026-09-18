@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import workbenchHostSource from "../components/WorkbenchHost.tsx?raw";
 import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
+import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
+import bridgePluginInstallerSource from "../../src-tauri/src/workbench/plugin.rs?raw";
 
 type Capability = {
-  identifier?: string;
-  local?: boolean;
   webviews?: string[];
   remote?: { urls?: string[] };
   permissions?: string[];
@@ -22,21 +22,29 @@ const powerShellScripts = import.meta.glob("../../../../scripts/*.ps1", {
 }) as Record<string, string>;
 
 describe("V4.2 embedded workbench runtime boundaries", () => {
-  it("grants the remote SiYuan workbench only the event emit IPC permission", () => {
+  it("keeps the loopback SiYuan workbench capability restricted to event emission", () => {
     const capability = Object.entries(capabilityFiles)
-      .find(([path]) => path.endsWith("/siyuan-workbench-bridge.json"))?.[1];
+      .find(([path]) => path.endsWith("/siyuan-workbench.json"))?.[1];
 
     expect(capability).toBeDefined();
     if (!capability) return;
 
-    expect(capability.identifier).toBe("siyuan-workbench-bridge");
-    expect(capability.local).toBe(false);
     expect(capability.webviews).toEqual(["siyuan-workbench", "knowledge"]);
     expect(capability.remote?.urls).toEqual([
       "http://127.0.0.1:*/*",
       "http://localhost:*/*",
     ]);
     expect(capability.permissions).toEqual(["core:event:allow-emit"]);
+  });
+
+  it("automatically activates the bundled AIKS bridge before the workbench can mount", () => {
+    expect(lifecycleSource).toContain("ensure_bridge_plugin_enabled(&base_url).await");
+    expect(bridgePluginInstallerSource).toContain("/api/system/getConf");
+    expect(bridgePluginInstallerSource).toContain("/api/setting/setBazaar");
+    expect(bridgePluginInstallerSource).toContain("/api/petal/setPetalEnabled");
+    expect(bridgePluginInstallerSource).toContain('"packageName": "aiks-bridge"');
+    expect(bridgePluginInstallerSource).toContain('"trust": true');
+    expect(bridgePluginInstallerSource).toContain('"petalDisabled": false');
   });
 
   it("suspends the native child workbench while unified search is open", () => {
