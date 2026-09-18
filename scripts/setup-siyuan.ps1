@@ -183,21 +183,12 @@ if ([string]::IsNullOrWhiteSpace($archivePath)) {
         $repo = [string]$cfg["release_repo"]
         $tag = [string]$cfg["release_tag"]
         $assetName = [string]$cfg["asset"]
-        $apiUrl = "https://api.github.com/repos/$repo/releases/tags/$tag"
-        $headers = @{
-            "User-Agent" = "AIKS-Runtime-Setup/4.2"
-            "Accept" = "application/vnd.github+json"
-        }
+        $downloadUrl = "https://github.com/$repo/releases/download/$tag/$assetName"
 
-        Write-Host "Resolving customized runtime release $repo / $tag..."
-        $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get
-        $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
-        if (-not $asset) { throw "Runtime release asset not found: $assetName" }
-
-        Write-Host "Downloading $assetName..."
+        Write-Host "Downloading locked runtime asset $repo / $tag / $assetName..."
         $client = New-Object System.Net.WebClient
         $client.Headers.Add("User-Agent", "AIKS-Runtime-Setup/4.2")
-        $client.DownloadFile($asset.browser_download_url, $archivePath)
+        $client.DownloadFile($downloadUrl, $archivePath)
     }
 }
 
