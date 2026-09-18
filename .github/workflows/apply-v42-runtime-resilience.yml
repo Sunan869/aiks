@@ -1,0 +1,393 @@
+name: Apply V4.2 runtime resilience patch
+
+on:
+  push:
+    branches:
+      - fix/v4.2-runtime-resilience
+    paths:
+      - ".github/workflows/apply-v42-runtime-resilience.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v4.2-runtime-resilience
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply runtime resilience changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          bootstrap = Path("crates/aiks-core/src/bootstrap/mod.rs")
+          text = bootstrap.read_text(encoding="utf-8")
+          old = "cfg.startup_timeout = Duration::from_secs(30);"
+          new = "cfg.startup_timeout = Duration::from_secs(120);"
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit("bootstrap startup timeout anchor not found")
+          bootstrap.write_text(text, encoding="utf-8")
+
+          runtime = Path("crates/aiks-core/src/runtime/mod.rs")
+          text = runtime.read_text(encoding="utf-8")
+          wait_start = text.index("    /// Wait until Kernel responds at /api/system/version (spec §30-32).")
+          wait_end = text.index("    // ── Stop ────────────────────────────────────────────────────────────────", wait_start)
+          wait_impl = textwrap.dedent('''\
+              /// Wait until the Kernel has completed its full boot sequence.
+              /// `/api/system/version` becomes available before database rebuild/indexing finishes,
+              /// so readiness is gated by the official `/api/system/bootProgress` endpoint.
+              async fn wait_ready(
+                  &self,
+                  pid: u32,
+                  base_url: &str,
+                  expected_version: Option<&str>,
+              ) -> anyhow::Result<String> {
+                  let deadline = tokio::time::Instant::now() + self.config.startup_timeout;
+                  let delays_ms: &[u64] = &[
+                      250, 500, 500, 1000, 1000, 1000, 2000, 2000, 2000, 3000, 3000, 5000,
+                  ];
+                  let mut delay_iter = delays_ms.iter().cycle();
+                  let mut detected_version: Option<String> = None;
+
+                  loop {
+                      if tokio::time::Instant::now() >= deadline {
+                          anyhow::bail!(
+                              "SiYuan Kernel did not become ready within {}s",
+                              self.config.startup_timeout.as_secs()
+                          );
+                      }
+
+                      if !is_process_alive(pid) {
+                          anyhow::bail!("SiYuan Kernel process exited unexpectedly (PID {})", pid);
+                      }
+
+                      let delay = *delay_iter.next().unwrap_or(&2000);
+                      tokio::time::sleep(Duration::from_millis(delay)).await;
+
+                      if detected_version.is_none() {
+                          match get_siyuan_version(base_url, None).await {
+                              Ok(version) => {
+                                  if let Some(expected) = expected_version {
+                                      if version != expected {
+                                          warn!(
+                                              expected = expected,
+                                              actual = %version,
+                                              "Bundled SiYuan runtime version mismatch"
+                                          );
+                                      }
+                                  }
+                                  detected_version = Some(version);
+                              }
+                              Err(e) => {
+                                  debug!("Version health check: {}", e);
+                                  continue;
+                              }
+                          }
+                      }
+
+                      match get_siyuan_boot_progress(base_url, None).await {
+                          Ok((progress, details)) => {
+                              debug!(progress, details = %details, "SiYuan boot progress");
+                              if progress >= 100 {
+                                  if let Some(version) = detected_version.clone() {
+                                      return Ok(version);
+                                  }
+                              }
+                          }
+                          Err(e) => debug!("Boot progress check: {}", e),
+                      }
+                  }
+              }
+
+          ''')
+          wait_impl = textwrap.indent(wait_impl, "    ") if not wait_impl.startswith("    ") else wait_impl
+          # dedent above produces four-space method indentation from the literal; normalize exactly once.
+          if wait_impl.startswith("        ///"):
+              wait_impl = wait_impl[4:]
+          text = text[:wait_start] + wait_impl + text[wait_end:]
+
+          old_health = textwrap.dedent('''\
+              pub async fn health(&self) -> RuntimeHealth {
+                  let state = self.state();
+                  let info = self.runtime_info();
+                  let last_error = self.last_error();
+
+                  RuntimeHealth {
+                      state: state.clone(),
+                      pid: info.as_ref().map(|i| i.pid),
+                      port: info.as_ref().map(|i| i.port),
+                      version: info.as_ref().map(|i| i.version.clone()),
+                      base_url: info.as_ref().map(|i| i.base_url.clone()),
+                      last_error,
+                  }
+              }
+          ''')
+          old_health = textwrap.indent(old_health, "    ") if not old_health.startswith("    ") else old_health
+          if old_health.startswith("        pub"):
+              old_health = old_health[4:]
+          new_health = textwrap.dedent('''\
+              pub async fn health(&self) -> RuntimeHealth {
+                  if self.state() == RuntimeState::Ready {
+                      if let Some(info) = self.runtime_info() {
+                          let exited = {
+                              let mut child_guard = self.child.lock().unwrap();
+                              if let Some(child) = child_guard.as_mut() {
+                                  match child.try_wait() {
+                                      Ok(Some(status)) => Some(format!("exit status {status}")),
+                                      Ok(None) => None,
+                                      Err(e) => {
+                                          warn!(error = %e, "Failed to query SiYuan child process status");
+                                          None
+                                      }
+                                  }
+                              } else if !is_process_alive(info.pid) {
+                                  Some("process is no longer alive".to_string())
+                              } else {
+                                  None
+                              }
+                          };
+
+                          if let Some(detail) = exited {
+                              let message = format!(
+                                  "SiYuan Kernel process exited unexpectedly after startup (PID {}): {}",
+                                  info.pid, detail
+                              );
+                              *self.state.lock().unwrap() = RuntimeState::Failed;
+                              *self.last_error.lock().unwrap() = Some(message);
+                              let _ = std::fs::remove_file(&self.config.runtime_info_path);
+                          }
+                      }
+                  }
+
+                  let state = self.state();
+                  let info = self.runtime_info();
+                  let last_error = self.last_error();
+
+                  RuntimeHealth {
+                      state,
+                      pid: info.as_ref().map(|i| i.pid),
+                      port: info.as_ref().map(|i| i.port),
+                      version: info.as_ref().map(|i| i.version.clone()),
+                      base_url: info.as_ref().map(|i| i.base_url.clone()),
+                      last_error,
+                  }
+              }
+          ''')
+          new_health = textwrap.indent(new_health, "    ") if not new_health.startswith("    ") else new_health
+          if new_health.startswith("        pub"):
+              new_health = new_health[4:]
+          if old_health not in text:
+              raise SystemExit("runtime health function anchor not found")
+          text = text.replace(old_health, new_health, 1)
+
+          helper_anchor = "/// Allocate an available TCP port in [start, end]."
+          boot_helper = textwrap.dedent('''\
+          /// Call the official boot progress endpoint. A progress value of 100 means
+          /// database initialization/index rebuild and the rest of Kernel boot completed.
+          async fn get_siyuan_boot_progress(
+              base_url: &str,
+              token: Option<&str>,
+          ) -> anyhow::Result<(i64, String)> {
+              let client = reqwest::Client::builder()
+                  .timeout(Duration::from_secs(3))
+                  .build()?;
+              let mut req = client.get(format!("{}/api/system/bootProgress", base_url));
+              if let Some(t) = token {
+                  req = req.header("Authorization", format!("Token {}", t));
+              }
+              let resp: serde_json::Value = req.send().await?.json().await?;
+              let code = resp["code"].as_i64().unwrap_or(-1);
+              if code != 0 {
+                  anyhow::bail!("SiYuan bootProgress error: {}", resp);
+              }
+              let progress = resp["data"]["progress"]
+                  .as_i64()
+                  .ok_or_else(|| anyhow::anyhow!("Unexpected bootProgress response: {}", resp))?;
+              let details = resp["data"]["details"].as_str().unwrap_or("").to_string();
+              Ok((progress, details))
+          }
+
+          ''')
+          if "/api/system/bootProgress" not in text[text.index("// ── Free functions"):]:
+              if helper_anchor not in text:
+                  raise SystemExit("runtime helper insertion anchor not found")
+              text = text.replace(helper_anchor, boot_helper + helper_anchor, 1)
+          runtime.write_text(text, encoding="utf-8")
+
+          sync = Path("crates/aiks-core/src/sync/engine.rs")
+          text = sync.read_text(encoding="utf-8")
+          stats_anchor = '''        let mut stats = SyncStats {
+              discovered: summaries.len(),
+              ..Default::default()
+          };
+
+          for summary in &summaries {'''
+          stats_replacement = '''        let mut stats = SyncStats {
+              discovered: summaries.len(),
+              ..Default::default()
+          };
+
+          let session_notebook_id = if opts.dry_run {
+              None
+          } else {
+              Some(sink.ensure_session_notebook().await?)
+          };
+
+          for summary in &summaries {'''
+          if stats_anchor not in text:
+              raise SystemExit("sync run notebook insertion anchor not found")
+          text = text.replace(stats_anchor, stats_replacement, 1)
+
+          call_old = ".sync_session(db, registry, sink, &renderer, summary, opts)"
+          call_new = ".sync_session(\n                    db,\n                    registry,\n                    sink,\n                    &renderer,\n                    summary,\n                    session_notebook_id.as_deref(),\n                    opts,\n                )"
+          if call_old not in text:
+              raise SystemExit("sync_session call anchor not found")
+          text = text.replace(call_old, call_new, 1)
+
+          sig_old = '''        renderer: &MarkdownRenderer,
+              summary: &SessionSummary,
+              opts: &SyncOptions,
+          ) -> SyncOutcome {'''
+          sig_new = '''        renderer: &MarkdownRenderer,
+              summary: &SessionSummary,
+              notebook_id: Option<&str>,
+              opts: &SyncOptions,
+          ) -> SyncOutcome {'''
+          if sig_old not in text:
+              raise SystemExit("sync_session signature anchor not found")
+          text = text.replace(sig_old, sig_new, 1)
+
+          ensure_old = '''        // Ensure notebook exists
+              let notebook_id = match sink.ensure_session_notebook().await {
+                  Ok(id) => id,
+                  Err(e) => {
+                      let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
+                      return SyncOutcome::Failed {
+                          error: format!("ensure_session_notebook: {}", e),
+                      };
+                  }
+              };
+
+          '''
+          ensure_new = '''        let notebook_id = match notebook_id {
+              Some(id) => id,
+              None => {
+                  return SyncOutcome::Failed {
+                      error: "session notebook was not resolved".to_string(),
+                  };
+              }
+          };
+
+          '''
+          if ensure_old not in text:
+              raise SystemExit("per-session notebook block anchor not found")
+          text = text.replace(ensure_old, ensure_new, 1)
+          text = text.replace(".create_document(&notebook_id, &doc_path, &markdown)", ".create_document(notebook_id, &doc_path, &markdown)")
+
+          fail_old = '''                    stats.failed_count += 1;
+                  }
+              }
+          }'''
+          fail_new = '''                    stats.failed_count += 1;
+                      if !sink.health_check().await {
+                          error!("[SYNC] SiYuan unavailable; aborting remaining sessions");
+                          break;
+                      }
+                  }
+              }
+          }'''
+          if fail_old not in text:
+              raise SystemExit("sync failed branch anchor not found")
+          text = text.replace(fail_old, fail_new, 1)
+          sync.write_text(text, encoding="utf-8")
+
+          lifecycle = Path("apps/aiks-desktop/src-tauri/src/lifecycle.rs")
+          text = lifecycle.read_text(encoding="utf-8")
+          text = text.replace(
+              "use aiks_core::runtime::SiyuanRuntime;",
+              "use aiks_core::runtime::{RuntimeState, SiyuanRuntime};",
+              1,
+          )
+          success_anchor = '''    app.manage(state);
+              set_runtime(&app, Some(runtime)).await;
+
+              emit_progress(&app, "ready", "AIKS 已就绪");'''
+          success_new = '''    app.manage(state);
+              set_runtime(&app, Some(runtime)).await;
+              spawn_runtime_monitor(&app);
+
+              emit_progress(&app, "ready", "AIKS 已就绪");'''
+          if success_anchor not in text:
+              raise SystemExit("lifecycle monitor call anchor not found")
+          text = text.replace(success_anchor, success_new, 1)
+
+          monitor_anchor = "fn start_watcher_for_engine("
+          monitor = textwrap.dedent('''\
+          fn spawn_runtime_monitor(app: &AppHandle) {
+              let app = app.clone();
+              tauri::async_runtime::spawn(async move {
+                  let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+                  ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                  ticker.tick().await;
+                  loop {
+                      ticker.tick().await;
+                      let Some(runtime_container) = app.try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>() else {
+                          return;
+                      };
+                      let health = {
+                          let guard = runtime_container.lock().await;
+                          let Some(runtime) = guard.as_ref() else {
+                              return;
+                          };
+                          runtime.health().await
+                      };
+                      if health.state == RuntimeState::Failed {
+                          let message = health
+                              .last_error
+                              .clone()
+                              .unwrap_or_else(|| "SiYuan runtime is unavailable".to_string());
+                          error!(error = %message, "SiYuan runtime became unavailable");
+                          let _ = app.emit(
+                              "runtime-unavailable",
+                              serde_json::json!({
+                                  "status": "failed",
+                                  "error": message,
+                                  "pid": health.pid,
+                                  "port": health.port,
+                              }),
+                          );
+                          return;
+                      }
+                  }
+              });
+          }
+
+          ''')
+          if "fn spawn_runtime_monitor" not in text:
+              if monitor_anchor not in text:
+                  raise SystemExit("lifecycle monitor insertion anchor not found")
+              text = text.replace(monitor_anchor, monitor + monitor_anchor, 1)
+          lifecycle.write_text(text, encoding="utf-8")
+          PY
+
+          cargo fmt --all
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "AIKS Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add crates/aiks-core/src/bootstrap/mod.rs crates/aiks-core/src/runtime/mod.rs crates/aiks-core/src/sync/engine.rs apps/aiks-desktop/src-tauri/src/lifecycle.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(v4.2): harden SiYuan runtime lifecycle"
+          git push origin HEAD:fix/v4.2-runtime-resilience
