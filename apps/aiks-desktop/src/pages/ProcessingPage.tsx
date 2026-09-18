@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import type { PipelineSummary, PipelineStats } from "../api/types";
 
@@ -49,8 +49,11 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
+  const inFlightRef = useRef(false);
 
   const load = useCallback(async (showLoading = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     if (showLoading) setLoading(true);
     try {
       const [r, s] = await Promise.all([
@@ -60,6 +63,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
       setRuns(r);
       setStats(s);
     } finally {
+      inFlightRef.current = false;
       if (showLoading) setLoading(false);
     }
   }, []);

@@ -11,6 +11,7 @@ describe("V4.2 live pipeline/settings/diagnostics boundaries", () => {
     expect(processingSource).toMatch(/setInterval\([^,]+,\s*2000\)/s);
     expect(processingSource).toContain("document.visibilityState === \"visible\"");
     expect(processingSource).toContain("clearInterval");
+    expect(processingSource).toContain("inFlightRef.current");
   });
 
   it("uses V4.2 diagnostics copy and distinguishes unmounted workbench from bridge wait", () => {

@@ -120,6 +120,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
                 engine,
                 siyuan_url: Arc::new(Mutex::new(None)),
                 data_dir,
+                close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
                 _watcher_handle: Mutex::new(watcher_handle),
             };
             app.manage(state);
