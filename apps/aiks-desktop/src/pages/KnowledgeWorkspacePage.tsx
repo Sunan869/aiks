@@ -118,7 +118,11 @@ export default function KnowledgeWorkspacePage({
       ) : null}
 
       <div className="flex min-h-0 flex-1 p-3">
-        <WorkbenchHost surface={workspaceMode} docId={boundDocId} />
+        <WorkbenchHost
+          surface={workspaceMode}
+          docId={boundDocId}
+          suspended={searchOpen}
+        />
       </div>
 
       <UnifiedSearchDialog
