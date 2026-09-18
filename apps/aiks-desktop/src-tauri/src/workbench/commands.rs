@@ -111,7 +111,7 @@ fn validate_bounds(x: f64, y: f64, width: f64, height: f64) -> Result<(), String
     Ok(())
 }
 
-fn dispatch_action(
+pub(super) fn dispatch_action(
     app: &AppHandle,
     controller: &WorkbenchController,
     action: WorkbenchAction,
