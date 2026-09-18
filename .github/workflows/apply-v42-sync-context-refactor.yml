@@ -27,87 +27,71 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("crates/aiks-core/src/sync/engine.rs")
           text = path.read_text(encoding="utf-8")
 
-          struct_anchor = '''pub struct SyncEngine {
-              config: Arc<Config>,
-          }
-          '''
-          context_struct = '''struct SyncRunContext<'a> {
+          if "struct SyncRunContext<'a>" not in text:
+              anchor = "pub struct SyncEngine {"
+              pos = text.index(anchor)
+              context_struct = """struct SyncRunContext<'a> {
               renderer: &'a MarkdownRenderer,
               notebook_id: Option<&'a str>,
           }
 
-          '''
-          if "struct SyncRunContext<'a>" not in text:
-              if struct_anchor not in text:
-                  raise SystemExit("SyncEngine struct anchor not found")
-              text = text.replace(struct_anchor, context_struct + struct_anchor, 1)
+          """
+              text = text[:pos] + context_struct + text[pos:]
 
-          context_anchor = '''        let session_notebook_id = if opts.dry_run {
-              None
-          } else {
-              Some(sink.ensure_session_notebook().await?)
-          };
-
-          for summary in &summaries {
-          '''
-          context_replacement = '''        let session_notebook_id = if opts.dry_run {
-              None
-          } else {
-              Some(sink.ensure_session_notebook().await?)
-          };
-          let sync_context = SyncRunContext {
+          if "let sync_context = SyncRunContext" not in text:
+              notebook_pos = text.index("        let session_notebook_id = if opts.dry_run {")
+              loop_pos = text.index("        for summary in &summaries {", notebook_pos)
+              context_init = """        let sync_context = SyncRunContext {
               renderer: &renderer,
               notebook_id: session_notebook_id.as_deref(),
           };
 
-          for summary in &summaries {
-          '''
-          if "let sync_context = SyncRunContext" not in text:
-              if context_anchor not in text:
-                  raise SystemExit("sync context insertion anchor not found")
-              text = text.replace(context_anchor, context_replacement, 1)
+          """
+              text = text[:loop_pos] + context_init + text[loop_pos:]
 
-          call_old = '''                .sync_session(
-                      db,
-                      registry,
-                      sink,
-                      &renderer,
-                      summary,
-                      session_notebook_id.as_deref(),
-                      opts,
-                  )
-          '''
-          call_new = '''                .sync_session(db, registry, sink, &sync_context, summary, opts)
-          '''
-          if call_old in text:
-              text = text.replace(call_old, call_new, 1)
-          elif ".sync_session(db, registry, sink, &sync_context, summary, opts)" not in text:
-              raise SystemExit("sync_session call anchor not found")
+          if ".sync_session(db, registry, sink, &sync_context, summary, opts)" not in text:
+              call_pattern = re.compile(
+                  r"\.sync_session\(\s*db,\s*registry,\s*sink,\s*&renderer,\s*summary,\s*session_notebook_id\.as_deref\(\),\s*opts,\s*\)",
+                  re.S,
+              )
+              text, count = call_pattern.subn(
+                  ".sync_session(db, registry, sink, &sync_context, summary, opts)",
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("sync_session call pattern not found")
 
-          sig_old = '''        sink: &SiYuanSink,
-              renderer: &MarkdownRenderer,
-              summary: &SessionSummary,
-              notebook_id: Option<&str>,
-              opts: &SyncOptions,
-          ) -> SyncOutcome {
-          '''
-          sig_new = '''        sink: &SiYuanSink,
-              context: &SyncRunContext<'_>,
-              summary: &SessionSummary,
-              opts: &SyncOptions,
-          ) -> SyncOutcome {
-          '''
-          if sig_old in text:
-              text = text.replace(sig_old, sig_new, 1)
-          elif "context: &SyncRunContext<'_>" not in text:
-              raise SystemExit("sync_session signature anchor not found")
+          if "context: &SyncRunContext<'_>" not in text:
+              signature_pattern = re.compile(
+                  r"(async fn sync_session\(\s*&self,\s*db: &StateDb,\s*registry: &ProviderRegistry,\s*sink: &SiYuanSink,\s*)renderer: &MarkdownRenderer,\s*summary: &SessionSummary,\s*notebook_id: Option<&str>,\s*(opts: &SyncOptions,\s*\) -> SyncOutcome \{)",
+                  re.S,
+              )
+              text, count = signature_pattern.subn(
+                  r"\1context: &SyncRunContext<'_>,\n        summary: &SessionSummary,\n        \2",
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("sync_session signature pattern not found")
 
-          text = text.replace("let markdown = renderer.render(&session);", "let markdown = context.renderer.render(&session);", 1)
-          text = text.replace("let notebook_id = match notebook_id {", "let notebook_id = match context.notebook_id {", 1)
+          if "let markdown = context.renderer.render(&session);" not in text:
+              text = text.replace(
+                  "let markdown = renderer.render(&session);",
+                  "let markdown = context.renderer.render(&session);",
+                  1,
+              )
+          if "let notebook_id = match context.notebook_id {" not in text:
+              text = text.replace(
+                  "let notebook_id = match notebook_id {",
+                  "let notebook_id = match context.notebook_id {",
+                  1,
+              )
 
           path.write_text(text, encoding="utf-8")
           PY
