@@ -22,6 +22,11 @@ describe("V4.2 live pipeline/settings/diagnostics boundaries", () => {
     expect(diagnosticsPageSource).not.toContain("V4.1 知识工作台");
   });
 
+  it("keeps AI diagnostics topology-neutral", () => {
+    expect(diagnosticsPageSource).toContain("无法连接当前配置的 AI 服务");
+    expect(diagnosticsPageSource).not.toContain("无法连接公司内部 AI 服务");
+  });
+
   it("renders AI endpoint/model from backend settings instead of obsolete frontend defaults", () => {
     expect(settingsPageSource).not.toContain('useState("http://127.0.0.1:11434/v1")');
     expect(settingsPageSource).not.toContain('useState("qwen3")');
