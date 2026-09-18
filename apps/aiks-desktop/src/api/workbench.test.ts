@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import pluginManifest from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/plugin.json";
 import pluginSource from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/index.js?raw";
+import workbenchCommandSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import { TauriAiksApi } from "./tauri";
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -62,6 +63,13 @@ describe("V4.2 workbench bridge contract", () => {
     expect(pluginSource).toContain("bridgeReady");
     expect(pluginSource).toContain("requestAiAssist");
     expect(pluginSource).toContain("aiAssistResult");
+  });
+
+  it("bootstraps the bridge nonce without waiting for bridgeReady", () => {
+    expect(workbenchCommandSource).toContain("window.__AIKS_BRIDGE__");
+    expect(workbenchCommandSource).toContain("setTimeout");
+    expect(workbenchCommandSource).toContain("window.postMessage");
+    expect(workbenchCommandSource).toContain("setWorkspaceMode");
   });
 });
 
