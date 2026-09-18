@@ -106,7 +106,7 @@ export default function DiagnosticsPage() {
           <div className="flex-1">
             <div className="text-sm font-medium">AI 智能整理</div>
             {aiOk === false && (
-              <div className="text-xs text-gray-400">无法连接公司内部 AI 服务</div>
+              <div className="text-xs text-gray-400">无法连接当前配置的 AI 服务</div>
             )}
           </div>
           <div className={`text-xs ${aiOk ? "text-green-600" : aiOk === false ? "text-yellow-500" : "text-gray-400"}`}>
