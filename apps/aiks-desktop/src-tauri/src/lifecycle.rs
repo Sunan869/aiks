@@ -6,11 +6,12 @@
 ///  3. find/validate runtime
 ///  4. install/update AIKS bridge plugin into the workspace
 ///  5. start SiYuan Kernel
-///  6. ensure Notebook
-///  7. initialize AIKS Engine (with loaded config)
-///  8. register AppState (including watcher handle B08)
-///  9. background: migrate V4.1 canonical content, then scan + sync_and_enqueue
-/// 10. start Watcher → sync_and_enqueue on events
+///  6. activate the bundled AIKS bridge plugin
+///  7. ensure Notebook
+///  8. initialize AIKS Engine (with loaded config)
+///  9. register AppState (including watcher handle B08)
+/// 10. background: migrate V4.1 canonical content, then scan + sync_and_enqueue
+/// 11. start Watcher → sync_and_enqueue on events
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
@@ -25,7 +26,7 @@ use tracing::{error, info, warn};
 
 use crate::app_state::{config_file_path, data_dir, AppState};
 use crate::bootstrap::find_runtime_root;
-use crate::workbench::plugin::install_bridge_plugin;
+use crate::workbench::plugin::{ensure_bridge_plugin_enabled, install_bridge_plugin};
 
 // ── Startup ────────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,18 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
 
     let base_url = runtime_info.base_url.clone();
+
+    match ensure_bridge_plugin_enabled(&base_url).await {
+        Ok(()) => info!("AIKS bridge plugin enabled"),
+        Err(e) => {
+            warn!(error = %e, "AIKS bridge plugin could not be enabled; workbench will degrade");
+            emit_progress(
+                &app,
+                "workbench_warning",
+                "知识工作台桥接组件启用失败，将以降级模式继续启动",
+            );
+        }
+    }
 
     emit_progress(&app, "notebook", "正在准备知识库...");
     match ensure_notebook(&base_url, "AI Knowledge").await {
