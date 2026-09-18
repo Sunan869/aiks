@@ -1,4 +1,4 @@
-import { Plugin, getAllEditor, openTab } from "siyuan";
+const { Plugin, getAllEditor, openTab } = require("siyuan");
 
 const PROTOCOL_VERSION = 1;
 const AIKS_EVENT_CHANNEL = "aiks-workbench-event";
@@ -167,7 +167,7 @@ class SiyuanAdapter {
   }
 }
 
-export default class AIKSBridgePlugin extends Plugin {
+class AIKSBridgePlugin extends Plugin {
   onload() {
     const injectedNonce = window.__AIKS_WORKBENCH_NONCE__;
     this.runtimeNonce = typeof injectedNonce === "string" && injectedNonce
@@ -486,3 +486,5 @@ export default class AIKSBridgePlugin extends Plugin {
     this.retryBackendEmit(eventName, envelope);
   }
 }
+
+module.exports = AIKSBridgePlugin;
