@@ -1,1 +1,2 @@
-Temporary CI trigger after Rust 1.98 Clippy fixes. This file will be removed after verification.
+V4.2 CI trigger after canonical AI Assist bridge implementation.
+Target implementation commit: 928b39e3e33c18c6ea7f604b995fc5f3247629ac
