@@ -63,6 +63,13 @@ describe("V4.2 workbench bridge contract", () => {
     expect(pluginSource).toContain("requestAiAssist");
     expect(pluginSource).toContain("aiAssistResult");
   });
+
+  it("retries bridgeReady when Tauri IPC is not ready during plugin onload", () => {
+    expect(pluginSource).toContain("BRIDGE_READY_MAX_ATTEMPTS");
+    expect(pluginSource).toContain("retryBackendEmit");
+    expect(pluginSource).toContain('eventName === "bridgeReady"');
+    expect(pluginSource).toContain("window.setTimeout");
+  });
 });
 
 describe("V4.2 Tauri workbench API mapping", () => {
