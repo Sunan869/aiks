@@ -66,6 +66,11 @@ fn hash_markdown(md: &str) -> String {
     format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
 }
 
+struct SyncRunContext<'a> {
+    renderer: &'a MarkdownRenderer,
+    notebook_id: Option<&'a str>,
+}
+
 pub struct SyncEngine {
     config: Arc<Config>,
 }
@@ -162,6 +167,11 @@ impl SyncEngine {
             Some(sink.ensure_session_notebook().await?)
         };
 
+        let sync_context = SyncRunContext {
+            renderer: &renderer,
+            notebook_id: session_notebook_id.as_deref(),
+        };
+
         for summary in &summaries {
             // Filter: only skip if we KNOW message count is low and it's > 0
             // (Codex from state_5.sqlite has count=0 meaning "unknown" — don't skip those)
@@ -177,15 +187,7 @@ impl SyncEngine {
             }
 
             let outcome = self
-                .sync_session(
-                    db,
-                    registry,
-                    sink,
-                    &renderer,
-                    summary,
-                    session_notebook_id.as_deref(),
-                    opts,
-                )
+                .sync_session(db, registry, sink, &sync_context, summary, opts)
                 .await;
 
             match &outcome {
@@ -266,9 +268,8 @@ impl SyncEngine {
         db: &StateDb,
         registry: &ProviderRegistry,
         sink: &SiYuanSink,
-        renderer: &MarkdownRenderer,
+        context: &SyncRunContext<'_>,
         summary: &SessionSummary,
-        notebook_id: Option<&str>,
         opts: &SyncOptions,
     ) -> SyncOutcome {
         let source = summary.source.as_str();
@@ -458,9 +459,9 @@ impl SyncEngine {
         }
 
         // Render to Markdown
-        let markdown = renderer.render(&session);
+        let markdown = context.renderer.render(&session);
 
-        let notebook_id = match notebook_id {
+        let notebook_id = match context.notebook_id {
             Some(id) => id,
             None => {
                 return SyncOutcome::Failed {
