@@ -408,7 +408,9 @@ impl SiyuanRuntime {
         }
     }
 
-    /// Wait until Kernel responds at /api/system/version (spec §30-32).
+    /// Wait until the Kernel has completed its full boot sequence.
+    /// `/api/system/version` becomes available before database rebuild/indexing finishes,
+    /// so readiness is gated by the official `/api/system/bootProgress` endpoint.
     async fn wait_ready(
         &self,
         pid: u32,
@@ -416,11 +418,11 @@ impl SiyuanRuntime {
         expected_version: Option<&str>,
     ) -> anyhow::Result<String> {
         let deadline = tokio::time::Instant::now() + self.config.startup_timeout;
-        // Exponential-ish backoff: 250ms, 500ms, 500ms, 1s, 1s, 1s, 2s...
         let delays_ms: &[u64] = &[
             250, 500, 500, 1000, 1000, 1000, 2000, 2000, 2000, 3000, 3000, 5000,
         ];
         let mut delay_iter = delays_ms.iter().cycle();
+        let mut detected_version: Option<String> = None;
 
         loop {
             if tokio::time::Instant::now() >= deadline {
@@ -430,7 +432,6 @@ impl SiyuanRuntime {
                 );
             }
 
-            // Check if process died (spec §32)
             if !is_process_alive(pid) {
                 anyhow::bail!("SiYuan Kernel process exited unexpectedly (PID {})", pid);
             }
@@ -438,23 +439,37 @@ impl SiyuanRuntime {
             let delay = *delay_iter.next().unwrap_or(&2000);
             tokio::time::sleep(Duration::from_millis(delay)).await;
 
-            match get_siyuan_version(base_url, None).await {
-                Ok(version) => {
-                    // Version check (spec §31)
-                    if let Some(expected) = expected_version {
-                        if version != expected {
-                            warn!(
-                                expected = expected,
-                                actual = %version,
-                                "Bundled SiYuan runtime version mismatch"
-                            );
+            if detected_version.is_none() {
+                match get_siyuan_version(base_url, None).await {
+                    Ok(version) => {
+                        if let Some(expected) = expected_version {
+                            if version != expected {
+                                warn!(
+                                    expected = expected,
+                                    actual = %version,
+                                    "Bundled SiYuan runtime version mismatch"
+                                );
+                            }
                         }
+                        detected_version = Some(version);
                     }
-                    return Ok(version);
+                    Err(e) => {
+                        debug!("Version health check: {}", e);
+                        continue;
+                    }
                 }
-                Err(e) => {
-                    debug!("Health check: {}", e);
+            }
+
+            match get_siyuan_boot_progress(base_url, None).await {
+                Ok((progress, details)) => {
+                    debug!(progress, details = %details, "SiYuan boot progress");
+                    if progress >= 100 {
+                        return Ok(detected_version
+                            .clone()
+                            .expect("version checked before boot progress"));
+                    }
                 }
+                Err(e) => debug!("Boot progress check: {}", e),
             }
         }
     }
@@ -518,12 +533,43 @@ impl SiyuanRuntime {
 
     /// Live health check.
     pub async fn health(&self) -> RuntimeHealth {
+        if self.state() == RuntimeState::Ready {
+            if let Some(info) = self.runtime_info() {
+                let exited = {
+                    let mut child_guard = self.child.lock().unwrap();
+                    if let Some(child) = child_guard.as_mut() {
+                        match child.try_wait() {
+                            Ok(Some(status)) => Some(format!("exit status {status}")),
+                            Ok(None) => None,
+                            Err(e) => {
+                                warn!(error = %e, "Failed to query SiYuan child process status");
+                                None
+                            }
+                        }
+                    } else if !is_process_alive(info.pid) {
+                        Some("process is no longer alive".to_string())
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(detail) = exited {
+                    let message = format!(
+                        "SiYuan Kernel process exited unexpectedly after startup (PID {}): {}",
+                        info.pid, detail
+                    );
+                    *self.state.lock().unwrap() = RuntimeState::Failed;
+                    *self.last_error.lock().unwrap() = Some(message);
+                    let _ = std::fs::remove_file(&self.config.runtime_info_path);
+                }
+            }
+        }
+
         let state = self.state();
         let info = self.runtime_info();
         let last_error = self.last_error();
-
         RuntimeHealth {
-            state: state.clone(),
+            state,
             pid: info.as_ref().map(|i| i.pid),
             port: info.as_ref().map(|i| i.port),
             version: info.as_ref().map(|i| i.version.clone()),
@@ -592,6 +638,29 @@ pub async fn get_siyuan_version(base_url: &str, token: Option<&str>) -> anyhow::
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("Unexpected version response: {}", resp))
+}
+
+/// Query SiYuan's official boot progress endpoint.
+async fn get_siyuan_boot_progress(
+    base_url: &str,
+    token: Option<&str>,
+) -> anyhow::Result<(i64, String)> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()?;
+    let mut req = client.get(format!("{}/api/system/bootProgress", base_url));
+    if let Some(t) = token {
+        req = req.header("Authorization", format!("Token {}", t));
+    }
+    let resp: serde_json::Value = req.send().await?.json().await?;
+    if resp["code"].as_i64().unwrap_or(-1) != 0 {
+        anyhow::bail!("SiYuan bootProgress error: {}", resp);
+    }
+    let progress = resp["data"]["progress"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("Unexpected bootProgress response: {}", resp))?;
+    let details = resp["data"]["details"].as_str().unwrap_or("").to_string();
+    Ok((progress, details))
 }
 
 /// Allocate an available TCP port in [start, end].

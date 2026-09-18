@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
 use aiks_core::knowledge::ContentMigrationService;
-use aiks_core::runtime::SiyuanRuntime;
+use aiks_core::runtime::{RuntimeState, SiyuanRuntime};
 use aiks_core::sink::SiYuanSink;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
@@ -181,6 +181,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
     app.manage(state);
     set_runtime(&app, Some(runtime)).await;
+    spawn_runtime_monitor(&app);
 
     emit_progress(&app, "ready", "AIKS 已就绪");
     show_control_center(&app);
@@ -189,6 +190,46 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
 
     info!("AIKS startup complete");
     Ok(())
+}
+
+fn spawn_runtime_monitor(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let Some(runtime_container) = app.try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>()
+            else {
+                return;
+            };
+            let health = {
+                let guard = runtime_container.lock().await;
+                let Some(runtime) = guard.as_ref() else {
+                    return;
+                };
+                runtime.health().await
+            };
+            if health.state == RuntimeState::Failed {
+                let message = health
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| "SiYuan runtime is unavailable".to_string());
+                error!(error = %message, "SiYuan runtime became unavailable");
+                let _ = app.emit(
+                    "runtime-unavailable",
+                    serde_json::json!({
+                        "status": "failed",
+                        "error": message,
+                        "pid": health.pid,
+                        "port": health.port,
+                    }),
+                );
+                return;
+            }
+        }
+    });
 }
 
 fn start_watcher_for_engine(

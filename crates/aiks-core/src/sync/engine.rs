@@ -66,6 +66,11 @@ fn hash_markdown(md: &str) -> String {
     format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
 }
 
+struct SyncRunContext<'a> {
+    renderer: &'a MarkdownRenderer,
+    notebook_id: Option<&'a str>,
+}
+
 pub struct SyncEngine {
     config: Arc<Config>,
 }
@@ -156,6 +161,23 @@ impl SyncEngine {
             ..Default::default()
         };
 
+        let session_notebook_id = if opts.dry_run {
+            None
+        } else {
+            match sink.ensure_session_notebook().await {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    error!(error = %e, "[SYNC] Failed to resolve session notebook");
+                    None
+                }
+            }
+        };
+
+        let sync_context = SyncRunContext {
+            renderer: &renderer,
+            notebook_id: session_notebook_id.as_deref(),
+        };
+
         for summary in &summaries {
             // Filter: only skip if we KNOW message count is low and it's > 0
             // (Codex from state_5.sqlite has count=0 meaning "unknown" — don't skip those)
@@ -171,7 +193,7 @@ impl SyncEngine {
             }
 
             let outcome = self
-                .sync_session(db, registry, sink, &renderer, summary, opts)
+                .sync_session(db, registry, sink, &sync_context, summary, opts)
                 .await;
 
             match &outcome {
@@ -216,6 +238,10 @@ impl SyncEngine {
                         "[SYNC] Failed"
                     );
                     stats.failed_count += 1;
+                    if !opts.dry_run && !sink.health_check().await {
+                        error!("[SYNC] SiYuan unavailable; aborting remaining sessions");
+                        break;
+                    }
                 }
             }
         }
@@ -248,7 +274,7 @@ impl SyncEngine {
         db: &StateDb,
         registry: &ProviderRegistry,
         sink: &SiYuanSink,
-        renderer: &MarkdownRenderer,
+        context: &SyncRunContext<'_>,
         summary: &SessionSummary,
         opts: &SyncOptions,
     ) -> SyncOutcome {
@@ -439,15 +465,13 @@ impl SyncEngine {
         }
 
         // Render to Markdown
-        let markdown = renderer.render(&session);
+        let markdown = context.renderer.render(&session);
 
-        // Ensure notebook exists
-        let notebook_id = match sink.ensure_session_notebook().await {
-            Ok(id) => id,
-            Err(e) => {
-                let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
+        let notebook_id = match context.notebook_id {
+            Some(id) => id,
+            None => {
                 return SyncOutcome::Failed {
-                    error: format!("ensure_session_notebook: {}", e),
+                    error: "session notebook was not resolved".to_string(),
                 };
             }
         };
@@ -471,7 +495,7 @@ impl SyncEngine {
                         "update_document failed — falling back to create");
                     let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
                     match sink
-                        .create_document(&notebook_id, &doc_path, &markdown)
+                        .create_document(notebook_id, &doc_path, &markdown)
                         .await
                     {
                         Ok(id) => id,
@@ -492,7 +516,7 @@ impl SyncEngine {
         } else {
             let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
             match sink
-                .create_document(&notebook_id, &doc_path, &markdown)
+                .create_document(notebook_id, &doc_path, &markdown)
                 .await
             {
                 Ok(id) => id,
