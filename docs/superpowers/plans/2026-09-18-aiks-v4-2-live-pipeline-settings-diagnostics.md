@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Preserve default AI endpoint `http://10.10.23.16:18000/v1` and model `Qwen3.8-27B`.
+- Preserve default AI endpoint the managed private endpoint defined by `AiModelConfig::default()` and model `Qwen3.8-27B`.
 - Plain sync and dry-run must not enqueue pipeline jobs.
 - Do not hot-rebuild `AiksEngine`, Watcher, PipelineWorker, or SiYuan runtime.
 - Preserve unexposed `aiks.toml` fields on save.

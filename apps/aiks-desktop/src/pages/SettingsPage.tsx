@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
-import { getApi, shouldUseMock } from "../api/client";
+import { shouldUseMock } from "../api/client";
 
 interface Settings {
   startup: boolean;
+  close_to_tray: boolean;
   sync_enabled: boolean;
   scan_interval_seconds: number;
   include_thinking: boolean;
@@ -12,57 +13,87 @@ interface Settings {
   redact_secrets: boolean;
   ai_enabled: boolean;
   ai_auto_extract: boolean;
-  ai_extract_tags: boolean;
-  ai_extract_problems: boolean;
-  ai_extract_decisions: boolean;
+  ai_base_url: string;
+  ai_model: string;
 }
+
+const MOCK_SETTINGS: Settings = {
+  startup: true,
+  close_to_tray: true,
+  sync_enabled: true,
+  scan_interval_seconds: 300,
+  include_thinking: false,
+  include_tool_calls: true,
+  max_tool_result_chars: 10000,
+  redact_secrets: true,
+  ai_enabled: true,
+  ai_auto_extract: true,
+  ai_base_url: "http://localhost:11434/v1",
+  ai_model: "Qwen3.8-27B",
+};
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [aiBaseUrl, setAiBaseUrl] = useState("http://127.0.0.1:11434/v1");
-  const [aiModel, setAiModel] = useState("qwen3");
   const [aiHealthy, setAiHealthy] = useState<boolean | null>(null);
+  const [aiTesting, setAiTesting] = useState(false);
   const isMock = shouldUseMock();
 
   useEffect(() => {
     if (isMock) {
-      setSettings({
-        startup: true, sync_enabled: true, scan_interval_seconds: 300,
-        include_thinking: false, include_tool_calls: true, max_tool_result_chars: 10000,
-        redact_secrets: true, ai_enabled: true, ai_auto_extract: true,
-        ai_extract_tags: true, ai_extract_problems: true, ai_extract_decisions: true,
-      });
+      setSettings(MOCK_SETTINGS);
       return;
     }
     import("@tauri-apps/api/core").then(({ invoke }) => {
-      invoke<Settings>("get_settings").then(setSettings).catch(console.error);
+      invoke<Settings>("get_settings").then(setSettings).catch(error => setSaveError(String(error)));
     });
   }, [isMock]);
 
   const testAiConnection = async () => {
+    if (!settings) return;
     setAiHealthy(null);
+    setAiTesting(true);
     try {
-      const ok = await getApi().testAiConnection();
+      if (isMock) {
+        setAiHealthy(true);
+        return;
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const ok = await invoke<boolean>("test_ai_connection_with_settings", {
+        baseUrl: settings.ai_base_url,
+        model: settings.ai_model,
+      });
       setAiHealthy(ok);
     } catch {
       setAiHealthy(false);
+    } finally {
+      setAiTesting(false);
     }
   };
 
-  const save = async () => {
+  const save = async (restart: boolean) => {
     if (!settings) return;
-    if (!isMock) {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("save_settings", { settings });
+    setSaveError("");
+    try {
+      if (!isMock) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("save_settings", { settings });
+        if (restart) {
+          await invoke("restart_app");
+          return;
+        }
+      }
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      setSaveError(String(error));
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   };
 
-  const update = (key: keyof Settings, value: boolean | number) => {
-    setSettings(s => s ? { ...s, [key]: value } : s);
+  const update = (key: keyof Settings, value: boolean | number | string) => {
+    setSettings(current => current ? { ...current, [key]: value } : current);
   };
 
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
@@ -71,52 +102,46 @@ export default function SettingsPage() {
     <div className="p-6 max-w-xl">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">设置</h1>
+        <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步和内容配置将在重启 AIKS 后生效。</p>
       </div>
 
-      {/* General */}
       <Section title="常规">
-        <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={v => update("startup", v)} />
-        <Toggle label="关闭窗口后驻留后台" desc="关闭窗口时保持后台同步" value={true} onChange={() => {}} />
+        <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={value => update("startup", value)} />
+        <Toggle label="关闭窗口后驻留后台" desc="关闭主窗口时保留托盘与后台同步" value={settings.close_to_tray} onChange={value => update("close_to_tray", value)} />
       </Section>
 
-      {/* Sync */}
       <Section title="同步">
-        <Toggle label="实时自动同步" desc="监测文件变化并自动同步" value={settings.sync_enabled} onChange={v => update("sync_enabled", v)} />
+        <Toggle label="实时自动同步" desc="监测文件变化并自动同步" value={settings.sync_enabled} onChange={value => update("sync_enabled", value)} />
         <div className="flex items-center justify-between py-3">
           <div>
             <div className="text-sm">定时扫描间隔</div>
-            <div className="text-xs text-gray-400">分钟</div>
+            <div className="text-xs text-gray-400">重启 AIKS 后生效</div>
           </div>
           <select
             className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
             value={settings.scan_interval_seconds / 60}
-            onChange={e => update("scan_interval_seconds", +e.target.value * 60)}
+            onChange={event => update("scan_interval_seconds", +event.target.value * 60)}
           >
-            {[1,5,10,15,30].map(m => <option key={m} value={m}>{m} 分钟</option>)}
+            {[1, 5, 10, 15, 30].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
           </select>
         </div>
       </Section>
 
-      {/* AI */}
       <Section title="AI 智能整理">
-        <Toggle label="启用智能整理" desc="使用配置的 AI 服务自动提炼知识" value={settings.ai_enabled} onChange={v => update("ai_enabled", v)} />
-        <Toggle label="自动整理新会话" desc="10 分钟无变化后自动整理" value={settings.ai_auto_extract} onChange={v => update("ai_auto_extract", v)} />
-        <Toggle label="自动生成标签" desc="" value={settings.ai_extract_tags} onChange={v => update("ai_extract_tags", v)} />
-        <Toggle label="提取问题与解决方案" desc="" value={settings.ai_extract_problems} onChange={v => update("ai_extract_problems", v)} />
-        <Toggle label="提取设计决策" desc="" value={settings.ai_extract_decisions} onChange={v => update("ai_extract_decisions", v)} />
-        <div className="py-2">
-          <div className="text-sm mb-1 text-gray-500">AI 模型</div>
-          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">本地 AI 服务</div>
+        <Toggle label="启用智能整理" desc="使用配置的 AI 服务自动提炼知识" value={settings.ai_enabled} onChange={value => update("ai_enabled", value)} />
+        <Toggle label="自动整理新会话" desc="Raw Session 同步成功后自动进入处理队列" value={settings.ai_auto_extract} onChange={value => update("ai_auto_extract", value)} />
+        <div className="py-3">
+          <div className="text-xs text-gray-400">当前模型</div>
+          <div className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">{settings.ai_model}</div>
         </div>
       </Section>
 
-      {/* Content */}
       <Section title="内容">
-        <Toggle label="保存 Tool Call" desc="记录 AI 执行的工具调用" value={settings.include_tool_calls} onChange={v => update("include_tool_calls", v)} />
-        <Toggle label="Secret 脱敏" desc="自动过滤 API Key、Token 等敏感信息" value={settings.redact_secrets} onChange={v => update("redact_secrets", v)} />
+        <Toggle label="保存思考过程" desc="同步源数据中的 thinking 内容" value={settings.include_thinking} onChange={value => update("include_thinking", value)} />
+        <Toggle label="保存 Tool Call" desc="记录 AI 执行的工具调用" value={settings.include_tool_calls} onChange={value => update("include_tool_calls", value)} />
+        <Toggle label="Secret 脱敏" desc="自动过滤 API Key、Token 等敏感信息" value={settings.redact_secrets} onChange={value => update("redact_secrets", value)} />
       </Section>
 
-      {/* Advanced (collapsed) */}
       <div className="mb-4">
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -133,25 +158,37 @@ export default function SettingsPage() {
             <div>
               <div className="text-xs text-gray-400 mb-1">AI 服务地址</div>
               <input
-                value={aiBaseUrl}
-                onChange={e => setAiBaseUrl(e.target.value)}
+                value={settings.ai_base_url}
+                onChange={event => update("ai_base_url", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">AI 模型</div>
               <input
-                value={aiModel}
-                onChange={e => setAiModel(e.target.value)}
+                value={settings.ai_model}
+                onChange={event => update("ai_model", event.target.value)}
+                className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
+              />
+            </div>
+            <div>
+              <div className="text-xs text-gray-400 mb-1">Tool Result 最大字符数</div>
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={settings.max_tool_result_chars}
+                onChange={event => update("max_tool_result_chars", Number(event.target.value))}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={testAiConnection}
-                className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+                disabled={aiTesting}
+                className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
               >
-                测试 AI 连接
+                {aiTesting ? "测试中..." : "测试当前 AI 配置"}
               </button>
               {aiHealthy !== null && (
                 <span className={`text-xs ${aiHealthy ? "text-green-600" : "text-red-500"}`}>
@@ -163,12 +200,27 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <button
-        onClick={save}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
-      >
-        {saved ? <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4" />已保存</span> : "保存设置"}
-      </button>
+      <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
+        AI 服务、模型、同步周期和内容规则保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
+      </div>
+      {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={() => void save(false)}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
+        >
+          {saved ? <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4" />已保存</span> : "保存设置"}
+        </button>
+        {!isMock && (
+          <button
+            onClick={() => void save(true)}
+            className="px-4 py-2 border border-blue-300 text-blue-600 rounded-lg text-sm hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/20"
+          >
+            保存并重启
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -184,7 +236,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Toggle({ label, desc, value, onChange }: { label: string; desc: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, desc, value, onChange }: { label: string; desc: string; value: boolean; onChange: (value: boolean) => void }) {
   return (
     <div className="flex items-center justify-between py-3">
       <div>
@@ -192,7 +244,8 @@ function Toggle({ label, desc, value, onChange }: { label: string; desc: string;
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
       <button
-        role="switch" aria-checked={value}
+        role="switch"
+        aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
       >

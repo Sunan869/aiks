@@ -41,12 +41,21 @@ export default function DiagnosticsPage() {
     "Claude Code": "Claude Code",
   };
 
-  const workbenchStatus = !v41?.workbench.available
+  const workbenchMounted = Boolean(v41?.workbench.mounted);
+  const workbenchStatus = !v41?.siyuan_ready
     ? "不可用"
-    : v41.workbench.ready
-      ? "Ready"
-      : "等待 Bridge";
-  const workbenchHealthy = Boolean(v41?.workbench.available && v41.workbench.ready);
+    : workbenchMounted
+      ? "已挂载"
+      : "未挂载";
+  const bridgeStatus = !v41?.siyuan_ready
+    ? "不可用"
+    : !workbenchMounted
+      ? "未挂载"
+      : v41.workbench.ready
+        ? "已连接"
+        : "等待 Bridge";
+  const workbenchHealthy = Boolean(v41?.siyuan_ready && workbenchMounted);
+  const bridgeHealthy = Boolean(workbenchHealthy && v41?.workbench.ready);
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
 
   return (
@@ -109,7 +118,7 @@ export default function DiagnosticsPage() {
       <section className="mb-6">
         <div className="flex items-end justify-between mb-2">
           <div>
-            <h2 className="text-sm font-semibold">V4.1 知识工作台</h2>
+            <h2 className="text-sm font-semibold">V4.2 知识工作台</h2>
             <p className="text-xs text-gray-400 mt-0.5">SiYuan Child WebView / AIKS Bridge</p>
           </div>
           {v41?.workbench.origin && (
@@ -134,8 +143,8 @@ export default function DiagnosticsPage() {
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">AIKS Bridge</div>
-            <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : "text-gray-500"}`}>
-              {v41 ? `Protocol v${v41.workbench.protocol_version}` : "检测中"}
+            <div className={`text-sm font-medium mt-1 ${bridgeHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
+              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">

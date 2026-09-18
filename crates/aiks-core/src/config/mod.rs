@@ -21,6 +21,7 @@ pub struct Config {
     pub extractor: ExtractorConfig,
     pub ai: AiModelConfig,
     pub embedding: EmbeddingConfig,
+    pub desktop: DesktopConfig,
 }
 
 impl Default for Config {
@@ -35,6 +36,23 @@ impl Default for Config {
             extractor: ExtractorConfig::default(),
             ai: AiModelConfig::default(),
             embedding: EmbeddingConfig::default(),
+            desktop: DesktopConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DesktopConfig {
+    pub startup: bool,
+    pub close_to_tray: bool,
+}
+
+impl Default for DesktopConfig {
+    fn default() -> Self {
+        Self {
+            startup: true,
+            close_to_tray: true,
         }
     }
 }

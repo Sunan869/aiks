@@ -182,6 +182,7 @@ pub async fn mount_workbench(
             .set_size(LogicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
         webview.show().map_err(|e| e.to_string())?;
+        controller.set_mounted(true);
         return Ok(());
     }
 
@@ -203,7 +204,9 @@ pub async fn mount_workbench(
             LogicalSize::new(width, height),
         )
         .map_err(|e| e.to_string())?;
-    webview.show().map_err(|e| e.to_string())
+    webview.show().map_err(|e| e.to_string())?;
+    controller.set_mounted(true);
+    Ok(())
 }
 
 #[tauri::command]
@@ -223,6 +226,7 @@ pub async fn show_workbench(
             webview.navigate(origin).map_err(|e| e.to_string())?;
         }
         webview.show().map_err(|e| e.to_string())?;
+        controller.set_mounted(true);
         return webview.set_focus().map_err(|e| e.to_string());
     }
 
@@ -235,6 +239,7 @@ pub async fn show_workbench(
         window.navigate(origin).map_err(|e| e.to_string())?;
     }
     window.show().map_err(|e| e.to_string())?;
+    controller.set_mounted(true);
     window.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }

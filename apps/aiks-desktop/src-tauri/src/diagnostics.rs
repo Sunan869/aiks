@@ -56,6 +56,7 @@ mod tests {
     fn aggregates_siyuan_workbench_bridge_and_migration_status() {
         let workbench = WorkbenchStatus {
             available: true,
+            mounted: true,
             ready: true,
             mode: WorkspaceMode::Session,
             origin: Some("http://127.0.0.1:6806/".into()),

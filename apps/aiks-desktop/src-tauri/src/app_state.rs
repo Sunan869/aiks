@@ -1,6 +1,6 @@
 /// Shared application state for the Tauri app.
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use aiks_core::watcher::WatcherHandle;
 use aiks_core::AiksEngine;
@@ -15,6 +15,8 @@ pub struct AppState {
     pub siyuan_url: Arc<Mutex<Option<String>>>,
     /// User data directory
     pub data_dir: PathBuf,
+    /// Whether closing the control window should keep AIKS in the tray.
+    pub close_to_tray: AtomicBool,
     /// B08: Watcher handle — wrapped in Mutex to satisfy Sync bound for Tauri State.
     /// Only needs to stay alive; never actually accessed after creation.
     pub _watcher_handle: Mutex<Option<WatcherHandle>>,
@@ -43,4 +45,16 @@ pub fn data_dir() -> PathBuf {
 /// Resolve the app config file path.
 pub fn config_file_path() -> PathBuf {
     data_dir().join("config").join("aiks.toml")
+}
+
+/// Resolve the persisted desktop close behavior before AppState exists.
+pub fn close_to_tray_setting() -> bool {
+    let path = config_file_path();
+    if path.exists() {
+        aiks_core::Config::from_file(&path)
+            .map(|config| config.desktop.close_to_tray)
+            .unwrap_or(true)
+    } else {
+        aiks_core::Config::default().desktop.close_to_tray
+    }
 }

@@ -50,8 +50,8 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
       const [r, s] = await Promise.all([
         getApi().getPipelineRuns(300),
@@ -60,11 +60,25 @@ export default function ProcessingPage({ onViewDetail }: Props) {
       setRuns(r);
       setStats(s);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load(true);
+    const poll = () => {
+      if (document.visibilityState === "visible") void load(false);
+    };
+    const interval = window.setInterval(poll, 2000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void load(false);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [load]);
 
   const handleBackfill = useCallback(async () => {
     setBackfilling(true);
@@ -72,7 +86,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
     try {
       const { submitted } = await getApi().backfillExtractions();
       setBackfillMsg(`已重新提交 ${submitted} 个任务（失败 + 未处理队列）`);
-      await load();
+      await load(false);
     } catch (e) {
       setBackfillMsg(`提交失败: ${String(e)}`);
     } finally {
@@ -101,7 +115,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
           >
             {backfilling ? "提交中..." : "重试失败并补跑队列"}
           </button>
-          <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+          <button onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
             刷新
           </button>
         </div>

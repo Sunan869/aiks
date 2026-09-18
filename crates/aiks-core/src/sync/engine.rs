@@ -86,32 +86,42 @@ impl SyncEngine {
         summary: &SessionSummary,
         opts: &SyncOptions,
         stats: &mut SyncStats,
-    ) {
+    ) -> Option<ExtractionCandidate> {
         // A dry-run must never create executable follow-up work. New dry-run
         // sessions do not even have a canonical source_session row yet.
         if opts.dry_run {
-            return;
+            return None;
         }
 
         match SourceSessionRepo::new(db)
             .find_by_source_and_id(summary.source.as_str(), &summary.external_session_id)
         {
-            Ok(Some(session)) => stats.extraction_candidates.push(ExtractionCandidate {
-                session_id: session.id,
-                source: session.source,
-                external_session_id: session.external_session_id,
-            }),
-            Ok(None) => warn!(
-                source = %summary.source.as_str(),
-                external_session_id = %summary.external_session_id,
-                "[PIPELINE] Synced session missing canonical row; not enqueueing extraction"
-            ),
-            Err(e) => warn!(
-                source = %summary.source.as_str(),
-                external_session_id = %summary.external_session_id,
-                error = %e,
-                "[PIPELINE] Failed to resolve canonical extraction candidate"
-            ),
+            Ok(Some(session)) => {
+                let candidate = ExtractionCandidate {
+                    session_id: session.id,
+                    source: session.source,
+                    external_session_id: session.external_session_id,
+                };
+                stats.extraction_candidates.push(candidate.clone());
+                Some(candidate)
+            }
+            Ok(None) => {
+                warn!(
+                    source = %summary.source.as_str(),
+                    external_session_id = %summary.external_session_id,
+                    "[PIPELINE] Synced session missing canonical row; not enqueueing extraction"
+                );
+                None
+            }
+            Err(e) => {
+                warn!(
+                    source = %summary.source.as_str(),
+                    external_session_id = %summary.external_session_id,
+                    error = %e,
+                    "[PIPELINE] Failed to resolve canonical extraction candidate"
+                );
+                None
+            }
         }
     }
 
@@ -125,6 +135,23 @@ impl SyncEngine {
         sink: &SiYuanSink,
         opts: &SyncOptions,
     ) -> anyhow::Result<SyncStats> {
+        self.run_sync_with_candidate_handler(db, registry, sink, opts, |_| {})
+            .await
+    }
+
+    /// Run a full sync cycle and synchronously notify the caller as soon as
+    /// each Created/Updated session becomes eligible for the knowledge pipeline.
+    pub async fn run_sync_with_candidate_handler<F>(
+        &self,
+        db: &StateDb,
+        registry: &ProviderRegistry,
+        sink: &SiYuanSink,
+        opts: &SyncOptions,
+        mut on_candidate: F,
+    ) -> anyhow::Result<SyncStats>
+    where
+        F: FnMut(&ExtractionCandidate),
+    {
         let run_repo = SyncRunRepo::new(db);
         let trigger = if opts.dry_run { "dry_run" } else { "manual" };
         let run_id = run_repo.start(trigger)?;
@@ -204,7 +231,11 @@ impl SyncEngine {
                         "[SYNC] Created"
                     );
                     stats.new_count += 1;
-                    self.record_extraction_candidate(db, summary, opts, &mut stats);
+                    if let Some(candidate) =
+                        self.record_extraction_candidate(db, summary, opts, &mut stats)
+                    {
+                        on_candidate(&candidate);
+                    }
                 }
                 SyncOutcome::Updated { doc_id } => {
                     info!(
@@ -213,7 +244,11 @@ impl SyncEngine {
                         "[SYNC] Updated"
                     );
                     stats.updated_count += 1;
-                    self.record_extraction_candidate(db, summary, opts, &mut stats);
+                    if let Some(candidate) =
+                        self.record_extraction_candidate(db, summary, opts, &mut stats)
+                    {
+                        on_candidate(&candidate);
+                    }
                 }
                 SyncOutcome::Unchanged => {
                     debug!(session_id = %summary.external_session_id, "Unchanged");

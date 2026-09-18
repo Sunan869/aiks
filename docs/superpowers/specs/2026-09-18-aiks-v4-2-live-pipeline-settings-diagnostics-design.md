@@ -64,7 +64,7 @@ Engine-owned settings (AI URL/model, sync interval/watch, content/security) are 
 
 ## Compatibility and safety
 
-- Preserve private default AI endpoint `http://10.10.23.16:18000/v1` and model `Qwen3.8-27B`.
+- Preserve private default AI endpoint the managed private endpoint defined by `AiModelConfig::default()` and model `Qwen3.8-27B`.
 - Do not make dry-run create pipeline work.
 - Do not hot-rebuild `AiksEngine`, Watcher, PipelineWorker, or SiYuan runtime in this change.
 - Preserve all unexposed TOML fields when saving settings.

@@ -12,6 +12,7 @@ use super::protocol::{validate_loopback_origin, WorkspaceMode, BRIDGE_PROTOCOL_V
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkbenchStatus {
     pub available: bool,
+    pub mounted: bool,
     pub ready: bool,
     pub mode: WorkspaceMode,
     pub origin: Option<String>,
@@ -21,6 +22,7 @@ pub struct WorkbenchStatus {
 pub struct WorkbenchController {
     origin: Mutex<Option<Url>>,
     nonce: String,
+    mounted: AtomicBool,
     ready: AtomicBool,
     mode: Mutex<WorkspaceMode>,
 }
@@ -36,6 +38,7 @@ impl WorkbenchController {
         Self {
             origin: Mutex::new(None),
             nonce: Uuid::new_v4().to_string(),
+            mounted: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             mode: Mutex::new(WorkspaceMode::Knowledge),
         }
@@ -54,6 +57,7 @@ impl WorkbenchController {
         let mut current = lock_recover(&self.origin);
         if current.as_ref() != Some(&origin) {
             *current = Some(origin);
+            self.mounted.store(false, Ordering::Release);
             self.ready.store(false, Ordering::Release);
         }
         Ok(())
@@ -61,7 +65,15 @@ impl WorkbenchController {
 
     pub fn clear_origin(&self) {
         *lock_recover(&self.origin) = None;
+        self.mounted.store(false, Ordering::Release);
         self.ready.store(false, Ordering::Release);
+    }
+
+    pub fn set_mounted(&self, mounted: bool) {
+        self.mounted.store(mounted, Ordering::Release);
+        if !mounted {
+            self.ready.store(false, Ordering::Release);
+        }
     }
 
     pub fn set_ready(&self, ready: bool) {
@@ -76,6 +88,7 @@ impl WorkbenchController {
         let origin = self.origin();
         WorkbenchStatus {
             available: origin.is_some(),
+            mounted: self.mounted.load(Ordering::Acquire),
             ready: self.ready.load(Ordering::Acquire),
             mode: *lock_recover(&self.mode),
             origin: origin.map(|url| url.to_string()),
@@ -100,6 +113,7 @@ mod tests {
         let controller = WorkbenchController::new();
         let status = controller.status();
         assert!(!status.available);
+        assert!(!status.mounted);
         assert!(!status.ready);
         assert_eq!(status.mode, WorkspaceMode::Knowledge);
         assert!(status.origin.is_none());
@@ -121,11 +135,13 @@ mod tests {
     fn controller_tracks_ready_and_workspace_mode() {
         let controller = WorkbenchController::new();
         controller.set_origin("http://localhost:6806").unwrap();
+        controller.set_mounted(true);
         controller.set_ready(true);
         controller.set_mode(WorkspaceMode::Session);
 
         let status = controller.status();
         assert!(status.available);
+        assert!(status.mounted);
         assert!(status.ready);
         assert_eq!(status.mode, WorkspaceMode::Session);
     }

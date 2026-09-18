@@ -1,12 +1,13 @@
 /// Tauri commands — the bridge between React frontend and AIKS Core.
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use aiks_core::runtime::SiyuanRuntime;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::Mutex;
 
-use crate::app_state::AppState;
+use crate::app_state::{config_file_path, AppState};
 
 // ── Response types ─────────────────────────────────────────────────────────────
 
@@ -48,36 +49,46 @@ pub struct SyncResponse {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub startup: bool,
+    pub close_to_tray: bool,
     pub sync_enabled: bool,
     pub scan_interval_seconds: u64,
     pub include_thinking: bool,
     pub include_tool_calls: bool,
     pub max_tool_result_chars: usize,
     pub redact_secrets: bool,
-    // AI settings
     pub ai_enabled: bool,
     pub ai_auto_extract: bool,
-    pub ai_extract_tags: bool,
-    pub ai_extract_problems: bool,
-    pub ai_extract_decisions: bool,
+    pub ai_base_url: String,
+    pub ai_model: String,
+}
+
+impl AppSettings {
+    fn from_config(config: &aiks_core::Config, startup: bool, close_to_tray: bool) -> Self {
+        Self {
+            startup,
+            close_to_tray,
+            sync_enabled: config.sync.watch_enabled,
+            scan_interval_seconds: config.sync.scan_interval_seconds,
+            include_thinking: config.content.include_thinking,
+            include_tool_calls: config.content.include_tool_calls,
+            max_tool_result_chars: config.content.max_tool_result_chars,
+            redact_secrets: config.security.redact_secrets,
+            ai_enabled: config.ai.enabled,
+            ai_auto_extract: config.ai.auto_extract,
+            ai_base_url: config.ai.base_url.clone(),
+            ai_model: config.ai.model.clone(),
+        }
+    }
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self {
-            startup: true,
-            sync_enabled: true,
-            scan_interval_seconds: 300,
-            include_thinking: false,
-            include_tool_calls: true,
-            max_tool_result_chars: 10000,
-            redact_secrets: true,
-            ai_enabled: true,
-            ai_auto_extract: true,
-            ai_extract_tags: true,
-            ai_extract_problems: true,
-            ai_extract_decisions: true,
-        }
+        let config = aiks_core::Config::default();
+        Self::from_config(
+            &config,
+            config.desktop.startup,
+            config.desktop.close_to_tray,
+        )
     }
 }
 
@@ -210,68 +221,130 @@ pub async fn get_doctor(state: State<'_, AppState>) -> Result<DoctorResponse, St
     })
 }
 
-#[tauri::command]
-pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
-    let settings_file = state.data_dir.join("config").join("app.json");
-    if settings_file.exists() {
-        let content = std::fs::read_to_string(&settings_file).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).map_err(|e| e.to_string())
+fn load_settings_config() -> Result<aiks_core::Config, String> {
+    let path = config_file_path();
+    if path.exists() {
+        aiks_core::Config::from_file(&path).map_err(|e| format!("Failed to load aiks.toml: {e}"))
     } else {
-        Ok(AppSettings::default())
+        Ok(aiks_core::Config::default())
     }
 }
 
-/// B10 + R07: save_settings must preserve the rest of aiks.toml.
-/// It loads the full typed config, mutates ONLY the UI-controlled fields and
-/// writes the result back atomically. Previously a fixed template regenerated
-/// the whole file, silently dropping AI endpoints/keys, embedding config and
-/// provider paths on next restart.
-#[tauri::command]
-pub async fn save_settings(
-    settings: AppSettings,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    // Save JSON for UI consumption
-    let settings_file = state.data_dir.join("config").join("app.json");
-    std::fs::create_dir_all(settings_file.parent().unwrap()).map_err(|e| e.to_string())?;
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_file, json).map_err(|e| e.to_string())?;
-
-    // Load the existing full config (or defaults if missing), mutate the
-    // controlled subset, and atomically write it back.
-    let toml_file = state.data_dir.join("config").join("aiks.toml");
-    let mut config = if toml_file.exists() {
-        aiks_core::Config::from_file(&toml_file)
-            .map_err(|e| format!("Failed to load existing aiks.toml: {}", e))?
-    } else {
-        aiks_core::Config::default()
-    };
-
-    // [ai] — only the UI-controlled fields
+fn apply_settings_to_config(config: &mut aiks_core::Config, settings: &AppSettings) {
+    config.desktop.startup = settings.startup;
+    config.desktop.close_to_tray = settings.close_to_tray;
     config.ai.enabled = settings.ai_enabled;
     config.ai.auto_extract = settings.ai_auto_extract;
-
-    // [sync]
+    config.ai.base_url = settings
+        .ai_base_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    config.ai.model = settings.ai_model.trim().to_string();
     config.sync.scan_interval_seconds = settings.scan_interval_seconds;
     config.sync.watch_enabled = settings.sync_enabled;
-
-    // [security]
     config.security.redact_secrets = settings.redact_secrets;
-
-    // [content]
     config.content.include_thinking = settings.include_thinking;
     config.content.include_tool_calls = settings.include_tool_calls;
     config.content.max_tool_result_chars = settings.max_tool_result_chars;
+}
 
-    let toml_content = toml::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-    // Atomic write: temp file + rename so a crash never leaves a half-written config.
-    let tmp_file = state.data_dir.join("config").join("aiks.toml.tmp");
-    std::fs::write(&tmp_file, &toml_content).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_file, &toml_file).map_err(|e| e.to_string())?;
-
+fn persist_settings_config(config: &aiks_core::Config) -> Result<(), String> {
+    let path = config_file_path();
+    let parent = path.parent().ok_or("Invalid config path")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let content =
+        toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {e}"))?;
+    let tmp = parent.join("aiks.toml.tmp");
+    std::fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    if let Err(first_error) = std::fs::rename(&tmp, &path) {
+        // Windows does not replace an existing destination with rename().
+        // Retry with a short replace fallback so repeated Settings saves work.
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| {
+                format!("Failed to replace existing config after {first_error}: {e}")
+            })?;
+            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        } else {
+            return Err(first_error.to_string());
+        }
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AppSettings, String> {
+    let config = load_settings_config()?;
+    let startup = app
+        .autolaunch()
+        .is_enabled()
+        .unwrap_or(config.desktop.startup);
+    let close_to_tray = state.close_to_tray.load(Ordering::Acquire);
+    Ok(AppSettings::from_config(&config, startup, close_to_tray))
+}
+
+/// Persist the complete typed config while mutating only fields exposed by Settings.
+#[tauri::command]
+pub async fn save_settings(
+    app: AppHandle,
+    settings: AppSettings,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if settings.ai_base_url.trim().is_empty() {
+        return Err("AI 服务地址不能为空".to_string());
+    }
+    if settings.ai_model.trim().is_empty() {
+        return Err("AI 模型不能为空".to_string());
+    }
+
+    let mut config = load_settings_config()?;
+    apply_settings_to_config(&mut config, &settings);
+    persist_settings_config(&config)?;
+
+    let autostart = app.autolaunch();
+    if settings.startup {
+        autostart.enable().map_err(|e| e.to_string())?;
+    } else {
+        autostart.disable().map_err(|e| e.to_string())?;
+    }
+    state
+        .close_to_tray
+        .store(settings.close_to_tray, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(test)]
+mod settings_mapping_tests {
+    use super::*;
+
+    #[test]
+    fn settings_follow_the_real_ai_config_and_preserve_unexposed_fields() {
+        let mut config = aiks_core::Config::default();
+        config.embedding.enabled = true;
+        config.ai.api_key = Some("preserve-me".to_string());
+        let defaults = AppSettings::from_config(
+            &config,
+            config.desktop.startup,
+            config.desktop.close_to_tray,
+        );
+        assert_eq!(defaults.ai_base_url, config.ai.base_url);
+        assert_eq!(defaults.ai_model, config.ai.model);
+
+        let mut edited = defaults;
+        edited.ai_base_url = "http://example.invalid/v1".to_string();
+        edited.ai_model = "model-from-settings".to_string();
+        edited.close_to_tray = false;
+        apply_settings_to_config(&mut config, &edited);
+
+        assert_eq!(config.ai.base_url, "http://example.invalid/v1");
+        assert_eq!(config.ai.model, "model-from-settings");
+        assert!(!config.desktop.close_to_tray);
+        assert!(config.embedding.enabled);
+        assert_eq!(config.ai.api_key.as_deref(), Some("preserve-me"));
+    }
 }
 
 #[tauri::command]
@@ -286,6 +359,12 @@ pub async fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> 
     #[cfg(not(windows))]
     let _ = state;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn restart_app(app: AppHandle) -> Result<(), String> {
+    crate::lifecycle::shutdown(&app).await;
+    app.restart()
 }
 
 #[tauri::command]
@@ -373,6 +452,28 @@ pub async fn get_ai_status(state: State<'_, AppState>) -> Result<serde_json::Val
 pub async fn test_ai_connection(state: State<'_, AppState>) -> Result<bool, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
     Ok(engine.ai_health_check().await)
+}
+
+/// Test the endpoint/model currently typed in Settings, not the engine's
+/// in-memory configuration from before the last save.
+#[tauri::command]
+pub async fn test_ai_connection_with_settings(
+    base_url: String,
+    model: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    if base_url.trim().is_empty() || model.trim().is_empty() {
+        return Ok(false);
+    }
+    let mut config = state
+        .engine()
+        .map(|engine| engine.ai_config().clone())
+        .unwrap_or_default();
+    config.enabled = true;
+    config.base_url = base_url.trim().trim_end_matches('/').to_string();
+    config.model = model.trim().to_string();
+    let client = aiks_core::ai::AiClient::new(config).map_err(|e| e.to_string())?;
+    Ok(client.health_check().await)
 }
 
 #[tauri::command]
