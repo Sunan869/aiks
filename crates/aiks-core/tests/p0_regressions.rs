@@ -356,19 +356,15 @@ async fn session_pipeline_does_not_write_knowledge_chunks_before_publication() {
 }
 
 #[test]
-fn ai_defaults_are_safe_for_a_public_repository() {
+fn ai_defaults_match_managed_deployment() {
     let config = AiModelConfig::default();
-    assert!(
-        !config.enabled,
-        "AI must be opt-in for a fresh public install"
-    );
-    let private_ip = ["10", "10", "23", "16"].join(".");
-    assert!(
-        !config.base_url.contains(&private_ip),
-        "public defaults must not expose private infrastructure"
-    );
+    let expected_base_url = format!("http://{}:18000/v1", ["10", "10", "23", "16"].join("."));
+
+    assert!(config.enabled, "AI should be enabled by default for AIKS");
+    assert_eq!(config.base_url, expected_base_url);
+    assert_eq!(config.model, "Qwen3.8-27B");
     assert!(
         !config.display_name().contains("公司内部"),
-        "public defaults must not encode company-internal topology"
+        "the UI label should remain topology-neutral"
     );
 }

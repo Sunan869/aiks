@@ -7,6 +7,7 @@ import { boundWorkbenchMode, type WorkspaceMode } from "../api/workbench";
 interface Props {
   surface: WorkspaceMode;
   docId?: string | null;
+  suspended?: boolean;
 }
 
 function readBounds(element: HTMLElement): WorkbenchBounds | null {
@@ -42,7 +43,7 @@ function surfaceCopy(surface: WorkspaceMode): { title: string; description: stri
   };
 }
 
-export default function WorkbenchHost({ surface, docId }: Props) {
+export default function WorkbenchHost({ surface, docId, suspended = false }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<WorkbenchStatus | null>(null);
@@ -51,6 +52,8 @@ export default function WorkbenchHost({ surface, docId }: Props) {
   const copy = surfaceCopy(surface);
 
   const open = useCallback(async () => {
+    if (suspended) return;
+
     setLoading(true);
     setError(null);
     try {
@@ -74,9 +77,15 @@ export default function WorkbenchHost({ surface, docId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [docId, surface]);
+  }, [docId, surface, suspended]);
 
   useEffect(() => {
+    if (suspended) {
+      setMounted(false);
+      void getApi().hideWorkbench().catch(() => {});
+      return;
+    }
+
     const host = hostRef.current;
     if (!host) return;
 
@@ -114,11 +123,11 @@ export default function WorkbenchHost({ surface, docId }: Props) {
       window.removeEventListener("resize", scheduleSync);
       void getApi().hideWorkbench().catch(() => {});
     };
-  }, []);
+  }, [suspended]);
 
   useEffect(() => {
-    if (mounted) void open();
-  }, [mounted, open]);
+    if (mounted && !suspended) void open();
+  }, [mounted, open, suspended]);
 
   return (
     <div

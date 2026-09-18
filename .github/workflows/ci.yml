@@ -65,19 +65,21 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Validate release PowerShell syntax
+      - name: Validate PowerShell syntax
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path "scripts/build-release.ps1").Path,
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            throw "PowerShell syntax validation failed for scripts/build-release.ps1"
+          foreach ($script in @("scripts/build-release.ps1", "scripts/reset-aiks-data.ps1")) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script).Path,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed for $script"
+            }
           }
 
       - name: Prepare CI-only Tauri resource directory
@@ -135,8 +137,17 @@ jobs:
           fi
 
           private_endpoint="$(printf '%s.%s.%s.%s' 10 10 23 16)"
-          if git grep -nF "$private_endpoint"; then
-            echo 'Known private AI endpoint must not be committed.' >&2
+          expected_config='crates/aiks-core/src/ai/config.rs'
+
+          if ! git grep -nF "$private_endpoint" -- "$expected_config" >/dev/null; then
+            echo "Expected private AI endpoint is missing from $expected_config." >&2
+            exit 1
+          fi
+
+          unexpected_matches="$(git grep -nF "$private_endpoint" -- ':!'"$expected_config" || true)"
+          if [[ -n "$unexpected_matches" ]]; then
+            printf '%s\n' "$unexpected_matches" >&2
+            echo 'Known private AI endpoint is only allowed in the default AI model configuration.' >&2
             exit 1
           fi
 
