@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Preserve default AI endpoint the managed private endpoint defined by `AiModelConfig::default()` and model `Qwen3.8-27B`.
+- Preserve the managed private default AI endpoint defined by `AiModelConfig::default()` and model `Qwen3.8-27B`.
 - Plain sync and dry-run must not enqueue pipeline jobs.
 - Do not hot-rebuild `AiksEngine`, Watcher, PipelineWorker, or SiYuan runtime.
 - Preserve unexposed `aiks.toml` fields on save.
@@ -31,10 +31,10 @@
 - Produces: a `SyncEngine` entry point that accepts a synchronous `ExtractionCandidate` handler invoked immediately after each successful Created/Updated session.
 - Consumes: existing `ExtractionCandidate`, `PipelineOrchestrator`, and `PipelineWorker::submit`.
 
-- [ ] Write a failing Rust regression test proving candidate A is observable before candidate B/full-run completion, while dry-run/plain sync do not submit executable work.
-- [ ] Run the focused Rust test and confirm RED for missing immediate callback behavior.
-- [ ] Add `run_sync_with_candidate_handler` (or equivalent internal API) while keeping `run_sync` compatibility.
-- [ ] Make `sync_and_enqueue_extraction()` enqueue inside the per-candidate handler and remove the post-run duplicate enqueue loop.
+- [x] Write a failing Rust regression test proving candidate A is observable before candidate B/full-run completion, while dry-run/plain sync do not submit executable work.
+- [x] Run the focused Rust test and confirm RED for missing immediate callback behavior.
+- [x] Add `run_sync_with_candidate_handler` (or equivalent internal API) while keeping `run_sync` compatibility.
+- [x] Make `sync_and_enqueue_extraction()` enqueue inside the per-candidate handler and remove the post-run duplicate enqueue loop.
 - [ ] Run focused tests and the existing B03/R09 regression set; confirm GREEN.
 
 ### Task 2: Make Processing Center live and diagnostics truthful
@@ -47,13 +47,13 @@
 - Test: frontend Vitest files under `apps/aiks-desktop/src/api/` or new page behavior tests
 
 **Interfaces:**
-- Processing page polls `getPipelineRuns/getPipelineStats` every 2000 ms only while `document.visibilityState === "visible"`.
+- Processing page polls `getPipelineRuns/getPipelineStats` every 2000 ms only while `document.visibilityState === "visible"` and prevents overlapping loads.
 - Diagnostics distinguishes kernel-ready, workbench-mounted/available, and bridge-ready.
 
-- [ ] Add failing Vitest coverage for 2-second polling cleanup and V4.2 diagnostics state labels.
-- [ ] Run focused frontend tests and confirm RED.
-- [ ] Implement visibility-aware Processing Center polling without overlapping loads.
-- [ ] Rename user-facing diagnostics copy to V4.2 and map `available && !ready` to `等待 Bridge`, `!available && siyuan_ready` to `未挂载`, and ready to `已连接`.
+- [x] Add failing Vitest coverage for 2-second polling cleanup and V4.2 diagnostics state labels.
+- [x] Run focused frontend tests and confirm RED.
+- [x] Implement visibility-aware Processing Center polling without overlapping loads.
+- [x] Rename user-facing diagnostics copy to V4.2 and distinguish `未挂载`, `等待 Bridge`, and `已连接`.
 - [ ] Run focused frontend/Rust diagnostics tests and confirm GREEN.
 
 ### Task 3: Make Settings use real Config and real desktop controls
@@ -72,23 +72,23 @@
 - `save_settings` atomically updates exposed `Config` fields and preserves the rest.
 - Add a settings-specific AI connection command accepting `{ base_url, model }` and using an ephemeral AI config derived from current config/defaults.
 
-- [ ] Add failing Rust tests for AI URL/model defaults/file values and preservation of unrelated TOML fields.
-- [ ] Add failing frontend tests proving hardcoded `127.0.0.1:11434/v1`, `qwen3`, and unsupported pseudo-controls are gone.
-- [ ] Implement the real Settings DTO/config load-save mapping.
-- [ ] Wire autostart via `tauri-plugin-autostart` and a shared atomic close-to-tray flag respected by `CloseRequested`.
-- [ ] Make Settings connection test use current form endpoint/model.
-- [ ] Add explicit copy that engine-owned settings take effect after restart.
+- [x] Add Rust coverage for AI URL/model values and preservation of unrelated Config fields.
+- [x] Add failing frontend tests proving obsolete hardcoded URL/model and unsupported pseudo-controls are gone.
+- [x] Implement the real Settings DTO/config load-save mapping.
+- [x] Wire autostart via `tauri-plugin-autostart` and a shared atomic close-to-tray flag respected by `CloseRequested`.
+- [x] Make Settings connection test use current form endpoint/model.
+- [x] Add explicit copy that engine-owned settings take effect after restart.
 - [ ] Run focused Rust/frontend tests and confirm GREEN.
 
 ### Task 4: Full verification and merge readiness
 
-**Files:**
-- No product scope expansion; only formatting/test fixes required by verification.
+Implementation is now on the PR branch and temporary patch workflows/scripts have been removed. The remaining work is formal CI verification and any fixes required by those results.
 
 - [ ] Run `cargo fmt --all -- --check`.
 - [ ] Run `cargo clippy --workspace --all-targets -- -D warnings`.
 - [ ] Run `cargo test --workspace -- --test-threads=1`.
 - [ ] Run desktop frontend `npm test` and `npm run build`.
 - [ ] Run Windows desktop compile through GitHub CI.
-- [ ] Review diff for temporary workflows, stale V4.1 user-facing copy, hardcoded obsolete AI endpoint/model, and duplicate pipeline enqueue paths.
-- [ ] Open PR, wait for all required CI jobs to pass, then merge to `main`.
+- [x] Review diff for temporary workflows/scripts and duplicate post-sync pipeline enqueue paths.
+- [ ] Review final diff for stale user-facing V4.1 copy and obsolete frontend AI defaults.
+- [ ] Wait for all required CI jobs to pass, then merge to `main`.
