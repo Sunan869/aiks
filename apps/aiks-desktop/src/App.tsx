@@ -4,31 +4,27 @@ import Sidebar from "./components/Sidebar";
 import OverviewPage from "./pages/OverviewPage";
 import SessionsPage from "./pages/SessionsPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
-import KnowledgeBasePageV3 from "./pages/KnowledgeBasePageV3";
-import KnowledgeDetailPage from "./pages/KnowledgeDetailPage";
+import KnowledgeWorkspacePage from "./pages/KnowledgeWorkspacePage";
 import ProcessingPage from "./pages/ProcessingPage";
 import ProcessingDetailPage from "./pages/ProcessingDetailPage";
-import SearchPage from "./pages/SearchPage";
 import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
 import StartupScreen from "./components/StartupScreen";
 import { getApi, shouldUseMock } from "./api/client";
+import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
-
-export type Page = "overview" | "sessions" | "knowledge" | "processing" | "search" | "sources" | "settings" | "diagnostics";
-
-interface NavState {
-  page: Page;
-  sessionDetailId?: number;
-  knowledgeDetailId?: string;
-  pipelineDetailRunId?: string;
-}
+import {
+  rawConversationNavState,
+  type NavState,
+  type Page,
+} from "./navigation";
 
 export default function App() {
   const [nav, setNav] = useState<NavState>({ page: "overview" });
   const [fullStatus, setFullStatus] = useState<FullStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [knowledgeCount, setKnowledgeCount] = useState(0);
   const [startupStep, setStartupStep] = useState<string>("正在初始化 AIKS...");
   const [isReady, setIsReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -45,12 +41,16 @@ export default function App() {
       const ai = await getApi().getAiStatus();
       setAiStatus(ai);
     } catch {}
+    try {
+      const page = await getApi().getKnowledge({ limit: 1, offset: 0 });
+      setKnowledgeCount(page.total);
+    } catch {}
   }, []);
 
   useEffect(() => {
     if (isMock) {
       setIsReady(true);
-      refreshStatus();
+      void refreshStatus();
       const interval = setInterval(refreshStatus, 30000);
       return () => clearInterval(interval);
     }
@@ -71,7 +71,7 @@ export default function App() {
     const unlisten5 = listen("sync-error", () => { setSyncInProgress(false); });
 
     getApi().getFullStatus().then(s => { setFullStatus(s); setIsReady(true); }).catch(() => {});
-    refreshStatus();
+    void refreshStatus();
 
     const interval = setInterval(refreshStatus, 10000);
     return () => {
@@ -82,46 +82,71 @@ export default function App() {
     };
   }, [refreshStatus, isMock]);
 
+  useEffect(() => {
+    const keepMounted = shouldKeepWorkbenchMounted(
+      nav.page,
+      nav.page === "sessions" && nav.sessionDetailId != null,
+    );
+    if (!keepMounted) {
+      void getApi().hideWorkbench().catch(() => {});
+    }
+  }, [nav.page, nav.sessionDetailId]);
+
   if (!isReady) return <StartupScreen step={startupStep} error={startupError} />;
 
   const sessionCount = fullStatus?.scan_total ?? 0;
-  const knowledgeCount = fullStatus?.extraction_success ?? 0;
   const isHealthy = fullStatus ? fullStatus.db_failed === 0 && fullStatus.db_conflict === 0 : true;
 
   const navigate = (page: Page) => setNav({ page });
   const viewSessionDetail = (id: number) => setNav({ page: "sessions", sessionDetailId: id });
   const viewKnowledgeDetail = (id: string) => setNav({ page: "knowledge", knowledgeDetailId: id });
   const viewPipelineDetail = (runId: string) => setNav({ page: "processing", pipelineDetailRunId: runId });
+  const viewRawConversation = (docId: string | null) => setNav(rawConversationNavState(docId));
+  const viewUnifiedSessionResult = (sessionId: number, docId: string | null) => {
+    if (docId) {
+      viewRawConversation(docId);
+    } else {
+      viewSessionDetail(sessionId);
+    }
+  };
 
   const renderMain = () => {
     if (nav.page === "sessions" && nav.sessionDetailId != null) {
-      return <SessionDetailPage
-        sessionId={nav.sessionDetailId}
-        onBack={() => setNav({ page: "sessions" })}
-        onViewKnowledge={viewKnowledgeDetail}
-        onViewPipeline={viewPipelineDetail}
-      />;
+      return (
+        <SessionDetailPage
+          sessionId={nav.sessionDetailId}
+          onBack={() => setNav({ page: "sessions" })}
+          onViewKnowledge={viewKnowledgeDetail}
+          onViewPipeline={viewPipelineDetail}
+          onViewRawConversation={viewRawConversation}
+        />
+      );
     }
     if (nav.page === "knowledge" && nav.knowledgeDetailId) {
-      return <KnowledgeDetailPage
-        knowledgeId={nav.knowledgeDetailId}
-        onBack={() => setNav({ page: "knowledge" })}
-        onViewSession={viewSessionDetail}
-      />;
+      return (
+        <KnowledgeWorkspacePage
+          knowledgeId={nav.knowledgeDetailId}
+          onOpenKnowledge={viewKnowledgeDetail}
+          onOpenSession={viewUnifiedSessionResult}
+        />
+      );
     }
     if (nav.page === "processing" && nav.pipelineDetailRunId) {
-      return <ProcessingDetailPage
-        runId={nav.pipelineDetailRunId}
-        onBack={() => setNav({ page: "processing" })}
-      />;
+      return <ProcessingDetailPage runId={nav.pipelineDetailRunId} onBack={() => setNav({ page: "processing" })} />;
     }
 
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
-      case "knowledge": return <KnowledgeBasePageV3 onViewDetail={viewKnowledgeDetail} />;
+      case "knowledge": return (
+        <KnowledgeWorkspacePage
+          workspaceMode={nav.workbenchMode}
+          workbenchDocId={nav.workbenchDocId}
+          onOpenKnowledge={viewKnowledgeDetail}
+          onOpenSession={viewUnifiedSessionResult}
+        />
+      );
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
-      case "search": return <SearchPage onViewKnowledge={viewKnowledgeDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
       case "settings": return <SettingsPage />;
       case "diagnostics": return <DiagnosticsPage />;
@@ -129,61 +154,27 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden">
-      <div className="flex items-center justify-between px-4 h-12 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+      <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-blue-600 dark:text-blue-400 text-sm">AIKS</span>
-          {isMock && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded font-medium">MOCK</span>
-          )}
+          <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
+          {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-400">
-          {aiStatus && (
-            <div className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} />
-              <span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span>
-            </div>
-          )}
-          {syncInProgress && (
-            <div className="flex items-center gap-1 text-blue-500">
-              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-              <span>扫描中...</span>
-            </div>
-          )}
+          {aiStatus && <div className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} /><span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span></div>}
+          {syncInProgress && <span className="text-blue-500">扫描中...</span>}
           {fullStatus && !syncInProgress && <span>{fullStatus.scan_total} 条工作记录</span>}
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          page={nav.page}
-          onNavigate={navigate}
-          sessionCount={sessionCount}
-          knowledgeCount={knowledgeCount}
-          aiHealthy={aiStatus?.healthy ?? false}
-        />
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">
-          {renderMain()}
-        </main>
+        <Sidebar page={nav.page} onNavigate={navigate} sessionCount={sessionCount} knowledgeCount={knowledgeCount} aiHealthy={aiStatus?.healthy ?? false} />
+        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">{renderMain()}</main>
       </div>
 
-      <div className="px-4 h-7 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 text-xs text-gray-400 flex-shrink-0">
-        {fullStatus && (
-          <>
-            <span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span>
-            <span>·</span>
-            <span>{fullStatus.last_sync_at
-              ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}`
-              : "尚未扫描"}</span>
-            <span>·</span>
-            <span className={isHealthy ? "text-green-500" : "text-yellow-500"}>
-              {isHealthy ? "状态正常" : "有待处理项"}
-            </span>
-          </>
-        )}
+      <div className="flex h-7 flex-shrink-0 items-center gap-3 border-t border-gray-200 bg-white px-4 text-xs text-gray-400 dark:border-gray-700 dark:bg-gray-800">
+        {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
         {isMock && <span className="ml-auto text-yellow-500">Mock 模式 — 仅用于开发</span>}
       </div>
     </div>

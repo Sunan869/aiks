@@ -1,29 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
-
-interface KnowledgeDetail {
-  id: string;
-  session_id: number;
-  project_name: string | null;
-  title: string;
-  category: string;
-  summary: string;
-  content: string;
-  tags: string;
-  confidence: number;
-  created_at: string;
-  updated_at: string;
-  source: string;
-  session_external_id: string;
-  session_title: string | null;
-  chunks: Array<{
-    id: string;
-    heading: string | null;
-    chunk_index: number;
-    token_count: number;
-    text: string;
-    has_embedding: boolean;
-  }>;
-}
+import { useCallback, useEffect, useState } from "react";
+import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
+import { getApi } from "../api/client";
+import type { KnowledgeDetail } from "../api/types";
+import KnowledgeEditor from "../components/KnowledgeEditor";
 
 interface Props {
   knowledgeId: string;
@@ -40,151 +19,151 @@ const CATEGORY_LABELS: Record<string, string> = {
   configuration: "配置管理", research: "技术探索", decision: "决策记录", general: "通用",
 };
 
-const CATEGORY_COLORS: Record<string, string> = {
-  troubleshooting: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  architecture: "bg-purple-50 text-purple-700",
-  implementation: "bg-blue-50 text-blue-700",
-  configuration: "bg-yellow-50 text-yellow-700",
-  research: "bg-teal-50 text-teal-700",
-  decision: "bg-indigo-50 text-indigo-700",
-  general: "bg-gray-100 text-gray-600",
-};
-
 export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession }: Props) {
   const [data, setData] = useState<KnowledgeDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [action, setAction] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const d = await invoke<KnowledgeDetail>("get_knowledge_detail", { knowledgeId });
-        setData(d);
-      } else {
-        // Mock
-        setData({
-          id: knowledgeId,
-          session_id: 42,
-          project_name: "AIKS",
-          title: "PowerShell NativeCommandError 修复",
-          category: "troubleshooting",
-          summary: "PowerShell 5.1 中，当原生进程写入 stderr 时，ErrorActionPreference=Stop 会导致 ErrorRecord 触发，使 cargo build 等正常完成的命令误报失败。",
-          content: "## 问题\n\nPowerShell 5.1 将 native 进程的 stderr 输出转换为 ErrorRecord 对象。当 `$ErrorActionPreference = 'Stop'` 时，这些 ErrorRecord 会触发终止。\n\n## 根因\n\ncargo/rustc 即使编译成功也会将 warnings 输出到 stderr。\n\n## 解决方案\n\n在 Invoke-NativeCommand 函数中，临时将 ErrorActionPreference 设为 Continue，执行命令后恢复：\n\n```powershell\n$previousErrorActionPreference = $ErrorActionPreference\ntry {\n    $ErrorActionPreference = 'Continue'\n    & $FilePath @Arguments\n    $exitCode = $LASTEXITCODE\n} finally {\n    $ErrorActionPreference = $previousErrorActionPreference\n}\n```",
-          tags: '["PowerShell", "Cargo", "Build"]',
-          confidence: 0.92,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          source: "opencode",
-          session_external_id: "ses_f717",
-          session_title: "AIKS Build Pipeline 修复",
-          chunks: [
-            { id: "chunk1", heading: null, chunk_index: 0, token_count: 380, text: "PowerShell 5.1 中，当原生进程写入 stderr...", has_embedding: false },
-          ],
-        });
-      }
+      setData(await getApi().getKnowledgeDetail(knowledgeId));
     } finally {
       setLoading(false);
     }
   }, [knowledgeId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  if (loading) return (
-    <div className="p-6 flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
-  );
+  const runAction = async (name: string, fn: () => Promise<KnowledgeDetail>) => {
+    setAction(name);
+    setMessage(null);
+    try {
+      setData(await fn());
+    } catch (e) {
+      setMessage(`操作失败：${String(e)}`);
+    } finally {
+      setAction(null);
+    }
+  };
 
-  if (!data) return <div className="p-6 text-gray-400">未找到知识条目: {knowledgeId}</div>;
+  const publish = async () => {
+    if (!data) return;
+    setAction("publish");
+    setMessage(null);
+    try {
+      const result = await getApi().publishKnowledge(data.id);
+      const labels: Record<string, string> = {
+        created: "已发布到 SiYuan",
+        updated: "已更新 SiYuan 文档",
+        unchanged: "SiYuan 中已是最新版本",
+        conflict: "检测到 SiYuan 端人工修改，未覆盖远端内容",
+      };
+      setMessage(labels[result.outcome] ?? `SiYuan 发布结果：${result.outcome}`);
+    } catch (e) {
+      setMessage(`发布失败：${String(e)}`);
+    } finally {
+      setAction(null);
+    }
+  };
+
+  if (loading) return <div className="flex h-48 items-center justify-center p-6 text-sm text-gray-400">加载中...</div>;
+  if (!data) return <div className="p-6 text-gray-400">未找到知识条目：{knowledgeId}</div>;
 
   const tags = parseTags(data.tags);
 
   return (
     <div className="p-6">
-      <div className="flex items-center gap-2 mb-5">
+      <div className="mb-5 flex items-center gap-2">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">知识详情</span>
       </div>
 
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-5 mb-5">
-        <div className="flex items-start gap-3">
-          <div className="flex-1">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{data.title}</h1>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className={`text-xs px-2 py-0.5 rounded font-medium ${CATEGORY_COLORS[data.category] ?? CATEGORY_COLORS.general}`}>
-                {CATEGORY_LABELS[data.category] ?? data.category}
-              </span>
-              {data.project_name && (
-                <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                  {data.project_name}
-                </span>
+      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {data.source_type === "manual" ? (
+                <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><FilePenLine className="h-3.5 w-3.5" />手动创建</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"><Bot className="h-3.5 w-3.5" />AI 提炼</span>
               )}
-              {tags.map(tag => (
-                <span key={tag} className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded">
-                  {tag}
-                </span>
-              ))}
-              <span className="text-xs text-gray-400">{(data.confidence * 100).toFixed(0)}% 置信度</span>
+              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{CATEGORY_LABELS[data.category] ?? data.category}</span>
+              {data.managed_by === "user" && data.source_type === "conversation" && <span className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">用户管理 · AI 不再覆盖</span>}
+              {data.status === "archived" && <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">已归档</span>}
             </div>
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{data.title}</h1>
+            {data.summary && <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">{data.summary}</p>}
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"><Pencil className="h-3.5 w-3.5" />编辑</button>
+            <button
+              onClick={() => void runAction("favorite", () => getApi().setKnowledgeFavorite(data.id, !data.is_favorite))}
+              disabled={action !== null}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${data.is_favorite ? "border-amber-200 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300"}`}
+            >
+              {action === "favorite" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Star className="h-3.5 w-3.5" fill={data.is_favorite ? "currentColor" : "none"} />}
+              {data.is_favorite ? "已收藏" : "收藏"}
+            </button>
+            {data.status === "archived" ? (
+              <button onClick={() => void runAction("restore", () => getApi().restoreKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><RotateCcw className="h-3.5 w-3.5" />恢复</button>
+            ) : (
+              <button onClick={() => void runAction("archive", () => getApi().archiveKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><Archive className="h-3.5 w-3.5" />归档</button>
+            )}
+            <button onClick={() => void publish()} disabled={action !== null || data.status === "archived"} className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-40 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300">
+              {action === "publish" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              发布到 SiYuan
+            </button>
           </div>
         </div>
 
-        <p className="mt-3 text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{data.summary}</p>
-
-        {/* Source tracing */}
-        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <div className="text-xs text-gray-400">
-            来源：<span className="font-mono">{data.session_external_id}</span>
-            {data.session_title && <span className="ml-1">· {data.session_title}</span>}
-          </div>
-          <button
-            onClick={() => onViewSession(data.session_id)}
-            className="text-xs px-2.5 py-1 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-          >
-            查看原始工作记录
-          </button>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {data.project_name && <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700">项目：{data.project_name}</span>}
+          {tags.map(tag => <span key={tag} className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700">#{tag}</span>)}
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-5 mb-5">
-        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">详细内容</h2>
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <pre className="whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300 leading-relaxed font-sans">
-            {data.content}
-          </pre>
-        </div>
-      </div>
-
-      {/* Embedding chunks */}
-      {data.chunks.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
-          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-            向量切片 ({data.chunks.length} 块)
-          </h2>
-          {data.chunks.map(chunk => (
-            <div key={chunk.id} className="py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-              <div className="flex items-center gap-3 text-xs text-gray-400 mb-1">
-                <span>#{chunk.chunk_index + 1}</span>
-                <span>{chunk.token_count} tokens</span>
-                {chunk.has_embedding ? (
-                  <span className="text-green-500">✓ 已向量化</span>
-                ) : (
-                  <span className="text-gray-300">— 未向量化</span>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 truncate">{chunk.text}</p>
+        <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+          {data.source_type === "manual" ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400"><FilePenLine className="h-3.5 w-3.5" />这条知识由你直接在 AIKS 中创建，没有绑定外部工作记录。</div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs text-gray-400">来源：<span className="font-mono">{data.session_external_id}</span>{data.session_title && <span className="ml-1">· {data.session_title}</span>}</div>
+              {data.session_id !== null && <button onClick={() => onViewSession(data.session_id as number)} className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700">查看原始工作记录</button>}
             </div>
-          ))}
+          )}
         </div>
-      )}
-
-      {/* Metadata */}
-      <div className="mt-3 text-xs text-gray-400 flex gap-4">
-        <span>创建：{new Date(data.created_at).toLocaleDateString("zh-CN")}</span>
-        <span>更新：{new Date(data.updated_at).toLocaleDateString("zh-CN")}</span>
       </div>
+
+      {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{message}</div>}
+
+      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">知识内容</h2>
+          <span className="text-[10px] text-gray-400">Markdown</span>
+        </div>
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-700 dark:text-gray-300">{data.content}</pre>
+      </div>
+
+      <div className="flex gap-4 text-xs text-gray-400">
+        <span>创建：{new Date(data.created_at).toLocaleString("zh-CN")}</span>
+        <span>更新：{new Date(data.updated_at).toLocaleString("zh-CN")}</span>
+        <span>{data.source_type === "manual" ? "本地手工知识" : `${Math.round(data.confidence * 100)}% AI 置信度`}</span>
+      </div>
+
+      <KnowledgeEditor
+        open={editing}
+        initial={data}
+        onClose={() => setEditing(false)}
+        onSaved={saved => {
+          setEditing(false);
+          setData(saved);
+          setMessage("知识已保存");
+        }}
+      />
     </div>
   );
 }
