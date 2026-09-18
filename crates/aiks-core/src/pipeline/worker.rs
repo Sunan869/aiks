@@ -12,16 +12,18 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
 
-use crate::ai::config::AiModelConfig;
+use crate::ai::{config::AiModelConfig, ModelService};
+use crate::config::ContentConfig;
+use crate::indexing::{SessionIndexInput, SessionIndexService};
 use crate::model::SourceKind;
 use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
-use crate::pipeline::embedding_stage::EmbeddingStage;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
+use crate::renderer::MarkdownRenderer;
 use crate::storage::StateDb;
 
 #[derive(Debug, Clone)]
@@ -386,9 +388,10 @@ async fn run_worker(
 /// R13: map a run_pipeline error message back to its pipeline stage.
 /// run_pipeline prefixes stage errors with the stage name.
 fn extract_failed_stage(error: &str) -> &'static str {
-    const STAGES: [&str; 8] = [
+    const STAGES: [&str; 9] = [
         "PARSED",
         "CLEANED",
+        "SESSION_INDEX",
         "LLM_CHUNKED",
         "AI_EXTRACTED",
         "EMBED_CHUNKED",
@@ -405,7 +408,7 @@ fn extract_failed_stage(error: &str) -> &'static str {
 }
 
 async fn run_pipeline(
-    db: &StateDb,
+    db: &Arc<StateDb>,
     registry: &ProviderRegistry,
     discovery_cache: &ProviderDiscoveryCache,
     ai_config: &AiModelConfig,
@@ -509,6 +512,28 @@ async fn run_pipeline(
         return Ok(());
     }
 
+    // Session search is independent from AI extraction and from canonical
+    // Knowledge indexing. Keep the cleaned session searchable even when AI is
+    // disabled; semantic embedding failures degrade inside SessionIndexService.
+    let mut searchable_session = session.clone();
+    searchable_session.messages = clean_result.messages.clone();
+    let normalized_text =
+        MarkdownRenderer::new(ContentConfig::default(), true).render(&searchable_session);
+    let models = Arc::new(ModelService::new(
+        ai_config.clone(),
+        embedding_config.clone(),
+    )?);
+    SessionIndexService::new(Arc::clone(db), models)
+        .index_session(SessionIndexInput {
+            session_id: job.session_id,
+            external_id: job.session_external_id.clone(),
+            source: job.source.clone(),
+            title: job.session_title.clone().or_else(|| session.title.clone()),
+            normalized_text,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("SESSION_INDEX: {error}"))?;
+
     // ── Stage 3: LLM CHUNK ───────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("LLM_CHUNKED"), None, None)?;
 
@@ -572,78 +597,48 @@ async fn run_pipeline(
         return Ok(());
     }
 
-    // ── Stage 5: KNOWLEDGE SPLIT (EMBED_CHUNK) ────────────────────────────────
+    // ── Stage 5-7: CANONICAL INDEX DEFERRED ───────────────────────────────────
+    // Pipeline extraction only produces knowledge candidates. FTS/chunk/vector
+    // indexing belongs to the canonical SiYuan document after publication, so
+    // this worker must never create a second knowledge index from SQLite text.
     repo.update_status(run_id, "PROCESSING", Some("EMBED_CHUNKED"), None, None)?;
+    let deferred_index = serde_json::json!({
+        "reason": "canonical SiYuan indexing occurs after publication"
+    });
+    repo.record_stage(
+        run_id,
+        "EMBED_CHUNKED",
+        "SKIPPED",
+        None,
+        None,
+        None,
+        Some(&deferred_index),
+        None,
+    )?;
 
-    let target_tokens = if embedding_config.enabled {
-        embedding_config.chunk_target_tokens
-    } else {
-        800
-    };
-    let overlap_tokens = if embedding_config.enabled {
-        embedding_config.chunk_overlap_tokens
-    } else {
-        120
-    };
-    let embedding_required =
-        embedding_config.enabled && !embedding_config.base_url.trim().is_empty();
+    repo.update_status(run_id, "PROCESSING", Some("EMBEDDED"), None, None)?;
+    repo.record_stage(
+        run_id,
+        "EMBEDDED",
+        "SKIPPED",
+        None,
+        None,
+        None,
+        Some(&deferred_index),
+        None,
+    )?;
 
-    if let Err(e) =
-        EmbeddingStage::chunk_knowledge(db, run_id, job.session_id, target_tokens, overlap_tokens)
-    {
-        if embedding_required {
-            fail_stage!("EMBED_CHUNKED", e);
-        }
-        warn!(error = %e, "[EMBED_CHUNK] Failed while embedding is disabled/unconfigured; continuing");
-    }
-
-    // ── Stage 6: EMBED ────────────────────────────────────────────────────────
-    if embedding_required {
-        repo.update_status(run_id, "PROCESSING", Some("EMBEDDED"), None, None)?;
-
-        let stage = match EmbeddingStage::new(embedding_config.clone()) {
-            Ok(stage) => stage,
-            Err(e) => fail_stage!("EMBEDDED", format!("Embedding stage init failed: {}", e)),
-        };
-
-        if let Err(e) = stage.embed_knowledge(db, run_id, job.session_id).await {
-            fail_stage!("EMBEDDED", e);
-        }
-
-        // Index stage (placeholder — vector index is sqlite BLOB)
-        repo.record_stage(
-            run_id,
-            "INDEXED",
-            "SUCCESS",
-            None,
-            None,
-            None,
-            Some(&serde_json::json!({"type": "sqlite-blob"})),
-            None,
-        )?;
-    } else {
-        // Skip embedding stages
-        repo.record_stage(
-            run_id,
-            "EMBEDDED",
-            "SKIPPED",
-            None,
-            None,
-            None,
-            Some(&serde_json::json!({"reason": "embedding not configured"})),
-            None,
-        )?;
-        repo.record_stage(
-            run_id,
-            "INDEXED",
-            "SKIPPED",
-            None,
-            None,
-            None,
-            Some(&serde_json::json!({"reason": "embedding not configured"})),
-            None,
-        )?;
-    }
+    repo.update_status(run_id, "PROCESSING", Some("INDEXED"), None, None)?;
+    repo.record_stage(
+        run_id,
+        "INDEXED",
+        "SKIPPED",
+        None,
+        None,
+        None,
+        Some(&deferred_index),
+        None,
+    )?;
 
     // ── DONE ──────────────────────────────────────────────────────────────────
     repo.mark_finished(run_id, "READY")?;

@@ -1,8 +1,14 @@
+mod ai_assist_commands;
 mod app_state;
 mod bootstrap;
 mod commands;
+mod diagnostics;
+mod knowledge_commands;
 mod lifecycle;
+mod search_commands;
+pub mod session_workbench;
 mod tray;
+mod workbench;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -18,9 +24,6 @@ pub fn run() {
         .compact()
         .init();
 
-    // B07: Manage a single Option<SiyuanRuntime> container.
-    // lifecycle::startup fills it; commands::restart_siyuan and shutdown use it.
-    // No placeholder runtime needed — the container starts empty (None).
     let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
 
     tauri::Builder::default()
@@ -31,13 +34,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(runtime_container)
+        .manage(workbench::controller::WorkbenchController::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
-
-            // Set up system tray
             tray::setup_tray(app)?;
-
-            // Bootstrap in background
+            workbench::events::register(&app_handle);
             tauri::async_runtime::spawn(async move {
                 match lifecycle::startup(app_handle.clone()).await {
                     Ok(()) => tracing::info!("AIKS startup complete"),
@@ -49,7 +50,6 @@ pub fn run() {
                     }
                 }
             });
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -64,30 +64,51 @@ pub fn run() {
             commands::get_siyuan_url,
             commands::get_sessions,
             commands::get_sync_history,
-            // AI Knowledge commands
             commands::get_ai_status,
             commands::test_ai_connection,
             commands::extract_session_now,
             commands::get_knowledge_stats,
             commands::get_recent_knowledge,
             commands::open_knowledge_window,
-            // V2.5: Unified status + sync-with-extraction
             commands::get_full_status,
             commands::sync_and_extract,
-            // V3: Pipeline + Knowledge + Search
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
             commands::list_sessions_v3,
             commands::list_knowledge,
             commands::search_knowledge,
-            // V3: Detail views + triggers
             commands::get_session_detail,
             commands::get_knowledge_detail,
             commands::run_pipeline_for_session,
             commands::backfill_extractions,
             commands::sync_knowledge_to_siyuan,
             commands::hybrid_search,
+            // V4 Native Knowledge Workbench
+            knowledge_commands::list_knowledge_v4,
+            knowledge_commands::get_knowledge_detail_v4,
+            knowledge_commands::create_knowledge,
+            knowledge_commands::update_knowledge,
+            knowledge_commands::set_knowledge_favorite,
+            knowledge_commands::archive_knowledge,
+            knowledge_commands::restore_knowledge,
+            knowledge_commands::search_knowledge_v4,
+            knowledge_commands::publish_knowledge,
+            // V4.2 Unified Search + AI Assist
+            search_commands::search_all_v42,
+            ai_assist_commands::assist_knowledge_v42,
+            // V4.1 SiYuan Embedded Workbench
+            diagnostics::get_v41_diagnostics,
+            session_workbench::get_session_workbench_doc_id,
+            workbench::commands::get_workbench_status,
+            workbench::commands::mount_workbench,
+            workbench::commands::show_workbench,
+            workbench::commands::hide_workbench,
+            workbench::commands::set_workbench_mode,
+            workbench::commands::show_workbench_root,
+            workbench::commands::open_siyuan_document,
+            workbench::commands::open_siyuan_block,
+            workbench::commands::refresh_siyuan_document,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

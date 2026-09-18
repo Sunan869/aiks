@@ -4,16 +4,19 @@
 ///  1. resolve data dir + create directories
 ///  2. load config from file (B10)
 ///  3. find/validate runtime
-///  4. start SiYuan Kernel
-///  5. ensure Notebook
-///  6. initialize AIKS Engine (with loaded config)
-///  7. register AppState (including watcher handle B08)
-///  8. background: scan + sync_and_enqueue (B09)
-///  9. start Watcher → sync_and_enqueue on events (B08, B09)
+///  4. install/update AIKS bridge plugin into the workspace
+///  5. start SiYuan Kernel
+///  6. ensure Notebook
+///  7. initialize AIKS Engine (with loaded config)
+///  8. register AppState (including watcher handle B08)
+///  9. background: migrate V4.1 canonical content, then scan + sync_and_enqueue
+/// 10. start Watcher → sync_and_enqueue on events
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
+use aiks_core::knowledge::ContentMigrationService;
 use aiks_core::runtime::SiyuanRuntime;
+use aiks_core::sink::SiYuanSink;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,6 +25,7 @@ use tracing::{error, info, warn};
 
 use crate::app_state::{config_file_path, data_dir, AppState};
 use crate::bootstrap::find_runtime_root;
+use crate::workbench::plugin::install_bridge_plugin;
 
 // ── Startup ────────────────────────────────────────────────────────────────────
 
@@ -36,7 +40,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     info!("Data directory: {}", data_dir.display());
     emit_progress(&app, "init", "正在初始化...");
 
-    // ── Check developer override ───────────────────────────────────────────────
     let dev_override = DevOverride::from_env();
     if dev_override.is_active() {
         warn!(
@@ -50,7 +53,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         return startup_with_external_siyuan(app, base_url, dev_override.token, data_dir).await;
     }
 
-    // ── Find runtime root ─────────────────────────────────────────────────────
     let runtime_root = match find_runtime_root(&app) {
         Ok(p) => p,
         Err(e) => {
@@ -61,7 +63,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
     info!("Runtime root: {}", runtime_root.display());
 
-    // ── Validate runtime ──────────────────────────────────────────────────────
     emit_progress(&app, "validate", "正在验证知识引擎...");
     let bootstrap_cfg =
         BootstrapConfig::new(runtime_root.clone(), data_dir.clone(), "AI Knowledge");
@@ -71,7 +72,22 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         return startup_without_siyuan(app, data_dir).await;
     }
 
-    // ── Start SiYuan Kernel ───────────────────────────────────────────────────
+    let bridge_source = runtime_root
+        .join("data")
+        .join("plugins")
+        .join("aiks-bridge");
+    match install_bridge_plugin(&bridge_source, &bootstrap_cfg.workspace) {
+        Ok(target) => info!(path = %target.display(), "AIKS bridge plugin ready"),
+        Err(e) => {
+            warn!(error = %e, "AIKS bridge plugin could not be installed; workbench will degrade");
+            emit_progress(
+                &app,
+                "workbench_warning",
+                "知识工作台桥接组件未就绪，将以降级模式继续启动",
+            );
+        }
+    }
+
     emit_progress(&app, "starting_siyuan", "正在启动知识引擎...");
     let runtime_cfg = bootstrap_cfg.runtime_config();
     let runtime = SiyuanRuntime::new(runtime_cfg);
@@ -90,9 +106,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             error!("SiYuan failed to start: {}", e);
             emit_error(&app, &format!("知识引擎启动失败：{}", e));
             show_control_center(&app);
-            // R08: keep the collection engine alive even without SiYuan so the
-            // watcher and periodic scanner can run; syncs will retry once the
-            // kernel becomes available (e.g. after restart_siyuan).
             let engine = AiksEngine::initialize(AiksEngineConfig {
                 config_path: config_file_path().exists().then_some(config_file_path()),
                 siyuan_base_url: None,
@@ -109,8 +122,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
                 _watcher_handle: Mutex::new(watcher_handle),
             };
             app.manage(state);
-            // B07/R06: keep the runtime object available for restart even when
-            // the initial start failed — update the container managed in lib.rs.
             set_runtime(&app, Some(runtime)).await;
             spawn_background_tasks(&app, engine_ref, watcher_rx);
             return Ok(());
@@ -119,14 +130,12 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
 
     let base_url = runtime_info.base_url.clone();
 
-    // ── Ensure notebook ───────────────────────────────────────────────────────
     emit_progress(&app, "notebook", "正在准备知识库...");
     match ensure_notebook(&base_url, "AI Knowledge").await {
         Ok(nb) => info!(notebook_id = %nb.id, "Notebook ready"),
         Err(e) => warn!("Could not ensure notebook: {}", e),
     }
 
-    // ── B10: Load config from file ────────────────────────────────────────────
     let config_path = config_file_path();
     let engine_config = AiksEngineConfig {
         config_path: if config_path.exists() {
@@ -135,10 +144,9 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             None
         },
         siyuan_base_url: Some(base_url.clone()),
-        siyuan_token: None, // embedded mode
+        siyuan_token: None,
     };
 
-    // ── Initialize AIKS Engine ────────────────────────────────────────────────
     emit_progress(&app, "init_engine", "正在初始化采集引擎...");
     let engine = match AiksEngine::initialize(engine_config) {
         Ok(e) => e,
@@ -150,35 +158,26 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
     let engine = Arc::new(engine);
 
-    // ── B08/R08: Set up Watcher (respects sync.watch_enabled) ─────────────────
     let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
-    // ── Register state (B07: only one manage per type) ────────────────────────
     let state = AppState {
         engine: Some(engine.clone()),
         siyuan_url: Arc::new(Mutex::new(Some(base_url.clone()))),
         data_dir,
-        _watcher_handle: Mutex::new(watcher_handle), // B08: Mutex wraps for Sync
+        _watcher_handle: Mutex::new(watcher_handle),
     };
     app.manage(state);
-    // B07/R06: fill the runtime container that was pre-managed in lib.rs.
-    // Calling manage() again with a new Arc of the same type would be silently
-    // rejected by Tauri (manage returns false, the original stays), leaving
-    // consumers with None forever.
     set_runtime(&app, Some(runtime)).await;
 
     emit_progress(&app, "ready", "AIKS 已就绪");
     show_control_center(&app);
 
-    // ── B09/R08: initial sync + watcher loop + periodic scan (shared scheduler)
-    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
+    spawn_startup_migration_then_tasks(&app, engine, None, watcher_rx);
 
     info!("AIKS startup complete");
     Ok(())
 }
 
-/// R08: start the file watcher for an engine (if present), honoring
-/// `sync.watch_enabled`. Returns the handle for AppState and the event receiver.
 fn start_watcher_for_engine(
     engine: &Option<Arc<AiksEngine>>,
 ) -> (
@@ -208,13 +207,83 @@ fn start_watcher_for_engine(
     }
 }
 
-/// R08: unified background scheduling shared by ALL startup modes:
-///   1. initial full sync (sync_and_enqueue_extraction)
-///   2. watcher event loop → per-source sync
-///   3. periodic full scan (calibration) — Watcher is never the only mechanism
-///
-/// The scheduler is decoupled from SiYuan availability: sync attempts are
-/// logged when the kernel is down and succeed once it is back.
+fn spawn_startup_migration_then_tasks(
+    app: &AppHandle,
+    engine: Arc<AiksEngine>,
+    external_token: Option<String>,
+    watcher_rx: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+) {
+    let app_bg = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let config = engine.config();
+        let sink_result = if let Some(token) = external_token {
+            let mut siyuan = config.siyuan.clone();
+            siyuan.base_url = engine.siyuan_base_url().to_string();
+            siyuan.token = token;
+            SiYuanSink::new(siyuan)
+        } else {
+            SiYuanSink::embedded(engine.siyuan_base_url(), &config.siyuan.notebook_name)
+        };
+
+        match sink_result {
+            Ok(sink) if sink.health_check().await => {
+                let db = engine.db();
+                let migration = ContentMigrationService::new(db.as_ref());
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "running"}),
+                );
+                match migration.migrate(&sink).await {
+                    Ok(stats) => {
+                        info!(
+                            total = stats.total,
+                            migrated = stats.migrated,
+                            reused = stats.reused,
+                            conflicts = stats.conflicts,
+                            failed = stats.failed,
+                            "[MIGRATION] V4.1 canonical content migration complete"
+                        );
+                        let _ = app_bg.emit(
+                            "content-migration",
+                            serde_json::json!({
+                                "status": "completed",
+                                "total": stats.total,
+                                "migrated": stats.migrated,
+                                "reused": stats.reused,
+                                "conflicts": stats.conflicts,
+                                "failed": stats.failed,
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "[MIGRATION] V4.1 content migration failed");
+                        let _ = app_bg.emit(
+                            "content-migration",
+                            serde_json::json!({"status": "failed", "error": e.to_string()}),
+                        );
+                    }
+                }
+            }
+            Ok(_) => {
+                warn!("[MIGRATION] SiYuan health check failed; migration deferred");
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "deferred", "reason": "siyuan_unhealthy"}),
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "[MIGRATION] could not initialize SiYuan sink");
+                let _ = app_bg.emit(
+                    "content-migration",
+                    serde_json::json!({"status": "deferred", "reason": e.to_string()}),
+                );
+            }
+        }
+
+        spawn_background_tasks(&app_bg, Some(engine), watcher_rx);
+    });
+}
+
 fn spawn_background_tasks(
     app: &AppHandle,
     engine: Option<Arc<AiksEngine>>,
@@ -224,7 +293,6 @@ fn spawn_background_tasks(
         return;
     };
 
-    // 1. Initial full sync
     {
         let engine_bg = engine.clone();
         let app_bg = app.clone();
@@ -238,7 +306,6 @@ fn spawn_background_tasks(
                 overwrite: false,
             };
 
-            // B09: Use sync_and_enqueue_extraction (not just sync)
             match engine_bg.sync_and_enqueue_extraction(opts).await {
                 Ok(stats) => {
                     info!(
@@ -267,7 +334,6 @@ fn spawn_background_tasks(
         });
     }
 
-    // 2. Watcher event loop
     {
         let engine_w = engine.clone();
         let app_w = app.clone();
@@ -279,7 +345,6 @@ fn spawn_background_tasks(
                     dry_run: false,
                     overwrite: false,
                 };
-                // B09: Watcher also uses sync_and_enqueue_extraction
                 match engine_w.sync_and_enqueue_extraction(opts).await {
                     Ok(s) if s.new_count + s.updated_count > 0 => {
                         let _ = app_w.emit(
@@ -296,14 +361,13 @@ fn spawn_background_tasks(
         });
     }
 
-    // 3. Periodic full scan — calibration safety net required by AGENTS.md §9
     {
         let engine_p = engine.clone();
         tauri::async_runtime::spawn(async move {
             let interval_secs = engine_p.config().sync.scan_interval_seconds.max(30);
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            ticker.tick().await; // first tick fires immediately — skip, initial sync already ran
+            ticker.tick().await;
             loop {
                 ticker.tick().await;
                 info!("[SCAN] Periodic scan triggered (every {}s)", interval_secs);
@@ -326,7 +390,6 @@ fn spawn_background_tasks(
     }
 }
 
-/// Startup without SiYuan
 async fn startup_without_siyuan(
     app: AppHandle,
     data_dir: std::path::PathBuf,
@@ -342,7 +405,6 @@ async fn startup_without_siyuan(
     Ok(())
 }
 
-/// Startup using a developer-overridden external SiYuan URL.
 async fn startup_with_external_siyuan(
     app: AppHandle,
     base_url: String,
@@ -364,13 +426,10 @@ async fn startup_with_external_siyuan(
             None
         },
         siyuan_base_url: Some(base_url.clone()),
-        siyuan_token: token,
+        siyuan_token: token.clone(),
     };
 
     let engine = Arc::new(AiksEngine::initialize(engine_config)?);
-
-    // R08: external mode gets the SAME scheduler as embedded mode —
-    // watcher (respecting watch_enabled), initial sync and periodic scan.
     let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
     let state = AppState {
@@ -382,56 +441,41 @@ async fn startup_with_external_siyuan(
     app.manage(state);
     show_control_center(&app);
 
-    spawn_background_tasks(&app, Some(engine.clone()), watcher_rx);
+    spawn_startup_migration_then_tasks(&app, engine, token, watcher_rx);
     Ok(())
 }
 
-// ── Shutdown ───────────────────────────────────────────────────────────────────
-
-/// Graceful shutdown.
 pub async fn shutdown(app: &AppHandle) {
     info!("Shutting down AIKS...");
-    // B07: Stop the real runtime via the shared container
     if let Some(runtime_container) = app.try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>() {
-        let mut lock = runtime_container.lock().await;
-        if let Some(runtime) = lock.take() {
+        let mut guard = runtime_container.lock().await;
+        if let Some(runtime) = guard.take() {
             runtime.stop().await;
         }
     }
-    info!("Shutdown complete");
+    info!("AIKS shutdown complete");
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-/// R06: store the runtime in the container pre-managed by lib.rs.
-/// Checks that the container actually exists and reports if registration is broken.
 async fn set_runtime(app: &AppHandle, runtime: Option<SiyuanRuntime>) {
-    let container = app
-        .try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>()
-        .map(|s| s.inner().clone());
-    match container {
-        Some(arc) => {
-            *arc.lock().await = runtime;
-        }
-        None => {
-            error!("Runtime container not managed — restart_siyuan/shutdown will not work");
-        }
+    if let Some(runtime_container) = app.try_state::<Arc<Mutex<Option<SiyuanRuntime>>>>() {
+        *runtime_container.lock().await = runtime;
     }
 }
 
 fn emit_progress(app: &AppHandle, step: &str, message: &str) {
     let _ = app.emit(
         "startup-progress",
-        serde_json::json!({ "step": step, "message": message }),
+        serde_json::json!({"step": step, "message": message}),
     );
 }
 
 fn emit_error(app: &AppHandle, message: &str) {
-    let _ = app.emit("startup-error", serde_json::json!({ "error": message }));
+    let _ = app.emit("startup-error", serde_json::json!({"error": message}));
 }
 
 fn show_control_center(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("control") {
         let _ = window.show();
+        let _ = window.set_focus();
     }
 }

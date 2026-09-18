@@ -1,4 +1,8 @@
-use std::{ffi::OsString, path::Path, sync::OnceLock};
+use std::{
+    ffi::OsString,
+    path::Path,
+    sync::{Arc, OnceLock},
+};
 
 use aiks_core::{
     ai::schema_v3::V3ExtractionResult,
@@ -101,9 +105,9 @@ fn seed_into(db: &StateDb, external_id: &str) {
         .unwrap();
 }
 
-fn seeded_db() -> (tempfile::TempDir, StateDb) {
+fn seeded_db() -> (tempfile::TempDir, Arc<StateDb>) {
     let dir = tempfile::tempdir().unwrap();
-    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
     seed_into(&db, "search-session");
     (dir, db)
 }

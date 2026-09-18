@@ -230,7 +230,7 @@ fn worker_configs(base_url: &str) -> (AiModelConfig, EmbeddingConfig) {
 }
 
 #[tokio::test]
-async fn configured_embedding_http_failure_must_fail_pipeline_before_indexed_ready() {
+async fn session_pipeline_defers_canonical_indexing_even_when_embedding_endpoint_would_fail() {
     let dir = tempfile::tempdir().unwrap();
     let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
     let session_id = insert_session(&db);
@@ -261,24 +261,38 @@ async fn configured_embedding_http_failure_must_fail_pipeline_before_indexed_rea
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();
 
-    assert_eq!(status, "FAILED");
-    assert_eq!(error_stage.as_deref(), Some("EMBEDDED"));
-    let indexed_success: i64 = db
+    assert_eq!(status, "READY");
+    assert!(error_stage.is_none());
+
+    let deferred_stages: i64 = db
         .conn()
         .query_row(
-            "SELECT COUNT(*) FROM pipeline_stage_run WHERE pipeline_run_id = ?1 AND stage = 'INDEXED' AND status = 'SUCCESS'",
+            "SELECT COUNT(*) FROM pipeline_stage_run WHERE pipeline_run_id = ?1 AND stage IN ('EMBED_CHUNKED', 'EMBEDDED', 'INDEXED') AND status = 'SKIPPED'",
             [&run_id],
             |row| row.get(0),
         )
         .unwrap();
     assert_eq!(
-        indexed_success, 0,
-        "INDEXED must not succeed after embedding failure"
+        deferred_stages, 3,
+        "session extraction must defer all canonical document index stages"
+    );
+
+    let vector_stage_successes: i64 = db
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM pipeline_stage_run WHERE pipeline_run_id = ?1 AND stage IN ('EMBED_CHUNKED', 'EMBEDDED', 'INDEXED') AND status = 'SUCCESS'",
+            [&run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        vector_stage_successes, 0,
+        "session extraction must not build a second knowledge index"
     );
 }
 
 #[tokio::test]
-async fn configured_embedding_chunk_failure_must_fail_at_embed_chunked() {
+async fn session_pipeline_does_not_write_knowledge_chunks_before_publication() {
     let dir = tempfile::tempdir().unwrap();
     let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
     let session_id = insert_session(&db);
@@ -318,20 +332,27 @@ async fn configured_embedding_chunk_failure_must_fail_at_embed_chunked() {
     let (status, error_stage) = wait_for_terminal(&db, &run_id).await;
     server.abort();
 
-    assert_eq!(status, "FAILED");
-    assert_eq!(error_stage.as_deref(), Some("EMBED_CHUNKED"));
-    let later_successes: i64 = db
+    assert_eq!(status, "READY");
+    assert!(error_stage.is_none());
+
+    let knowledge_chunks: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM knowledge_chunk", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        knowledge_chunks, 0,
+        "knowledge chunks must only be written by canonical post-publication indexing"
+    );
+
+    let deferred_stages: i64 = db
         .conn()
         .query_row(
-            "SELECT COUNT(*) FROM pipeline_stage_run WHERE pipeline_run_id = ?1 AND stage IN ('EMBEDDED', 'INDEXED') AND status = 'SUCCESS'",
+            "SELECT COUNT(*) FROM pipeline_stage_run WHERE pipeline_run_id = ?1 AND stage IN ('EMBED_CHUNKED', 'EMBEDDED', 'INDEXED') AND status = 'SKIPPED'",
             [&run_id],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(
-        later_successes, 0,
-        "later vector stages must not succeed after chunk failure"
-    );
+    assert_eq!(deferred_stages, 3);
 }
 
 #[test]

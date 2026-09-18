@@ -40,9 +40,10 @@ pub const ATTR_SYNCED_AT: &str = "custom-aiks-synced-at";
 
 pub struct SiYuanSink {
     base_url: String,
-    /// Knowledge notebook — only distilled knowledge docs (clean tree).
+    /// Canonical content notebook.
     notebook_name: String,
-    /// Session archive notebook — raw session docs are archived here.
+    /// Raw Session notebook. V4.1 intentionally resolves this to the same
+    /// canonical notebook as Knowledge in every runtime mode.
     session_notebook_name: String,
     session_root: String,
     knowledge_root: String,
@@ -51,13 +52,13 @@ pub struct SiYuanSink {
     client: Client,
 }
 
-const DEFAULT_ARCHIVE_NOTEBOOK: &str = "AI Session Archive";
 const DEFAULT_SESSION_ROOT: &str = "/10 AI Sessions";
 const DEFAULT_KNOWLEDGE_ROOT: &str = "/20 Knowledge";
 
 impl SiYuanSink {
     /// Embedded mode: no token required (spec §25-26).
     /// SiYuan listens on 127.0.0.1 only and allows unauthenticated local requests.
+    /// Raw Sessions and Knowledge intentionally share one notebook in V4.1.
     pub fn embedded(
         base_url: impl Into<String>,
         notebook_name: impl Into<String>,
@@ -65,10 +66,11 @@ impl SiYuanSink {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()?;
+        let notebook_name = notebook_name.into();
         Ok(Self {
             base_url: base_url.into(),
-            notebook_name: notebook_name.into(),
-            session_notebook_name: DEFAULT_ARCHIVE_NOTEBOOK.to_string(),
+            notebook_name: notebook_name.clone(),
+            session_notebook_name: notebook_name,
             session_root: DEFAULT_SESSION_ROOT.to_string(),
             knowledge_root: DEFAULT_KNOWLEDGE_ROOT.to_string(),
             token: None,
@@ -76,7 +78,9 @@ impl SiYuanSink {
         })
     }
 
-    /// External mode: uses token from config (CLI / developer mode).
+    /// External/developer mode keeps its URL/token/path configuration, but V4.1
+    /// ignores the legacy separate session notebook so the content model stays
+    /// identical to embedded mode.
     pub fn new(config: SiYuanConfig) -> anyhow::Result<Self> {
         let token = if config.token.is_empty() {
             None
@@ -86,10 +90,11 @@ impl SiYuanSink {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()?;
+        let notebook_name = config.notebook_name;
         Ok(Self {
             base_url: config.base_url,
-            notebook_name: config.notebook_name,
-            session_notebook_name: config.session_notebook_name,
+            notebook_name: notebook_name.clone(),
+            session_notebook_name: notebook_name,
             session_root: config.session_root,
             knowledge_root: config.knowledge_root,
             token,
@@ -124,12 +129,13 @@ impl SiYuanSink {
         }
     }
 
-    /// Get or create the knowledge notebook (the clean, knowledge-only one).
+    /// Get or create the canonical content notebook.
     pub async fn ensure_notebook(&self) -> anyhow::Result<String> {
         self.ensure_notebook_named(&self.notebook_name).await
     }
 
-    /// Get or create the session archive notebook (raw session docs).
+    /// Get or create the notebook that stores raw Sessions. In V4.1 this is
+    /// always the same canonical content notebook as Knowledge.
     pub async fn ensure_session_notebook(&self) -> anyhow::Result<String> {
         self.ensure_notebook_named(&self.session_notebook_name)
             .await
@@ -159,7 +165,6 @@ impl SiYuanSink {
             }
         }
 
-        // Create new notebook
         let create_url = format!("{}/api/notebook/createNotebook", self.base_url);
         let resp: ApiResponse<NotebookCreateResult> = self
             .request_builder(reqwest::Method::POST, &create_url)
@@ -263,10 +268,6 @@ impl SiYuanSink {
         _source: &str,
         _session_id: &str,
     ) -> anyhow::Result<Option<DocumentInfo>> {
-        // Note: SiYuan v3.8.3 does not have /api/search/searchAttr.
-        // Document lookup should use the locally persisted target_id from sync_target.
-        // This method is kept for interface compatibility; callers should prefer
-        // finding the target_id in the local DB first.
         Ok(None)
     }
 
@@ -279,8 +280,6 @@ impl SiYuanSink {
         markdown: &str,
     ) -> anyhow::Result<String> {
         let url = format!("{}/api/filetree/createDocWithMd", self.base_url);
-        // The API returns: {"code":0,"msg":"","data":"20260913000000-blockid"}
-        // where data is a string, not an object.
         let resp: ApiResponse<serde_json::Value> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({
@@ -299,16 +298,13 @@ impl SiYuanSink {
             anyhow::bail!("SiYuan createDocWithMd error {}: {}", resp.code, resp.msg);
         }
 
-        // data is a string ID directly (v3.8.3 contract)
         match resp.data {
             Some(serde_json::Value::String(id)) if !id.is_empty() => Ok(id),
-            Some(serde_json::Value::Object(obj)) => {
-                // Fallback: older versions may return {id: "..."}
-                obj.get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| anyhow::anyhow!("createDocWithMd: no id in object response"))
-            }
+            Some(serde_json::Value::Object(obj)) => obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("createDocWithMd: no id in object response")),
             Some(other) => anyhow::bail!("createDocWithMd: unexpected data type: {:?}", other),
             None => anyhow::bail!("createDocWithMd: no data in response"),
         }
@@ -388,12 +384,6 @@ impl SiYuanSink {
     }
 
     /// Fetch the current text content of a document (conflict baseline).
-    ///
-    /// Uses /api/block/getBlockKramdown — the embedded SiYuan kernel does NOT
-    /// ship /api/filetree/exportMdContent (it returns a plain-text 404, which
-    /// used to fail the baseline capture for every single document).
-    /// Kramdown block attributes ({: id="..." ...}) are stripped so the returned
-    /// text only reflects the actual content.
     pub async fn get_document_markdown(&self, doc_id: &str) -> anyhow::Result<String> {
         #[derive(Deserialize)]
         struct KramdownResult {
@@ -443,9 +433,6 @@ impl SiYuanSink {
     }
 
     /// Build the document path for a knowledge item.
-    ///
-    /// Format: {knowledge_root}/{分类}/{title} [{short-knowledge-id}]
-    /// Category display names match the desktop UI labels.
     pub fn build_knowledge_path(&self, category: &str, knowledge_id: &str, title: &str) -> String {
         let cat_label = crate::renderer::knowledge::category_display_name(category);
         let short_id: String = knowledge_id.chars().take(8).collect();
@@ -523,8 +510,6 @@ impl SiYuanSink {
             .collect::<String>();
         let sanitized_title =
             title_part.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
-        // R15: the document path/title is an output surface too — secrets in a
-        // session title must not leak into the knowledge base file tree.
         let sanitized_title =
             crate::util::sanitizer::default_sanitizer().sanitize(&sanitized_title);
 
@@ -535,12 +520,6 @@ impl SiYuanSink {
     }
 }
 
-// ===== API Types =====
-
-/// Strip SiYuan kramdown block attributes (`{: id="..." updated="..."}`) from a
-/// line so the conflict baseline hash depends only on the real content.
-/// Attributes appear at line end (or alone on a line) after every block.
-/// Trailing-newline semantics of the input are preserved exactly.
 fn strip_kramdown_attrs(md: &str) -> String {
     let (body, had_trailing_nl) = match md.strip_suffix('\n') {
         Some(rest) => (rest, true),
@@ -561,7 +540,6 @@ fn strip_kramdown_attrs(md: &str) -> String {
 fn strip_trailing_attr(line: &str) -> &str {
     if let Some(idx) = line.rfind("{:") {
         let candidate = line[idx..].trim_end();
-        // SiYuan block attributes always carry an id: {: id="20240101-xxxx" ...}
         if candidate.starts_with("{:") && candidate.ends_with('}') && candidate.contains("id=\"") {
             return line[..idx].trim_end();
         }
@@ -616,20 +594,16 @@ mod tests {
 
     #[test]
     fn strip_kramdown_attrs_keeps_plain_content() {
-        // JSON-ish lines must survive (they do not look like block attrs).
         let md = "{\"notebook\":\"20260101-abc\"}\ncode with {: unusual } tail\n";
         let out = strip_kramdown_attrs(md);
         assert!(out.contains("{\"notebook\""));
-        // "{: unusual }" has no id=" — kept intact.
         assert!(out.contains("{: unusual }"));
     }
 
     #[test]
     fn strip_kramdown_attrs_preserves_trailing_newline_semantics() {
-        // Baseline hashes must be stable: no phantom trailing newline.
         assert_eq!(strip_kramdown_attrs("exported"), "exported");
         assert_eq!(strip_kramdown_attrs("exported\n"), "exported\n");
-        // A standalone attr line collapses to an empty line (stable across exports).
         assert_eq!(strip_kramdown_attrs("a\n{: id=\"x\"}\nb"), "a\n\nb");
         assert_eq!(strip_kramdown_attrs("a\n{: id=\"x\"}\nb\n"), "a\n\nb\n");
     }
@@ -674,26 +648,32 @@ mod tests {
     }
 
     #[test]
-    fn embedded_sink_without_token() {
-        // Spec §28: embedded mode must not require a token
+    fn embedded_sink_without_token_and_uses_one_content_notebook() {
         let sink = SiYuanSink::embedded("http://127.0.0.1:6806", "AI Knowledge").unwrap();
         assert!(sink.token.is_none());
+        assert_eq!(sink.notebook_name, "AI Knowledge");
+        assert_eq!(sink.session_notebook_name, sink.notebook_name);
     }
 
     #[test]
-    fn external_sink_with_token() {
+    fn external_sink_with_token_uses_one_content_notebook() {
         let config = crate::config::SiYuanConfig {
             token: "my-test-token".to_string(),
+            notebook_name: "Company Knowledge".to_string(),
+            session_notebook_name: "Legacy Session Archive".to_string(),
             ..Default::default()
         };
         let sink = SiYuanSink::new(config).unwrap();
         assert_eq!(sink.token.as_deref(), Some("my-test-token"));
+        assert_eq!(sink.notebook_name, "Company Knowledge");
+        assert_eq!(sink.session_notebook_name, sink.notebook_name);
     }
 
     #[test]
     fn external_sink_empty_token_becomes_none() {
-        let config = crate::config::SiYuanConfig::default(); // token is empty string by default
+        let config = crate::config::SiYuanConfig::default();
         let sink = SiYuanSink::new(config).unwrap();
         assert!(sink.token.is_none());
+        assert_eq!(sink.session_notebook_name, sink.notebook_name);
     }
 }

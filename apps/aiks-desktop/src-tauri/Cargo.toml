@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 aiks-core = { path = "../../../crates/aiks-core" }
-tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png", "unstable"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-window-state = "2"

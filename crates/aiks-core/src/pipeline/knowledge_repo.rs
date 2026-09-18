@@ -1,7 +1,7 @@
 // CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
-/// Knowledge Item Repository — CRUD for knowledge_item, knowledge_chunk, embedding_record
+/// Knowledge Item Repository — pipeline reconciliation plus derived chunks/embeddings.
 use chrono::Utc;
 use rusqlite::{params, params_from_iter};
 use sha2::{Digest, Sha256};
@@ -21,14 +21,12 @@ impl<'a> KnowledgeRepo<'a> {
 
     /// Save all extracted knowledge items for a session.
     ///
-    /// Stable identity policy:
-    /// Reuse an existing ID only for a unique normalized (category, title) match.
-    /// A changed title is treated as a new identity unless a future extraction
-    /// schema provides an explicit stable key; never infer identity from category alone.
-    ///
-    /// Reused IDs preserve knowledge_sync_target mappings. Chunks/embeddings/FTS
-    /// are rebuilt because the extracted content may have changed. Removed items
-    /// retain an explicit REMOVED sink tombstone before the item row is deleted.
+    /// V4 reconciliation policy:
+    /// - only conversation knowledge belongs to this session scope;
+    /// - pipeline-managed rows may be updated/deleted by re-extraction;
+    /// - user-managed rows are durable user content and are never overwritten/deleted;
+    /// - a unique exact normalized (category,title) match to a user-managed row reuses
+    ///   the ID without changing the user's fields, preventing a duplicate AI item.
     pub fn save_items(
         &self,
         session_id: i64,
@@ -40,6 +38,7 @@ impl<'a> KnowledgeRepo<'a> {
             id: String,
             title: String,
             category: String,
+            managed_by: String,
         }
 
         fn normalize(value: &str) -> String {
@@ -56,14 +55,14 @@ impl<'a> KnowledgeRepo<'a> {
 
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
-        conn.execute_batch("BEGIN")?;
+        conn.execute_batch("BEGIN IMMEDIATE")?;
 
         let result_res: anyhow::Result<Vec<String>> = (|| {
             let existing: Vec<ExistingIdentity> = {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, category
+                    "SELECT id, title, category, managed_by
                      FROM knowledge_item
-                     WHERE source_session_id = ?1
+                     WHERE source_session_id = ?1 AND source_type = 'conversation'
                      ORDER BY rowid",
                 )?;
                 let rows = stmt
@@ -72,6 +71,7 @@ impl<'a> KnowledgeRepo<'a> {
                             id: row.get(0)?,
                             title: row.get(1)?,
                             category: row.get(2)?,
+                            managed_by: row.get(3)?,
                         })
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
@@ -98,7 +98,6 @@ impl<'a> KnowledgeRepo<'a> {
             let mut assignments: Vec<Option<usize>> = vec![None; result.items.len()];
             let mut used_old: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
-            // Pass 1: exact semantic identity, but only when unique on both sides.
             for (new_idx, item) in result.items.iter().enumerate() {
                 let semantic_key = key(&item.category, &item.title);
                 if new_key_counts.get(&semantic_key).copied() != Some(1) {
@@ -112,14 +111,14 @@ impl<'a> KnowledgeRepo<'a> {
                 }
             }
 
-            // Existing derived data is always invalidated. For matched items the
-            // canonical knowledge ID and sink mapping remain intact.
+            // Derived data is invalid only for rows the pipeline still owns.
             for old in &existing {
+                if old.managed_by != "pipeline" {
+                    continue;
+                }
                 conn.execute(
                     "DELETE FROM embedding_record
-                     WHERE chunk_id IN (
-                         SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1
-                     )",
+                     WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
                     params![old.id],
                 )?;
                 conn.execute(
@@ -132,9 +131,9 @@ impl<'a> KnowledgeRepo<'a> {
                 )?;
             }
 
-            // Explicitly tombstone removed items before deleting the item row.
+            // Only unmatched pipeline-owned rows are removed. User-owned rows survive.
             for (idx, old) in existing.iter().enumerate() {
-                if used_old.contains(&idx) {
+                if used_old.contains(&idx) || old.managed_by != "pipeline" {
                     continue;
                 }
                 conn.execute(
@@ -153,34 +152,52 @@ impl<'a> KnowledgeRepo<'a> {
                 let content = build_content(item);
 
                 let id = if let Some(old_idx) = assignments[new_idx] {
-                    let id = existing[old_idx].id.clone();
-                    conn.execute(
-                        "UPDATE knowledge_item
-                         SET project_name = ?2, title = ?3, category = ?4,
-                             summary = ?5, content = ?6, tags = ?7,
-                             confidence = ?8, worth_extracting = 1, updated_at = ?9
-                         WHERE id = ?1 AND source_session_id = ?10",
-                        params![
-                            id,
-                            project_name,
-                            item.title,
-                            item.category,
-                            item.summary,
-                            content,
-                            tags_json,
-                            item.confidence,
-                            now,
-                            session_id,
-                        ],
-                    )?;
-                    id
+                    let old = &existing[old_idx];
+                    if old.managed_by == "user" {
+                        // Semantic match to user-edited knowledge: acknowledge the
+                        // identity but preserve every user field verbatim.
+                        old.id.clone()
+                    } else {
+                        conn.execute(
+                            "UPDATE knowledge_item
+                             SET project_name = ?2, title = ?3, category = ?4,
+                                 summary = ?5, content = ?6, tags = ?7,
+                                 confidence = ?8, worth_extracting = 1,
+                                 source_type = 'conversation', managed_by = 'pipeline',
+                                 status = 'active', updated_at = ?9
+                             WHERE id = ?1 AND source_session_id = ?10",
+                            params![
+                                old.id,
+                                project_name,
+                                item.title,
+                                item.category,
+                                item.summary,
+                                content,
+                                tags_json,
+                                item.confidence,
+                                now,
+                                session_id,
+                            ],
+                        )?;
+                        insert_fts(
+                            &conn,
+                            &old.id,
+                            &item.title,
+                            &item.summary,
+                            &content,
+                            &tags_json,
+                        )?;
+                        old.id.clone()
+                    }
                 } else {
                     let id = Uuid::new_v4().to_string();
                     conn.execute(
                         "INSERT INTO knowledge_item
                          (id, source_session_id, project_name, title, category, summary, content,
-                          tags, confidence, worth_extracting, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)",
+                          tags, confidence, worth_extracting, source_type, managed_by, status,
+                          is_favorite, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1,
+                                 'conversation', 'pipeline', 'active', 0, ?10, ?10)",
                         params![
                             id,
                             session_id,
@@ -194,14 +211,9 @@ impl<'a> KnowledgeRepo<'a> {
                             now,
                         ],
                     )?;
+                    insert_fts(&conn, &id, &item.title, &item.summary, &content, &tags_json)?;
                     id
                 };
-
-                conn.execute(
-                    "INSERT INTO knowledge_fts (knowledge_id, title, summary, content, tags)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![id, item.title, item.summary, content, tags_json],
-                )?;
                 item_ids.push(id);
             }
 
@@ -220,14 +232,14 @@ impl<'a> KnowledgeRepo<'a> {
         }
     }
 
-    /// Get all knowledge items for a session
+    /// Get all knowledge items for a session.
     pub fn get_by_session(&self, session_id: i64) -> anyhow::Result<Vec<KnowledgeItemRow>> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT id, title, category, summary, content, tags, confidence, updated_at
              FROM knowledge_item WHERE source_session_id = ?1 ORDER BY rowid",
         )?;
-        let rows: Vec<KnowledgeItemRow> = stmt
+        let rows = stmt
             .query_map(params![session_id], |row| {
                 Ok(KnowledgeItemRow {
                     id: row.get(0)?,
@@ -240,18 +252,17 @@ impl<'a> KnowledgeRepo<'a> {
                     updated_at: row.get(7)?,
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
-    /// Get a single knowledge item by ID
+    /// Compatibility detail lookup. V4 native UI uses KnowledgeService::get.
     pub fn get_by_id(&self, id: &str) -> anyhow::Result<Option<KnowledgeItemDetail>> {
         let conn = self.db.conn();
         let result = conn.query_row(
             "SELECT ki.id, ki.source_session_id, ki.project_name, ki.title, ki.category,
                     ki.summary, ki.content, ki.tags, ki.confidence, ki.created_at, ki.updated_at,
-                    ss.source, ss.external_session_id, ss.title as session_title
+                    ss.source, ss.external_session_id, ss.title
              FROM knowledge_item ki
              JOIN source_session ss ON ss.id = ki.source_session_id
              WHERE ki.id = ?1",
@@ -279,7 +290,6 @@ impl<'a> KnowledgeRepo<'a> {
 
         match result {
             Ok(mut detail) => {
-                // Load chunks
                 let mut stmt = conn.prepare(
                     "SELECT id, heading, chunk_index, token_count, text
                      FROM knowledge_chunk WHERE knowledge_id = ?1 ORDER BY chunk_index",
@@ -295,12 +305,10 @@ impl<'a> KnowledgeRepo<'a> {
                             has_embedding: false,
                         })
                     })?
-                    .filter_map(|r| r.ok())
-                    .collect();
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                // Check embeddings
                 for chunk in &mut detail.chunks {
-                    let has: bool = conn
+                    chunk.has_embedding = conn
                         .query_row(
                             "SELECT COUNT(*) FROM embedding_record WHERE chunk_id = ?1",
                             params![chunk.id],
@@ -308,9 +316,7 @@ impl<'a> KnowledgeRepo<'a> {
                         )
                         .unwrap_or(0)
                         > 0;
-                    chunk.has_embedding = has;
                 }
-
                 Ok(Some(detail))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -318,15 +324,19 @@ impl<'a> KnowledgeRepo<'a> {
         }
     }
 
-    /// Save embedding chunks for a knowledge item
     pub fn save_embedding_chunks(
         &self,
         knowledge_id: &str,
-        chunks: &[(Option<String>, String)], // (heading, text)
+        chunks: &[(Option<String>, String)],
     ) -> anyhow::Result<Vec<String>> {
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
 
+        conn.execute(
+            "DELETE FROM embedding_record
+             WHERE chunk_id IN (SELECT id FROM knowledge_chunk WHERE knowledge_id = ?1)",
+            params![knowledge_id],
+        )?;
         conn.execute(
             "DELETE FROM knowledge_chunk WHERE knowledge_id = ?1",
             params![knowledge_id],
@@ -337,9 +347,9 @@ impl<'a> KnowledgeRepo<'a> {
             let id = Uuid::new_v4().to_string();
             let hash = hex::encode(Sha256::digest(text.as_bytes()));
             let tokens = (text.len() as f64 / 3.5) as i32;
-
             conn.execute(
-                "INSERT INTO knowledge_chunk (id, knowledge_id, heading, chunk_index, token_count, text, content_hash, created_at)
+                "INSERT INTO knowledge_chunk
+                 (id, knowledge_id, heading, chunk_index, token_count, text, content_hash, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![id, knowledge_id, heading, i as i32, tokens, text, hash, now],
             )?;
@@ -348,7 +358,6 @@ impl<'a> KnowledgeRepo<'a> {
         Ok(ids)
     }
 
-    /// Save an embedding vector for a chunk
     pub fn save_embedding(
         &self,
         chunk_id: &str,
@@ -359,25 +368,16 @@ impl<'a> KnowledgeRepo<'a> {
         let conn = self.db.conn();
         let now = Utc::now().to_rfc3339();
         let id = Uuid::new_v4().to_string();
-
-        // Serialize f32 vector as bytes (little-endian)
         let bytes: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
-
         conn.execute(
-            "INSERT OR REPLACE INTO embedding_record (id, chunk_id, model, dimensions, vector, created_at)
+            "INSERT OR REPLACE INTO embedding_record
+             (id, chunk_id, model, dimensions, vector, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![id, chunk_id, model, dimensions, bytes, now],
         )?;
         Ok(())
     }
 
-    /// Load a bounded embedding candidate set for vector reranking.
-    ///
-    /// When `knowledge_ids` is non-empty, candidates are restricted to those
-    /// text/metadata matches. Otherwise the most recently updated knowledge is
-    /// used as a deterministic bounded prefilter. The caller can combine a
-    /// preferred pass with a recent fallback without ever loading the full
-    /// embedding table.
     pub fn load_embedding_candidates(
         &self,
         model: &str,
@@ -387,17 +387,15 @@ impl<'a> KnowledgeRepo<'a> {
         if limit == 0 {
             return Ok(vec![]);
         }
-
         let conn = self.db.conn();
         let mut sql = String::from(
-            "SELECT er.chunk_id, er.vector, kc.knowledge_id, kc.text \
-             FROM embedding_record er \
-             JOIN knowledge_chunk kc ON kc.id = er.chunk_id \
-             JOIN knowledge_item ki ON ki.id = kc.knowledge_id \
-             WHERE er.model = ?",
+            "SELECT er.chunk_id, er.vector, kc.knowledge_id, kc.text
+             FROM embedding_record er
+             JOIN knowledge_chunk kc ON kc.id = er.chunk_id
+             JOIN knowledge_item ki ON ki.id = kc.knowledge_id
+             WHERE er.model = ? AND ki.status = 'active'",
         );
         let mut values: Vec<rusqlite::types::Value> = vec![model.to_string().into()];
-
         if !knowledge_ids.is_empty() {
             sql.push_str(" AND kc.knowledge_id IN (");
             for (index, knowledge_id) in knowledge_ids.iter().enumerate() {
@@ -409,7 +407,6 @@ impl<'a> KnowledgeRepo<'a> {
             }
             sql.push(')');
         }
-
         sql.push_str(" ORDER BY ki.updated_at DESC, kc.chunk_index ASC LIMIT ?");
         values.push((limit as i64).into());
 
@@ -417,13 +414,9 @@ impl<'a> KnowledgeRepo<'a> {
         let rows = stmt
             .query_map(params_from_iter(values.iter()), |row| {
                 let bytes: Vec<u8> = row.get(1)?;
-                let vector: Vec<f32> = bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                    .collect();
                 Ok(EmbeddingRow {
                     chunk_id: row.get(0)?,
-                    vector,
+                    vector: decode_vector(&bytes),
                     knowledge_id: row.get(2)?,
                     chunk_text: row.get(3)?,
                 })
@@ -432,38 +425,55 @@ impl<'a> KnowledgeRepo<'a> {
         Ok(rows)
     }
 
-    /// Load all embeddings for a model (for in-memory search)
     pub fn load_all_embeddings(&self, model: &str) -> anyhow::Result<Vec<EmbeddingRow>> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT er.chunk_id, er.vector, kc.knowledge_id, kc.text
              FROM embedding_record er
              JOIN knowledge_chunk kc ON kc.id = er.chunk_id
-             WHERE er.model = ?1",
+             JOIN knowledge_item ki ON ki.id = kc.knowledge_id
+             WHERE er.model = ?1 AND ki.status = 'active'",
         )?;
-        let rows: Vec<EmbeddingRow> = stmt
+        let rows = stmt
             .query_map(params![model], |row| {
                 let bytes: Vec<u8> = row.get(1)?;
-                let vector: Vec<f32> = bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                    .collect();
                 Ok(EmbeddingRow {
                     chunk_id: row.get(0)?,
-                    vector,
+                    vector: decode_vector(&bytes),
                     knowledge_id: row.get(2)?,
                     chunk_text: row.get(3)?,
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 }
 
+fn insert_fts(
+    conn: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    summary: &str,
+    content: &str,
+    tags: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO knowledge_fts (knowledge_id, title, summary, content, tags)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, title, summary, content, tags],
+    )?;
+    Ok(())
+}
+
+fn decode_vector(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
+
 fn build_content(item: &V3KnowledgeItem) -> String {
     let mut parts = vec![item.summary.clone()];
-
     if let Some(p) = &item.problem {
         parts.push(format!("**问题：** {}", p));
     }
@@ -509,7 +519,6 @@ fn build_content(item: &V3KnowledgeItem) -> String {
     if !item.content.is_empty() {
         parts.push(item.content.clone());
     }
-
     parts.join("\n\n")
 }
 

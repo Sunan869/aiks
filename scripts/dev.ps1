@@ -1,7 +1,7 @@
 # scripts/dev.ps1
 #
 # Starts AIKS Desktop in Tauri development mode.
-# Compatible with: Windows PowerShell 5.1 and PowerShell 7+
+# Compatible with Windows PowerShell 5.1 and PowerShell 7+
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 
@@ -13,39 +13,32 @@ $ProjectRoot = Split-Path $ScriptDir -Parent
 $RuntimeDest = Join-Path $ProjectRoot "apps\aiks-desktop\src-tauri\resources\siyuan"
 $KernelExe   = Join-Path $RuntimeDest "kernel\SiYuan-Kernel.exe"
 $DesktopDir  = Join-Path $ProjectRoot "apps\aiks-desktop"
+$SetupScript = Join-Path $ScriptDir "setup-siyuan.ps1"
 
 Write-Host "=== AIKS Desktop Dev Mode ===" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Check runtime ─────────────────────────────────────────────────────
-Write-Host "Checking embedded SiYuan runtime..."
+# ── Step 1: Ensure the exact pinned runtime is present ────────────────────────
+# setup-siyuan.ps1 is idempotent: if kernel/layout/manifest already match the
+# runtime lock it returns immediately without downloading or replacing files.
+Write-Host "Checking customized SiYuan runtime identity..."
 
-$runtimeReady = $false
-if (Test-Path $KernelExe) {
-    $kernelSize = (Get-Item $KernelExe).Length
-    $stageOk    = (Get-ChildItem (Join-Path $RuntimeDest "stage") -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
-    $appearOk   = (Get-ChildItem (Join-Path $RuntimeDest "appearance") -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
-
-    if ($kernelSize -gt 1MB -and $stageOk -and $appearOk) {
-        $runtimeReady = $true
-        Write-Host "  Runtime: OK  ($([math]::Round($kernelSize/1MB,1)) MB kernel, stage, appearance)" -ForegroundColor Green
-    } else {
-        Write-Host "  Runtime: incomplete (kernel=$kernelSize bytes, stage=$stageOk, appearance=$appearOk)" -ForegroundColor Yellow
-    }
-} else {
-    Write-Host "  Runtime: NOT FOUND" -ForegroundColor Yellow
+if (-not (Test-Path -LiteralPath $SetupScript)) {
+    Write-Error "setup-siyuan.ps1 not found: $SetupScript"
 }
 
-if (-not $runtimeReady) {
-    Write-Host ""
-    Write-Host "SiYuan runtime is not ready. Running setup..." -ForegroundColor Yellow
-    Write-Host ""
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $ScriptDir "setup-siyuan.ps1")
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "setup-siyuan.ps1 failed. Cannot start dev mode."
-    }
-    Write-Host ""
+& powershell -ExecutionPolicy Bypass -File $SetupScript
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "setup-siyuan.ps1 failed. Cannot start dev mode."
 }
+
+if (-not (Test-Path -LiteralPath $KernelExe)) {
+    Write-Error "Customized SiYuan runtime is still missing after setup: $KernelExe"
+}
+
+$kernelSize = (Get-Item -LiteralPath $KernelExe).Length
+Write-Host "  Runtime identity: OK ($([math]::Round($kernelSize / 1MB, 1)) MB kernel)" -ForegroundColor Green
+Write-Host ""
 
 # ── Step 2: Verify npm dependencies ──────────────────────────────────────────
 Write-Host "Checking npm dependencies..."
