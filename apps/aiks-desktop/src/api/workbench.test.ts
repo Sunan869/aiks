@@ -70,6 +70,15 @@ describe("V4.2 workbench bridge contract", () => {
     expect(pluginSource).toContain('eventName === "bridgeReady"');
     expect(pluginSource).toContain("window.setTimeout");
   });
+
+  it("recovers bridgeReady when the injected nonce appears after plugin onload", () => {
+    expect(pluginSource).toContain("refreshRuntimeNonce");
+    expect(pluginSource).toContain("this.refreshRuntimeNonce();");
+    expect(pluginSource).toContain("envelope.nonce = this.runtimeNonce");
+    expect(pluginSource).toMatch(
+      /if \(eventName === "bridgeReady" && attempt < BRIDGE_READY_MAX_ATTEMPTS\)/,
+    );
+  });
 });
 
 describe("V4.2 Tauri workbench API mapping", () => {
