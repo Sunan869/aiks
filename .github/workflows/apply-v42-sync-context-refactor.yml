@@ -1,0 +1,125 @@
+name: Apply V4.2 sync context refactor
+
+on:
+  push:
+    branches:
+      - fix/v4.2-runtime-resilience
+    paths:
+      - ".github/workflows/apply-v42-sync-context-refactor.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v4.2-runtime-resilience
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Refactor sync run context
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/aiks-core/src/sync/engine.rs")
+          text = path.read_text(encoding="utf-8")
+
+          struct_anchor = '''pub struct SyncEngine {
+              config: Arc<Config>,
+          }
+          '''
+          context_struct = '''struct SyncRunContext<'a> {
+              renderer: &'a MarkdownRenderer,
+              notebook_id: Option<&'a str>,
+          }
+
+          '''
+          if "struct SyncRunContext<'a>" not in text:
+              if struct_anchor not in text:
+                  raise SystemExit("SyncEngine struct anchor not found")
+              text = text.replace(struct_anchor, context_struct + struct_anchor, 1)
+
+          context_anchor = '''        let session_notebook_id = if opts.dry_run {
+              None
+          } else {
+              Some(sink.ensure_session_notebook().await?)
+          };
+
+          for summary in &summaries {
+          '''
+          context_replacement = '''        let session_notebook_id = if opts.dry_run {
+              None
+          } else {
+              Some(sink.ensure_session_notebook().await?)
+          };
+          let sync_context = SyncRunContext {
+              renderer: &renderer,
+              notebook_id: session_notebook_id.as_deref(),
+          };
+
+          for summary in &summaries {
+          '''
+          if "let sync_context = SyncRunContext" not in text:
+              if context_anchor not in text:
+                  raise SystemExit("sync context insertion anchor not found")
+              text = text.replace(context_anchor, context_replacement, 1)
+
+          call_old = '''                .sync_session(
+                      db,
+                      registry,
+                      sink,
+                      &renderer,
+                      summary,
+                      session_notebook_id.as_deref(),
+                      opts,
+                  )
+          '''
+          call_new = '''                .sync_session(db, registry, sink, &sync_context, summary, opts)
+          '''
+          if call_old in text:
+              text = text.replace(call_old, call_new, 1)
+          elif ".sync_session(db, registry, sink, &sync_context, summary, opts)" not in text:
+              raise SystemExit("sync_session call anchor not found")
+
+          sig_old = '''        sink: &SiYuanSink,
+              renderer: &MarkdownRenderer,
+              summary: &SessionSummary,
+              notebook_id: Option<&str>,
+              opts: &SyncOptions,
+          ) -> SyncOutcome {
+          '''
+          sig_new = '''        sink: &SiYuanSink,
+              context: &SyncRunContext<'_>,
+              summary: &SessionSummary,
+              opts: &SyncOptions,
+          ) -> SyncOutcome {
+          '''
+          if sig_old in text:
+              text = text.replace(sig_old, sig_new, 1)
+          elif "context: &SyncRunContext<'_>" not in text:
+              raise SystemExit("sync_session signature anchor not found")
+
+          text = text.replace("let markdown = renderer.render(&session);", "let markdown = context.renderer.render(&session);", 1)
+          text = text.replace("let notebook_id = match notebook_id {", "let notebook_id = match context.notebook_id {", 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          cargo fmt --all
+
+      - name: Commit refactor
+        shell: bash
+        run: |
+          git config user.name "AIKS Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add crates/aiks-core/src/sync/engine.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "refactor(v4.2): group sync run context"
+          git push origin HEAD:fix/v4.2-runtime-resilience
