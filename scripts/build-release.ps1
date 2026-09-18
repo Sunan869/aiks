@@ -13,14 +13,15 @@
 
 $ErrorActionPreference = "Stop"
 
-$ScriptDir    = $PSScriptRoot
-$ProjectRoot  = Split-Path $ScriptDir -Parent
-$VersionFile  = Join-Path $ProjectRoot "siyuan.version"
-$RuntimeDest  = Join-Path $ProjectRoot "apps\aiks-desktop\src-tauri\resources\siyuan"
-$KernelExe    = Join-Path $RuntimeDest "kernel\SiYuan-Kernel.exe"
-$RuntimeMark  = Join-Path $RuntimeDest "aiks-runtime-version.txt"
-$DesktopDir   = Join-Path $ProjectRoot "apps\aiks-desktop"
-$SetupScript  = Join-Path $ScriptDir "setup-siyuan.ps1"
+$ScriptDir       = $PSScriptRoot
+$ProjectRoot     = Split-Path $ScriptDir -Parent
+$VersionFile     = Join-Path $ProjectRoot "siyuan.version"
+$RuntimeDest     = Join-Path $ProjectRoot "apps\aiks-desktop\src-tauri\resources\siyuan"
+$KernelExe       = Join-Path $RuntimeDest "kernel\SiYuan-Kernel.exe"
+$RuntimeMark     = Join-Path $RuntimeDest "aiks-runtime-version.txt"
+$RuntimeManifest = Join-Path $RuntimeDest "aiks-runtime.json"
+$DesktopDir      = Join-Path $ProjectRoot "apps\aiks-desktop"
+$SetupScript     = Join-Path $ScriptDir "setup-siyuan.ps1"
 
 Write-Host "=== AIKS Desktop Release Build ===" -ForegroundColor Cyan
 Write-Host ""
@@ -74,7 +75,19 @@ function Read-VersionFile {
         }
     }
 
-    foreach ($required in @("version", "release_tag", "asset", "platform", "sha256")) {
+    foreach ($required in @(
+        "version",
+        "workbench_version",
+        "release_repo",
+        "release_tag",
+        "asset",
+        "platform",
+        "sha256",
+        "upstream_commit",
+        "fork_commit",
+        "profile",
+        "bridge_protocol"
+    )) {
         if (
             -not $cfg.ContainsKey($required) -or
             [string]::IsNullOrWhiteSpace([string]$cfg[$required])
@@ -145,10 +158,41 @@ function Get-FileCount {
     return (Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
 }
 
+function Assert-RuntimeManifestIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Manifest,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Config
+    )
+
+    $expected = [ordered]@{
+        workbenchVersion = [string]$Config["workbench_version"]
+        siyuanBaseVersion = [string]$Config["version"]
+        upstreamCommit = [string]$Config["upstream_commit"]
+        forkRepository = [string]$Config["release_repo"]
+        forkCommit = [string]$Config["fork_commit"]
+        profile = [string]$Config["profile"]
+        platform = [string]$Config["platform"]
+        bridgeProtocol = [int]$Config["bridge_protocol"]
+    }
+
+    foreach ($entry in $expected.GetEnumerator()) {
+        $actual = $Manifest.($entry.Key)
+        if ([string]$actual -ne [string]$entry.Value) {
+            throw "Runtime manifest mismatch for '$($entry.Key)': expected '$($entry.Value)', got '$actual'"
+        }
+    }
+}
+
 function Test-SiyuanRuntime {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ExpectedVersion
+        [string]$ExpectedVersion,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Config
     )
 
     if (-not (Test-Path -LiteralPath $KernelExe)) {
@@ -174,6 +218,18 @@ function Test-SiyuanRuntime {
 
     $actualVersion = (Get-Content -LiteralPath $RuntimeMark -Raw).Trim()
     if ($actualVersion -ne $ExpectedVersion) {
+        return $false
+    }
+
+    if (-not (Test-Path -LiteralPath $RuntimeManifest)) {
+        return $false
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $RuntimeManifest -Raw | ConvertFrom-Json
+        Assert-RuntimeManifestIdentity -Manifest $manifest -Config $Config
+    }
+    catch {
         return $false
     }
 
@@ -204,14 +260,14 @@ Write-Host ""
 
 Write-Host "Step 1/7: Checking SiYuan runtime..."
 
-$runtimeReady = Test-SiyuanRuntime -ExpectedVersion $SiyuanVersion
+$runtimeReady = Test-SiyuanRuntime -ExpectedVersion $SiyuanVersion -Config $cfg
 
 if ($runtimeReady) {
     $kernelSize = (Get-Item -LiteralPath $KernelExe).Length
-    Write-Host "  Runtime OK ($([math]::Round($kernelSize / 1MB, 1)) MB, version $SiyuanVersion)" -ForegroundColor Green
+    Write-Host "  Runtime OK ($([math]::Round($kernelSize / 1MB, 1)) MB, version $SiyuanVersion, locked identity verified)" -ForegroundColor Green
 }
 else {
-    Write-Host "  Runtime not ready or version mismatched. Running setup-siyuan.ps1..." -ForegroundColor Yellow
+    Write-Host "  Runtime not ready or locked identity mismatched. Running setup-siyuan.ps1..." -ForegroundColor Yellow
 
     if (-not (Test-Path -LiteralPath $SetupScript)) {
         throw "setup-siyuan.ps1 not found: $SetupScript"
@@ -222,7 +278,7 @@ else {
     Write-Host ""
     Write-Host "  Re-checking runtime..." -ForegroundColor Yellow
 
-    if (-not (Test-SiyuanRuntime -ExpectedVersion $SiyuanVersion)) {
+    if (-not (Test-SiyuanRuntime -ExpectedVersion $SiyuanVersion -Config $cfg)) {
         throw "Runtime is still invalid after setup-siyuan.ps1."
     }
 
@@ -236,11 +292,15 @@ else {
 Write-Host ""
 Write-Host "Step 2/7: Runtime validation..."
 
+$manifest = Get-Content -LiteralPath $RuntimeManifest -Raw | ConvertFrom-Json
+Assert-RuntimeManifestIdentity -Manifest $manifest -Config $cfg
+
 $kernelSizeMB = [math]::Round((Get-Item -LiteralPath $KernelExe).Length / 1MB, 1)
 $stageCount = Get-FileCount (Join-Path $RuntimeDest "stage")
 $appearanceCount = Get-FileCount (Join-Path $RuntimeDest "appearance")
 $guideCount = Get-FileCount (Join-Path $RuntimeDest "guide")
 
+Write-Host "  Manifest   : locked identity OK" -ForegroundColor Green
 Write-Host "  Kernel     : $kernelSizeMB MB  OK" -ForegroundColor Green
 Write-Host "  Stage      : $stageCount files  OK" -ForegroundColor Green
 Write-Host "  Appearance : $appearanceCount files  OK" -ForegroundColor Green
@@ -316,7 +376,8 @@ Write-Host "Step 5/7: Validating Tauri bundle resources..."
 foreach ($requiredPath in @(
     (Join-Path $RuntimeDest "kernel\SiYuan-Kernel.exe"),
     (Join-Path $RuntimeDest "stage"),
-    (Join-Path $RuntimeDest "appearance")
+    (Join-Path $RuntimeDest "appearance"),
+    $RuntimeManifest
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required Tauri bundle resource missing: $requiredPath"
@@ -326,6 +387,7 @@ foreach ($requiredPath in @(
 Write-Host "  resources/siyuan/kernel/SiYuan-Kernel.exe  OK" -ForegroundColor Green
 Write-Host "  resources/siyuan/stage/                    OK" -ForegroundColor Green
 Write-Host "  resources/siyuan/appearance/               OK" -ForegroundColor Green
+Write-Host "  resources/siyuan/aiks-runtime.json         OK" -ForegroundColor Green
 
 if (Test-Path -LiteralPath (Join-Path $RuntimeDest "guide")) {
     Write-Host "  resources/siyuan/guide/                    OK" -ForegroundColor Green

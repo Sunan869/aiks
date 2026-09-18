@@ -65,6 +65,21 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate release PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/build-release.ps1").Path,
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell syntax validation failed for scripts/build-release.ps1"
+          }
+
       - name: Prepare CI-only Tauri resource directory
         shell: pwsh
         run: |
