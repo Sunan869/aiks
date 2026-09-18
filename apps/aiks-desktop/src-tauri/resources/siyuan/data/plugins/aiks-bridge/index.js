@@ -417,6 +417,15 @@ export default class AIKSBridgePlugin extends Plugin {
     this.changeTimers.set(id, timer);
   }
 
+  refreshRuntimeNonce() {
+    if (this.runtimeNonce !== null) return this.runtimeNonce;
+    const injectedNonce = safeId(window.__AIKS_WORKBENCH_NONCE__);
+    if (injectedNonce) {
+      this.runtimeNonce = injectedNonce;
+    }
+    return this.runtimeNonce;
+  }
+
   scheduleBridgeReadyRetry(envelope, attempt) {
     if (this.bridgeReadyRetryTimer !== null) {
       window.clearTimeout(this.bridgeReadyRetryTimer);
@@ -428,6 +437,11 @@ export default class AIKSBridgePlugin extends Plugin {
   }
 
   retryBackendEmit(eventName, envelope, attempt = 1) {
+    if (eventName === "bridgeReady") {
+      this.refreshRuntimeNonce();
+      envelope.nonce = this.runtimeNonce;
+    }
+
     const invoke = window.__TAURI_INTERNALS__?.invoke;
     if (this.runtimeNonce && typeof invoke === "function") {
       Promise.resolve(invoke("plugin:event|emit", {
@@ -443,12 +457,13 @@ export default class AIKSBridgePlugin extends Plugin {
       return;
     }
 
-    if (eventName === "bridgeReady" && this.runtimeNonce) {
-      if (attempt < BRIDGE_READY_MAX_ATTEMPTS) {
-        this.scheduleBridgeReadyRetry(envelope, attempt + 1);
-      } else {
-        console.warn("[AIKS Bridge] bridgeReady backend handshake timed out");
-      }
+    if (eventName === "bridgeReady" && attempt < BRIDGE_READY_MAX_ATTEMPTS) {
+      this.scheduleBridgeReadyRetry(envelope, attempt + 1);
+    } else if (eventName === "bridgeReady") {
+      console.warn("[AIKS Bridge] bridgeReady backend handshake timed out", {
+        nonceReady: Boolean(this.runtimeNonce),
+        ipcReady: typeof invoke === "function",
+      });
     }
   }
 
