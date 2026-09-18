@@ -29,5 +29,11 @@ write(candidate_path, candidate_text.replace(candidate_old, candidate_new))
 '''
 if text.count(old) != 1:
     raise RuntimeError("original candidate patch block was not found exactly once")
-patch.write_text(text.replace(old, new, 1), encoding="utf-8")
+text = text.replace(old, new, 1)
+text = text.replace(
+    'if count != 4:\n    raise RuntimeError(f"lifecycle AppState anchor count changed: {count}")',
+    'if count != 3:\n    raise RuntimeError(f"lifecycle AppState anchor count changed: {count}")',
+    1,
+)
+patch.write_text(text, encoding="utf-8")
 runpy.run_path(str(patch), run_name="__main__")
