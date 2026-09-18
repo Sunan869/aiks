@@ -15,7 +15,10 @@ pub fn install_bridge_plugin(source: &Path, workspace: &Path) -> anyhow::Result<
         }
     }
 
-    let target = workspace.join("data").join("plugins").join(BRIDGE_PLUGIN_NAME);
+    let target = workspace
+        .join("data")
+        .join("plugins")
+        .join(BRIDGE_PLUGIN_NAME);
     fs::create_dir_all(&target)?;
     copy_tree(source, &target)?;
     Ok(target)
