@@ -26,7 +26,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
 
           bootstrap = Path("crates/aiks-core/src/bootstrap/mod.rs")
           text = bootstrap.read_text(encoding="utf-8")
@@ -42,8 +41,7 @@ jobs:
           text = runtime.read_text(encoding="utf-8")
           wait_start = text.index("    /// Wait until Kernel responds at /api/system/version (spec §30-32).")
           wait_end = text.index("    // ── Stop ────────────────────────────────────────────────────────────────", wait_start)
-          wait_impl = textwrap.dedent('''\
-              /// Wait until the Kernel has completed its full boot sequence.
+          wait_impl = '''    /// Wait until the Kernel has completed its full boot sequence.
               /// `/api/system/version` becomes available before database rebuild/indexing finishes,
               /// so readiness is gated by the official `/api/system/bootProgress` endpoint.
               async fn wait_ready(
@@ -109,34 +107,12 @@ jobs:
                   }
               }
 
-          ''')
-          wait_impl = textwrap.indent(wait_impl, "    ") if not wait_impl.startswith("    ") else wait_impl
-          # dedent above produces four-space method indentation from the literal; normalize exactly once.
-          if wait_impl.startswith("        ///"):
-              wait_impl = wait_impl[4:]
+          '''
           text = text[:wait_start] + wait_impl + text[wait_end:]
 
-          old_health = textwrap.dedent('''\
-              pub async fn health(&self) -> RuntimeHealth {
-                  let state = self.state();
-                  let info = self.runtime_info();
-                  let last_error = self.last_error();
-
-                  RuntimeHealth {
-                      state: state.clone(),
-                      pid: info.as_ref().map(|i| i.pid),
-                      port: info.as_ref().map(|i| i.port),
-                      version: info.as_ref().map(|i| i.version.clone()),
-                      base_url: info.as_ref().map(|i| i.base_url.clone()),
-                      last_error,
-                  }
-              }
-          ''')
-          old_health = textwrap.indent(old_health, "    ") if not old_health.startswith("    ") else old_health
-          if old_health.startswith("        pub"):
-              old_health = old_health[4:]
-          new_health = textwrap.dedent('''\
-              pub async fn health(&self) -> RuntimeHealth {
+          health_start = text.index("    pub async fn health(&self) -> RuntimeHealth {")
+          health_end = text.index("    // ── Private helpers", health_start)
+          health_impl = '''    pub async fn health(&self) -> RuntimeHealth {
                   if self.state() == RuntimeState::Ready {
                       if let Some(info) = self.runtime_info() {
                           let exited = {
@@ -182,17 +158,13 @@ jobs:
                       last_error,
                   }
               }
-          ''')
-          new_health = textwrap.indent(new_health, "    ") if not new_health.startswith("    ") else new_health
-          if new_health.startswith("        pub"):
-              new_health = new_health[4:]
-          if old_health not in text:
-              raise SystemExit("runtime health function anchor not found")
-          text = text.replace(old_health, new_health, 1)
+
+          '''
+          text = text[:health_start] + health_impl + text[health_end:]
 
           helper_anchor = "/// Allocate an available TCP port in [start, end]."
-          boot_helper = textwrap.dedent('''\
-          /// Call the official boot progress endpoint. A progress value of 100 means
+          if "async fn get_siyuan_boot_progress" not in text:
+              helper = '''/// Call the official boot progress endpoint. A progress value of 100 means
           /// database initialization/index rebuild and the rest of Kernel boot completed.
           async fn get_siyuan_boot_progress(
               base_url: &str,
@@ -217,42 +189,40 @@ jobs:
               Ok((progress, details))
           }
 
-          ''')
-          if "/api/system/bootProgress" not in text[text.index("// ── Free functions"):]:
+          '''
               if helper_anchor not in text:
                   raise SystemExit("runtime helper insertion anchor not found")
-              text = text.replace(helper_anchor, boot_helper + helper_anchor, 1)
+              text = text.replace(helper_anchor, helper + helper_anchor, 1)
           runtime.write_text(text, encoding="utf-8")
 
           sync = Path("crates/aiks-core/src/sync/engine.rs")
           text = sync.read_text(encoding="utf-8")
-          stats_anchor = '''        let mut stats = SyncStats {
-              discovered: summaries.len(),
-              ..Default::default()
-          };
-
-          for summary in &summaries {'''
-          stats_replacement = '''        let mut stats = SyncStats {
-              discovered: summaries.len(),
-              ..Default::default()
-          };
-
-          let session_notebook_id = if opts.dry_run {
+          loop_anchor = "        for summary in &summaries {"
+          if "let session_notebook_id = if opts.dry_run" not in text:
+              loop_pos = text.index(loop_anchor)
+              notebook_once = '''        let session_notebook_id = if opts.dry_run {
               None
           } else {
               Some(sink.ensure_session_notebook().await?)
           };
 
-          for summary in &summaries {'''
-          if stats_anchor not in text:
-              raise SystemExit("sync run notebook insertion anchor not found")
-          text = text.replace(stats_anchor, stats_replacement, 1)
+          '''
+              text = text[:loop_pos] + notebook_once + text[loop_pos:]
 
           call_old = ".sync_session(db, registry, sink, &renderer, summary, opts)"
-          call_new = ".sync_session(\n                    db,\n                    registry,\n                    sink,\n                    &renderer,\n                    summary,\n                    session_notebook_id.as_deref(),\n                    opts,\n                )"
-          if call_old not in text:
+          call_new = '''.sync_session(
+                      db,
+                      registry,
+                      sink,
+                      &renderer,
+                      summary,
+                      session_notebook_id.as_deref(),
+                      opts,
+                  )'''
+          if call_old in text:
+              text = text.replace(call_old, call_new, 1)
+          elif "session_notebook_id.as_deref()" not in text:
               raise SystemExit("sync_session call anchor not found")
-          text = text.replace(call_old, call_new, 1)
 
           sig_old = '''        renderer: &MarkdownRenderer,
               summary: &SessionSummary,
@@ -263,23 +233,16 @@ jobs:
               notebook_id: Option<&str>,
               opts: &SyncOptions,
           ) -> SyncOutcome {'''
-          if sig_old not in text:
+          if sig_old in text:
+              text = text.replace(sig_old, sig_new, 1)
+          elif "notebook_id: Option<&str>" not in text:
               raise SystemExit("sync_session signature anchor not found")
-          text = text.replace(sig_old, sig_new, 1)
 
-          ensure_old = '''        // Ensure notebook exists
-              let notebook_id = match sink.ensure_session_notebook().await {
-                  Ok(id) => id,
-                  Err(e) => {
-                      let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
-                      return SyncOutcome::Failed {
-                          error: format!("ensure_session_notebook: {}", e),
-                      };
-                  }
-              };
-
-          '''
-          ensure_new = '''        let notebook_id = match notebook_id {
+          ensure_start_marker = "        // Ensure notebook exists\n"
+          if ensure_start_marker in text:
+              ensure_start = text.index(ensure_start_marker)
+              ensure_end = text.index("        let doc_path = sink.build_document_path(", ensure_start)
+              ensure_new = '''        let notebook_id = match notebook_id {
               Some(id) => id,
               None => {
                   return SyncOutcome::Failed {
@@ -289,26 +252,19 @@ jobs:
           };
 
           '''
-          if ensure_old not in text:
-              raise SystemExit("per-session notebook block anchor not found")
-          text = text.replace(ensure_old, ensure_new, 1)
+              text = text[:ensure_start] + ensure_new + text[ensure_end:]
           text = text.replace(".create_document(&notebook_id, &doc_path, &markdown)", ".create_document(notebook_id, &doc_path, &markdown)")
 
-          fail_old = '''                    stats.failed_count += 1;
-                  }
-              }
-          }'''
-          fail_new = '''                    stats.failed_count += 1;
+          fail_branch = text.index("                SyncOutcome::Failed { error } => {")
+          failed_count = text.index("                    stats.failed_count += 1;", fail_branch)
+          insertion_point = failed_count + len("                    stats.failed_count += 1;")
+          health_block = '''
                       if !sink.health_check().await {
                           error!("[SYNC] SiYuan unavailable; aborting remaining sessions");
                           break;
-                      }
-                  }
-              }
-          }'''
-          if fail_old not in text:
-              raise SystemExit("sync failed branch anchor not found")
-          text = text.replace(fail_old, fail_new, 1)
+                      }'''
+          if "[SYNC] SiYuan unavailable; aborting remaining sessions" not in text:
+              text = text[:insertion_point] + health_block + text[insertion_point:]
           sync.write_text(text, encoding="utf-8")
 
           lifecycle = Path("apps/aiks-desktop/src-tauri/src/lifecycle.rs")
@@ -327,13 +283,14 @@ jobs:
               spawn_runtime_monitor(&app);
 
               emit_progress(&app, "ready", "AIKS 已就绪");'''
-          if success_anchor not in text:
-              raise SystemExit("lifecycle monitor call anchor not found")
-          text = text.replace(success_anchor, success_new, 1)
+          if "spawn_runtime_monitor(&app);" not in text:
+              if success_anchor not in text:
+                  raise SystemExit("lifecycle monitor call anchor not found")
+              text = text.replace(success_anchor, success_new, 1)
 
-          monitor_anchor = "fn start_watcher_for_engine("
-          monitor = textwrap.dedent('''\
-          fn spawn_runtime_monitor(app: &AppHandle) {
+          if "fn spawn_runtime_monitor" not in text:
+              monitor_anchor = "fn start_watcher_for_engine("
+              monitor = '''fn spawn_runtime_monitor(app: &AppHandle) {
               let app = app.clone();
               tauri::async_runtime::spawn(async move {
                   let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
@@ -372,8 +329,7 @@ jobs:
               });
           }
 
-          ''')
-          if "fn spawn_runtime_monitor" not in text:
+          '''
               if monitor_anchor not in text:
                   raise SystemExit("lifecycle monitor insertion anchor not found")
               text = text.replace(monitor_anchor, monitor + monitor_anchor, 1)
