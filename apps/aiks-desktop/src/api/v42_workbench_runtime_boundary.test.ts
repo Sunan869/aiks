@@ -43,8 +43,8 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(bridgePluginInstallerSource).toContain("/api/setting/setBazaar");
     expect(bridgePluginInstallerSource).toContain("/api/petal/setPetalEnabled");
     expect(bridgePluginInstallerSource).toContain('"packageName": "aiks-bridge"');
-    expect(bridgePluginInstallerSource).toContain('"trust": true');
-    expect(bridgePluginInstallerSource).toContain('"petalDisabled": false');
+    expect(bridgePluginInstallerSource).toContain('config.insert("trust".to_string(), json!(true))');
+    expect(bridgePluginInstallerSource).toContain('config.insert("petalDisabled".to_string(), json!(false))');
   });
 
   it("suspends the native child workbench while unified search is open", () => {
