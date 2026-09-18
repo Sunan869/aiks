@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import workbenchHostSource from "../components/WorkbenchHost.tsx?raw";
 import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
 import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
+import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import bridgePluginInstallerSource from "../../src-tauri/src/workbench/plugin.rs?raw";
 
 type Capability = {
@@ -45,6 +46,15 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(bridgePluginInstallerSource).toContain('"packageName": "aiks-bridge"');
     expect(bridgePluginInstallerSource).toContain('config.insert("trust".to_string(), json!(true))');
     expect(bridgePluginInstallerSource).toContain('config.insert("petalDisabled".to_string(), json!(false))');
+  });
+
+  it("logs native child-webview diagnostics without relying on the bridge event channel", () => {
+    expect(workbenchCommandsSource).toContain("on_page_load");
+    expect(workbenchCommandsSource).toContain("on_document_title_changed");
+    expect(workbenchCommandsSource).toContain("__AIKS_BRIDGE__");
+    expect(workbenchCommandsSource).toContain("__AIKS_WORKBENCH_NONCE__");
+    expect(workbenchCommandsSource).toContain("__TAURI_INTERNALS__");
+    expect(workbenchCommandsSource).toContain("[WORKBENCH_DIAG]");
   });
 
   it("suspends the native child workbench while unified search is open", () => {
