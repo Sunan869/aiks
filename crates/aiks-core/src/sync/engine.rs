@@ -164,7 +164,13 @@ impl SyncEngine {
         let session_notebook_id = if opts.dry_run {
             None
         } else {
-            Some(sink.ensure_session_notebook().await?)
+            match sink.ensure_session_notebook().await {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    error!(error = %e, "[SYNC] Failed to resolve session notebook");
+                    None
+                }
+            }
         };
 
         let sync_context = SyncRunContext {
