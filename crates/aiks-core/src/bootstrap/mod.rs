@@ -59,7 +59,7 @@ impl BootstrapConfig {
             &self.data_dir,
         );
         cfg.expected_version = self.expected_version.clone();
-        cfg.startup_timeout = Duration::from_secs(30);
+        cfg.startup_timeout = Duration::from_secs(120);
         cfg
     }
 }
