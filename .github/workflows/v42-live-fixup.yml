@@ -25,77 +25,45 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          lifecycle = Path('apps/aiks-desktop/src-tauri/src/lifecycle.rs')
-          text = lifecycle.read_text(encoding='utf-8')
-          old = '''            let state = AppState {
-                          engine,
-                          siyuan_url: Arc::new(Mutex::new(None)),
-                          data_dir,
-                          _watcher_handle: Mutex::new(watcher_handle),
-                      };'''
-          new = '''            let state = AppState {
-                          engine,
-                          siyuan_url: Arc::new(Mutex::new(None)),
-                          data_dir,
-                          close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
-                          _watcher_handle: Mutex::new(watcher_handle),
-                      };'''
-          if text.count(old) != 1:
-              raise SystemExit(f'lifecycle fallback anchor count={text.count(old)}')
-          lifecycle.write_text(text.replace(old, new, 1), encoding='utf-8')
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: anchor count={count}: {old!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          processing = Path('apps/aiks-desktop/src/pages/ProcessingPage.tsx')
-          text = processing.read_text(encoding='utf-8')
-          old_import = 'import { useState, useEffect, useCallback } from "react";'
-          if old_import not in text:
-              old_import = 'import { useCallback, useEffect, useState } from "react";'
-          if text.count(old_import) != 1:
-              raise SystemExit('ProcessingPage React import anchor missing')
-          text = text.replace(old_import, 'import { useCallback, useEffect, useRef, useState } from "react";', 1)
-          state_anchor = '  const [backfillMsg, setBackfillMsg] = useState("");\n\n'
-          if text.count(state_anchor) != 1:
-              raise SystemExit('ProcessingPage state anchor missing')
-          text = text.replace(state_anchor, state_anchor + '  const inFlightRef = useRef(false);\n\n', 1)
-          load_old = '''  const load = useCallback(async (showLoading = false) => {
-            if (showLoading) setLoading(true);
-            try {
-              const [r, s] = await Promise.all([
-                getApi().getPipelineRuns(300),
-                getApi().getPipelineStats(),
-              ]);
-              setRuns(r);
-              setStats(s);
-            } finally {
-              if (showLoading) setLoading(false);
-            }
-          }, []);'''
-          load_new = '''  const load = useCallback(async (showLoading = false) => {
-            if (inFlightRef.current) return;
-            inFlightRef.current = true;
-            if (showLoading) setLoading(true);
-            try {
-              const [r, s] = await Promise.all([
-                getApi().getPipelineRuns(300),
-                getApi().getPipelineStats(),
-              ]);
-              setRuns(r);
-              setStats(s);
-            } finally {
-              inFlightRef.current = false;
-              if (showLoading) setLoading(false);
-            }
-          }, []);'''
-          if text.count(load_old) != 1:
-              raise SystemExit('ProcessingPage load anchor missing')
-          processing.write_text(text.replace(load_old, load_new, 1), encoding='utf-8')
+          replace_once(
+              'apps/aiks-desktop/src-tauri/src/lifecycle.rs',
+              '                siyuan_url: Arc::new(Mutex::new(None)),\n                data_dir,\n                _watcher_handle: Mutex::new(watcher_handle),',
+              '                siyuan_url: Arc::new(Mutex::new(None)),\n                data_dir,\n                close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),\n                _watcher_handle: Mutex::new(watcher_handle),',
+          )
 
-          test = Path('apps/aiks-desktop/src/api/v42_live_pipeline_settings_diagnostics.test.ts')
-          text = test.read_text(encoding='utf-8')
-          anchor = '    expect(processingSource).toContain("clearInterval");\n'
-          if text.count(anchor) != 1:
-              raise SystemExit('frontend test polling anchor missing')
-          text = text.replace(anchor, anchor + '    expect(processingSource).toContain("inFlightRef.current");\n', 1)
-          test.write_text(text, encoding='utf-8')
+          replace_once(
+              'apps/aiks-desktop/src/pages/ProcessingPage.tsx',
+              'import { useState, useEffect, useCallback } from "react";',
+              'import { useState, useEffect, useCallback, useRef } from "react";',
+          )
+          replace_once(
+              'apps/aiks-desktop/src/pages/ProcessingPage.tsx',
+              '  const [backfillMsg, setBackfillMsg] = useState("");\n',
+              '  const [backfillMsg, setBackfillMsg] = useState("");\n  const inFlightRef = useRef(false);\n',
+          )
+          replace_once(
+              'apps/aiks-desktop/src/pages/ProcessingPage.tsx',
+              '  const load = useCallback(async (showLoading = false) => {\n    if (showLoading) setLoading(true);',
+              '  const load = useCallback(async (showLoading = false) => {\n    if (inFlightRef.current) return;\n    inFlightRef.current = true;\n    if (showLoading) setLoading(true);',
+          )
+          replace_once(
+              'apps/aiks-desktop/src/pages/ProcessingPage.tsx',
+              '    } finally {\n      if (showLoading) setLoading(false);\n    }\n  }, []);',
+              '    } finally {\n      inFlightRef.current = false;\n      if (showLoading) setLoading(false);\n    }\n  }, []);',
+          )
+          replace_once(
+              'apps/aiks-desktop/src/api/v42_live_pipeline_settings_diagnostics.test.ts',
+              '    expect(processingSource).toContain("clearInterval");\n',
+              '    expect(processingSource).toContain("clearInterval");\n    expect(processingSource).toContain("inFlightRef.current");\n',
+          )
           PY
 
           rm -f .github/workflows/v42-live-fixup.yml
