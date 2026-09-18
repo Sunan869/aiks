@@ -37,9 +37,9 @@ pub struct AiModelConfig {
 impl Default for AiModelConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            base_url: "http://127.0.0.1:11434/v1".to_string(),
-            model: "qwen3".to_string(),
+            enabled: true,
+            base_url: "http://10.10.23.16:18000/v1".to_string(),
+            model: "Qwen3.8-27B".to_string(),
             api_key: None,
             temperature: 0.1,
             // 8192: with thinking disabled, large sessions still produce
