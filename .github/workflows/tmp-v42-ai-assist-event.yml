@@ -19,6 +19,8 @@ jobs:
           fetch-depth: 0
       - name: Apply AI Assist event handler
         run: python3 scripts/tmp_v42_ai_assist_event.py
+      - name: Repair generated Rust apostrophe escape
+        run: sed -i "s/replace(''', \"''\")/replace('\\\\'', \"''\")/" apps/aiks-desktop/src-tauri/src/workbench/events.rs
       - name: Format Rust
         run: cargo fmt --all
       - name: Commit AI Assist event handler
