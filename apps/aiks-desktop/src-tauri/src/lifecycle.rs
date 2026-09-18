@@ -24,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::app_state::{config_file_path, data_dir, AppState};
+use crate::app_state::{close_to_tray_setting, config_file_path, data_dir, AppState};
 use crate::bootstrap::find_runtime_root;
 use crate::workbench::plugin::{ensure_bridge_plugin_enabled, install_bridge_plugin};
 
@@ -120,6 +120,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
                 engine,
                 siyuan_url: Arc::new(Mutex::new(None)),
                 data_dir,
+                close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
                 _watcher_handle: Mutex::new(watcher_handle),
             };
             app.manage(state);
@@ -177,6 +178,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         engine: Some(engine.clone()),
         siyuan_url: Arc::new(Mutex::new(Some(base_url.clone()))),
         data_dir,
+        close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
         _watcher_handle: Mutex::new(watcher_handle),
     };
     app.manage(state);
@@ -452,6 +454,7 @@ async fn startup_without_siyuan(
         engine: None,
         siyuan_url: Arc::new(Mutex::new(None)),
         data_dir,
+        close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
         _watcher_handle: Mutex::new(None),
     };
     app.manage(state);
@@ -490,6 +493,7 @@ async fn startup_with_external_siyuan(
         engine: Some(engine.clone()),
         siyuan_url: Arc::new(Mutex::new(Some(base_url.clone()))),
         data_dir,
+        close_to_tray: std::sync::atomic::AtomicBool::new(close_to_tray_setting()),
         _watcher_handle: Mutex::new(watcher_handle),
     };
     app.manage(state);

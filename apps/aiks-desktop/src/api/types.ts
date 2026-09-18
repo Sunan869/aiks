@@ -210,6 +210,7 @@ export interface WorkbenchBounds {
 
 export interface WorkbenchStatus {
   available: boolean;
+  mounted: boolean;
   ready: boolean;
   mode: WorkspaceMode;
   origin: string | null;

@@ -10,7 +10,7 @@ pub mod session_workbench;
 mod tray;
 mod workbench;
 
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::Mutex;
 
 use aiks_core::runtime::SiyuanRuntime;
@@ -60,12 +60,14 @@ pub fn run() {
             commands::save_settings,
             commands::get_doctor,
             commands::open_data_folder,
+            commands::restart_app,
             commands::restart_siyuan,
             commands::get_siyuan_url,
             commands::get_sessions,
             commands::get_sync_history,
             commands::get_ai_status,
             commands::test_ai_connection,
+            commands::test_ai_connection_with_settings,
             commands::extract_session_now,
             commands::get_knowledge_stats,
             commands::get_recent_knowledge,
@@ -112,8 +114,23 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().ok();
-                api.prevent_close();
+                let close_to_tray = window
+                    .app_handle()
+                    .try_state::<app_state::AppState>()
+                    .map(|state| state.close_to_tray.load(Ordering::Acquire))
+                    .unwrap_or(true);
+
+                if close_to_tray || window.label() != "control" {
+                    window.hide().ok();
+                    api.prevent_close();
+                } else {
+                    api.prevent_close();
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        lifecycle::shutdown(&app).await;
+                        app.exit(0);
+                    });
+                }
             }
         })
         .run(tauri::generate_context!())

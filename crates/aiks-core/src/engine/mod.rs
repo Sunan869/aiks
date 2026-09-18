@@ -25,7 +25,7 @@ use crate::pipeline::{EmbeddingConfig, PipelineJob, PipelineOrchestrator, Pipeli
 use crate::providers::{build_registry, ProviderRegistry, SessionSummary};
 use crate::sink::SiYuanSink;
 use crate::storage::StateDb;
-use crate::sync::{SyncEngine, SyncOptions, SyncStats};
+use crate::sync::{ExtractionCandidate, SyncEngine, SyncOptions, SyncStats};
 use crate::watcher::{FileWatcher, WatchEvent};
 
 /// Configuration for AiksEngine initialization
@@ -330,6 +330,21 @@ impl AiksEngine {
 
     /// Sync implementation — caller must hold `sync_lock`.
     async fn sync_unlocked(&self, opts: SyncOptions) -> anyhow::Result<SyncStats> {
+        self.sync_unlocked_with_candidate_handler(opts, |_| {})
+            .await
+    }
+
+    /// Sync implementation with a live per-session candidate callback.
+    /// The callback is synchronous on purpose: it may persist/submit a durable
+    /// PipelineJob, but it must not block raw synchronization on AI inference.
+    async fn sync_unlocked_with_candidate_handler<F>(
+        &self,
+        opts: SyncOptions,
+        on_candidate: F,
+    ) -> anyhow::Result<SyncStats>
+    where
+        F: FnMut(&ExtractionCandidate),
+    {
         let sink = if let Some(token) = &self.siyuan_token {
             // External mode: use token from CLI config
             let mut cfg = self.config.siyuan.clone();
@@ -341,7 +356,7 @@ impl AiksEngine {
             SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)?
         };
         self.sync_engine
-            .run_sync(&self.db, &self.registry, &sink, &opts)
+            .run_sync_with_candidate_handler(&self.db, &self.registry, &sink, &opts, on_candidate)
             .await
     }
 
@@ -444,6 +459,80 @@ impl AiksEngine {
             project_name,
         })?;
         Ok(run_id)
+    }
+
+    fn submit_pipeline_candidate(
+        db: &Arc<StateDb>,
+        pipeline_worker: &Arc<PipelineWorker>,
+        candidate: &ExtractionCandidate,
+    ) {
+        // Resolve by canonical DB identity and verify the redundant source
+        // identity. This prevents cross-provider external-ID collisions.
+        let session_data: Option<(
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = {
+            let conn = db.conn();
+            conn.query_row(
+                "SELECT id, source, external_session_id, title, project_name, content_hash
+                 FROM source_session
+                 WHERE id = ?1 AND source = ?2 AND external_session_id = ?3",
+                rusqlite::params![
+                    candidate.session_id,
+                    candidate.source,
+                    candidate.external_session_id
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .ok()
+        };
+
+        let Some((db_id, source, session_ext_id, title, project_name, content_hash)) = session_data
+        else {
+            tracing::warn!(
+                session_id = candidate.session_id,
+                "[PIPELINE] Live candidate no longer resolves to canonical session"
+            );
+            return;
+        };
+
+        let orchestrator = PipelineOrchestrator::new(Arc::clone(db));
+        match orchestrator.enqueue(db_id, content_hash.as_deref()) {
+            Ok(run_id) => {
+                if let Err(e) = pipeline_worker.submit(PipelineJob {
+                    pipeline_run_id: run_id,
+                    session_id: db_id,
+                    session_external_id: session_ext_id,
+                    source,
+                    session_title: title,
+                    project_name,
+                }) {
+                    tracing::warn!(
+                        session_id = db_id,
+                        error = %e,
+                        "[PIPELINE] Durable live enqueue failed"
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(
+                session_id = db_id,
+                error = %e,
+                "[PIPELINE] Could not create live pipeline run"
+            ),
+        }
     }
 
     /// Search distilled knowledge while preserving degraded-state/error semantics.
@@ -596,7 +685,17 @@ impl AiksEngine {
                 }
             }
 
-            let stats = self.sync_unlocked(opts.clone()).await?;
+            let enqueue_live =
+                !opts.dry_run && self.config.ai.enabled && self.config.ai.auto_extract;
+            let db = Arc::clone(&self.db);
+            let pipeline_worker = Arc::clone(&self.pipeline_worker);
+            let stats = self
+                .sync_unlocked_with_candidate_handler(opts.clone(), move |candidate| {
+                    if enqueue_live {
+                        Self::submit_pipeline_candidate(&db, &pipeline_worker, candidate);
+                    }
+                })
+                .await?;
 
             // B15: After a successful scan (no source_filter = full scan),
             // mark sessions that are no longer visible in any provider as MISSING.
@@ -611,76 +710,6 @@ impl AiksEngine {
                     }
                     Err(e) => tracing::warn!("[SYNC] mark_missing failed: {}", e),
                     _ => {}
-                }
-            }
-
-            // B09/R09: Enqueue new/updated sessions into V3 pipeline — respecting
-            // the ai.enabled AND ai.auto_extract switches.
-            if !stats.extraction_candidates.is_empty()
-                && self.config.ai.enabled
-                && self.config.ai.auto_extract
-            {
-                info!(
-                    count = stats.extraction_candidates.len(),
-                    "[PIPELINE] Enqueueing new/updated sessions"
-                );
-
-                let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
-
-                for candidate in &stats.extraction_candidates {
-                    // Resolve by canonical DB identity and verify the redundant source
-                    // identity. This prevents cross-provider external-ID collisions.
-                    let session_data: Option<(
-                        i64,
-                        String,
-                        String,
-                        Option<String>,
-                        Option<String>,
-                        Option<String>,
-                    )> = {
-                        let conn = self.db.conn();
-                        conn.query_row(
-                        "SELECT id, source, external_session_id, title, project_name, content_hash
-                         FROM source_session
-                         WHERE id = ?1 AND source = ?2 AND external_session_id = ?3",
-                        rusqlite::params![
-                            candidate.session_id,
-                            candidate.source,
-                            candidate.external_session_id
-                        ],
-                        |row| Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, Option<String>>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            row.get::<_, Option<String>>(5)?,
-                        )),
-                    ).ok()
-                    };
-
-                    if let Some((
-                        db_id,
-                        source,
-                        session_ext_id,
-                        title,
-                        project_name,
-                        content_hash,
-                    )) = session_data
-                    {
-                        if let Ok(run_id) = orchestrator.enqueue(db_id, content_hash.as_deref()) {
-                            if let Err(e) = self.pipeline_worker.submit(PipelineJob {
-                                pipeline_run_id: run_id,
-                                session_id: db_id,
-                                session_external_id: session_ext_id,
-                                source,
-                                session_title: title,
-                                project_name,
-                            }) {
-                                tracing::warn!(session_id = db_id, error = %e, "[PIPELINE] Durable enqueue failed");
-                            }
-                        }
-                    }
                 }
             }
 

@@ -258,6 +258,7 @@ export class MockAiksApi implements AiksApi {
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
     return {
       available: true,
+      mounted: true,
       ready: true,
       mode: workbenchMode,
       origin: "http://127.0.0.1:6812/",
