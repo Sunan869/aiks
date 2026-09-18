@@ -2,6 +2,8 @@ import { Plugin, getAllEditor, openTab } from "siyuan";
 
 const PROTOCOL_VERSION = 1;
 const AIKS_EVENT_CHANNEL = "aiks-workbench-event";
+const BRIDGE_READY_MAX_ATTEMPTS = 20;
+const BRIDGE_READY_RETRY_DELAY_MS = 250;
 const ACTIONS = new Set([
   "showKnowledgeRoot",
   "showSessionRoot",
@@ -174,6 +176,7 @@ export default class AIKSBridgePlugin extends Plugin {
     this.mode = "knowledge";
     this.changeTimers = new Map();
     this.aiAssistRequests = new Map();
+    this.bridgeReadyRetryTimer = null;
     this.adapter = new SiyuanAdapter(this.app);
     this.adapter.applyAiksLayout();
 
@@ -222,6 +225,10 @@ export default class AIKSBridgePlugin extends Plugin {
     document.removeEventListener("input", this.onEditorInput, true);
     this.eventBus.off("ws-main", this.onKernelMessage);
     this.readOnlyObserver?.disconnect?.();
+    if (this.bridgeReadyRetryTimer !== null) {
+      window.clearTimeout(this.bridgeReadyRetryTimer);
+      this.bridgeReadyRetryTimer = null;
+    }
     for (const timer of this.changeTimers?.values?.() || []) {
       window.clearTimeout(timer);
     }
@@ -410,6 +417,41 @@ export default class AIKSBridgePlugin extends Plugin {
     this.changeTimers.set(id, timer);
   }
 
+  scheduleBridgeReadyRetry(envelope, attempt) {
+    if (this.bridgeReadyRetryTimer !== null) {
+      window.clearTimeout(this.bridgeReadyRetryTimer);
+    }
+    this.bridgeReadyRetryTimer = window.setTimeout(() => {
+      this.bridgeReadyRetryTimer = null;
+      this.retryBackendEmit("bridgeReady", envelope, attempt);
+    }, BRIDGE_READY_RETRY_DELAY_MS);
+  }
+
+  retryBackendEmit(eventName, envelope, attempt = 1) {
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (this.runtimeNonce && typeof invoke === "function") {
+      Promise.resolve(invoke("plugin:event|emit", {
+        event: AIKS_EVENT_CHANNEL,
+        payload: envelope,
+      })).catch((error) => {
+        if (eventName === "bridgeReady" && attempt < BRIDGE_READY_MAX_ATTEMPTS) {
+          this.scheduleBridgeReadyRetry(envelope, attempt + 1);
+          return;
+        }
+        console.debug("[AIKS Bridge] backend event channel unavailable", error);
+      });
+      return;
+    }
+
+    if (eventName === "bridgeReady" && this.runtimeNonce) {
+      if (attempt < BRIDGE_READY_MAX_ATTEMPTS) {
+        this.scheduleBridgeReadyRetry(envelope, attempt + 1);
+      } else {
+        console.warn("[AIKS Bridge] bridgeReady backend handshake timed out");
+      }
+    }
+  }
+
   emit(eventName, payload = {}) {
     const detail = {};
     for (const [key, value] of Object.entries(payload)) {
@@ -426,15 +468,6 @@ export default class AIKSBridgePlugin extends Plugin {
       payload: detail,
     };
     window.postMessage(envelope, window.location.origin);
-
-    const invoke = window.__TAURI_INTERNALS__?.invoke;
-    if (this.runtimeNonce && typeof invoke === "function") {
-      Promise.resolve(invoke("plugin:event|emit", {
-        event: AIKS_EVENT_CHANNEL,
-        payload: envelope,
-      })).catch((error) => {
-        console.debug("[AIKS Bridge] backend event channel unavailable", error);
-      });
-    }
+    this.retryBackendEmit(eventName, envelope);
   }
 }
