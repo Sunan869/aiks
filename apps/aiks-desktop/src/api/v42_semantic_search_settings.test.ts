@@ -3,9 +3,9 @@ import settingsPageSource from "../pages/SettingsPage.tsx?raw";
 import searchDialogSource from "../components/UnifiedSearchDialog.tsx?raw";
 import commandsSource from "../../src-tauri/src/commands.rs?raw";
 import libSource from "../../src-tauri/src/lib.rs?raw";
-import searchSource from "../../../crates/aiks-core/src/search/mod.rs?raw";
-import engineSource from "../../../crates/aiks-core/src/engine/mod.rs?raw";
-import embeddingSource from "../../../crates/aiks-core/src/pipeline/embedding_client.rs?raw";
+import searchSource from "../../../../crates/aiks-core/src/search/mod.rs?raw";
+import engineSource from "../../../../crates/aiks-core/src/engine/mod.rs?raw";
+import embeddingSource from "../../../../crates/aiks-core/src/pipeline/embedding_client.rs?raw";
 
 describe("V4.2 semantic search settings and rebuild", () => {
   it("exposes embedding settings with the recommended LCO preset", () => {
