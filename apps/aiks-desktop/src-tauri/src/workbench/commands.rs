@@ -1,6 +1,6 @@
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::webview::WebviewBuilder;
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
 use uuid::Uuid;
 
@@ -13,6 +13,29 @@ use super::protocol::{
 };
 
 const WORKBENCH_WEBVIEW_LABEL: &str = "siyuan-workbench";
+const WORKBENCH_DIAG_TITLE_PREFIX: &str = "__AIKS_WORKBENCH_DIAG__";
+const WORKBENCH_DIAG_SCRIPT: &str = r#"
+(() => {
+  const originalTitle = document.title;
+  const prefix = "__AIKS_WORKBENCH_DIAG__";
+  const probe = (delay) => {
+    window.setTimeout(() => {
+      const bridge = window.__AIKS_BRIDGE__ ? 1 : 0;
+      const nonce = typeof window.__AIKS_WORKBENCH_NONCE__ === "string" &&
+        window.__AIKS_WORKBENCH_NONCE__ ? 1 : 0;
+      const ipc = typeof window.__TAURI_INTERNALS__?.invoke === "function" ? 1 : 0;
+      const title = `${prefix}|delay=${delay}|bridge=${bridge}|nonce=${nonce}|ipc=${ipc}`;
+      document.title = title;
+      window.setTimeout(() => {
+        if (document.title === title) {
+          document.title = originalTitle;
+        }
+      }, 50);
+    }, delay);
+  };
+  [0, 250, 1000, 3000].forEach(probe);
+})();
+"#;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -194,7 +217,27 @@ pub async fn mount_workbench(
     let initialization_script = format!("window.__AIKS_WORKBENCH_NONCE__ = {nonce};");
     let builder = WebviewBuilder::new(WORKBENCH_WEBVIEW_LABEL, WebviewUrl::External(origin))
         .initialization_script(initialization_script)
-        .on_navigation(move |url| same_origin(url, &expected_origin));
+        .on_navigation(move |url| same_origin(url, &expected_origin))
+        .on_page_load(|webview, payload| {
+            tracing::info!(
+                event = ?payload.event(),
+                url = %payload.url(),
+                "[WORKBENCH_DIAG] child page load"
+            );
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                if let Err(error) = webview.eval(WORKBENCH_DIAG_SCRIPT) {
+                    tracing::warn!(
+                        error = %error,
+                        "[WORKBENCH_DIAG] failed to inject native probe"
+                    );
+                }
+            }
+        })
+        .on_document_title_changed(|_, title| {
+            if title.starts_with(WORKBENCH_DIAG_TITLE_PREFIX) {
+                tracing::info!(result = %title, "[WORKBENCH_DIAG] child probe");
+            }
+        });
 
     controller.set_ready(false);
     let webview = parent
