@@ -38,7 +38,7 @@ export default function SourcesPage({ fullStatus }: Props) {
   const sources = ["OpenCode", "Codex", "Gemini CLI", "Claude Code"];
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="w-full min-w-0 p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">数据源</h1>
         <p className="text-xs text-gray-400 mt-0.5">AI 工具会话目录状态</p>
