@@ -110,6 +110,7 @@ pub fn run() {
             workbench::commands::get_workbench_status,
             workbench::commands::mount_workbench,
             workbench::commands::show_workbench,
+            workbench::commands::reload_workbench,
             workbench::commands::hide_workbench,
             workbench::commands::set_workbench_mode,
             workbench::commands::show_workbench_root,
