@@ -378,6 +378,28 @@ pub async fn refresh_siyuan_document(
     )
 }
 
+#[tauri::command]
+pub fn reload_workbench(
+    app: AppHandle,
+    controller: State<'_, WorkbenchController>,
+) -> Result<(), String> {
+    if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
+        controller.set_ready(false);
+        return webview
+            .eval("window.location.reload();")
+            .map_err(|e| e.to_string());
+    }
+
+    if let Some(window) = app.get_webview_window("knowledge") {
+        controller.set_ready(false);
+        return window
+            .eval("window.location.reload();")
+            .map_err(|e| e.to_string());
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

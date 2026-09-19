@@ -119,6 +119,10 @@ export class TauriAiksApi implements AiksApi {
     await invoke("show_workbench_root", { mode });
   }
 
+  async reloadWorkbench(): Promise<void> {
+    await invoke("reload_workbench");
+  }
+
   async hideWorkbench(): Promise<void> {
     await invoke("hide_workbench");
   }

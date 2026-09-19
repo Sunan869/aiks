@@ -21,9 +21,9 @@ impl Default for EmbeddingConfig {
         Self {
             enabled: false,
             base_url: String::new(),
-            model: String::new(),
+            model: "LCO-Embedding/LCO-Embedding-Omni-3B-2605".to_string(),
             api_key: None,
-            dimensions: Some(1024),
+            dimensions: Some(2048),
             batch_size: 16,
             chunk_target_tokens: 800,
             chunk_max_tokens: 1200,
@@ -147,5 +147,14 @@ mod tests {
     #[test]
     fn cosine_empty() {
         assert_eq!(cosine_sim(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn default_embedding_identity_is_lco_but_remains_disabled() {
+        let config = EmbeddingConfig::default();
+        assert!(!config.enabled);
+        assert!(config.base_url.is_empty());
+        assert_eq!(config.model, "LCO-Embedding/LCO-Embedding-Omni-3B-2605");
+        assert_eq!(config.dimensions, Some(2048));
     }
 }

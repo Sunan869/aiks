@@ -97,7 +97,12 @@ export default function App() {
   const sessionCount = fullStatus?.scan_total ?? 0;
   const isHealthy = fullStatus ? fullStatus.db_failed === 0 && fullStatus.db_conflict === 0 : true;
 
-  const navigate = (page: Page) => setNav({ page });
+  const navigate = (page: Page) => {
+    setNav({ page });
+    if (page === "knowledge") {
+      void getApi().reloadWorkbench().catch(() => {});
+    }
+  };
   const viewSessionDetail = (id: number) => setNav({ page: "sessions", sessionDetailId: id });
   const viewKnowledgeDetail = (id: string) => setNav({ page: "knowledge", knowledgeDetailId: id });
   const viewPipelineDetail = (runId: string) => setNav({ page: "processing", pipelineDetailRunId: runId });

@@ -10,6 +10,7 @@ pub mod providers;
 pub mod renderer;
 pub mod runtime;
 pub mod search;
+pub mod semantic_index;
 pub mod sink;
 pub mod storage;
 pub mod sync;
@@ -40,5 +41,8 @@ pub use pipeline::{
 pub use providers::SessionSummary;
 pub use search::{
     SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchOutcome, UnifiedSearchService,
+};
+pub use semantic_index::{
+    rebuild_semantic_index, SemanticIndexRebuildProgress, SemanticIndexRebuildStats,
 };
 pub use sync::{ExtractionCandidate, SyncOptions, SyncOutcome, SyncStats};
