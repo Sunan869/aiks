@@ -34,7 +34,11 @@ pub struct SemanticIndexRebuildProgress {
 }
 
 impl SemanticIndexRebuildStats {
-    fn progress(&self, current_kind: Option<&str>, current_id: Option<&str>) -> SemanticIndexRebuildProgress {
+    fn progress(
+        &self,
+        current_kind: Option<&str>,
+        current_id: Option<&str>,
+    ) -> SemanticIndexRebuildProgress {
         SemanticIndexRebuildProgress {
             total: self.total,
             completed: self.completed,
