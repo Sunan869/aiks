@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::AiModelConfig;
@@ -230,8 +231,10 @@ impl Default for ExtractorConfig {
 impl Config {
     /// Load config from a TOML file.
     pub fn from_file(path: &std::path::Path) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let mut config: Config = toml::from_str(&content)?;
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read AIKS config: {}", path.display()))?;
+        let mut config: Config = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse AIKS config: {}", path.display()))?;
         // Allow SIYUAN_TOKEN env override
         if let Ok(token) = std::env::var("SIYUAN_TOKEN") {
             if !token.is_empty() {
@@ -239,6 +242,24 @@ impl Config {
             }
         }
         Ok(config)
+    }
+
+    /// Persist the complete typed config directly to its final path.
+    ///
+    /// The config is small and written only from explicit settings actions, so
+    /// a direct replacement is preferable to remove+rename on Windows: the
+    /// latter can temporarily delete a valid config and surface opaque
+    /// `os error 2` failures when the second rename cannot find its source.
+    pub fn write_file(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("AIKS config path has no parent: {}", path.display()))?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create AIKS config directory: {}", parent.display()))?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize AIKS config")?;
+        std::fs::write(path, content)
+            .with_context(|| format!("Failed to write AIKS config: {}", path.display()))?;
+        Ok(())
     }
 
     /// Return the AIKS state database path.
@@ -330,6 +351,7 @@ pub(crate) fn resolve_data_root(
 #[cfg(test)]
 mod data_root_tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn resolve_prefers_env_over_pointer() {
@@ -361,5 +383,22 @@ mod data_root_tests {
             resolve_data_root(PathBuf::from("C:\\default"), None, None),
             PathBuf::from("C:\\default")
         );
+    }
+
+    #[test]
+    fn write_file_can_replace_an_existing_config_and_reload_it() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config").join("aiks.toml");
+        let mut config = Config::default();
+
+        config.embedding.enabled = false;
+        config.write_file(&path).unwrap();
+        config.embedding.enabled = true;
+        config.embedding.base_url = "http://example.invalid/v1".to_string();
+        config.write_file(&path).unwrap();
+
+        let reloaded = Config::from_file(&path).unwrap();
+        assert!(reloaded.embedding.enabled);
+        assert_eq!(reloaded.embedding.base_url, "http://example.invalid/v1");
     }
 }
