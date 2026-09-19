@@ -254,8 +254,12 @@ impl Config {
         let parent = path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("AIKS config path has no parent: {}", path.display()))?;
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create AIKS config directory: {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create AIKS config directory: {}",
+                parent.display()
+            )
+        })?;
         let content = toml::to_string_pretty(self).context("Failed to serialize AIKS config")?;
         std::fs::write(path, content)
             .with_context(|| format!("Failed to write AIKS config: {}", path.display()))?;
