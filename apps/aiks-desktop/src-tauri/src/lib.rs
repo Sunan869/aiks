@@ -3,6 +3,7 @@ mod app_state;
 mod bootstrap;
 mod commands;
 mod diagnostics;
+mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
 mod search_commands;
@@ -68,6 +69,10 @@ pub fn run() {
             commands::get_ai_status,
             commands::test_ai_connection,
             commands::test_ai_connection_with_settings,
+            embedding_commands::get_embedding_settings,
+            embedding_commands::save_embedding_settings,
+            embedding_commands::test_embedding_connection_with_settings,
+            embedding_commands::rebuild_semantic_index,
             commands::extract_session_now,
             commands::get_knowledge_stats,
             commands::get_recent_knowledge,
