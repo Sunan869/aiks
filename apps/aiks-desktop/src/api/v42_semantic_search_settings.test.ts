@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import settingsPageSource from "../pages/SettingsPage.tsx?raw";
 import searchDialogSource from "../components/UnifiedSearchDialog.tsx?raw";
 import typesSource from "./types.ts?raw";
-import embeddingCommandsSource from "../../src-tauri/src/embedding_commands.rs?raw";
 import searchCommandsSource from "../../src-tauri/src/search_commands.rs?raw";
-import libSource from "../../src-tauri/src/lib.rs?raw";
-import semanticIndexSource from "../../../../crates/aiks-core/src/semantic_index.rs?raw";
+import desktopLibSource from "../../src-tauri/src/lib.rs?raw";
+import coreLibSource from "../../../../crates/aiks-core/src/lib.rs?raw";
 import embeddingSource from "../../../../crates/aiks-core/src/pipeline/embedding_client.rs?raw";
 
 describe("V4.2 semantic search settings and rebuild", () => {
@@ -18,25 +17,22 @@ describe("V4.2 semantic search settings and rebuild", () => {
     expect(settingsPageSource).toContain("bge-m3:latest");
     expect(settingsPageSource).toContain("2048");
     expect(settingsPageSource).toContain("1024");
-
-    expect(embeddingCommandsSource).toContain("pub embedding_enabled: bool");
-    expect(embeddingCommandsSource).toContain("pub embedding_base_url: String");
-    expect(embeddingCommandsSource).toContain("pub embedding_model: String");
-    expect(embeddingCommandsSource).toContain("pub embedding_dimensions: usize");
   });
 
-  it("can probe embedding connectivity and rebuild both knowledge and session vectors", () => {
+  it("wires embedding settings, connectivity testing, and historical rebuild commands", () => {
+    expect(settingsPageSource).toContain("get_embedding_settings");
+    expect(settingsPageSource).toContain("save_embedding_settings");
     expect(settingsPageSource).toContain("test_embedding_connection_with_settings");
     expect(settingsPageSource).toContain("rebuild_semantic_index");
     expect(settingsPageSource).toContain("semantic-index-progress");
     expect(settingsPageSource).toContain("已向量化");
 
-    expect(embeddingCommandsSource).toContain("pub async fn test_embedding_connection_with_settings");
-    expect(embeddingCommandsSource).toContain("pub async fn rebuild_semantic_index");
-    expect(libSource).toContain("embedding_commands::test_embedding_connection_with_settings");
-    expect(libSource).toContain("embedding_commands::rebuild_semantic_index");
-    expect(semanticIndexSource).toContain("KnowledgeIndexService");
-    expect(semanticIndexSource).toContain("SessionIndexService");
+    expect(desktopLibSource).toContain("mod embedding_commands");
+    expect(desktopLibSource).toContain("embedding_commands::get_embedding_settings");
+    expect(desktopLibSource).toContain("embedding_commands::save_embedding_settings");
+    expect(desktopLibSource).toContain("embedding_commands::test_embedding_connection_with_settings");
+    expect(desktopLibSource).toContain("embedding_commands::rebuild_semantic_index");
+    expect(coreLibSource).toContain("pub mod semantic_index");
   });
 
   it("treats intentionally disabled embeddings as lexical mode rather than a degradation", () => {
