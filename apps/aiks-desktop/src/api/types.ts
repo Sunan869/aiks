@@ -197,7 +197,7 @@ export interface UnifiedSearchOutcome {
   hits: UnifiedSearchHit[];
   degraded: boolean;
   warnings: string[];
-  semantic_enabled: boolean;
+  semantic_enabled?: boolean;
 }
 
 export type WorkspaceMode = "knowledge" | "session";
