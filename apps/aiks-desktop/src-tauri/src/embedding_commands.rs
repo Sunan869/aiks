@@ -42,23 +42,7 @@ fn load_config() -> Result<Config, String> {
 
 fn persist_config(config: &Config) -> Result<(), String> {
     let path = config_file_path();
-    let parent = path.parent().ok_or("Invalid config path")?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let content = toml::to_string_pretty(config)
-        .map_err(|error| format!("Failed to serialize config: {error}"))?;
-    let tmp = parent.join("aiks.toml.embedding.tmp");
-    std::fs::write(&tmp, content).map_err(|error| error.to_string())?;
-    if let Err(first_error) = std::fs::rename(&tmp, &path) {
-        if path.exists() {
-            std::fs::remove_file(&path).map_err(|error| {
-                format!("Failed to replace existing config after {first_error}: {error}")
-            })?;
-            std::fs::rename(&tmp, &path).map_err(|error| error.to_string())?;
-        } else {
-            return Err(first_error.to_string());
-        }
-    }
-    Ok(())
+    config.write_file(&path).map_err(|error| error.to_string())
 }
 
 fn apply_settings(config: &mut Config, settings: &EmbeddingSettings) -> Result<(), String> {
