@@ -36,7 +36,7 @@ describe("V4.2 semantic search settings and rebuild", () => {
   });
 
   it("treats intentionally disabled embeddings as lexical mode rather than a degradation", () => {
-    expect(typesSource).toContain("semantic_enabled: boolean");
+    expect(typesSource).toContain("semantic_enabled?: boolean");
     expect(searchCommandsSource).toContain("semantic_enabled");
     expect(searchCommandsSource).toContain("Semantic search is disabled");
     expect(searchDialogSource).toContain("outcome.semantic_enabled");
