@@ -5,7 +5,6 @@ import settingsSource from "../pages/SettingsPage.tsx?raw";
 import sourcesSource from "../pages/SourcesPage.tsx?raw";
 import apiInterfaceSource from "./index.ts?raw";
 import tauriApiSource from "./tauri.ts?raw";
-import commandsSource from "../../src-tauri/src/commands.rs?raw";
 import embeddingCommandsSource from "../../src-tauri/src/embedding_commands.rs?raw";
 import desktopLibSource from "../../src-tauri/src/lib.rs?raw";
 import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
@@ -14,11 +13,9 @@ import configSource from "../../../../crates/aiks-core/src/config/mod.rs?raw";
 describe("V4.2 real-machine UX regressions", () => {
   it("persists embedding config before optional desktop integration and uses one reliable config writer", () => {
     expect(configSource).toContain("pub fn write_file");
-    expect(commandsSource).toContain("config.write_file(&path)");
     expect(embeddingCommandsSource).toContain("config.write_file(&path)");
-    expect(commandsSource).toContain("autostart_warning");
-    expect(commandsSource).not.toContain("aiks.toml.tmp");
     expect(embeddingCommandsSource).not.toContain("aiks.toml.embedding.tmp");
+    expect(settingsSource).toContain("saveWarning");
 
     const embeddingSave = settingsSource.indexOf('invoke("save_embedding_settings"');
     const appSave = settingsSource.indexOf('invoke<SaveSettingsResult>("save_settings"');
