@@ -27,6 +27,10 @@ interface Settings extends EmbeddingSettings {
   ai_model: string;
 }
 
+interface SaveSettingsResult {
+  autostart_warning?: string | null;
+}
+
 interface EmbeddingProbeResponse {
   healthy: boolean;
   dimensions: number | null;
@@ -78,6 +82,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [saveWarning, setSaveWarning] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [aiHealthy, setAiHealthy] = useState<boolean | null>(null);
   const [aiTesting, setAiTesting] = useState(false);
@@ -205,6 +210,7 @@ export default function SettingsPage() {
   const save = async (restart: boolean) => {
     if (!settings) return;
     setSaveError("");
+    setSaveWarning("");
     try {
       if (!isMock) {
         const { invoke } = await import("@tauri-apps/api/core");
@@ -228,8 +234,17 @@ export default function SettingsPage() {
           embedding_model: settings.embedding_model,
           embedding_dimensions: settings.embedding_dimensions,
         };
-        await invoke("save_settings", { settings: appSettings });
+
+        // Semantic settings are the prerequisite for rebuild and must not be
+        // blocked by optional OS integration such as Windows autostart.
         await invoke("save_embedding_settings", { settings: embeddingSettings });
+        try {
+          const result = await invoke<SaveSettingsResult>("save_settings", { settings: appSettings });
+          if (result?.autostart_warning) setSaveWarning(result.autostart_warning);
+        } catch (error) {
+          setSaveWarning(`语义搜索配置已保存；桌面设置更新失败：${String(error)}`);
+        }
+
         if (restart) {
           await invoke("restart_app");
           return;
@@ -272,7 +287,7 @@ export default function SettingsPage() {
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
 
   return (
-    <div className="p-6 max-w-xl">
+    <div className="w-full min-w-0 p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">设置</h1>
         <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步、内容和语义搜索配置将在重启 AIKS 后生效。</p>
@@ -472,6 +487,7 @@ export default function SettingsPage() {
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
         AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
       </div>
+      {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
       <div className="mt-4 flex items-center gap-2">
