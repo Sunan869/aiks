@@ -85,6 +85,7 @@ pub struct ProvidersConfig {
     pub codex: CodexProviderConfig,
     pub gemini: ProviderConfig,
     pub opencode: ProviderConfig,
+    pub workbuddy: ProviderConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,6 +323,14 @@ impl Config {
             None
         } else {
             Some(PathBuf::from(&self.providers.opencode.path))
+        }
+    }
+
+    pub fn workbuddy_path(&self) -> Option<PathBuf> {
+        if self.providers.workbuddy.path.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(&self.providers.workbuddy.path))
         }
     }
 }
