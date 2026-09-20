@@ -232,6 +232,7 @@ mod tests {
             SourceKind::Codex,
             SourceKind::GeminiCli,
             SourceKind::OpenCode,
+            SourceKind::WorkBuddy,
         ] {
             assert_eq!(SourceKind::from_str(kind.as_str()), Some(kind));
         }
