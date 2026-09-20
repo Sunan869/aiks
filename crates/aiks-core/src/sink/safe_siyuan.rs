@@ -13,6 +13,12 @@ use super::siyuan;
 /// sink boundary so no caller can accidentally reintroduce that unsafe write.
 const MAX_SAFE_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+enum SiYuanSafetyError {
+    #[error("SiYuan document too large: {bytes} bytes exceeds the {limit} byte safety limit")]
+    DocumentTooLarge { bytes: usize, limit: usize },
+}
+
 /// Safety wrapper around the raw SiYuan HTTP sink.
 ///
 /// SiYuan document creation is not transactionally idempotent from the HTTP
@@ -52,13 +58,24 @@ impl SiYuanSink {
         siyuan::SiYuanSink::sink_name()
     }
 
+    /// Classify sink errors for the sync state machine. Safety-policy failures
+    /// caused by an unchanged payload cannot improve through blind retries;
+    /// transport/API failures remain retryable.
+    pub fn is_retryable_write_error(error: &anyhow::Error) -> bool {
+        !matches!(
+            error.downcast_ref::<SiYuanSafetyError>(),
+            Some(SiYuanSafetyError::DocumentTooLarge { .. })
+        )
+    }
+
     fn ensure_safe_document_size(markdown: &str) -> anyhow::Result<()> {
         let bytes = markdown.len();
         if bytes > MAX_SAFE_DOCUMENT_BYTES {
-            anyhow::bail!(
-                "SiYuan document too large: {bytes} bytes exceeds the {} byte safety limit",
-                MAX_SAFE_DOCUMENT_BYTES
-            );
+            return Err(SiYuanSafetyError::DocumentTooLarge {
+                bytes,
+                limit: MAX_SAFE_DOCUMENT_BYTES,
+            }
+            .into());
         }
         Ok(())
     }
