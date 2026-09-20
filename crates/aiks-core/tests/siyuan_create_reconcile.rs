@@ -53,7 +53,7 @@ async fn create_reconciled_adopts_existing_document_before_creating() {
 async fn create_reconciled_refuses_to_adopt_existing_document_with_different_content() {
     let path = "/10 AI Sessions/OpenCode/2026/03/session [ses_30a9]";
     let existing = r#"{"code":0,"msg":"","data":[{"id":"doc-existing"}]}"#;
-    let remote = r#"{"code":0,"msg":"","data":{"kramdown":"# user edited\n"}}"#;
+    let remote = r##"{"code":0,"msg":"","data":{"kramdown":"# user edited\n"}}"##;
     let (base_url, requests) = spawn_sequence_server(vec![existing, remote]).await;
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
 
