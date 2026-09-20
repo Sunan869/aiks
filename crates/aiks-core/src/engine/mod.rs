@@ -345,6 +345,22 @@ impl AiksEngine {
     where
         F: FnMut(&ExtractionCandidate),
     {
+        self.sync_unlocked_with_candidate_handler_and_trigger(opts, "manual", on_candidate)
+            .await
+    }
+
+    /// Sync implementation with an explicit initiation source.
+    /// Existing callers stay `manual`; automatic lifecycle callers can persist
+    /// `startup`, `watcher`, or `periodic` without changing SyncOptions.
+    async fn sync_unlocked_with_candidate_handler_and_trigger<F>(
+        &self,
+        opts: SyncOptions,
+        trigger_type: &str,
+        on_candidate: F,
+    ) -> anyhow::Result<SyncStats>
+    where
+        F: FnMut(&ExtractionCandidate),
+    {
         let sink = if let Some(token) = &self.siyuan_token {
             // External mode: use token from CLI config
             let mut cfg = self.config.siyuan.clone();
@@ -355,8 +371,16 @@ impl AiksEngine {
             // Embedded mode: no token required
             SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)?
         };
+        let trigger = if opts.dry_run { "dry_run" } else { trigger_type };
         self.sync_engine
-            .run_sync_with_candidate_handler(&self.db, &self.registry, &sink, &opts, on_candidate)
+            .run_sync_with_candidate_handler_and_trigger(
+                &self.db,
+                &self.registry,
+                &sink,
+                &opts,
+                trigger,
+                on_candidate,
+            )
             .await
     }
 
@@ -664,6 +688,16 @@ impl AiksEngine {
         &self,
         opts: SyncOptions,
     ) -> anyhow::Result<SyncStats> {
+        self.sync_and_enqueue_extraction_with_trigger(opts, "manual")
+            .await
+    }
+
+    /// Run sync and submit extraction work while recording the initiation source.
+    pub async fn sync_and_enqueue_extraction_with_trigger(
+        &self,
+        opts: SyncOptions,
+        trigger_type: &str,
+    ) -> anyhow::Result<SyncStats> {
         // Hold the global sync lock across migration + sync + bookkeeping so
         // the archive migration never interleaves with another flow's SiYuan
         // writes (same duplicate-document rationale as `sync`). The guard is
@@ -690,11 +724,15 @@ impl AiksEngine {
             let db = Arc::clone(&self.db);
             let pipeline_worker = Arc::clone(&self.pipeline_worker);
             let stats = self
-                .sync_unlocked_with_candidate_handler(opts.clone(), move |candidate| {
-                    if enqueue_live {
-                        Self::submit_pipeline_candidate(&db, &pipeline_worker, candidate);
-                    }
-                })
+                .sync_unlocked_with_candidate_handler_and_trigger(
+                    opts.clone(),
+                    trigger_type,
+                    move |candidate| {
+                        if enqueue_live {
+                            Self::submit_pipeline_candidate(&db, &pipeline_worker, candidate);
+                        }
+                    },
+                )
                 .await?;
 
             // B15: After a successful scan (no source_filter = full scan),
@@ -897,7 +935,6 @@ impl AiksEngine {
                     "opencode" => "OpenCode",
                     other => other,
                 };
-
                 let doc = KnowledgeItemDoc {
                     knowledge_id: &k_id,
                     title: &title,
