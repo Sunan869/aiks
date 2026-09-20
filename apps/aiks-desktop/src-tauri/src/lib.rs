@@ -8,6 +8,7 @@ mod knowledge_commands;
 mod lifecycle;
 mod search_commands;
 pub mod session_workbench;
+mod storage_commands;
 mod tray;
 mod workbench;
 
@@ -41,12 +42,34 @@ pub fn run() {
             tray::setup_tray(app)?;
             workbench::events::register(&app_handle);
             tauri::async_runtime::spawn(async move {
-                match lifecycle::startup(app_handle.clone()).await {
-                    Ok(()) => tracing::info!("AIKS startup complete"),
+                match storage_commands::prepare_storage_before_startup(&app_handle).await {
+                    Ok(true) => match lifecycle::startup(app_handle.clone()).await {
+                        Ok(()) => tracing::info!("AIKS startup complete"),
+                        Err(e) => {
+                            tracing::error!("Startup failed: {}", e);
+                            if let Some(window) = app_handle.get_webview_window("control") {
+                                let _ = window.show();
+                            }
+                        }
+                    },
+                    Ok(false) => {
+                        tracing::info!("Waiting for the user to select an AIKS data directory");
+                    }
                     Err(e) => {
-                        tracing::error!("Startup failed: {}", e);
-                        if let Some(window) = app_handle.get_webview_window("control") {
-                            let _ = window.show();
+                        tracing::error!("Storage preparation failed: {}", e);
+                        match lifecycle::startup(app_handle.clone()).await {
+                            Ok(()) => {
+                                tracing::info!("AIKS startup complete after storage fallback")
+                            }
+                            Err(startup_error) => {
+                                tracing::error!(
+                                    "Startup failed after storage fallback: {}",
+                                    startup_error
+                                );
+                                if let Some(window) = app_handle.get_webview_window("control") {
+                                    let _ = window.show();
+                                }
+                            }
                         }
                     }
                 }
@@ -73,6 +96,9 @@ pub fn run() {
             embedding_commands::save_embedding_settings,
             embedding_commands::test_embedding_connection_with_settings,
             embedding_commands::rebuild_semantic_index,
+            storage_commands::get_data_storage_settings,
+            storage_commands::pick_data_directory,
+            storage_commands::set_data_storage_root,
             commands::extract_session_now,
             commands::get_knowledge_stats,
             commands::get_recent_knowledge,

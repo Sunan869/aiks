@@ -4,6 +4,8 @@ import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
 import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
 import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import bridgePluginInstallerSource from "../../src-tauri/src/workbench/plugin.rs?raw";
+import runtimeSource from "../../../../crates/aiks-core/src/runtime/mod.rs?raw";
+import engineSource from "../../../../crates/aiks-core/src/engine/mod.rs?raw";
 
 type Capability = {
   webviews?: string[];
@@ -62,6 +64,19 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(workbenchHostSource).toContain("suspended?: boolean");
     expect(workbenchHostSource).toContain("if (suspended)");
     expect(workbenchHostSource).toContain("getApi().hideWorkbench()");
+  });
+
+  it("records the real lifecycle trigger for automatic sync runs", () => {
+    expect(engineSource).toContain("sync_and_enqueue_extraction_with_trigger");
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "startup")');
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "watcher")');
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "periodic")');
+  });
+
+  it("keeps Windows process liveness probes hidden from desktop users", () => {
+    expect(runtimeSource).toMatch(
+      /Command::new\("tasklist"\)[\s\S]{0,500}creation_flags\(CREATE_NO_WINDOW\)/,
+    );
   });
 
   it("ships a guarded PowerShell reset that removes only the resolved AIKS data root", () => {
