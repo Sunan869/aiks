@@ -85,7 +85,11 @@ impl SiYuanSink {
             return Ok(id);
         }
 
-        match self.inner.create_document(notebook_id, path, markdown).await {
+        match self
+            .inner
+            .create_document(notebook_id, path, markdown)
+            .await
+        {
             Ok(id) => Ok(id),
             Err(create_error) => match self.find_document_by_hpath(notebook_id, path).await {
                 Ok(Some(id)) => Ok(id),
@@ -131,8 +135,8 @@ impl SiYuanSink {
                     Ok(None) => false,
                     Err(_) => true,
                 };
-                *self.blocked_recreate.lock().unwrap() = should_block_recreate
-                    .then(|| doc_id.to_string());
+                *self.blocked_recreate.lock().unwrap() =
+                    should_block_recreate.then(|| doc_id.to_string());
                 Err(update_error)
             }
         }
