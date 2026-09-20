@@ -66,6 +66,19 @@ fn hash_markdown(md: &str) -> String {
     format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
 }
 
+/// Persist a trustworthy remote-content baseline without marking the whole sync
+/// successful yet. This is intentionally separate from `mark_synced`: attrs can
+/// still fail after the document write, and a retry must be able to prove that
+/// the mapped document is the same AIKS write instead of recreating it.
+fn record_target_hash(db: &StateDb, session_id: i64, target_hash: &str) -> anyhow::Result<()> {
+    use rusqlite::params;
+    db.conn().execute(
+        "UPDATE sync_target SET target_hash = ?3 WHERE session_id = ?1 AND sink = ?2",
+        params![session_id, "siyuan", target_hash],
+    )?;
+    Ok(())
+}
+
 struct SyncRunContext<'a> {
     renderer: &'a MarkdownRenderer,
     notebook_id: Option<&'a str>,
@@ -370,6 +383,21 @@ impl SyncEngine {
             None => None,
         };
 
+        // A permanent safety failure for an unchanged source payload cannot be
+        // repaired by retrying the same write. Skip it until the source content
+        // or parser version changes, at which point a new attempt is allowed.
+        if let (Some(existing), Some(target)) = (existing.as_ref(), existing_target.as_ref()) {
+            if target.status == SyncStatus::FailedPermanent
+                && existing.content_hash.as_deref() == Some(&content_hash)
+                && existing.parser_version.as_deref() == Some(parser_version)
+            {
+                return SyncOutcome::Skipped {
+                    reason: "previous permanent SiYuan write failure for unchanged source"
+                        .to_string(),
+                };
+            }
+        }
+
         // B03 + R04: UNCHANGED only when the *confirmed* target matches the
         // current content hash AND the parser version. The hash stored on the
         // source row alone is not enough (dry-run or a stale target must not
@@ -451,41 +479,34 @@ impl SyncEngine {
                 parser_version: None,
             });
 
-        // A mapped target is only safe to update after we can prove the remote
-        // document still exists and, when overwrite is disabled, validate it
-        // against a reliable baseline. Legacy rows without target_hash are
-        // protected rather than guessed safe.
+        // A mapped target is safe to update only after proving its remote
+        // content still matches a trustworthy baseline. When a baseline exists,
+        // a successful Kramdown read already proves the document exists, so no
+        // redundant SQL existence probe is needed. Legacy rows without a
+        // baseline are probed only to distinguish protected-existing from
+        // definitely-missing.
         let mut remote_missing = false;
         if let (Some(doc), Some(target)) = (&existing_doc, existing_target.as_ref()) {
             if !opts.overwrite {
-                match sink.get_doc_notebook(&doc.id).await {
-                    Ok(Some(_)) => {
-                        let baseline = match target.target_hash.as_ref() {
-                            Some(baseline) => baseline,
-                            None => {
-                                warn!(doc_id = %doc.id,
-                                    "Mapped SiYuan document has no remote baseline; protecting it as a conflict");
+                if let Some(baseline) = target.target_hash.as_ref() {
+                    match sink.get_document_markdown(&doc.id).await {
+                        Ok(remote_md) => {
+                            let remote_hash = hash_markdown(&remote_md);
+                            if baseline != &remote_hash {
                                 let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
                                 return SyncOutcome::Conflict {
                                     doc_id: doc.id.clone(),
                                 };
                             }
-                        };
-
-                        match sink.get_document_markdown(&doc.id).await {
-                            Ok(remote_md) => {
-                                let remote_hash = hash_markdown(&remote_md);
-                                if baseline != &remote_hash {
-                                    let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
-                                    return SyncOutcome::Conflict {
-                                        doc_id: doc.id.clone(),
-                                    };
-                                }
+                        }
+                        Err(read_error) => match sink.get_doc_notebook(&doc.id).await {
+                            Ok(None) => {
+                                remote_missing = true;
                             }
-                            Err(e) => {
+                            Ok(Some(_)) => {
                                 let msg = format!(
                                     "verify remote SiYuan document {} before update: {}",
-                                    doc.id, e
+                                    doc.id, read_error
                                 );
                                 let _ = sync_target_repo.mark_failed(
                                     db_session_id,
@@ -495,8 +516,23 @@ impl SyncEngine {
                                 );
                                 return SyncOutcome::Failed { error: msg };
                             }
-                        }
+                            Err(probe_error) => {
+                                let msg = format!(
+                                    "verify remote SiYuan document {} before update: {}; existence check: {}",
+                                    doc.id, read_error, probe_error
+                                );
+                                let _ = sync_target_repo.mark_failed(
+                                    db_session_id,
+                                    "siyuan",
+                                    &msg,
+                                    true,
+                                );
+                                return SyncOutcome::Failed { error: msg };
+                            }
+                        },
+                    }
 
+                    if !remote_missing {
                         // Secondary check: managed attribute was tampered with.
                         if let Ok(attrs) = sink.get_block_attrs(&doc.id).await {
                             let current =
@@ -508,7 +544,8 @@ impl SyncEngine {
                                     .map(|h| h != cur)
                                     .unwrap_or(false)
                                 {
-                                    let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                                    let _ =
+                                        sync_target_repo.mark_conflict(db_session_id, "siyuan");
                                     return SyncOutcome::Conflict {
                                         doc_id: doc.id.clone(),
                                     };
@@ -516,16 +553,28 @@ impl SyncEngine {
                             }
                         }
                     }
-                    Ok(None) => {
-                        remote_missing = true;
-                    }
-                    Err(e) => {
-                        let msg = format!(
-                            "verify mapped SiYuan document {} exists before update: {}",
-                            doc.id, e
-                        );
-                        let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
-                        return SyncOutcome::Failed { error: msg };
+                } else {
+                    match sink.get_doc_notebook(&doc.id).await {
+                        Ok(Some(_)) => {
+                            warn!(doc_id = %doc.id,
+                                "Mapped SiYuan document has no remote baseline; protecting it as a conflict");
+                            let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                            return SyncOutcome::Conflict {
+                                doc_id: doc.id.clone(),
+                            };
+                        }
+                        Ok(None) => {
+                            remote_missing = true;
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "verify mapped SiYuan document {} exists before update: {}",
+                                doc.id, e
+                            );
+                            let _ =
+                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
+                            return SyncOutcome::Failed { error: msg };
+                        }
                     }
                 }
             }
@@ -562,11 +611,12 @@ impl SyncEngine {
                 {
                     Ok(id) => id,
                     Err(e) => {
+                        let retryable = SiYuanSink::is_retryable_write_error(&e);
                         let _ = sync_target_repo.mark_failed(
                             db_session_id,
                             "siyuan",
                             &e.to_string(),
-                            true,
+                            retryable,
                         );
                         return SyncOutcome::Failed {
                             error: format!("create_document (remote confirmed missing): {}", e),
@@ -576,50 +626,75 @@ impl SyncEngine {
             } else {
                 match sink.update_document(&doc.id, &markdown).await {
                     Ok(()) => doc.id.clone(),
-                    Err(update_error) => match sink.get_doc_notebook(&doc.id).await {
-                        Ok(None) => {
-                            warn!(doc_id = %doc.id, error = %update_error,
-                                "update_document failed and remote document is confirmed missing; recreating");
-                            let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
-                            match sink
-                                .create_document(notebook_id, &doc_path, &markdown)
-                                .await
-                            {
-                                Ok(id) => id,
-                                Err(create_error) => {
-                                    let msg = format!(
-                                        "create_document after confirmed remote deletion: {}",
-                                        create_error
-                                    );
-                                    let _ = sync_target_repo.mark_failed(
-                                        db_session_id,
-                                        "siyuan",
-                                        &msg,
-                                        true,
-                                    );
-                                    return SyncOutcome::Failed { error: msg };
+                    Err(update_error) => {
+                        if !SiYuanSink::is_retryable_write_error(&update_error) {
+                            let msg = update_error.to_string();
+                            let _ = sync_target_repo.mark_failed(
+                                db_session_id,
+                                "siyuan",
+                                &msg,
+                                false,
+                            );
+                            return SyncOutcome::Failed {
+                                error: format!("update_document: {}", update_error),
+                            };
+                        }
+
+                        match sink.get_doc_notebook(&doc.id).await {
+                            Ok(None) => {
+                                warn!(doc_id = %doc.id, error = %update_error,
+                                    "update_document failed and remote document is confirmed missing; recreating");
+                                let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
+                                match sink
+                                    .create_document(notebook_id, &doc_path, &markdown)
+                                    .await
+                                {
+                                    Ok(id) => id,
+                                    Err(create_error) => {
+                                        let msg = format!(
+                                            "create_document after confirmed remote deletion: {}",
+                                            create_error
+                                        );
+                                        let retryable =
+                                            SiYuanSink::is_retryable_write_error(&create_error);
+                                        let _ = sync_target_repo.mark_failed(
+                                            db_session_id,
+                                            "siyuan",
+                                            &msg,
+                                            retryable,
+                                        );
+                                        return SyncOutcome::Failed { error: msg };
+                                    }
                                 }
                             }
+                            Ok(Some(_)) => {
+                                let msg = format!(
+                                    "update_document {} failed while remote document still exists: {}",
+                                    doc.id, update_error
+                                );
+                                let _ = sync_target_repo.mark_failed(
+                                    db_session_id,
+                                    "siyuan",
+                                    &msg,
+                                    true,
+                                );
+                                return SyncOutcome::Failed { error: msg };
+                            }
+                            Err(probe_error) => {
+                                let msg = format!(
+                                    "update_document {} failed and remote existence is unknown: {}; existence check: {}",
+                                    doc.id, update_error, probe_error
+                                );
+                                let _ = sync_target_repo.mark_failed(
+                                    db_session_id,
+                                    "siyuan",
+                                    &msg,
+                                    true,
+                                );
+                                return SyncOutcome::Failed { error: msg };
+                            }
                         }
-                        Ok(Some(_)) => {
-                            let msg = format!(
-                                "update_document {} failed while remote document still exists: {}",
-                                doc.id, update_error
-                            );
-                            let _ =
-                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
-                            return SyncOutcome::Failed { error: msg };
-                        }
-                        Err(probe_error) => {
-                            let msg = format!(
-                                "update_document {} failed and remote existence is unknown: {}; existence check: {}",
-                                doc.id, update_error, probe_error
-                            );
-                            let _ =
-                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
-                            return SyncOutcome::Failed { error: msg };
-                        }
-                    },
+                    }
                 }
             }
         } else {
@@ -630,8 +705,13 @@ impl SyncEngine {
             {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ =
-                        sync_target_repo.mark_failed(db_session_id, "siyuan", &e.to_string(), true);
+                    let retryable = SiYuanSink::is_retryable_write_error(&e);
+                    let _ = sync_target_repo.mark_failed(
+                        db_session_id,
+                        "siyuan",
+                        &e.to_string(),
+                        retryable,
+                    );
                     return SyncOutcome::Failed {
                         error: format!("create_document: {}", e),
                     };
@@ -639,14 +719,36 @@ impl SyncEngine {
             }
         };
 
-        // R05: persist the doc mapping immediately so that a failure in the
-        // attribute step retries with UPDATE instead of creating a duplicate.
-        let _ = sync_target_repo.record_target_doc(db_session_id, "siyuan", &doc_id, &doc_path);
+        // Persist the doc mapping immediately. A later failure must retry this
+        // exact remote document rather than creating an orphan duplicate.
+        if let Err(e) =
+            sync_target_repo.record_target_doc(db_session_id, "siyuan", &doc_id, &doc_path)
+        {
+            return SyncOutcome::Failed {
+                error: format!("record_target_doc: {}", e),
+            };
+        }
+
+        // Capture and persist the remote baseline BEFORE attrs. If attrs fail,
+        // the retry can still prove this mapped document is the AIKS write and
+        // safely update it. Baseline capture itself fails closed.
+        let target_hash = match sink.get_document_markdown(&doc_id).await {
+            Ok(remote_md) => hash_markdown(&remote_md),
+            Err(e) => {
+                let msg = format!("capture remote baseline for {}: {}", doc_id, e);
+                let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
+                return SyncOutcome::Failed { error: msg };
+            }
+        };
+        if let Err(e) = record_target_hash(db, db_session_id, &target_hash) {
+            let msg = format!("record remote baseline for {}: {}", doc_id, e);
+            let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
+            return SyncOutcome::Failed { error: msg };
+        }
 
         // R05: Set AIKS metadata attributes — a failure here is FATAL for this
-        // session (the doc exists but is not recoverable/self-describing, so we
-        // must not report success). The mapping was already recorded above, so
-        // the retry path updates the same document.
+        // session. The mapping and baseline are already durable, so the retry
+        // path verifies and updates the same document.
         if let Err(e) = sink
             .set_aiks_attrs(&doc_id, source, session_id, &content_hash, parser_version)
             .await
@@ -656,19 +758,6 @@ impl SyncEngine {
             return SyncOutcome::Failed { error: msg };
         }
 
-        // R05: capture the remote content baseline so the next conflict check
-        // compares remote-vs-baseline like-for-like. If capture fails, the row
-        // has no trustworthy baseline and the next changed-source update will
-        // be protected as a conflict rather than overwritten blindly.
-        let target_hash: Option<String> = match sink.get_document_markdown(&doc_id).await {
-            Ok(remote_md) => Some(hash_markdown(&remote_md)),
-            Err(e) => {
-                debug!(doc_id = %doc_id, error = %e,
-                    "Could not capture remote baseline; future changed-source updates will fail closed");
-                None
-            }
-        };
-
         // R05: mark_synced errors must not be silently ignored — the run would
         // report success while the state says otherwise.
         if let Err(e) = sync_target_repo.mark_synced(
@@ -677,7 +766,7 @@ impl SyncEngine {
             &doc_id,
             &doc_path,
             &content_hash,
-            target_hash.as_deref(),
+            Some(&target_hash),
         ) {
             return SyncOutcome::Failed {
                 error: format!("mark_synced: {}", e),
