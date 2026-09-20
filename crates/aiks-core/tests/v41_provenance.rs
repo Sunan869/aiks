@@ -173,11 +173,8 @@ async fn remote_modified_server() -> (
     (base_url, seen, task)
 }
 
-#[tokio::test]
-async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
-    let session_id = SourceSessionRepo::new(&db)
+fn seed_mapped_session(db: &StateDb, target_hash: Option<&str>) -> i64 {
+    let session_id = SourceSessionRepo::new(db)
         .upsert(
             "claude_code",
             "raw-session-1",
@@ -191,7 +188,7 @@ async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
         )
         .unwrap();
 
-    let target_repo = SyncTargetRepo::new(&db);
+    let target_repo = SyncTargetRepo::new(db);
     target_repo.upsert_pending(session_id, "siyuan").unwrap();
     target_repo
         .mark_synced(
@@ -200,9 +197,17 @@ async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
             "raw-doc",
             "/10 AI Sessions/ClaudeCode/raw-session-1",
             "old-source-hash",
-            Some(&markdown_hash("managed baseline")),
+            target_hash,
         )
         .unwrap();
+    session_id
+}
+
+#[tokio::test]
+async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
+    seed_mapped_session(&db, Some(&markdown_hash("managed baseline")));
 
     let (base_url, seen, server) = remote_modified_server().await;
     let stats = SyncEngine::new(Arc::new(Config::default()))
@@ -223,5 +228,33 @@ async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
     assert!(
         !paths.iter().any(|path| path.contains("updateBlock")),
         "modified raw Session must never be overwritten: {paths:?}"
+    );
+}
+
+#[tokio::test]
+async fn legacy_mapped_document_without_baseline_is_protected_from_overwrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("aiks.db")).unwrap();
+    seed_mapped_session(&db, None);
+
+    let (base_url, seen, server) = remote_modified_server().await;
+    let stats = SyncEngine::new(Arc::new(Config::default()))
+        .run_sync(
+            &db,
+            &ProviderRegistry::new(vec![Box::new(ChangedSessionProvider)]),
+            &SiYuanSink::embedded(base_url, "AI Knowledge").unwrap(),
+            &SyncOptions::default(),
+        )
+        .await
+        .unwrap();
+    server.abort();
+
+    assert_eq!(stats.conflict_count, 1);
+    assert_eq!(stats.updated_count, 0);
+    let paths = seen.lock().unwrap();
+    assert!(paths.iter().any(|path| path.contains("getBlockKramdown")));
+    assert!(
+        !paths.iter().any(|path| path.contains("updateBlock")),
+        "legacy mapped document without a baseline must fail closed: {paths:?}"
     );
 }
