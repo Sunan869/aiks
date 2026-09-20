@@ -7,8 +7,14 @@ use aiks_core::{config::Config, model::SourceKind};
 fn workbuddy_source_kind_has_stable_identity() {
     assert_eq!(SourceKind::WorkBuddy.as_str(), "workbuddy");
     assert_eq!(SourceKind::WorkBuddy.display_name(), "WorkBuddy");
-    assert_eq!(SourceKind::from_str("workbuddy"), Some(SourceKind::WorkBuddy));
-    assert_eq!(SourceKind::from_str("work_buddy"), Some(SourceKind::WorkBuddy));
+    assert_eq!(
+        SourceKind::from_str("workbuddy"),
+        Some(SourceKind::WorkBuddy)
+    );
+    assert_eq!(
+        SourceKind::from_str("work_buddy"),
+        Some(SourceKind::WorkBuddy)
+    );
 }
 
 #[test]
