@@ -371,7 +371,11 @@ impl AiksEngine {
             // Embedded mode: no token required
             SiYuanSink::embedded(&self.siyuan_base_url, &self.config.siyuan.notebook_name)?
         };
-        let trigger = if opts.dry_run { "dry_run" } else { trigger_type };
+        let trigger = if opts.dry_run {
+            "dry_run"
+        } else {
+            trigger_type
+        };
         self.sync_engine
             .run_sync_with_candidate_handler_and_trigger(
                 &self.db,
