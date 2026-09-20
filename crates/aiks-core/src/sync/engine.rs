@@ -544,8 +544,7 @@ impl SyncEngine {
                                     .map(|h| h != cur)
                                     .unwrap_or(false)
                                 {
-                                    let _ =
-                                        sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                                    let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
                                     return SyncOutcome::Conflict {
                                         doc_id: doc.id.clone(),
                                     };
@@ -629,12 +628,8 @@ impl SyncEngine {
                     Err(update_error) => {
                         if !SiYuanSink::is_retryable_write_error(&update_error) {
                             let msg = update_error.to_string();
-                            let _ = sync_target_repo.mark_failed(
-                                db_session_id,
-                                "siyuan",
-                                &msg,
-                                false,
-                            );
+                            let _ =
+                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, false);
                             return SyncOutcome::Failed {
                                 error: format!("update_document: {}", update_error),
                             };
