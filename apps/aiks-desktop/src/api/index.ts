@@ -48,6 +48,7 @@ export interface AiksApi {
   getSessionWorkbenchDocId(sessionId: number): Promise<string | null>;
   mountWorkbench(bounds: WorkbenchBounds): Promise<void>;
   showWorkbench(mode: WorkspaceMode): Promise<void>;
+  reloadWorkbench(): Promise<void>;
   hideWorkbench(): Promise<void>;
   openSiyuanDocument(docId: string, mode: WorkspaceMode): Promise<void>;
   openSiyuanBlock(docId: string, blockId: string, mode: WorkspaceMode): Promise<void>;

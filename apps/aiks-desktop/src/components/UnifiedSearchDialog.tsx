@@ -9,7 +9,7 @@ interface Props {
   onSelect: (hit: UnifiedSearchHit) => void;
 }
 
-const EMPTY: UnifiedSearchOutcome = { hits: [], degraded: false, warnings: [] };
+const EMPTY: UnifiedSearchOutcome = { hits: [], degraded: false, warnings: [], semantic_enabled: false };
 
 export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) {
   const [query, setQuery] = useState("");
@@ -95,6 +95,11 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
           </button>
         </div>
 
+        {query.trim() && outcome.semantic_enabled === false && !outcome.degraded && (
+          <div className="border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+            关键词检索模式 · 可在设置中启用语义搜索获得语义召回
+          </div>
+        )}
         {outcome.degraded && outcome.warnings.length > 0 && (
           <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
             {outcome.warnings[0]}

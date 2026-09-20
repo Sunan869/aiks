@@ -63,13 +63,15 @@ auto_extract = true
 disable_thinking = true
 max_context_tokens = 32768
 
-# Optional vector embeddings. Leave disabled until a compatible endpoint is configured.
+# Optional semantic search. AIKS sends text only to an OpenAI-compatible /v1/embeddings endpoint.
+# Recommended preset: LCO-Embedding/LCO-Embedding-Omni-3B-2605 (2048 dimensions).
+# Lightweight alternative: bge-m3:latest (1024 dimensions when served by Ollama).
 [embedding]
 enabled = false
 base_url = ""
-model = ""
+model = "LCO-Embedding/LCO-Embedding-Omni-3B-2605"
 api_key = ""
-dimensions = 1024
+dimensions = 2048
 batch_size = 16
 chunk_target_tokens = 800
 chunk_max_tokens = 1200

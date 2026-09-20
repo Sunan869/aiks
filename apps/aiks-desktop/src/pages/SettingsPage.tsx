@@ -2,7 +2,17 @@ import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { shouldUseMock } from "../api/client";
 
-interface Settings {
+const LCO_MODEL = "LCO-Embedding/LCO-Embedding-Omni-3B-2605";
+const BGE_MODEL = "bge-m3:latest";
+
+interface EmbeddingSettings {
+  embedding_enabled: boolean;
+  embedding_base_url: string;
+  embedding_model: string;
+  embedding_dimensions: number;
+}
+
+interface Settings extends EmbeddingSettings {
   startup: boolean;
   close_to_tray: boolean;
   sync_enabled: boolean;
@@ -15,6 +25,38 @@ interface Settings {
   ai_auto_extract: boolean;
   ai_base_url: string;
   ai_model: string;
+}
+
+interface SaveSettingsResult {
+  autostart_warning?: string | null;
+}
+
+interface EmbeddingProbeResponse {
+  healthy: boolean;
+  dimensions: number | null;
+  message: string;
+}
+
+interface SemanticIndexProgress {
+  total: number;
+  completed: number;
+  knowledge_total: number;
+  session_total: number;
+  succeeded: number;
+  failed: number;
+  embedded_chunks: number;
+  current_kind: string | null;
+  current_id: string | null;
+}
+
+interface SemanticIndexRebuildStats {
+  total: number;
+  completed: number;
+  knowledge_total: number;
+  session_total: number;
+  succeeded: number;
+  failed: number;
+  embedded_chunks: number;
 }
 
 const MOCK_SETTINGS: Settings = {
@@ -30,15 +72,25 @@ const MOCK_SETTINGS: Settings = {
   ai_auto_extract: true,
   ai_base_url: "http://localhost:11434/v1",
   ai_model: "Qwen3.8-27B",
+  embedding_enabled: false,
+  embedding_base_url: "http://localhost:28090/v1",
+  embedding_model: LCO_MODEL,
+  embedding_dimensions: 2048,
 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [saveWarning, setSaveWarning] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [aiHealthy, setAiHealthy] = useState<boolean | null>(null);
   const [aiTesting, setAiTesting] = useState(false);
+  const [embeddingProbe, setEmbeddingProbe] = useState<EmbeddingProbeResponse | null>(null);
+  const [embeddingTesting, setEmbeddingTesting] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildProgress, setRebuildProgress] = useState<SemanticIndexProgress | null>(null);
+  const [rebuildMessage, setRebuildMessage] = useState("");
   const isMock = shouldUseMock();
 
   useEffect(() => {
@@ -47,8 +99,31 @@ export default function SettingsPage() {
       return;
     }
     import("@tauri-apps/api/core").then(({ invoke }) => {
-      invoke<Settings>("get_settings").then(setSettings).catch(error => setSaveError(String(error)));
+      Promise.all([
+        invoke<Omit<Settings, keyof EmbeddingSettings>>("get_settings"),
+        invoke<EmbeddingSettings>("get_embedding_settings"),
+      ])
+        .then(([base, embedding]) => setSettings({ ...base, ...embedding }))
+        .catch(error => setSaveError(String(error)));
     });
+  }, [isMock]);
+
+  useEffect(() => {
+    if (isMock) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) => listen<SemanticIndexProgress>("semantic-index-progress", event => {
+        if (!disposed) setRebuildProgress(event.payload);
+      }))
+      .then(callback => {
+        if (disposed) callback();
+        else unlisten = callback;
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [isMock]);
 
   const testAiConnection = async () => {
@@ -73,13 +148,103 @@ export default function SettingsPage() {
     }
   };
 
+  const testEmbeddingConnection = async () => {
+    if (!settings) return;
+    setEmbeddingProbe(null);
+    setEmbeddingTesting(true);
+    try {
+      if (isMock) {
+        setEmbeddingProbe({ healthy: true, dimensions: settings.embedding_dimensions, message: `连接正常 · ${settings.embedding_dimensions} 维` });
+        return;
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<EmbeddingProbeResponse>("test_embedding_connection_with_settings", {
+        baseUrl: settings.embedding_base_url,
+        model: settings.embedding_model,
+        dimensions: settings.embedding_dimensions,
+      });
+      setEmbeddingProbe(result);
+    } catch (error) {
+      setEmbeddingProbe({ healthy: false, dimensions: null, message: String(error) });
+    } finally {
+      setEmbeddingTesting(false);
+    }
+  };
+
+  const rebuildSemanticIndex = async () => {
+    if (!settings?.embedding_enabled) return;
+    setRebuildMessage("");
+    setRebuildProgress(null);
+    setRebuilding(true);
+    try {
+      if (isMock) {
+        const progress: SemanticIndexProgress = {
+          total: 96,
+          completed: 96,
+          knowledge_total: 36,
+          session_total: 60,
+          succeeded: 96,
+          failed: 0,
+          embedded_chunks: 148,
+          current_kind: null,
+          current_id: null,
+        };
+        setRebuildProgress(progress);
+        setRebuildMessage("语义索引重建完成");
+        return;
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<SemanticIndexRebuildStats>("rebuild_semantic_index");
+      setRebuildMessage(
+        result.failed > 0
+          ? `重建完成：成功 ${result.succeeded}，失败 ${result.failed}`
+          : `重建完成：${result.succeeded} 条记录，${result.embedded_chunks} 个向量块`,
+      );
+    } catch (error) {
+      setRebuildMessage(String(error));
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   const save = async (restart: boolean) => {
     if (!settings) return;
     setSaveError("");
+    setSaveWarning("");
     try {
       if (!isMock) {
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("save_settings", { settings });
+        const appSettings = {
+          startup: settings.startup,
+          close_to_tray: settings.close_to_tray,
+          sync_enabled: settings.sync_enabled,
+          scan_interval_seconds: settings.scan_interval_seconds,
+          include_thinking: settings.include_thinking,
+          include_tool_calls: settings.include_tool_calls,
+          max_tool_result_chars: settings.max_tool_result_chars,
+          redact_secrets: settings.redact_secrets,
+          ai_enabled: settings.ai_enabled,
+          ai_auto_extract: settings.ai_auto_extract,
+          ai_base_url: settings.ai_base_url,
+          ai_model: settings.ai_model,
+        };
+        const embeddingSettings: EmbeddingSettings = {
+          embedding_enabled: settings.embedding_enabled,
+          embedding_base_url: settings.embedding_base_url,
+          embedding_model: settings.embedding_model,
+          embedding_dimensions: settings.embedding_dimensions,
+        };
+
+        // Semantic settings are the prerequisite for rebuild and must not be
+        // blocked by optional OS integration such as Windows autostart.
+        await invoke("save_embedding_settings", { settings: embeddingSettings });
+        try {
+          const result = await invoke<SaveSettingsResult>("save_settings", { settings: appSettings });
+          if (result?.autostart_warning) setSaveWarning(result.autostart_warning);
+        } catch (error) {
+          setSaveWarning(`语义搜索配置已保存；桌面设置更新失败：${String(error)}`);
+        }
+
         if (restart) {
           await invoke("restart_app");
           return;
@@ -96,13 +261,36 @@ export default function SettingsPage() {
     setSettings(current => current ? { ...current, [key]: value } : current);
   };
 
+  const embeddingPreset = settings?.embedding_model === LCO_MODEL
+    ? "lco"
+    : settings?.embedding_model === BGE_MODEL
+      ? "bge"
+      : "custom";
+
+  const applyEmbeddingPreset = (preset: string) => {
+    if (preset === "lco") {
+      setSettings(current => current ? {
+        ...current,
+        embedding_model: LCO_MODEL,
+        embedding_dimensions: 2048,
+      } : current);
+    } else if (preset === "bge") {
+      setSettings(current => current ? {
+        ...current,
+        embedding_model: BGE_MODEL,
+        embedding_dimensions: 1024,
+      } : current);
+    }
+    setEmbeddingProbe(null);
+  };
+
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
 
   return (
-    <div className="p-6 max-w-xl">
+    <div className="w-full min-w-0 p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">设置</h1>
-        <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步和内容配置将在重启 AIKS 后生效。</p>
+        <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步、内容和语义搜索配置将在重启 AIKS 后生效。</p>
       </div>
 
       <Section title="常规">
@@ -133,6 +321,102 @@ export default function SettingsPage() {
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
           <div className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">{settings.ai_model}</div>
+        </div>
+      </Section>
+
+      <Section title="语义搜索">
+        <Toggle
+          label="启用语义搜索"
+          desc="关闭时继续使用关键词检索；开启后融合关键词与向量召回"
+          value={settings.embedding_enabled}
+          onChange={value => {
+            update("embedding_enabled", value);
+            setEmbeddingProbe(null);
+          }}
+        />
+        <div className="py-3 space-y-3">
+          <div>
+            <div className="text-xs text-gray-400 mb-1">向量模型预设</div>
+            <select
+              value={embeddingPreset}
+              onChange={event => applyEmbeddingPreset(event.target.value)}
+              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
+            >
+              <option value="lco">LCO Omni 3B 2605（推荐 · 2048 维）</option>
+              <option value="bge">BGE-M3（轻量 · 1024 维）</option>
+              <option value="custom">自定义</option>
+            </select>
+            <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Embedding 服务地址</div>
+            <input
+              value={settings.embedding_base_url}
+              onChange={event => {
+                update("embedding_base_url", event.target.value);
+                setEmbeddingProbe(null);
+              }}
+              placeholder="例如 http://127.0.0.1:28090/v1"
+              className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Embedding 模型</div>
+            <input
+              value={settings.embedding_model}
+              onChange={event => {
+                update("embedding_model", event.target.value);
+                setEmbeddingProbe(null);
+              }}
+              className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-gray-400 mb-1">向量维度</div>
+            <input
+              type="number"
+              min={1}
+              value={settings.embedding_dimensions}
+              onChange={event => {
+                update("embedding_dimensions", Number(event.target.value));
+                setEmbeddingProbe(null);
+              }}
+              className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void testEmbeddingConnection()}
+              disabled={embeddingTesting}
+              className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+            >
+              {embeddingTesting ? "测试中..." : "测试 Embedding 连接"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void rebuildSemanticIndex()}
+              disabled={!settings.embedding_enabled || rebuilding}
+              className="text-xs px-3 py-1.5 border border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-300 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
+            >
+              {rebuilding ? "重建中..." : "重建语义索引"}
+            </button>
+            {embeddingProbe && (
+              <span className={`text-xs ${embeddingProbe.healthy ? "text-green-600" : "text-red-500"}`}>
+                {embeddingProbe.healthy ? "✓" : "✕"} {embeddingProbe.message}
+              </span>
+            )}
+          </div>
+          {rebuildProgress && (
+            <div className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
+              已向量化 {rebuildProgress.completed}/{rebuildProgress.total} 条记录
+              <span className="ml-2 text-gray-400">知识 {rebuildProgress.knowledge_total} · 对话 {rebuildProgress.session_total} · 向量块 {rebuildProgress.embedded_chunks}</span>
+            </div>
+          )}
+          {rebuildMessage && <div className="text-xs text-gray-500 dark:text-gray-400">{rebuildMessage}</div>}
+          <div className="text-[11px] leading-5 text-gray-400">
+            配置保存并重启后搜索服务才会切换模型；历史数据需执行一次“重建语义索引”。重建期间关键词检索仍可使用。
+          </div>
         </div>
       </Section>
 
@@ -201,8 +485,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
-        AI 服务、模型、同步周期和内容规则保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
+        AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
       </div>
+      {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
       <div className="mt-4 flex items-center gap-2">

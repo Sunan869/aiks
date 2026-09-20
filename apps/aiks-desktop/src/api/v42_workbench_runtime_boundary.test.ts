@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import workbenchHostSource from "../components/WorkbenchHost.tsx?raw";
 import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
 import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
+import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import bridgePluginInstallerSource from "../../src-tauri/src/workbench/plugin.rs?raw";
+import runtimeSource from "../../../../crates/aiks-core/src/runtime/mod.rs?raw";
+import engineSource from "../../../../crates/aiks-core/src/engine/mod.rs?raw";
 
 type Capability = {
   webviews?: string[];
@@ -47,11 +50,33 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(bridgePluginInstallerSource).toContain('config.insert("petalDisabled".to_string(), json!(false))');
   });
 
+  it("logs native child-webview diagnostics without relying on the bridge event channel", () => {
+    expect(workbenchCommandsSource).toContain("on_page_load");
+    expect(workbenchCommandsSource).toContain("on_document_title_changed");
+    expect(workbenchCommandsSource).toContain("__AIKS_BRIDGE__");
+    expect(workbenchCommandsSource).toContain("__AIKS_WORKBENCH_NONCE__");
+    expect(workbenchCommandsSource).toContain("__TAURI_INTERNALS__");
+    expect(workbenchCommandsSource).toContain("[WORKBENCH_DIAG]");
+  });
+
   it("suspends the native child workbench while unified search is open", () => {
     expect(knowledgeWorkspaceSource).toContain("suspended={searchOpen}");
     expect(workbenchHostSource).toContain("suspended?: boolean");
     expect(workbenchHostSource).toContain("if (suspended)");
     expect(workbenchHostSource).toContain("getApi().hideWorkbench()");
+  });
+
+  it("records the real lifecycle trigger for automatic sync runs", () => {
+    expect(engineSource).toContain("sync_and_enqueue_extraction_with_trigger");
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "startup")');
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "watcher")');
+    expect(lifecycleSource).toContain('sync_and_enqueue_extraction_with_trigger(opts, "periodic")');
+  });
+
+  it("keeps Windows process liveness probes hidden from desktop users", () => {
+    expect(runtimeSource).toMatch(
+      /Command::new\("tasklist"\)[\s\S]{0,500}creation_flags\(CREATE_NO_WINDOW\)/,
+    );
   });
 
   it("ships a guarded PowerShell reset that removes only the resolved AIKS data root", () => {

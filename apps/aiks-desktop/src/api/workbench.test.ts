@@ -64,11 +64,27 @@ describe("V4.2 workbench bridge contract", () => {
     expect(pluginSource).toContain("aiAssistResult");
   });
 
+  it("ships the bridge in SiYuan 3.8.3 CommonJS plugin format", () => {
+    expect(pluginSource).not.toMatch(/^\s*import\s/m);
+    expect(pluginSource).not.toMatch(/^\s*export\s/m);
+    expect(pluginSource).toContain('require("siyuan")');
+    expect(pluginSource).toContain("module.exports = AIKSBridgePlugin");
+  });
+
   it("retries bridgeReady when Tauri IPC is not ready during plugin onload", () => {
     expect(pluginSource).toContain("BRIDGE_READY_MAX_ATTEMPTS");
     expect(pluginSource).toContain("retryBackendEmit");
     expect(pluginSource).toContain('eventName === "bridgeReady"');
     expect(pluginSource).toContain("window.setTimeout");
+  });
+
+  it("recovers bridgeReady when the injected nonce appears after plugin onload", () => {
+    expect(pluginSource).toContain("refreshRuntimeNonce");
+    expect(pluginSource).toContain("this.refreshRuntimeNonce();");
+    expect(pluginSource).toContain("envelope.nonce = this.runtimeNonce");
+    expect(pluginSource).toMatch(
+      /if \(eventName === "bridgeReady" && attempt < BRIDGE_READY_MAX_ATTEMPTS\)/,
+    );
   });
 });
 
@@ -114,6 +130,7 @@ describe("V4.2 Tauri workbench API mapping", () => {
         failed: 1,
       },
     };
+
     invokeMock.mockResolvedValueOnce(expected);
 
     const result = await new TauriAiksApi().getV41Diagnostics();

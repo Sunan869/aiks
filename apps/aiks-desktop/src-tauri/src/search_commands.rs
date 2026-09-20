@@ -26,13 +26,14 @@ pub async fn search_all_v42(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
+    let semantic_enabled = engine.embedding_config().enabled;
     let model_service = ModelService::new(
         engine.ai_config().clone(),
         engine.embedding_config().clone(),
     )
     .map_err(|error| error.to_string())?;
     let service = UnifiedSearchService::new(engine.db(), Arc::new(model_service));
-    let outcome = service
+    let mut outcome = service
         .search(
             &query,
             limit.unwrap_or(30).clamp(1, 100),
@@ -45,7 +46,19 @@ pub async fn search_all_v42(
         .await
         .map_err(|error| error.to_string())?;
 
-    serde_json::to_value(outcome).map_err(|error| error.to_string())
+    if !semantic_enabled {
+        outcome
+            .warnings
+            .retain(|warning| !warning.starts_with("Semantic search is disabled"));
+        outcome.degraded = !outcome.warnings.is_empty();
+    }
+
+    Ok(serde_json::json!({
+        "hits": outcome.hits,
+        "degraded": outcome.degraded,
+        "warnings": outcome.warnings,
+        "semantic_enabled": semantic_enabled,
+    }))
 }
 
 #[cfg(test)]
