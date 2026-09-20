@@ -8,13 +8,25 @@ interface Props {
 }
 
 const SOURCE_ICONS: Record<string, string> = {
-  "Codex": "📦", "OpenCode": "🔮", "Gemini CLI": "✨", "Claude Code": "🤖",
+  "Codex": "📦",
+  "OpenCode": "🔮",
+  "Gemini CLI": "✨",
+  "Claude Code": "🤖",
+  "WorkBuddy": "🧩",
 };
 const SOURCE_DESCS: Record<string, string> = {
   "Codex": "OpenAI Codex CLI (~/.codex)",
   "OpenCode": "OpenCode 数据库",
   "Gemini CLI": "Google Gemini CLI (~/.gemini)",
   "Claude Code": "Claude Code (~/.claude)",
+  "WorkBuddy": "WorkBuddy 本地会话 (~/.workbuddy)",
+};
+const SOURCE_KEYS: Record<string, string> = {
+  "Codex": "codex",
+  "OpenCode": "opencode",
+  "Gemini CLI": "gemini_cli",
+  "Claude Code": "claude_code",
+  "WorkBuddy": "workbuddy",
 };
 
 export default function SourcesPage({ fullStatus }: Props) {
@@ -22,9 +34,7 @@ export default function SourcesPage({ fullStatus }: Props) {
   const [msgs, setMsgs] = useState<Record<string, string>>({});
 
   const handleSync = async (source: string) => {
-    const srcKey = source === "Gemini CLI" ? "gemini_cli" :
-                   source === "Claude Code" ? "claude_code" :
-                   source.toLowerCase();
+    const srcKey = SOURCE_KEYS[source] ?? source.toLowerCase();
     setSyncing(s => ({ ...s, [source]: true }));
     setMsgs(m => ({ ...m, [source]: "" }));
     try {
@@ -35,7 +45,7 @@ export default function SourcesPage({ fullStatus }: Props) {
     } finally { setSyncing(s => ({ ...s, [source]: false })); }
   };
 
-  const sources = ["OpenCode", "Codex", "Gemini CLI", "Claude Code"];
+  const sources = ["OpenCode", "Codex", "Gemini CLI", "Claude Code", "WorkBuddy"];
 
   return (
     <div className="w-full min-w-0 p-6">
@@ -47,7 +57,7 @@ export default function SourcesPage({ fullStatus }: Props) {
       <div className="space-y-3">
         {sources.map((src) => {
           const count = fullStatus?.scan_by_source[src] ?? 0;
-          const detected = count > 0;
+          const detected = fullStatus?.provider_health?.[src] ?? false;
           const isSyncing = syncing[src];
           const msg = msgs[src];
 
