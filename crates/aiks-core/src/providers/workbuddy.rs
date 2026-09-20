@@ -14,9 +14,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use walkdir::WalkDir;
 
-use crate::model::{
-    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind,
-};
+use crate::model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
 use crate::providers::{ProviderHealth, SessionProvider, SessionSummary};
 
 const PARSER_VERSION: &str = "workbuddy-jsonl-v1";
@@ -343,10 +341,7 @@ impl WorkBuddyProvider {
                 (
                     MessageRole::Assistant,
                     vec![ContentBlock::ToolCall {
-                        id: event
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
+                        id: event.get("id").and_then(Value::as_str).map(str::to_owned),
                         name,
                         input,
                     }],
