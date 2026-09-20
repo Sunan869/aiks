@@ -146,7 +146,13 @@ async fn remote_modified_server() -> (
                 .to_string();
             seen_copy.lock().unwrap().push(path.clone());
 
-            let body = if path.contains("getBlockKramdown") {
+            let body = if path.contains("/api/query/sql") {
+                serde_json::json!({
+                    "code": 0,
+                    "msg": "",
+                    "data": [{"box": "box-1"}]
+                })
+            } else if path.contains("getBlockKramdown") {
                 serde_json::json!({
                     "code": 0,
                     "msg": "",
@@ -224,6 +230,7 @@ async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
     assert_eq!(stats.conflict_count, 1);
     assert_eq!(stats.updated_count, 0);
     let paths = seen.lock().unwrap();
+    assert!(paths.iter().any(|path| path.contains("/api/query/sql")));
     assert!(paths.iter().any(|path| path.contains("getBlockKramdown")));
     assert!(
         !paths.iter().any(|path| path.contains("updateBlock")),
@@ -252,7 +259,11 @@ async fn legacy_mapped_document_without_baseline_is_protected_from_overwrite() {
     assert_eq!(stats.conflict_count, 1);
     assert_eq!(stats.updated_count, 0);
     let paths = seen.lock().unwrap();
-    assert!(paths.iter().any(|path| path.contains("getBlockKramdown")));
+    assert!(paths.iter().any(|path| path.contains("/api/query/sql")));
+    assert!(
+        !paths.iter().any(|path| path.contains("getBlockKramdown")),
+        "legacy baseline must fail closed before treating remote content as managed: {paths:?}"
+    );
     assert!(
         !paths.iter().any(|path| path.contains("updateBlock")),
         "legacy mapped document without a baseline must fail closed: {paths:?}"
