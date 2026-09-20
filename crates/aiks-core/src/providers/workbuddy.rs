@@ -4,15 +4,19 @@
 //! under `projects/**/*.jsonl`. This provider is strictly read-only with
 //! respect to the WorkBuddy data root.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
+use serde_json::Value;
+use walkdir::WalkDir;
 
-use crate::model::{NormalizedSession, SourceKind};
+use crate::model::{
+    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind,
+};
 use crate::providers::{ProviderHealth, SessionProvider, SessionSummary};
 
 const PARSER_VERSION: &str = "workbuddy-jsonl-v1";
@@ -152,6 +156,267 @@ impl WorkBuddyProvider {
             .map(str::to_owned)
     }
 
+    fn transcript_index(&self) -> HashMap<String, PathBuf> {
+        let projects_dir = self.root.join("projects");
+        if !projects_dir.is_dir() {
+            return HashMap::new();
+        }
+
+        let mut index = HashMap::new();
+        for entry in WalkDir::new(projects_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            if !entry.file_type().is_file()
+                || entry.path().extension().and_then(|value| value.to_str()) != Some("jsonl")
+            {
+                continue;
+            }
+
+            let Ok(bytes) = std::fs::read(entry.path()) else {
+                continue;
+            };
+            let content = String::from_utf8_lossy(&bytes);
+            for line in content.lines() {
+                let Ok(event) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if let Some(session_id) = Self::event_session_id(&event) {
+                    index
+                        .entry(session_id.to_string())
+                        .or_insert_with(|| entry.path().to_path_buf());
+                }
+            }
+        }
+
+        index
+    }
+
+    fn event_session_id(event: &Value) -> Option<&str> {
+        event
+            .get("sessionId")
+            .or_else(|| event.get("session_id"))
+            .and_then(Value::as_str)
+    }
+
+    fn event_external_id(event: &Value, index: usize) -> String {
+        event
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("workbuddy-{index}"))
+    }
+
+    fn event_parent_id(event: &Value) -> Option<String> {
+        event
+            .get("parentId")
+            .or_else(|| event.get("parent_id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
+    fn event_timestamp(event: &Value) -> Option<DateTime<Utc>> {
+        event
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .and_then(Self::millis_to_datetime)
+    }
+
+    fn event_model(event: &Value) -> Option<String> {
+        event
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
+    fn extract_user_query(text: &str) -> String {
+        const OPEN: &str = "<user_query>";
+        const CLOSE: &str = "</user_query>";
+
+        if let Some(start) = text.find(OPEN) {
+            let body_start = start + OPEN.len();
+            if let Some(end) = text[body_start..].find(CLOSE) {
+                return text[body_start..body_start + end].trim().to_owned();
+            }
+        }
+
+        text.trim().to_owned()
+    }
+
+    fn text_block(text: &str, role: MessageRole) -> ContentBlock {
+        let text = if role == MessageRole::User {
+            Self::extract_user_query(text)
+        } else {
+            text.trim().to_owned()
+        };
+        ContentBlock::Text { text }
+    }
+
+    fn message_blocks(event: &Value, role: MessageRole) -> Vec<ContentBlock> {
+        let Some(content) = event.get("content") else {
+            return vec![ContentBlock::Unknown { raw: event.clone() }];
+        };
+
+        match content {
+            Value::String(text) => vec![Self::text_block(text, role)],
+            Value::Array(items) => {
+                let mut blocks = Vec::new();
+                for item in items {
+                    let kind = item.get("type").and_then(Value::as_str);
+                    let text = item.get("text").and_then(Value::as_str);
+                    if matches!(kind, Some("text" | "input_text" | "output_text")) {
+                        if let Some(text) = text {
+                            blocks.push(Self::text_block(text, role));
+                            continue;
+                        }
+                    }
+                    blocks.push(ContentBlock::Unknown { raw: item.clone() });
+                }
+
+                if blocks.is_empty() {
+                    blocks.push(ContentBlock::Unknown { raw: event.clone() });
+                }
+                blocks
+            }
+            _ => vec![ContentBlock::Unknown {
+                raw: content.clone(),
+            }],
+        }
+    }
+
+    fn event_metadata(event_type: &str) -> HashMap<String, Value> {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "event_type".to_string(),
+            Value::String(event_type.to_string()),
+        );
+        metadata
+    }
+
+    fn parse_event(event: &Value, index: usize) -> Option<NormalizedMessage> {
+        let event_type = event.get("type").and_then(Value::as_str)?;
+        if event_type == "ai-title" {
+            return None;
+        }
+
+        let external_id = Self::event_external_id(event, index);
+        let parent_id = Self::event_parent_id(event);
+        let created_at = Self::event_timestamp(event);
+        let model = Self::event_model(event);
+        let metadata = Self::event_metadata(event_type);
+
+        let (role, blocks) = match event_type {
+            "message" => {
+                let role = event
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .map(MessageRole::from_str)
+                    .unwrap_or(MessageRole::Unknown);
+                let blocks = Self::message_blocks(event, role);
+                (role, blocks)
+            }
+            "reasoning" => {
+                let text = event
+                    .get("text")
+                    .or_else(|| event.get("content"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                (
+                    MessageRole::Assistant,
+                    vec![ContentBlock::Thinking { text }],
+                )
+            }
+            "function_call" => {
+                let name = event
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_owned();
+                let input = event
+                    .get("arguments")
+                    .or_else(|| event.get("input"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                (
+                    MessageRole::Assistant,
+                    vec![ContentBlock::ToolCall {
+                        id: event
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        name,
+                        input,
+                    }],
+                )
+            }
+            "function_call_result" => {
+                let content = match event.get("content") {
+                    Some(Value::String(value)) => value.clone(),
+                    Some(value) => value.to_string(),
+                    None => String::new(),
+                };
+                let is_error = event
+                    .get("is_error")
+                    .or_else(|| event.get("isError"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                (
+                    MessageRole::Tool,
+                    vec![ContentBlock::ToolResult {
+                        id: event
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        content,
+                        is_error,
+                    }],
+                )
+            }
+            _ => (
+                MessageRole::Unknown,
+                vec![ContentBlock::Unknown { raw: event.clone() }],
+            ),
+        };
+
+        Some(NormalizedMessage {
+            external_id,
+            parent_id,
+            role,
+            created_at,
+            model,
+            blocks,
+            usage: None,
+            metadata,
+        })
+    }
+
+    fn parse_transcript(
+        &self,
+        path: &std::path::Path,
+        expected_session_id: &str,
+    ) -> anyhow::Result<Vec<NormalizedMessage>> {
+        let bytes = std::fs::read(path)?;
+        let content = String::from_utf8_lossy(&bytes);
+        let mut messages = Vec::new();
+
+        for (index, line) in content.lines().enumerate() {
+            let Ok(event) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            if Self::event_session_id(&event) != Some(expected_session_id) {
+                continue;
+            }
+            if let Some(message) = Self::parse_event(&event, index) {
+                messages.push(message);
+            }
+        }
+
+        Ok(messages)
+    }
+
     fn not_found_message(&self) -> String {
         format!("WorkBuddy database not found at {}", self.db_path.display())
     }
@@ -199,6 +464,7 @@ impl SessionProvider for WorkBuddyProvider {
             )
         };
 
+        let transcript_paths = self.transcript_index();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
@@ -217,6 +483,7 @@ impl SessionProvider for WorkBuddyProvider {
             let preferred_title = custom_title
                 .filter(|value| !value.trim().is_empty())
                 .or_else(|| title.filter(|value| !value.trim().is_empty()));
+            let source_path = transcript_paths.get(&id).cloned();
 
             Ok(SessionSummary {
                 source: SourceKind::WorkBuddy,
@@ -228,7 +495,7 @@ impl SessionProvider for WorkBuddyProvider {
                 } else {
                     Some(cwd)
                 },
-                source_path: None,
+                source_path,
                 started_at: Self::millis_to_datetime(created_at),
                 updated_at: Self::millis_to_datetime(last_activity_at.unwrap_or(updated_at)),
                 message_count: 0,
@@ -238,10 +505,126 @@ impl SessionProvider for WorkBuddyProvider {
         Ok(rows.filter_map(Result::ok).collect())
     }
 
-    async fn load_session(&self, _summary: &SessionSummary) -> anyhow::Result<NormalizedSession> {
-        anyhow::bail!(
-            "WorkBuddy transcript loading is not available until transcript parsing is enabled"
-        )
+    async fn load_session(&self, summary: &SessionSummary) -> anyhow::Result<NormalizedSession> {
+        let conn = self.open_readonly()?;
+        let columns = Self::session_columns(&conn)?;
+        Self::validate_schema(&columns)?;
+
+        let status_expr = Self::optional_expr(&columns, "status");
+        let mode_expr = Self::optional_expr(&columns, "mode");
+        let last_activity_expr = Self::optional_expr(&columns, "last_activity_at");
+        let permission_mode_expr = Self::optional_expr(&columns, "permission_mode");
+        let is_playground_expr = Self::optional_expr(&columns, "is_playground");
+        let model_expr = Self::optional_expr(&columns, "model");
+
+        let sql = format!(
+            "SELECT cwd, title, custom_title, created_at, updated_at, \
+                    {status_expr}, {mode_expr}, {last_activity_expr}, \
+                    {permission_mode_expr}, {is_playground_expr}, {model_expr} \
+             FROM sessions \
+             WHERE id = ?1 AND deleted_at IS NULL"
+        );
+
+        let (
+            cwd,
+            title,
+            custom_title,
+            created_at,
+            updated_at,
+            status,
+            mode,
+            last_activity_at,
+            permission_mode,
+            is_playground,
+            model,
+        ): (
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+        ) = conn.query_row(
+            &sql,
+            rusqlite::params![&summary.external_session_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                ))
+            },
+        )?;
+
+        let title = custom_title
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| title.filter(|value| !value.trim().is_empty()));
+
+        let source_path = summary
+            .source_path
+            .clone()
+            .or_else(|| {
+                self.transcript_index()
+                    .get(&summary.external_session_id)
+                    .cloned()
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "WorkBuddy transcript not found for session {}",
+                    summary.external_session_id
+                )
+            })?;
+
+        let messages = self.parse_transcript(&source_path, &summary.external_session_id)?;
+
+        let mut metadata = HashMap::new();
+        if let Some(value) = status {
+            metadata.insert("status".to_string(), Value::String(value));
+        }
+        if let Some(value) = mode {
+            metadata.insert("mode".to_string(), Value::String(value));
+        }
+        if let Some(value) = permission_mode {
+            metadata.insert("permission_mode".to_string(), Value::String(value));
+        }
+        if let Some(value) = is_playground {
+            metadata.insert("is_playground".to_string(), Value::Bool(value != 0));
+        }
+        if let Some(value) = last_activity_at {
+            metadata.insert("last_activity_at".to_string(), Value::Number(value.into()));
+        }
+
+        Ok(NormalizedSession {
+            source: SourceKind::WorkBuddy,
+            external_session_id: summary.external_session_id.clone(),
+            title,
+            project_name: Self::project_name_from_cwd(&cwd),
+            project_path: if cwd.trim().is_empty() {
+                None
+            } else {
+                Some(cwd)
+            },
+            source_path: Some(source_path),
+            started_at: Self::millis_to_datetime(created_at),
+            updated_at: Self::millis_to_datetime(last_activity_at.unwrap_or(updated_at)),
+            model,
+            messages,
+            usage: None,
+            metadata,
+        })
     }
 
     async fn health_check(&self) -> ProviderHealth {
