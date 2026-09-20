@@ -74,14 +74,20 @@ async fn mapped_document_update_failure_must_not_fall_back_to_create() {
     let (base_url, requests) = spawn_sequence_server(vec![update_failed, still_exists]).await;
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
 
-    assert!(sink.update_document("doc-existing", "# replacement").await.is_err());
+    assert!(sink
+        .update_document("doc-existing", "# replacement")
+        .await
+        .is_err());
     let err = sink
         .create_document("box-1", "/10 AI Sessions/existing", "# replacement")
         .await
         .unwrap_err()
         .to_string();
 
-    assert!(err.contains("refusing to recreate"), "unexpected error: {err}");
+    assert!(
+        err.contains("refusing to recreate"),
+        "unexpected error: {err}"
+    );
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
 
