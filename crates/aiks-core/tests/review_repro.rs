@@ -259,14 +259,18 @@ async fn b02_siyuan_string_id_accepted() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut buf = [0; 8192];
-        let _ = stream.read(&mut buf).await.unwrap();
-        let body = r#"{"code":0,"msg":"","data":"20260913000000-auditxx"}"#;
-        stream.write_all(
-            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(), body).as_bytes()
-        ).await.unwrap();
+        for body in [
+            r#"{"code":0,"msg":"","data":[]}"#,
+            r#"{"code":0,"msg":"","data":"20260913000000-auditxx"}"#,
+        ] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0; 8192];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream.write_all(
+                format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body).as_bytes()
+            ).await.unwrap();
+        }
     });
     let result = SiYuanSink::embedded(format!("http://{}", addr), "audit")
         .unwrap()
