@@ -43,11 +43,16 @@ async fn sync_run_records_explicit_trigger_type() {
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
     let engine = SyncEngine::new(Arc::new(Config::default()));
 
-    let opts = SyncOptions {
-        trigger_type: Some("startup".to_string()),
-        ..Default::default()
-    };
-    engine.run_sync(&db, &registry, &sink, &opts).await.unwrap();
+    engine
+        .run_sync_with_trigger(
+            &db,
+            &registry,
+            &sink,
+            &SyncOptions::default(),
+            "startup",
+        )
+        .await
+        .unwrap();
     server.abort();
 
     let run = SyncRunRepo::new(&db).last_run().unwrap().unwrap();
