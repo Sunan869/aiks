@@ -236,6 +236,7 @@ export interface V41Diagnostics {
 export interface FullStatus {
   scan_total: number;
   scan_by_source: Record<string, number>;
+  provider_health: Record<string, boolean>;
   db_total: number;
   db_synced: number;
   db_pending: number;
