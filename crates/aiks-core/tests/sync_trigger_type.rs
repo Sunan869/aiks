@@ -44,13 +44,7 @@ async fn sync_run_records_explicit_trigger_type() {
     let engine = SyncEngine::new(Arc::new(Config::default()));
 
     engine
-        .run_sync_with_trigger(
-            &db,
-            &registry,
-            &sink,
-            &SyncOptions::default(),
-            "startup",
-        )
+        .run_sync_with_trigger(&db, &registry, &sink, &SyncOptions::default(), "startup")
         .await
         .unwrap();
     server.abort();
