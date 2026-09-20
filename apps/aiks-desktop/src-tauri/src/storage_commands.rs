@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 use std::sync::{atomic::AtomicBool, Arc};
 
@@ -57,7 +58,10 @@ pub async fn prepare_storage_before_startup(app: &AppHandle) -> anyhow::Result<b
             .await
             .map_err(|e| anyhow::anyhow!("Data migration task failed: {e}"))?;
         if let Err(error) = migration {
-            tracing::error!(error = %error, "Data directory migration failed; keeping previous data root");
+            tracing::error!(
+                error = %error,
+                "Data directory migration failed; keeping previous data root"
+            );
             let _ = write_status(&format!("数据目录迁移失败：{error}"));
             let _ = fs::remove_file(pending_path());
         }
@@ -89,9 +93,15 @@ pub async fn prepare_storage_before_startup(app: &AppHandle) -> anyhow::Result<b
     // Existing users that already have data in the historical default directory
     // should not be interrupted after upgrading. Persist the default as their
     // explicit choice so future launches can distinguish them from a fresh install.
-    if env_override().is_none() && !pointer_path().exists() && has_existing_aiks_data(&default_data_root()) {
+    if env_override().is_none()
+        && !pointer_path().exists()
+        && has_existing_aiks_data(&default_data_root())
+    {
         if let Err(error) = write_pointer(&default_data_root()) {
-            tracing::warn!(error = %error, "Could not persist legacy default data root selection");
+            tracing::warn!(
+                error = %error,
+                "Could not persist legacy default data root selection"
+            );
         }
     }
 
@@ -108,7 +118,10 @@ pub fn get_data_storage_settings() -> Result<DataStorageSettings, String> {
         setup_required: requires_initial_setup(),
         custom: !same_path(&current, &default),
         env_override: env_override().is_some(),
-        migration_note: fs::read_to_string(status_path()).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        migration_note: fs::read_to_string(status_path())
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
     })
 }
 
@@ -138,7 +151,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
         }
         let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Ok((!selected.is_empty()).then_some(selected));
+        Ok((!selected.is_empty()).then_some(selected))
     }
 
     #[cfg(not(windows))]
@@ -150,7 +163,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 #[tauri::command]
 pub async fn set_data_storage_root(app: AppHandle, target_path: String) -> Result<(), String> {
     if env_override().is_some() {
-        return Err("当前数据目录由 AIKS_DATA_DIR 环境变量控制，请先移除该环境变量再修改。".to_string());
+        return Err(
+            "当前数据目录由 AIKS_DATA_DIR 环境变量控制，请先移除该环境变量再修改。".to_string(),
+        );
     }
 
     let target_text = target_path.trim();
@@ -199,8 +214,10 @@ fn apply_pending_migration() -> Result<(), String> {
         return Err("检测到 AIKS_DATA_DIR 环境变量，已取消待执行的数据目录迁移".to_string());
     }
 
-    let raw = fs::read_to_string(pending_path()).map_err(|e| format!("读取迁移任务失败：{e}"))?;
-    let pending: PendingMigration = serde_json::from_str(&raw).map_err(|e| format!("迁移任务格式错误：{e}"))?;
+    let raw =
+        fs::read_to_string(pending_path()).map_err(|e| format!("读取迁移任务失败：{e}"))?;
+    let pending: PendingMigration =
+        serde_json::from_str(&raw).map_err(|e| format!("迁移任务格式错误：{e}"))?;
     let source = PathBuf::from(&pending.source);
     let target = PathBuf::from(&pending.target);
 
@@ -273,9 +290,11 @@ fn clear_non_control_entries(root: &Path) -> Result<(), String> {
         }
         let path = entry.path();
         if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            fs::remove_dir_all(&path).map_err(|e| format!("清理未完成迁移目录失败 {}：{e}", path.display()))?;
+            fs::remove_dir_all(&path)
+                .map_err(|e| format!("清理未完成迁移目录失败 {}：{e}", path.display()))?;
         } else {
-            fs::remove_file(&path).map_err(|e| format!("清理未完成迁移文件失败 {}：{e}", path.display()))?;
+            fs::remove_file(&path)
+                .map_err(|e| format!("清理未完成迁移文件失败 {}：{e}", path.display()))?;
         }
     }
     Ok(())
@@ -287,14 +306,19 @@ fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
 
 fn copy_dir(source: &Path, target: &Path, root_level: bool) -> Result<(), String> {
     fs::create_dir_all(target).map_err(|e| format!("创建目录失败 {}：{e}", target.display()))?;
-    for entry in fs::read_dir(source).map_err(|e| format!("读取目录失败 {}：{e}", source.display()))? {
+    for entry in
+        fs::read_dir(source).map_err(|e| format!("读取目录失败 {}：{e}", source.display()))?
+    {
         let entry = entry.map_err(|e| e.to_string())?;
         if root_level && is_control_name(&entry.file_name()) {
             continue;
         }
         let file_type = entry.file_type().map_err(|e| e.to_string())?;
         if file_type.is_symlink() {
-            return Err(format!("数据目录包含符号链接，已停止迁移：{}", entry.path().display()));
+            return Err(format!(
+                "数据目录包含符号链接，已停止迁移：{}",
+                entry.path().display()
+            ));
         }
         let destination = target.join(entry.file_name());
         if file_type.is_dir() {
@@ -304,7 +328,10 @@ fn copy_dir(source: &Path, target: &Path, root_level: bool) -> Result<(), String
             let copied = fs::copy(entry.path(), &destination)
                 .map_err(|e| format!("复制文件失败 {}：{e}", entry.path().display()))?;
             if copied != expected {
-                return Err(format!("文件复制长度不一致：{}", entry.path().display()));
+                return Err(format!(
+                    "文件复制长度不一致：{}",
+                    entry.path().display()
+                ));
             }
         }
     }
@@ -317,7 +344,9 @@ fn measure_tree(root: &Path) -> Result<TreeStats, String> {
 
 fn measure_dir(root: &Path, root_level: bool) -> Result<TreeStats, String> {
     let mut stats = TreeStats { files: 0, bytes: 0 };
-    for entry in fs::read_dir(root).map_err(|e| format!("读取目录失败 {}：{e}", root.display()))? {
+    for entry in
+        fs::read_dir(root).map_err(|e| format!("读取目录失败 {}：{e}", root.display()))?
+    {
         let entry = entry.map_err(|e| e.to_string())?;
         if root_level && is_control_name(&entry.file_name()) {
             continue;
@@ -345,7 +374,9 @@ fn validate_target(source: &Path, target: &Path) -> Result<(), String> {
         return Ok(());
     }
     if target.starts_with(&source) || source.starts_with(&target) {
-        return Err("新旧数据目录不能互相包含，请选择独立目录（例如 E:\\AIKS-Data）".to_string());
+        return Err(
+            "新旧数据目录不能互相包含，请选择独立目录（例如 E:\\AIKS-Data）".to_string(),
+        );
     }
     let default = canonical_or_original(&default_data_root());
     if !same_path(&target, &default) && target.starts_with(&default) {
@@ -377,7 +408,7 @@ fn ensure_effectively_empty(path: &Path) -> Result<(), String> {
 fn is_control_name(name: &std::ffi::OsStr) -> bool {
     matches!(
         name.to_str(),
-        Some(POINTER_FILE | PENDING_FILE | STATUS_FILE | MIGRATION_MARKER)
+        Some(POINTER_FILE) | Some(PENDING_FILE) | Some(STATUS_FILE) | Some(MIGRATION_MARKER)
     )
 }
 
@@ -452,7 +483,10 @@ mod tests {
     use super::*;
 
     fn temp_root(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("aiks-storage-{label}-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "aiks-storage-{label}-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -467,7 +501,10 @@ mod tests {
         fs::write(source.join(POINTER_FILE), b"control").unwrap();
 
         copy_tree(&source, &target).unwrap();
-        assert_eq!(measure_tree(&source).unwrap(), measure_tree(&target).unwrap());
+        assert_eq!(
+            measure_tree(&source).unwrap(),
+            measure_tree(&target).unwrap()
+        );
         assert!(!target.join(POINTER_FILE).exists());
 
         let _ = fs::remove_dir_all(source);
