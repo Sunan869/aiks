@@ -362,7 +362,10 @@ fn spawn_background_tasks(
                 overwrite: false,
             };
 
-            match engine_bg.sync_and_enqueue_extraction(opts).await {
+            match engine_bg
+                .sync_and_enqueue_extraction_with_trigger(opts, "startup")
+                .await
+            {
                 Ok(stats) => {
                     info!(
                         "[SYNC] Complete: new={} updated={} unchanged={} failed={}",
@@ -401,7 +404,10 @@ fn spawn_background_tasks(
                     dry_run: false,
                     overwrite: false,
                 };
-                match engine_w.sync_and_enqueue_extraction(opts).await {
+                match engine_w
+                    .sync_and_enqueue_extraction_with_trigger(opts, "watcher")
+                    .await
+                {
                     Ok(s) if s.new_count + s.updated_count > 0 => {
                         let _ = app_w.emit(
                             "sync-complete",
@@ -432,7 +438,10 @@ fn spawn_background_tasks(
                     dry_run: false,
                     overwrite: false,
                 };
-                match engine_p.sync_and_enqueue_extraction(opts).await {
+                match engine_p
+                    .sync_and_enqueue_extraction_with_trigger(opts, "periodic")
+                    .await
+                {
                     Ok(s) => {
                         info!(
                             "[SCAN] Periodic sync: new={} updated={} unchanged={} failed={}",
