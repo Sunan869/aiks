@@ -1,5 +1,4 @@
 use std::ops::{Deref, DerefMut};
-use std::sync::Mutex;
 
 use anyhow::Context;
 
@@ -29,11 +28,6 @@ enum SiYuanSafetyError {
 /// it.
 pub struct SiYuanSink {
     inner: siyuan::SiYuanSink,
-    /// When an update fails but the mapped document is confirmed to still
-    /// exist, the legacy sync engine immediately falls back to create. Remember
-    /// that ambiguity so the following create can be rejected instead of
-    /// cloning a stale mapped document. This is consumed by `create_document`.
-    blocked_recreate: Mutex<Option<String>>,
 }
 
 impl SiYuanSink {
@@ -43,14 +37,12 @@ impl SiYuanSink {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             inner: siyuan::SiYuanSink::embedded(base_url, notebook_name)?,
-            blocked_recreate: Mutex::new(None),
         })
     }
 
     pub fn new(config: SiYuanConfig) -> anyhow::Result<Self> {
         Ok(Self {
             inner: siyuan::SiYuanSink::new(config)?,
-            blocked_recreate: Mutex::new(None),
         })
     }
 
@@ -179,38 +171,16 @@ impl SiYuanSink {
         path: &str,
         markdown: &str,
     ) -> anyhow::Result<String> {
-        if let Some(doc_id) = self.blocked_recreate.lock().unwrap().take() {
-            anyhow::bail!(
-                "refusing to recreate SiYuan document {doc_id} after an ambiguous update failure"
-            );
-        }
         self.create_document_reconciled(notebook_id, path, markdown)
             .await
     }
 
-    /// Preserve the existing update API while preventing the sync engine's
-    /// unconditional update->create fallback from duplicating a document on a
-    /// timeout or other transient error. Recreate is allowed only when SiYuan
-    /// confirms that the mapped document no longer exists.
+    /// Preserve the existing update API. The sync engine owns the decision to
+    /// recreate the current mapped document after an update failure, so the
+    /// sink must not retain cross-session state that can poison another create.
     pub async fn update_document(&self, doc_id: &str, markdown: &str) -> anyhow::Result<()> {
         Self::ensure_safe_document_size(markdown)?;
-
-        match self.inner.update_document(doc_id, markdown).await {
-            Ok(()) => {
-                *self.blocked_recreate.lock().unwrap() = None;
-                Ok(())
-            }
-            Err(update_error) => {
-                let should_block_recreate = match self.inner.get_doc_notebook(doc_id).await {
-                    Ok(Some(_)) => true,
-                    Ok(None) => false,
-                    Err(_) => true,
-                };
-                *self.blocked_recreate.lock().unwrap() =
-                    should_block_recreate.then(|| doc_id.to_string());
-                Err(update_error)
-            }
-        }
+        self.inner.update_document(doc_id, markdown).await
     }
 }
 
