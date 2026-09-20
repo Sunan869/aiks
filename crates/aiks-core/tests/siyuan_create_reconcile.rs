@@ -89,27 +89,44 @@ async fn create_reconciled_recovers_document_after_ambiguous_create_failure() {
 }
 
 #[tokio::test]
-async fn mapped_document_update_failure_must_not_fall_back_to_create() {
+async fn mapped_document_update_failure_does_not_create_on_its_own() {
     let update_failed = r#"{"code":-1,"msg":"database busy","data":null}"#;
     let still_exists = r#"{"code":0,"msg":"","data":[{"box":"box-1"}]}"#;
     let (base_url, requests) = spawn_sequence_server(vec![update_failed, still_exists]).await;
+    let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
+
+    let err = sink
+        .update_document("doc-existing", "# replacement")
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("database busy"), "unexpected error: {err}");
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn failed_update_does_not_poison_unrelated_create() {
+    let update_failed = r#"{"code":-1,"msg":"database busy","data":null}"#;
+    let still_exists = r#"{"code":0,"msg":"","data":[{"box":"box-1"}]}"#;
+    let empty = r#"{"code":0,"msg":"","data":[]}"#;
+    let created = r#"{"code":0,"msg":"","data":"doc-new"}"#;
+    let (base_url, requests) =
+        spawn_sequence_server(vec![update_failed, still_exists, empty, created]).await;
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
 
     assert!(sink
         .update_document("doc-existing", "# replacement")
         .await
         .is_err());
-    let err = sink
-        .create_document("box-1", "/10 AI Sessions/existing", "# replacement")
-        .await
-        .unwrap_err()
-        .to_string();
 
-    assert!(
-        err.contains("refusing to recreate"),
-        "unexpected error: {err}"
-    );
-    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    let doc_id = sink
+        .create_document("box-1", "/10 AI Sessions/new-session", "# fresh")
+        .await
+        .unwrap();
+
+    assert_eq!(doc_id, "doc-new");
+    assert_eq!(requests.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]
