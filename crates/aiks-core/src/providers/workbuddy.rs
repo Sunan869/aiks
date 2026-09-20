@@ -145,9 +145,9 @@ impl WorkBuddyProvider {
     }
 
     fn project_name_from_cwd(cwd: &str) -> Option<String> {
-        let trimmed = cwd.trim_end_matches(|c| c == '/' || c == '\\');
+        let trimmed = cwd.trim_end_matches(['/', '\\']);
         trimmed
-            .rsplit(|c| c == '/' || c == '\\')
+            .rsplit(['/', '\\'])
             .find(|segment| !segment.is_empty())
             .map(str::to_owned)
     }
