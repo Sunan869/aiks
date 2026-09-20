@@ -214,8 +214,7 @@ fn apply_pending_migration() -> Result<(), String> {
         return Err("检测到 AIKS_DATA_DIR 环境变量，已取消待执行的数据目录迁移".to_string());
     }
 
-    let raw =
-        fs::read_to_string(pending_path()).map_err(|e| format!("读取迁移任务失败：{e}"))?;
+    let raw = fs::read_to_string(pending_path()).map_err(|e| format!("读取迁移任务失败：{e}"))?;
     let pending: PendingMigration =
         serde_json::from_str(&raw).map_err(|e| format!("迁移任务格式错误：{e}"))?;
     let source = PathBuf::from(&pending.source);
@@ -255,11 +254,9 @@ fn validate_sqlite_copy(target: &Path) -> Result<(), String> {
     if !db_path.exists() {
         return Ok(());
     }
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .map_err(|e| format!("无法打开迁移后的数据库进行校验：{e}"))?;
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("无法打开迁移后的数据库进行校验：{e}"))?;
     let check: String = conn
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(|e| format!("数据库 quick_check 失败：{e}"))?;
@@ -328,10 +325,7 @@ fn copy_dir(source: &Path, target: &Path, root_level: bool) -> Result<(), String
             let copied = fs::copy(entry.path(), &destination)
                 .map_err(|e| format!("复制文件失败 {}：{e}", entry.path().display()))?;
             if copied != expected {
-                return Err(format!(
-                    "文件复制长度不一致：{}",
-                    entry.path().display()
-                ));
+                return Err(format!("文件复制长度不一致：{}", entry.path().display()));
             }
         }
     }
@@ -344,8 +338,7 @@ fn measure_tree(root: &Path) -> Result<TreeStats, String> {
 
 fn measure_dir(root: &Path, root_level: bool) -> Result<TreeStats, String> {
     let mut stats = TreeStats { files: 0, bytes: 0 };
-    for entry in
-        fs::read_dir(root).map_err(|e| format!("读取目录失败 {}：{e}", root.display()))?
+    for entry in fs::read_dir(root).map_err(|e| format!("读取目录失败 {}：{e}", root.display()))?
     {
         let entry = entry.map_err(|e| e.to_string())?;
         if root_level && is_control_name(&entry.file_name()) {
@@ -374,9 +367,7 @@ fn validate_target(source: &Path, target: &Path) -> Result<(), String> {
         return Ok(());
     }
     if target.starts_with(&source) || source.starts_with(&target) {
-        return Err(
-            "新旧数据目录不能互相包含，请选择独立目录（例如 E:\\AIKS-Data）".to_string(),
-        );
+        return Err("新旧数据目录不能互相包含，请选择独立目录（例如 E:\\AIKS-Data）".to_string());
     }
     let default = canonical_or_original(&default_data_root());
     if !same_path(&target, &default) && target.starts_with(&default) {
@@ -466,8 +457,12 @@ fn canonical_or_original(path: &Path) -> PathBuf {
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
-    let a = canonical_or_original(a).to_string_lossy().replace('\\', "/");
-    let b = canonical_or_original(b).to_string_lossy().replace('\\', "/");
+    let a = canonical_or_original(a)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let b = canonical_or_original(b)
+        .to_string_lossy()
+        .replace('\\', "/");
     #[cfg(windows)]
     {
         a.eq_ignore_ascii_case(&b)
@@ -483,10 +478,8 @@ mod tests {
     use super::*;
 
     fn temp_root(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "aiks-storage-{label}-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("aiks-storage-{label}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
     }

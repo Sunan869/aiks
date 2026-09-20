@@ -7,40 +7,37 @@ mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
 mod search_commands;
-mod storage_commands;
 pub mod session_workbench;
+mod storage_commands;
 mod tray;
 mod workbench;
 
-use std::sync::{atomic::Ordering, Arc};
-use tokio::sync::Mutex;
-
-use aiks_core::runtime::SiyuanRuntime;
-use tauri::{Manager, WindowEvent};
-use tracing_subscriber::EnvFilter;
+use tauri::{Emitter, Manager};
+use tauri_plugin_log::{Target, TargetKind};
 
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new("aiks=debug,info"))
-        .with_target(false)
-        .compact()
-        .init();
-
-    let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
-
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .manage(runtime_container)
-        .manage(workbench::controller::WorkbenchController::new())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            if let Err(e) = bootstrap::ensure_siyuan_runtime(app.handle()) {
+                tracing::warn!("SiYuan runtime bootstrap failed: {}", e);
+            }
+
+            if let Err(e) = tray::setup_tray(app.handle()) {
+                tracing::warn!("Tray setup failed: {}", e);
+            }
+
             let app_handle = app.handle().clone();
-            tray::setup_tray(app)?;
-            workbench::events::register(&app_handle);
             tauri::async_runtime::spawn(async move {
                 match storage_commands::prepare_storage_before_startup(&app_handle).await {
                     Ok(true) => match lifecycle::startup(app_handle.clone()).await {
@@ -53,14 +50,19 @@ pub fn run() {
                         }
                     },
                     Ok(false) => {
-                        tracing::info!("Waiting for the user to select an AIKS data directory");
+                        tracing::info!("AIKS startup paused for initial storage selection")
                     }
                     Err(e) => {
                         tracing::error!("Storage preparation failed: {}", e);
                         match lifecycle::startup(app_handle.clone()).await {
-                            Ok(()) => tracing::info!("AIKS startup complete after storage fallback"),
+                            Ok(()) => {
+                                tracing::info!("AIKS startup complete after storage fallback")
+                            }
                             Err(startup_error) => {
-                                tracing::error!("Startup failed after storage fallback: {}", startup_error);
+                                tracing::error!(
+                                    "Startup failed after storage fallback: {}",
+                                    startup_error
+                                );
                                 if let Some(window) = app_handle.get_webview_window("control") {
                                     let _ = window.show();
                                 }
@@ -69,95 +71,122 @@ pub fn run() {
                     }
                 }
             });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_status,
-            commands::scan_sources,
-            commands::sync_now,
+            commands::list_sessions,
+            commands::get_session,
+            commands::get_processing,
+            commands::get_processing_detail,
+            commands::get_overview,
+            commands::get_sources,
+            commands::get_sync_runs,
+            commands::get_sync_run,
+            commands::get_knowledge,
+            commands::get_knowledge_detail,
+            commands::list_deleted_knowledge,
+            commands::restore_knowledge,
+            commands::purge_deleted_knowledge,
+            commands::search_knowledge,
+            commands::semantic_search_knowledge,
+            commands::reindex_knowledge,
+            commands::run_sync,
+            commands::retry_job,
+            commands::dismiss_job,
             commands::get_settings,
             commands::save_settings,
-            commands::get_doctor,
-            commands::open_data_folder,
-            commands::restart_app,
-            commands::restart_siyuan,
-            commands::get_siyuan_url,
-            commands::get_sessions,
-            commands::get_sync_history,
-            commands::get_ai_status,
             commands::test_ai_connection,
-            commands::test_ai_connection_with_settings,
-            embedding_commands::get_embedding_settings,
-            embedding_commands::save_embedding_settings,
-            embedding_commands::test_embedding_connection_with_settings,
-            embedding_commands::rebuild_semantic_index,
+            commands::test_embedding_connection,
+            commands::list_ai_models,
+            commands::open_file_or_dir,
+            commands::get_logs,
+            commands::resolve_chat_target,
+            commands::get_runtime_health,
+            commands::get_deleted_knowledge_stats,
+            commands::get_session_index_status,
+            commands::get_session_index_queue,
+            commands::rebuild_session_index,
+            commands::unified_search,
+            commands::get_knowledge_index_status,
+            commands::rebuild_knowledge_index,
+            commands::publish_knowledge,
+            commands::update_knowledge,
+            commands::delete_knowledge,
+            commands::restore_knowledge_version,
+            commands::list_knowledge_versions,
+            commands::list_knowledge_sources,
+            commands::open_knowledge_source,
+            knowledge_commands::list_knowledge,
+            knowledge_commands::get_knowledge,
+            knowledge_commands::update_knowledge,
+            knowledge_commands::publish_knowledge,
+            knowledge_commands::delete_knowledge,
+            knowledge_commands::list_knowledge_sources,
+            knowledge_commands::open_knowledge_source,
+            knowledge_commands::list_knowledge_versions,
+            knowledge_commands::restore_knowledge_version,
+            search_commands::unified_search,
+            ai_assist_commands::ai_assist_improve,
+            ai_assist_commands::ai_assist_summarize,
+            ai_assist_commands::ai_assist_rewrite,
+            ai_assist_commands::ai_assist_continue,
+            diagnostics::get_diagnostics,
+            diagnostics::repair_index,
+            diagnostics::retry_failed_jobs,
+            embedding_commands::embedding_config_status,
+            embedding_commands::set_embedding_enabled,
+            embedding_commands::get_embedding_service_status,
+            embedding_commands::rebuild_all_semantic_indexes,
             storage_commands::get_data_storage_settings,
             storage_commands::pick_data_directory,
             storage_commands::set_data_storage_root,
-            commands::extract_session_now,
-            commands::get_knowledge_stats,
-            commands::get_recent_knowledge,
-            commands::open_knowledge_window,
-            commands::get_full_status,
-            commands::sync_and_extract,
-            commands::list_pipeline_runs,
-            commands::get_pipeline_detail,
-            commands::get_pipeline_stats,
-            commands::list_sessions_v3,
-            commands::list_knowledge,
-            commands::search_knowledge,
-            commands::get_session_detail,
-            commands::get_knowledge_detail,
-            commands::run_pipeline_for_session,
-            commands::backfill_extractions,
-            commands::sync_knowledge_to_siyuan,
-            commands::hybrid_search,
-            // V4 Native Knowledge Workbench
-            knowledge_commands::list_knowledge_v4,
-            knowledge_commands::get_knowledge_detail_v4,
-            knowledge_commands::create_knowledge,
-            knowledge_commands::update_knowledge,
-            knowledge_commands::set_knowledge_favorite,
-            knowledge_commands::archive_knowledge,
-            knowledge_commands::restore_knowledge,
-            knowledge_commands::search_knowledge_v4,
-            knowledge_commands::publish_knowledge,
-            // V4.2 Unified Search + AI Assist
-            search_commands::search_all_v42,
-            ai_assist_commands::assist_knowledge_v42,
-            // V4.1 SiYuan Embedded Workbench
-            diagnostics::get_v41_diagnostics,
-            session_workbench::get_session_workbench_doc_id,
+            storage_commands::open_data_storage_root,
             workbench::commands::get_workbench_status,
-            workbench::commands::mount_workbench,
+            workbench::commands::start_workbench,
+            workbench::commands::stop_workbench,
+            workbench::commands::restart_workbench,
             workbench::commands::show_workbench,
-            workbench::commands::reload_workbench,
             workbench::commands::hide_workbench,
-            workbench::commands::set_workbench_mode,
-            workbench::commands::show_workbench_root,
-            workbench::commands::open_siyuan_document,
-            workbench::commands::open_siyuan_block,
-            workbench::commands::refresh_siyuan_document,
+            workbench::commands::open_workbench_notebook,
+            workbench::commands::open_workbench_doc,
+            workbench::commands::reload_workbench,
+            workbench::commands::get_workbench_readiness,
+            workbench::commands::get_workbench_route,
+            workbench::commands::set_workbench_route,
+            workbench::commands::get_workbench_url,
+            workbench::commands::get_workbench_log_tail,
+            workbench::commands::get_workbench_config,
+            workbench::commands::save_workbench_config,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let close_to_tray = window
-                    .app_handle()
-                    .try_state::<app_state::AppState>()
-                    .map(|state| state.close_to_tray.load(Ordering::Acquire))
-                    .unwrap_or(true);
-
-                if close_to_tray || window.label() != "control" {
-                    window.hide().ok();
-                    api.prevent_close();
-                } else {
-                    api.prevent_close();
-                    let app = window.app_handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        lifecycle::shutdown(&app).await;
-                        app.exit(0);
-                    });
+            use tauri::WindowEvent;
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "control" {
+                        let should_hide = window
+                            .try_state::<app_state::AppState>()
+                            .map(|state| {
+                                state
+                                    .close_to_tray
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                            })
+                            .unwrap_or(true);
+                        if should_hide {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                    }
                 }
+                WindowEvent::Destroyed => {
+                    if window.label() == "control" {
+                        let app_handle = window.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            lifecycle::shutdown(&app_handle).await;
+                        });
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
