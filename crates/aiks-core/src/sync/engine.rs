@@ -36,6 +36,9 @@ pub struct SyncOptions {
     pub source_filter: Option<String>,
     pub dry_run: bool,
     pub overwrite: bool,
+    /// How this run was initiated. None preserves the historical `manual`
+    /// default; dry-run always records `dry_run` regardless of this value.
+    pub trigger_type: Option<String>,
 }
 
 /// Exact canonical identity of a session that should enter the knowledge pipeline.
@@ -166,7 +169,11 @@ impl SyncEngine {
         F: FnMut(&ExtractionCandidate),
     {
         let run_repo = SyncRunRepo::new(db);
-        let trigger = if opts.dry_run { "dry_run" } else { "manual" };
+        let trigger = if opts.dry_run {
+            "dry_run"
+        } else {
+            opts.trigger_type.as_deref().unwrap_or("manual")
+        };
         let run_id = run_repo.start(trigger)?;
 
         let renderer = MarkdownRenderer::new(
