@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use aiks_core::{config::Config, model::SourceKind};
 
+// RED contract for the WorkBuddy provider integration.
 #[test]
 fn workbuddy_source_kind_has_stable_identity() {
     assert_eq!(SourceKind::WorkBuddy.as_str(), "workbuddy");
