@@ -1,5 +1,10 @@
+use aiks_core::config::Config;
 use aiks_core::model::{ContentBlock, MessageRole, SourceKind};
-use aiks_core::providers::{workbuddy::WorkBuddyProvider, ProviderHealth, SessionProvider};
+use aiks_core::providers::{
+    build_registry, workbuddy::WorkBuddyProvider, ProviderHealth, SessionProvider,
+};
+use aiks_core::storage::StateDb;
+use aiks_core::sync::scanner::{FileChangeStatus, IncrementalScanner};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -270,4 +275,55 @@ async fn transcript_loads_by_internal_session_id_and_maps_known_events() {
         session.messages[7].blocks.as_slice(),
         [ContentBlock::Unknown { .. }]
     ));
+}
+
+
+#[test]
+fn registry_includes_enabled_workbuddy_provider() {
+    let root = create_workbuddy_root();
+    let conn = create_sessions_db(&root);
+    drop(conn);
+
+    let mut config = Config::default();
+    config.providers.claude.enabled = false;
+    config.providers.codex.enabled = false;
+    config.providers.gemini.enabled = false;
+    config.providers.opencode.enabled = false;
+    config.providers.workbuddy.enabled = true;
+    config.providers.workbuddy.path = root.path().to_string_lossy().to_string();
+
+    let registry = build_registry(&config);
+    let provider = registry
+        .get(SourceKind::WorkBuddy)
+        .expect("enabled WorkBuddy provider should be registered");
+
+    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v1");
+}
+
+#[test]
+fn workbuddy_parser_version_change_forces_incremental_reparse() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let transcript = dir.path().join("session.jsonl");
+    std::fs::write(&transcript, b"{\"type\":\"message\"}\n").unwrap();
+
+    IncrementalScanner::record_file(
+        &db,
+        &transcript,
+        "workbuddy",
+        "workbuddy-jsonl-v0",
+        None,
+        None,
+    )
+    .unwrap();
+
+    let status = IncrementalScanner::check_file(
+        &db,
+        &transcript,
+        "workbuddy",
+        "workbuddy-jsonl-v1",
+    )
+    .unwrap();
+
+    assert_eq!(status, FileChangeStatus::Modified);
 }
