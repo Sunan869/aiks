@@ -322,3 +322,58 @@ fn workbuddy_parser_version_change_forces_incremental_reparse() {
 
     assert_eq!(status, FileChangeStatus::Modified);
 }
+
+
+#[test]
+fn registry_includes_enabled_workbuddy_provider_with_parser_version() {
+    let root = create_workbuddy_root();
+    let conn = create_sessions_db(&root);
+    drop(conn);
+
+    let mut config = Config::default();
+    config.providers.claude.enabled = false;
+    config.providers.codex.enabled = false;
+    config.providers.gemini.enabled = false;
+    config.providers.opencode.enabled = false;
+    config.providers.workbuddy.enabled = true;
+    config.providers.workbuddy.path = root.path().to_string_lossy().to_string();
+
+    let registry = build_registry(&config);
+    let provider = registry
+        .get(SourceKind::WorkBuddy)
+        .expect("enabled WorkBuddy provider should be registered");
+
+    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v1");
+}
+
+#[test]
+fn workbuddy_parser_version_change_marks_transcript_modified() {
+    let root = create_workbuddy_root();
+    let transcript = root.path().join("projects").join("session.jsonl");
+    std::fs::write(
+        &transcript,
+        br#"{"type":"message","sessionId":"s1","role":"user","content":"hello"}"#,
+    )
+    .unwrap();
+
+    let db = StateDb::open(&root.path().join("aiks-state.db")).unwrap();
+    IncrementalScanner::record_file(
+        &db,
+        &transcript,
+        SourceKind::WorkBuddy.as_str(),
+        "workbuddy-jsonl-v0",
+        None,
+        None,
+    )
+    .unwrap();
+
+    let status = IncrementalScanner::check_file(
+        &db,
+        &transcript,
+        SourceKind::WorkBuddy.as_str(),
+        "workbuddy-jsonl-v1",
+    )
+    .unwrap();
+
+    assert_eq!(status, FileChangeStatus::Modified);
+}
