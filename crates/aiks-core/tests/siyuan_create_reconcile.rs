@@ -36,8 +36,9 @@ async fn spawn_sequence_server(responses: Vec<&'static str>) -> (String, Arc<Ato
 #[tokio::test]
 async fn create_reconciled_adopts_existing_document_before_creating() {
     let path = "/10 AI Sessions/OpenCode/2026/03/session [ses_30a9]";
-    let body = r#"{"code":0,"msg":"","data":[{"id":"doc-existing"}]}"#;
-    let (base_url, requests) = spawn_sequence_server(vec![body]).await;
+    let existing = r#"{"code":0,"msg":"","data":[{"id":"doc-existing"}]}"#;
+    let remote = r##"{"code":0,"msg":"","data":{"kramdown":"# payload\n"}}"##;
+    let (base_url, requests) = spawn_sequence_server(vec![existing, remote]).await;
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
 
     let doc_id = sink
@@ -46,7 +47,7 @@ async fn create_reconciled_adopts_existing_document_before_creating() {
         .unwrap();
 
     assert_eq!(doc_id, "doc-existing");
-    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -73,7 +74,9 @@ async fn create_reconciled_recovers_document_after_ambiguous_create_failure() {
     let empty = r#"{"code":0,"msg":"","data":[]}"#;
     let failed_create = r#"{"code":-1,"msg":"create timed out","data":null}"#;
     let created = r#"{"code":0,"msg":"","data":[{"id":"doc-created-server-side"}]}"#;
-    let (base_url, requests) = spawn_sequence_server(vec![empty, failed_create, created]).await;
+    let remote = r##"{"code":0,"msg":"","data":{"kramdown":"# huge payload\n"}}"##;
+    let (base_url, requests) =
+        spawn_sequence_server(vec![empty, failed_create, created, remote]).await;
     let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
 
     let doc_id = sink
@@ -82,7 +85,7 @@ async fn create_reconciled_recovers_document_after_ambiguous_create_failure() {
         .unwrap();
 
     assert_eq!(doc_id, "doc-created-server-side");
-    assert_eq!(requests.load(Ordering::SeqCst), 3);
+    assert_eq!(requests.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]
