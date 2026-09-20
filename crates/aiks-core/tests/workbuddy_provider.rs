@@ -179,7 +179,10 @@ async fn transcript_loads_by_internal_session_id_and_maps_known_events() {
     assert_eq!(sessions.len(), 1);
     let summary = &sessions[0];
     assert_eq!(summary.external_session_id, "s1");
-    assert_eq!(summary.source_path.as_deref(), Some(transcript_path.as_path()));
+    assert_eq!(
+        summary.source_path.as_deref(),
+        Some(transcript_path.as_path())
+    );
 
     let session = provider.load_session(summary).await.unwrap();
 
@@ -188,10 +191,19 @@ async fn transcript_loads_by_internal_session_id_and_maps_known_events() {
     assert_eq!(session.title.as_deref(), Some("Database custom title"));
     assert_eq!(session.project_path.as_deref(), Some(r"C:\src\demo"));
     assert_eq!(session.project_name.as_deref(), Some("demo"));
-    assert_eq!(session.source_path.as_deref(), Some(transcript_path.as_path()));
+    assert_eq!(
+        session.source_path.as_deref(),
+        Some(transcript_path.as_path())
+    );
     assert_eq!(session.model.as_deref(), Some("workbuddy-model"));
-    assert_eq!(session.metadata.get("status").and_then(|v| v.as_str()), Some("completed"));
-    assert_eq!(session.metadata.get("mode").and_then(|v| v.as_str()), Some("craft"));
+    assert_eq!(
+        session.metadata.get("status").and_then(|v| v.as_str()),
+        Some("completed")
+    );
+    assert_eq!(
+        session.metadata.get("mode").and_then(|v| v.as_str()),
+        Some("craft")
+    );
     assert_eq!(
         session
             .metadata
