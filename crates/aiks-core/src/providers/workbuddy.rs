@@ -5,7 +5,7 @@
 //! respect to the WorkBuddy data root.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -50,7 +50,8 @@ impl WorkBuddyProvider {
             }
         }
 
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot locate home directory"))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot locate home directory"))?;
         let home_root = home.join(".workbuddy");
         if home_root.join("workbuddy.db").is_file() {
             return Ok(home_root);
@@ -88,7 +89,7 @@ impl WorkBuddyProvider {
     }
 
     #[cfg(windows)]
-    fn find_nested_workbuddy_root(parent: &Path) -> Option<PathBuf> {
+    fn find_nested_workbuddy_root(parent: &std::path::Path) -> Option<PathBuf> {
         let entries = std::fs::read_dir(parent).ok()?;
         for entry in entries.flatten() {
             let candidate = entry.path().join(".workbuddy");
@@ -144,18 +145,15 @@ impl WorkBuddyProvider {
     }
 
     fn project_name_from_cwd(cwd: &str) -> Option<String> {
-        let trimmed = cwd.trim_end_matches(['/', '\\']);
+        let trimmed = cwd.trim_end_matches(|c| c == '/' || c == '\\');
         trimmed
-            .rsplit(['/', '\\'])
+            .rsplit(|c| c == '/' || c == '\\')
             .find(|segment| !segment.is_empty())
             .map(str::to_owned)
     }
 
     fn not_found_message(&self) -> String {
-        format!(
-            "WorkBuddy database not found at {}",
-            self.db_path.display()
-        )
+        format!("WorkBuddy database not found at {}", self.db_path.display())
     }
 }
 
@@ -225,7 +223,11 @@ impl SessionProvider for WorkBuddyProvider {
                 external_session_id: id,
                 title: preferred_title,
                 project_name: Self::project_name_from_cwd(&cwd),
-                project_path: if cwd.trim().is_empty() { None } else { Some(cwd) },
+                project_path: if cwd.trim().is_empty() {
+                    None
+                } else {
+                    Some(cwd)
+                },
                 source_path: None,
                 started_at: Self::millis_to_datetime(created_at),
                 updated_at: Self::millis_to_datetime(last_activity_at.unwrap_or(updated_at)),
