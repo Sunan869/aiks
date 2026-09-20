@@ -231,6 +231,7 @@ export class MockAiksApi implements AiksApi {
       hits: [...knowledgeHits, ...sessionHits].slice(0, options?.limit ?? 30),
       degraded: false,
       warnings: [],
+      semantic_enabled: false,
     };
   }
 
@@ -291,6 +292,10 @@ export class MockAiksApi implements AiksApi {
     workbenchMode = mode;
   }
 
+  async reloadWorkbench(): Promise<void> {
+    await delay(20);
+  }
+
   async hideWorkbench(): Promise<void> {}
 
   async openSiyuanDocument(_docId: string, mode: WorkspaceMode): Promise<void> {
@@ -300,7 +305,6 @@ export class MockAiksApi implements AiksApi {
   async openSiyuanBlock(_docId: string, _blockId: string, mode: WorkspaceMode): Promise<void> {
     workbenchMode = mode;
   }
-
 
   async getFullStatus(): Promise<FullStatus> {
     return {

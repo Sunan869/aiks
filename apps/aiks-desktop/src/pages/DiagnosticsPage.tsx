@@ -59,7 +59,7 @@ export default function DiagnosticsPage() {
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="w-full min-w-0 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">帮助与诊断</h1>
