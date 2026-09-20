@@ -168,13 +168,11 @@ async fn oversized_session_is_permanent_and_unchanged_source_is_not_retried() {
         .unwrap();
     assert_eq!(target.status, SyncStatus::FailedPermanent);
     assert_eq!(target.retry_count, 1);
-    assert!(
-        target
-            .last_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("too large")
-    );
+    assert!(target
+        .last_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("too large"));
 
     let second = engine
         .run_sync(&db, &registry, &sink, &SyncOptions::default())
