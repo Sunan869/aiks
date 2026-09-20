@@ -323,7 +323,6 @@ fn workbuddy_parser_version_change_forces_incremental_reparse() {
     assert_eq!(status, FileChangeStatus::Modified);
 }
 
-
 #[test]
 fn registry_includes_enabled_workbuddy_provider_with_parser_version() {
     let root = create_workbuddy_root();
