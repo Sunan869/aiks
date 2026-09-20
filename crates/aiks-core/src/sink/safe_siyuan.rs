@@ -63,9 +63,12 @@ impl SiYuanSink {
         Ok(())
     }
 
+    fn trim_trailing_line_endings(value: &str) -> &str {
+        value.trim_end_matches(['\r', '\n'])
+    }
+
     fn markdown_matches(remote: &str, expected: &str) -> bool {
-        let trim_line_endings = |value: &str| value.trim_end_matches(['\r', '\n']);
-        trim_line_endings(remote) == trim_line_endings(expected)
+        Self::trim_trailing_line_endings(remote) == Self::trim_trailing_line_endings(expected)
     }
 
     async fn verify_existing_document_matches(
