@@ -36,9 +36,6 @@ pub struct SyncOptions {
     pub source_filter: Option<String>,
     pub dry_run: bool,
     pub overwrite: bool,
-    /// How this run was initiated. None preserves the historical `manual`
-    /// default; dry-run always records `dry_run` regardless of this value.
-    pub trigger_type: Option<String>,
 }
 
 /// Exact canonical identity of a session that should enter the knowledge pipeline.
@@ -103,8 +100,6 @@ impl SyncEngine {
         opts: &SyncOptions,
         stats: &mut SyncStats,
     ) -> Option<ExtractionCandidate> {
-        // A dry-run must never create executable follow-up work. New dry-run
-        // sessions do not even have a canonical source_session row yet.
         if opts.dry_run {
             return None;
         }
@@ -141,9 +136,6 @@ impl SyncEngine {
         }
     }
 
-    /// Run a full sync cycle.
-    ///
-    /// Returns SyncStats including sessions eligible for AI extraction.
     pub async fn run_sync(
         &self,
         db: &StateDb,
@@ -151,41 +143,77 @@ impl SyncEngine {
         sink: &SiYuanSink,
         opts: &SyncOptions,
     ) -> anyhow::Result<SyncStats> {
-        self.run_sync_with_candidate_handler(db, registry, sink, opts, |_| {})
+        let trigger = if opts.dry_run { "dry_run" } else { "manual" };
+        self.run_sync_with_candidate_handler_and_trigger(db, registry, sink, opts, trigger, |_| {})
             .await
     }
 
-    /// Run a full sync cycle and synchronously notify the caller as soon as
-    /// each Created/Updated session becomes eligible for the knowledge pipeline.
+    /// Run a sync cycle with an explicit initiation source while preserving the
+    /// old `run_sync` API for callers that should remain `manual`.
+    pub async fn run_sync_with_trigger(
+        &self,
+        db: &StateDb,
+        registry: &ProviderRegistry,
+        sink: &SiYuanSink,
+        opts: &SyncOptions,
+        trigger_type: &str,
+    ) -> anyhow::Result<SyncStats> {
+        let trigger = if opts.dry_run {
+            "dry_run"
+        } else {
+            trigger_type
+        };
+        self.run_sync_with_candidate_handler_and_trigger(db, registry, sink, opts, trigger, |_| {})
+            .await
+    }
+
     pub async fn run_sync_with_candidate_handler<F>(
         &self,
         db: &StateDb,
         registry: &ProviderRegistry,
         sink: &SiYuanSink,
         opts: &SyncOptions,
+        on_candidate: F,
+    ) -> anyhow::Result<SyncStats>
+    where
+        F: FnMut(&ExtractionCandidate),
+    {
+        let trigger = if opts.dry_run { "dry_run" } else { "manual" };
+        self.run_sync_with_candidate_handler_and_trigger(
+            db,
+            registry,
+            sink,
+            opts,
+            trigger,
+            on_candidate,
+        )
+        .await
+    }
+
+    /// Same pipeline as `run_sync_with_candidate_handler`, but lets orchestration
+    /// layers distinguish startup/watcher/periodic runs in `sync_run` history.
+    pub async fn run_sync_with_candidate_handler_and_trigger<F>(
+        &self,
+        db: &StateDb,
+        registry: &ProviderRegistry,
+        sink: &SiYuanSink,
+        opts: &SyncOptions,
+        trigger_type: &str,
         mut on_candidate: F,
     ) -> anyhow::Result<SyncStats>
     where
         F: FnMut(&ExtractionCandidate),
     {
         let run_repo = SyncRunRepo::new(db);
-        let trigger = if opts.dry_run {
-            "dry_run"
-        } else {
-            opts.trigger_type.as_deref().unwrap_or("manual")
-        };
-        let run_id = run_repo.start(trigger)?;
+        let run_id = run_repo.start(trigger_type)?;
 
         let renderer = MarkdownRenderer::new(
             self.config.content.clone(),
             self.config.security.redact_secrets,
         );
 
-        // Discover all sessions
         let all_summaries = registry.discover_all().await;
         let total_discovered = all_summaries.len();
-
-        // Filter by source if requested
         let summaries: Vec<SessionSummary> = if let Some(src) = &opts.source_filter {
             all_summaries
                 .into_iter()
@@ -200,6 +228,7 @@ impl SyncEngine {
             filtered = summaries.len(),
             source_filter = ?opts.source_filter,
             dry_run = opts.dry_run,
+            trigger_type,
             "[SYNC] Starting sync"
         );
 
@@ -226,8 +255,6 @@ impl SyncEngine {
         };
 
         for summary in &summaries {
-            // Filter: only skip if we KNOW message count is low and it's > 0
-            // (Codex from state_5.sqlite has count=0 meaning "unknown" — don't skip those)
             let min_msgs = self.config.content.minimum_messages;
             if min_msgs > 0 && summary.message_count > 0 && summary.message_count < min_msgs {
                 debug!(
@@ -245,11 +272,7 @@ impl SyncEngine {
 
             match &outcome {
                 SyncOutcome::Created { doc_id } => {
-                    info!(
-                        session_id = %summary.external_session_id,
-                        doc_id = %doc_id,
-                        "[SYNC] Created"
-                    );
+                    info!(session_id = %summary.external_session_id, doc_id = %doc_id, "[SYNC] Created");
                     stats.new_count += 1;
                     if let Some(candidate) =
                         self.record_extraction_candidate(db, summary, opts, &mut stats)
@@ -258,11 +281,7 @@ impl SyncEngine {
                     }
                 }
                 SyncOutcome::Updated { doc_id } => {
-                    info!(
-                        session_id = %summary.external_session_id,
-                        doc_id = %doc_id,
-                        "[SYNC] Updated"
-                    );
+                    info!(session_id = %summary.external_session_id, doc_id = %doc_id, "[SYNC] Updated");
                     stats.updated_count += 1;
                     if let Some(candidate) =
                         self.record_extraction_candidate(db, summary, opts, &mut stats)
@@ -279,19 +298,11 @@ impl SyncEngine {
                     stats.skipped_count += 1;
                 }
                 SyncOutcome::Conflict { doc_id } => {
-                    warn!(
-                        session_id = %summary.external_session_id,
-                        doc_id = %doc_id,
-                        "[SYNC] Conflict"
-                    );
+                    warn!(session_id = %summary.external_session_id, doc_id = %doc_id, "[SYNC] Conflict");
                     stats.conflict_count += 1;
                 }
                 SyncOutcome::Failed { error } => {
-                    error!(
-                        session_id = %summary.external_session_id,
-                        error = %error,
-                        "[SYNC] Failed"
-                    );
+                    error!(session_id = %summary.external_session_id, error = %error, "[SYNC] Failed");
                     stats.failed_count += 1;
                     if !opts.dry_run && !sink.health_check().await {
                         error!("[SYNC] SiYuan unavailable; aborting remaining sessions");
@@ -317,13 +328,13 @@ impl SyncEngine {
             skipped = stats.skipped_count,
             failed = stats.failed_count,
             candidates = stats.extraction_candidates.len(),
+            trigger_type,
             "[SYNC] Completed"
         );
 
         Ok(stats)
     }
 
-    /// Sync a single session.
     async fn sync_session(
         &self,
         db: &StateDb,
@@ -338,7 +349,6 @@ impl SyncEngine {
         let source_session_repo = SourceSessionRepo::new(db);
         let sync_target_repo = SyncTargetRepo::new(db);
 
-        // Find existing state
         let existing = match source_session_repo.find_by_source_and_id(source, session_id) {
             Ok(e) => e,
             Err(e) => {
@@ -348,7 +358,6 @@ impl SyncEngine {
             }
         };
 
-        // Load the full session
         let provider = match registry.get(summary.source) {
             Some(p) => p,
             None => {
@@ -367,7 +376,6 @@ impl SyncEngine {
             }
         };
 
-        // Check actual message count after loading (handles Codex count=0 from DB)
         let min_msgs = self.config.content.minimum_messages;
         if min_msgs > 0 && session.messages.len() < min_msgs {
             return SyncOutcome::Skipped {
@@ -383,16 +391,11 @@ impl SyncEngine {
         let parser_version = provider.parser_version();
         let is_new = existing.is_none();
 
-        // R03: load the locally persisted sync target. It holds the mapping to
-        // the remote document, which is the source of truth for create-vs-update.
         let existing_target = match existing.as_ref() {
             Some(e) => sync_target_repo.find(e.id, "siyuan").ok().flatten(),
             None => None,
         };
 
-        // A permanent safety failure for an unchanged source payload cannot be
-        // repaired by retrying the same write. Skip it until the source content
-        // or parser version changes, at which point a new attempt is allowed.
         if let (Some(existing), Some(target)) = (existing.as_ref(), existing_target.as_ref()) {
             if target.status == SyncStatus::FailedPermanent
                 && existing.content_hash.as_deref() == Some(&content_hash)
@@ -405,10 +408,6 @@ impl SyncEngine {
             }
         }
 
-        // B03 + R04: UNCHANGED only when the *confirmed* target matches the
-        // current content hash AND the parser version. The hash stored on the
-        // source row alone is not enough (dry-run or a stale target must not
-        // swallow a pending update).
         if !is_new {
             if let Some(target) = &existing_target {
                 if matches!(target.status, SyncStatus::Synced | SyncStatus::Unchanged)
@@ -416,7 +415,6 @@ impl SyncEngine {
                     && existing.as_ref().map(|e| e.parser_version.as_deref())
                         == Some(Some(parser_version))
                 {
-                    // Refresh observed metadata only — hash is unchanged, safe.
                     let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
                     let _ = source_session_repo.upsert(
                         source,
@@ -434,8 +432,6 @@ impl SyncEngine {
             }
         }
 
-        // R04: dry-run must not advance any state that a later real sync
-        // depends on (no source upsert, no target change, no SiYuan call).
         if opts.dry_run {
             return if is_new {
                 SyncOutcome::Created {
@@ -448,8 +444,6 @@ impl SyncEngine {
             };
         }
 
-        // Persist session metadata. The content_hash here is the observed hash.
-        // SYNCED status is only set in sync_target after confirmed remote write.
         let source_updated_at = session.updated_at.map(|t| t.to_rfc3339());
         let db_session_id = match source_session_repo.upsert(
             source,
@@ -470,7 +464,6 @@ impl SyncEngine {
             }
         };
 
-        // R03: resolve the existing remote document from the local mapping.
         let existing_doc: Option<crate::sink::siyuan::DocumentInfo> = existing_target
             .as_ref()
             .filter(|t| {
@@ -486,12 +479,6 @@ impl SyncEngine {
                 parser_version: None,
             });
 
-        // A mapped target is safe to update only after proving its remote
-        // content still matches a trustworthy baseline. When a baseline exists,
-        // a successful Kramdown read already proves the document exists, so no
-        // redundant SQL existence probe is needed. Legacy rows without a
-        // baseline are probed only to distinguish protected-existing from
-        // definitely-missing.
         let mut remote_missing = false;
         if let (Some(doc), Some(target)) = (&existing_doc, existing_target.as_ref()) {
             if !opts.overwrite {
@@ -507,9 +494,7 @@ impl SyncEngine {
                             }
                         }
                         Err(read_error) => match sink.get_doc_notebook(&doc.id).await {
-                            Ok(None) => {
-                                remote_missing = true;
-                            }
+                            Ok(None) => remote_missing = true,
                             Ok(Some(_)) => {
                                 let msg = format!(
                                     "verify remote SiYuan document {} before update: {}",
@@ -540,7 +525,6 @@ impl SyncEngine {
                     }
 
                     if !remote_missing {
-                        // Secondary check: managed attribute was tampered with.
                         if let Ok(attrs) = sink.get_block_attrs(&doc.id).await {
                             let current =
                                 attrs.get(crate::sink::siyuan::ATTR_CONTENT_HASH).cloned();
@@ -569,9 +553,7 @@ impl SyncEngine {
                                 doc_id: doc.id.clone(),
                             };
                         }
-                        Ok(None) => {
-                            remote_missing = true;
-                        }
+                        Ok(None) => remote_missing = true,
                         Err(e) => {
                             let msg = format!(
                                 "verify mapped SiYuan document {} exists before update: {}",
@@ -586,9 +568,7 @@ impl SyncEngine {
             }
         }
 
-        // Render to Markdown
         let markdown = context.renderer.render(&session);
-
         let notebook_id = match context.notebook_id {
             Some(id) => id,
             None => {
@@ -605,9 +585,6 @@ impl SyncEngine {
             session.started_at.as_ref(),
         );
 
-        // Create or update document. An update error is never enough evidence
-        // to recreate: only a successful follow-up existence check returning
-        // None proves the old document is gone.
         let doc_id = if let Some(doc) = &existing_doc {
             if remote_missing {
                 let _ = sync_target_repo.upsert_pending(db_session_id, "siyuan");
@@ -721,8 +698,6 @@ impl SyncEngine {
             }
         };
 
-        // Persist the doc mapping immediately. A later failure must retry this
-        // exact remote document rather than creating an orphan duplicate.
         if let Err(e) =
             sync_target_repo.record_target_doc(db_session_id, "siyuan", &doc_id, &doc_path)
         {
@@ -731,9 +706,6 @@ impl SyncEngine {
             };
         }
 
-        // Capture and persist the remote baseline BEFORE attrs. If attrs fail,
-        // the retry can still prove this mapped document is the AIKS write and
-        // safely update it. Baseline capture itself fails closed.
         let target_hash = match sink.get_document_markdown(&doc_id).await {
             Ok(remote_md) => hash_markdown(&remote_md),
             Err(e) => {
@@ -748,9 +720,6 @@ impl SyncEngine {
             return SyncOutcome::Failed { error: msg };
         }
 
-        // R05: Set AIKS metadata attributes — a failure here is FATAL for this
-        // session. The mapping and baseline are already durable, so the retry
-        // path verifies and updates the same document.
         if let Err(e) = sink
             .set_aiks_attrs(&doc_id, source, session_id, &content_hash, parser_version)
             .await
@@ -760,8 +729,6 @@ impl SyncEngine {
             return SyncOutcome::Failed { error: msg };
         }
 
-        // R05: mark_synced errors must not be silently ignored — the run would
-        // report success while the state says otherwise.
         if let Err(e) = sync_target_repo.mark_synced(
             db_session_id,
             "siyuan",
@@ -782,12 +749,6 @@ impl SyncEngine {
         }
     }
 
-    /// Mark sessions as missing when source files are deleted.
-    ///
-    /// R14: only judge "missing" for sources whose provider scan actually
-    /// SUCCEEDED. A provider failure (permissions, path error, temporary
-    /// outage) previously produced an empty result which marked every stored
-    /// session of that source as missing — a false deletion report.
     pub async fn mark_missing_sessions(
         &self,
         db: &StateDb,
@@ -825,7 +786,6 @@ impl SyncEngine {
             if stored.is_missing {
                 continue;
             }
-            // R14: only judge sources that were successfully scanned this round.
             if !scanned_sources.contains(&stored.source) {
                 continue;
             }
@@ -838,14 +798,9 @@ impl SyncEngine {
         Ok(marked)
     }
 
-    /// B09: Enqueue all sessions in the DB into the V3 pipeline.
-    ///
-    /// Used after sync to create pipeline_run records for sessions that
-    /// were discovered but don't yet have a pipeline run (or have a failed one).
     pub fn enqueue_all_pending_for_pipeline(&self, db: &StateDb) -> anyhow::Result<usize> {
         use crate::pipeline::repo::PipelineRepo;
 
-        // Step 1: Collect sessions needing pipeline runs (hold lock briefly, then release)
         let rows: Vec<(i64, Option<String>)> = {
             let conn = db.conn();
             let mut stmt = conn.prepare(
@@ -864,12 +819,9 @@ impl SyncEngine {
                 .filter_map(|r| r.ok())
                 .collect();
             result
-            // conn MutexGuard dropped here ─────────────────────────────────────
         };
 
         let count = rows.len();
-
-        // Step 2: Create pipeline_run records (separate DB lock acquisition)
         let pipeline_repo = PipelineRepo::new(db);
         for (session_id, content_hash) in rows {
             let _ = pipeline_repo.upsert_pipeline_run(session_id, content_hash.as_deref(), "v3");
