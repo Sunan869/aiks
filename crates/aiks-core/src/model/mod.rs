@@ -18,6 +18,7 @@ pub enum SourceKind {
     Codex,
     GeminiCli,
     OpenCode,
+    WorkBuddy,
 }
 
 impl SourceKind {
@@ -27,6 +28,7 @@ impl SourceKind {
             SourceKind::Codex => "codex",
             SourceKind::GeminiCli => "gemini_cli",
             SourceKind::OpenCode => "opencode",
+            SourceKind::WorkBuddy => "workbuddy",
         }
     }
 
@@ -36,6 +38,7 @@ impl SourceKind {
             SourceKind::Codex => "Codex",
             SourceKind::GeminiCli => "Gemini CLI",
             SourceKind::OpenCode => "OpenCode",
+            SourceKind::WorkBuddy => "WorkBuddy",
         }
     }
 
@@ -45,6 +48,7 @@ impl SourceKind {
             "codex" => Some(SourceKind::Codex),
             "gemini_cli" | "gemini" | "geminicli" => Some(SourceKind::GeminiCli),
             "opencode" | "open_code" => Some(SourceKind::OpenCode),
+            "workbuddy" | "work_buddy" => Some(SourceKind::WorkBuddy),
             _ => None,
         }
     }
