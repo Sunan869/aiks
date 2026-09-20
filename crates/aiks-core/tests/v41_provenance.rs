@@ -230,11 +230,18 @@ async fn modified_raw_session_is_reported_as_conflict_and_never_overwritten() {
     assert_eq!(stats.conflict_count, 1);
     assert_eq!(stats.updated_count, 0);
     let paths = seen.lock().unwrap();
-    assert!(paths.iter().any(|path| path.contains("/api/query/sql")));
     assert!(paths.iter().any(|path| path.contains("getBlockKramdown")));
+    assert!(
+        !paths.iter().any(|path| path.contains("/api/query/sql")),
+        "known baseline plus successful Kramdown read should not need an existence probe: {paths:?}"
+    );
     assert!(
         !paths.iter().any(|path| path.contains("updateBlock")),
         "modified raw Session must never be overwritten: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|path| path.contains("createDocWithMd")),
+        "modified raw Session must never be recreated: {paths:?}"
     );
 }
 
