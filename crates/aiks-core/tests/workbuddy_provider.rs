@@ -277,7 +277,6 @@ async fn transcript_loads_by_internal_session_id_and_maps_known_events() {
     ));
 }
 
-
 #[test]
 fn registry_includes_enabled_workbuddy_provider() {
     let root = create_workbuddy_root();
@@ -317,13 +316,9 @@ fn workbuddy_parser_version_change_forces_incremental_reparse() {
     )
     .unwrap();
 
-    let status = IncrementalScanner::check_file(
-        &db,
-        &transcript,
-        "workbuddy",
-        "workbuddy-jsonl-v1",
-    )
-    .unwrap();
+    let status =
+        IncrementalScanner::check_file(&db, &transcript, "workbuddy", "workbuddy-jsonl-v1")
+            .unwrap();
 
     assert_eq!(status, FileChangeStatus::Modified);
 }
