@@ -7,6 +7,12 @@ use crate::config::SiYuanConfig;
 
 use super::siyuan;
 
+/// A single huge `createDocWithMd` call is the failure mode that originally
+/// produced duplicate documents: SiYuan could commit the document after the
+/// client had already timed out. Keep a conservative hard stop at the HTTP
+/// sink boundary so no caller can accidentally reintroduce that unsafe write.
+const MAX_SAFE_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
+
 /// Safety wrapper around the raw SiYuan HTTP sink.
 ///
 /// SiYuan document creation is not transactionally idempotent from the HTTP
@@ -46,6 +52,17 @@ impl SiYuanSink {
         siyuan::SiYuanSink::sink_name()
     }
 
+    fn ensure_safe_document_size(markdown: &str) -> anyhow::Result<()> {
+        let bytes = markdown.len();
+        if bytes > MAX_SAFE_DOCUMENT_BYTES {
+            anyhow::bail!(
+                "SiYuan document too large: {bytes} bytes exceeds the {} byte safety limit",
+                MAX_SAFE_DOCUMENT_BYTES
+            );
+        }
+        Ok(())
+    }
+
     /// Resolve a document by its deterministic human path inside one notebook.
     /// `path` is the same hpath passed to `createDocWithMd`.
     pub async fn find_document_by_hpath(
@@ -81,6 +98,8 @@ impl SiYuanSink {
         path: &str,
         markdown: &str,
     ) -> anyhow::Result<String> {
+        Self::ensure_safe_document_size(markdown)?;
+
         if let Some(id) = self.find_document_by_hpath(notebook_id, path).await? {
             return Ok(id);
         }
@@ -124,6 +143,8 @@ impl SiYuanSink {
     /// timeout or other transient error. Recreate is allowed only when SiYuan
     /// confirms that the mapped document no longer exists.
     pub async fn update_document(&self, doc_id: &str, markdown: &str) -> anyhow::Result<()> {
+        Self::ensure_safe_document_size(markdown)?;
+
         match self.inner.update_document(doc_id, markdown).await {
             Ok(()) => {
                 *self.blocked_recreate.lock().unwrap() = None;
