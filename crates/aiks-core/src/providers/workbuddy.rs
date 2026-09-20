@@ -361,10 +361,7 @@ impl WorkBuddyProvider {
                 (
                     MessageRole::Tool,
                     vec![ContentBlock::ToolResult {
-                        id: event
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
+                        id: event.get("id").and_then(Value::as_str).map(str::to_owned),
                         content,
                         is_error,
                     }],
