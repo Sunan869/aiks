@@ -358,11 +358,22 @@ impl SiyuanRuntime {
         // Set up logging
         let (stdout_stdio, stderr_stdio) = self.make_log_stdio(port)?;
 
-        // Spawn kernel
-        let child = Command::new(&kernel_exe)
+        // Spawn kernel. On Windows use CREATE_NO_WINDOW so the bundled kernel
+        // remains a true background child instead of flashing a console window.
+        let mut command = Command::new(&kernel_exe);
+        command
             .args(&args)
             .stdout(stdout_stdio)
-            .stderr(stderr_stdio)
+            .stderr(stderr_stdio);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let child = command
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn SiYuan-Kernel: {}", e))?;
 
