@@ -63,6 +63,31 @@ impl SiYuanSink {
         Ok(())
     }
 
+    fn markdown_matches(remote: &str, expected: &str) -> bool {
+        let trim_line_endings = |value: &str| value.trim_end_matches(['\r', '\n']);
+        trim_line_endings(remote) == trim_line_endings(expected)
+    }
+
+    async fn verify_existing_document_matches(
+        &self,
+        doc_id: &str,
+        expected_markdown: &str,
+    ) -> anyhow::Result<()> {
+        let remote_markdown = self
+            .inner
+            .get_document_markdown(doc_id)
+            .await
+            .with_context(|| format!("verify reconciled SiYuan document {doc_id}"))?;
+
+        if !Self::markdown_matches(&remote_markdown, expected_markdown) {
+            anyhow::bail!(
+                "SiYuan document content mismatch for {doc_id}; refusing to adopt an existing document that may contain user edits"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Resolve a document by its deterministic human path inside one notebook.
     /// `path` is the same hpath passed to `createDocWithMd`.
     pub async fn find_document_by_hpath(
@@ -86,12 +111,11 @@ impl SiYuanSink {
 
     /// Idempotent create for deterministic AIKS document paths.
     ///
-    /// 1. Adopt a document already present at the target hpath. This recovers a
-    ///    previous create whose response was lost.
+    /// 1. If a document already exists at the target hpath, adopt it only when
+    ///    its current content still matches the payload we intended to create.
     /// 2. Otherwise issue createDocWithMd.
-    /// 3. If create fails/returns an error, reconcile the hpath once more. A
-    ///    document found after the failed request is treated as the committed
-    ///    side effect of that ambiguous request.
+    /// 3. If create fails/returns an error, reconcile the hpath once more and
+    ///    adopt a discovered document only after the same content check.
     pub async fn create_document_reconciled(
         &self,
         notebook_id: &str,
@@ -101,6 +125,7 @@ impl SiYuanSink {
         Self::ensure_safe_document_size(markdown)?;
 
         if let Some(id) = self.find_document_by_hpath(notebook_id, path).await? {
+            self.verify_existing_document_matches(&id, markdown).await?;
             return Ok(id);
         }
 
@@ -111,7 +136,12 @@ impl SiYuanSink {
         {
             Ok(id) => Ok(id),
             Err(create_error) => match self.find_document_by_hpath(notebook_id, path).await {
-                Ok(Some(id)) => Ok(id),
+                Ok(Some(id)) => match self.verify_existing_document_matches(&id, markdown).await {
+                    Ok(()) => Ok(id),
+                    Err(verify_error) => Err(anyhow::anyhow!(
+                        "SiYuan create failed: {create_error}; reconciliation found document {id}, but it could not be safely adopted: {verify_error}"
+                    )),
+                },
                 Ok(None) => Err(create_error),
                 Err(reconcile_error) => Err(create_error).with_context(|| {
                     format!(
