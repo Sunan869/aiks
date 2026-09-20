@@ -66,3 +66,35 @@ async fn create_reconciled_recovers_document_after_ambiguous_create_failure() {
     assert_eq!(doc_id, "doc-created-server-side");
     assert_eq!(requests.load(Ordering::SeqCst), 3);
 }
+
+#[tokio::test]
+async fn mapped_document_update_failure_must_not_fall_back_to_create() {
+    let update_failed = r#"{"code":-1,"msg":"database busy","data":null}"#;
+    let still_exists = r#"{"code":0,"msg":"","data":[{"box":"box-1"}]}"#;
+    let (base_url, requests) = spawn_sequence_server(vec![update_failed, still_exists]).await;
+    let sink = SiYuanSink::embedded(base_url, "AI Knowledge").unwrap();
+
+    assert!(sink.update_document("doc-existing", "# replacement").await.is_err());
+    let err = sink
+        .create_document("box-1", "/10 AI Sessions/existing", "# replacement")
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("refusing to recreate"), "unexpected error: {err}");
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn oversized_document_is_rejected_before_any_siyuan_request() {
+    let sink = SiYuanSink::embedded("http://127.0.0.1:1", "AI Knowledge").unwrap();
+    let payload = "x".repeat(6 * 1024 * 1024);
+
+    let err = sink
+        .create_document_reconciled("box-1", "/10 AI Sessions/huge", &payload)
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("too large"), "unexpected error: {err}");
+}
