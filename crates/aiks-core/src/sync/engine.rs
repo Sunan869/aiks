@@ -476,8 +476,7 @@ impl SyncEngine {
                             Ok(remote_md) => {
                                 let remote_hash = hash_markdown(&remote_md);
                                 if baseline != &remote_hash {
-                                    let _ =
-                                        sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                                    let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
                                     return SyncOutcome::Conflict {
                                         doc_id: doc.id.clone(),
                                     };
@@ -500,9 +499,8 @@ impl SyncEngine {
 
                         // Secondary check: managed attribute was tampered with.
                         if let Ok(attrs) = sink.get_block_attrs(&doc.id).await {
-                            let current = attrs
-                                .get(crate::sink::siyuan::ATTR_CONTENT_HASH)
-                                .cloned();
+                            let current =
+                                attrs.get(crate::sink::siyuan::ATTR_CONTENT_HASH).cloned();
                             if let Some(cur) = current {
                                 if target
                                     .synced_hash
@@ -510,8 +508,7 @@ impl SyncEngine {
                                     .map(|h| h != cur)
                                     .unwrap_or(false)
                                 {
-                                    let _ =
-                                        sync_target_repo.mark_conflict(db_session_id, "siyuan");
+                                    let _ = sync_target_repo.mark_conflict(db_session_id, "siyuan");
                                     return SyncOutcome::Conflict {
                                         doc_id: doc.id.clone(),
                                     };
@@ -527,8 +524,7 @@ impl SyncEngine {
                             "verify mapped SiYuan document {} exists before update: {}",
                             doc.id, e
                         );
-                        let _ =
-                            sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
+                        let _ = sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
                         return SyncOutcome::Failed { error: msg };
                     }
                 }
@@ -610,12 +606,8 @@ impl SyncEngine {
                                 "update_document {} failed while remote document still exists: {}",
                                 doc.id, update_error
                             );
-                            let _ = sync_target_repo.mark_failed(
-                                db_session_id,
-                                "siyuan",
-                                &msg,
-                                true,
-                            );
+                            let _ =
+                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
                             return SyncOutcome::Failed { error: msg };
                         }
                         Err(probe_error) => {
@@ -623,12 +615,8 @@ impl SyncEngine {
                                 "update_document {} failed and remote existence is unknown: {}; existence check: {}",
                                 doc.id, update_error, probe_error
                             );
-                            let _ = sync_target_repo.mark_failed(
-                                db_session_id,
-                                "siyuan",
-                                &msg,
-                                true,
-                            );
+                            let _ =
+                                sync_target_repo.mark_failed(db_session_id, "siyuan", &msg, true);
                             return SyncOutcome::Failed { error: msg };
                         }
                     },
