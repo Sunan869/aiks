@@ -8,6 +8,7 @@ use aiks_core::{
     sync::engine::SyncEngine,
 };
 use async_trait::async_trait;
+use serde_json::json;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -62,25 +63,58 @@ async fn removing_a_configured_root_does_not_mark_its_old_sessions_missing() {
     let b = root.path().join("b");
     std::fs::create_dir_all(a.join("sessions")).unwrap();
     std::fs::create_dir_all(b.join("sessions")).unwrap();
+    let removed = a.join("sessions/removed.json");
+    let retained = b.join("sessions/retained.json");
+    for (id, path) in [("from-a", &removed), ("from-b", &retained)] {
+        let value = json!({
+            "sessionId": id,
+            "title": id,
+            "history": [{"message": {"role": "user", "content": "Synthetic question"}}]
+        });
+        std::fs::write(path, value.to_string()).unwrap();
+    }
+    let initial = NativeProvider::new(
+        SourceKind::Continue,
+        &ExternalProviderConfig {
+            paths: vec![a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let discovered = initial.discover_sessions().await.unwrap();
+    assert_eq!(discovered.len(), 2);
+    let from_a = discovered
+        .iter()
+        .find(|s| s.title.as_deref() == Some("from-a"))
+        .unwrap();
+    let from_b = discovered
+        .iter()
+        .find(|s| s.title.as_deref() == Some("from-b"))
+        .unwrap();
+    // Persist the same canonical identities and paths as production sync. On
+    // Windows canonical paths may use a verbatim prefix; invented raw paths
+    // were not representative of records produced by these native adapters.
+    assert_eq!(from_a.source_path, Some(removed.canonicalize().unwrap()));
+    assert_eq!(from_b.source_path, Some(retained.canonicalize().unwrap()));
     let db = StateDb::open(&root.path().join("aiks.db")).unwrap();
     let repo = SourceSessionRepo::new(&db);
-    for (id, path) in [
-        ("from-a", a.join("sessions/removed.json")),
-        ("from-b", b.join("sessions/retained.json")),
-    ] {
+    for summary in &discovered {
         repo.upsert(
             "continue",
-            id,
-            Some(path.to_str().unwrap()),
+            &summary.external_session_id,
+            summary.source_path.as_deref().and_then(|path| path.to_str()),
             None,
             None,
-            None,
+            summary.title.as_deref(),
             None,
             Some("old"),
-            Some("continue-session-v1"),
+            Some(initial.parser_version()),
         )
         .unwrap();
     }
+    // A truly deleted file inside the still-configured root is missing. B is
+    // deliberately no longer configured, but its real file and record survive.
+    std::fs::remove_file(&removed).unwrap();
     let p = NativeProvider::new(
         SourceKind::Continue,
         &ExternalProviderConfig {
@@ -93,18 +127,19 @@ async fn removing_a_configured_root_does_not_mark_its_old_sessions_missing() {
     let sync = SyncEngine::new(Arc::new(Config::default()));
     assert_eq!(sync.mark_missing_sessions(&db, &registry).await.unwrap(), 1);
     assert!(
-        repo.find_by_source_and_id("continue", "from-a")
+        repo.find_by_source_and_id("continue", &from_a.external_session_id)
             .unwrap()
             .unwrap()
             .is_missing
     );
     assert!(
         !repo
-            .find_by_source_and_id("continue", "from-b")
+            .find_by_source_and_id("continue", &from_b.external_session_id)
             .unwrap()
             .unwrap()
             .is_missing
     );
+    assert!(retained.is_file());
 }
 #[tokio::test]
 async fn damaged_and_disabled_sources_cannot_mark_missing() {
