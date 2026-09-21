@@ -316,14 +316,11 @@ fn detect_share_source_url(url: &Url) -> Option<SourceKind> {
         "g.co" if parts.len() == 3 && parts[0] == "gemini" && parts[1] == "share" => {
             Some(SourceKind::GeminiShare)
         }
-        "chat.deepseek.com"
-            if parts.first().copied() == Some("share") && parts.len() == 2 =>
-        {
+        "chat.deepseek.com" if parts.first().copied() == Some("share") && parts.len() == 2 => {
             Some(SourceKind::DeepseekShare)
         }
         "doubao.com"
-            if matches!(parts.first().copied(), Some("thread") | Some("s"))
-                && parts.len() == 2 =>
+            if matches!(parts.first().copied(), Some("thread") | Some("s")) && parts.len() == 2 =>
         {
             Some(SourceKind::DoubaoShare)
         }
