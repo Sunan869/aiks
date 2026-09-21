@@ -90,8 +90,8 @@ pub fn canonical_share_url(raw_url: &str) -> anyhow::Result<String> {
 
 pub fn share_external_id(raw_url: &str) -> anyhow::Result<String> {
     let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
-    let source = detect_share_source_url(&url)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported share URL"))?;
+    let source =
+        detect_share_source_url(&url).ok_or_else(|| anyhow::anyhow!("Unsupported share URL"))?;
     share_external_id_from_url(source, &url)
         .ok_or_else(|| anyhow::anyhow!("Share URL is missing a share id"))
 }
@@ -108,7 +108,10 @@ pub fn persist_share_conversation(
         ),
         "Only Share URL sources can be imported"
     );
-    anyhow::ensure!(!input.messages.is_empty(), "Shared conversation has no messages");
+    anyhow::ensure!(
+        !input.messages.is_empty(),
+        "Shared conversation has no messages"
+    );
     anyhow::ensure!(
         input.messages.len() <= 20_000,
         "Shared conversation has too many messages"
@@ -116,7 +119,10 @@ pub fn persist_share_conversation(
 
     let canonical_url = canonical_share_url(&input.source_url)?;
     let url_source = detect_share_source(&canonical_url)?;
-    anyhow::ensure!(url_source == source, "Share URL provider does not match parsed source");
+    anyhow::ensure!(
+        url_source == source,
+        "Share URL provider does not match parsed source"
+    );
 
     let url_external_id = share_external_id(&canonical_url)?;
     if input.external_session_id.trim().is_empty() {
@@ -130,14 +136,11 @@ pub fn persist_share_conversation(
     let mut messages = Vec::with_capacity(input.messages.len());
     let mut latest_message_time = None;
     for (index, item) in input.messages.into_iter().enumerate() {
-        let created_at = item
-            .created_at
-            .as_deref()
-            .and_then(parse_datetime);
+        let created_at = item.created_at.as_deref().and_then(parse_datetime);
         if let Some(value) = created_at {
-            latest_message_time = Some(latest_message_time.map_or(value, |current: DateTime<Utc>| {
-                current.max(value)
-            }));
+            latest_message_time = Some(
+                latest_message_time.map_or(value, |current: DateTime<Utc>| current.max(value)),
+            );
         }
 
         let role = MessageRole::from_str(&item.role);
@@ -181,7 +184,10 @@ pub fn persist_share_conversation(
             metadata: HashMap::new(),
         });
     }
-    anyhow::ensure!(!messages.is_empty(), "Shared conversation has no usable messages");
+    anyhow::ensure!(
+        !messages.is_empty(),
+        "Shared conversation has no usable messages"
+    );
 
     let source_updated_at = input
         .updated_at
@@ -192,7 +198,10 @@ pub fn persist_share_conversation(
 
     let mut metadata = HashMap::new();
     metadata.insert("share_url".to_string(), serde_json::json!(canonical_url));
-    metadata.insert("imported_at".to_string(), serde_json::json!(Utc::now().to_rfc3339()));
+    metadata.insert(
+        "imported_at".to_string(),
+        serde_json::json!(Utc::now().to_rfc3339()),
+    );
     metadata.insert(
         "share_provider".to_string(),
         serde_json::json!(source.display_name()),
@@ -215,7 +224,10 @@ pub fn persist_share_conversation(
         project_name: Some(format!("{} Web", source.display_name())),
         project_path: None,
         source_path: Some(cache_path.clone()),
-        started_at: messages.iter().filter_map(|message| message.created_at).min(),
+        started_at: messages
+            .iter()
+            .filter_map(|message| message.created_at)
+            .min(),
         updated_at: Some(source_updated_at),
         model: input.model,
         messages,
@@ -257,7 +269,10 @@ fn detect_share_source_url(url: &Url) -> Option<SourceKind> {
     if url.scheme() != "https" {
         return None;
     }
-    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let host = url
+        .host_str()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
     let parts = url
         .path_segments()?
         .filter(|part| !part.is_empty())
@@ -272,17 +287,11 @@ fn detect_share_source_url(url: &Url) -> Option<SourceKind> {
         "claude.ai" if parts.first().copied() == Some("share") && parts.len() == 2 => {
             Some(SourceKind::ClaudeShare)
         }
-        "gemini.google.com"
-            if parts.first().copied() == Some("share") && parts.len() == 2 =>
-        {
+        "gemini.google.com" if parts.first().copied() == Some("share") && parts.len() == 2 => {
             Some(SourceKind::GeminiShare)
         }
         "share.gemini.google" if parts.len() == 1 => Some(SourceKind::GeminiShare),
-        "g.co"
-            if parts.len() == 3
-                && parts[0] == "gemini"
-                && parts[1] == "share" =>
-        {
+        "g.co" if parts.len() == 3 && parts[0] == "gemini" && parts[1] == "share" => {
             Some(SourceKind::GeminiShare)
         }
         _ => None,
