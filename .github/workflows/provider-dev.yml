@@ -1,0 +1,48 @@
+name: Provider development checks
+on:
+  push:
+    branches: [feature/multi-provider-integration]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: provider-development-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    if: github.repository == 'Sunan869/aiks' && github.ref == 'refs/heads/feature/multi-provider-integration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: provider-development
+          cache-on-failure: true
+      - name: Apply reviewed branch-only integration edits
+        run: |
+          if test -f scripts/provider-dev-patch.py; then
+            python3 scripts/provider-dev-patch.py
+          fi
+          cargo fmt --all
+      - name: Persist mechanical integration edits on this feature branch only
+        run: |
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add crates/aiks-core/src crates/aiks-core/tests apps/aiks-cli/src apps/aiks-desktop/src apps/aiks-desktop/src-tauri/src config.example.toml
+            git diff --cached --quiet || git commit -m 'build: apply and format multi-provider integration edits'
+            git push origin HEAD:refs/heads/feature/multi-provider-integration
+          fi
+      - name: Core provider regression and existing regression suites
+        run: cargo test -p aiks-core -- --test-threads=1
+      - name: CLI compatibility and core lint
+        run: |
+          cargo check -p aiks-cli
+          cargo clippy -p aiks-core --all-targets -- -D warnings
