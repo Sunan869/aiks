@@ -1,3 +1,5 @@
+#[path = "support/multi_provider_flow.rs"]
+mod multi_provider_flow;
 use aiks_core::config::Config;
 use aiks_core::model::{hash::compute_session_hash, ContentBlock, NormalizedSession, SourceKind};
 use aiks_core::providers::build_registry;
@@ -37,6 +39,7 @@ async fn load(key: &str, root: &Path) -> NormalizedSession {
     );
     assert_eq!(session.source, kind);
     assert!(session.messages.len() >= 2, "real messages missing: {key}");
+    multi_provider_flow::verify(&config, &session).await;
     session
 }
 
