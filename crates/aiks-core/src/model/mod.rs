@@ -33,6 +33,11 @@ pub enum SourceKind {
     ChatgptShare,
     ClaudeShare,
     GeminiShare,
+    DeepseekShare,
+    DoubaoShare,
+    KimiShare,
+    YuanbaoShare,
+    QwenShare,
 }
 
 impl SourceKind {
@@ -57,6 +62,11 @@ impl SourceKind {
             SourceKind::ChatgptShare => "chatgpt_share",
             SourceKind::ClaudeShare => "claude_share",
             SourceKind::GeminiShare => "gemini_share",
+            SourceKind::DeepseekShare => "deepseek_share",
+            SourceKind::DoubaoShare => "doubao_share",
+            SourceKind::KimiShare => "kimi_share",
+            SourceKind::YuanbaoShare => "yuanbao_share",
+            SourceKind::QwenShare => "qwen_share",
         }
     }
 
@@ -81,6 +91,11 @@ impl SourceKind {
             SourceKind::ChatgptShare => "ChatGPT",
             SourceKind::ClaudeShare => "Claude",
             SourceKind::GeminiShare => "Gemini",
+            SourceKind::DeepseekShare => "DeepSeek",
+            SourceKind::DoubaoShare => "豆包",
+            SourceKind::KimiShare => "Kimi",
+            SourceKind::YuanbaoShare => "腾讯元宝",
+            SourceKind::QwenShare => "千问",
         }
     }
 
@@ -105,6 +120,11 @@ impl SourceKind {
             "chatgpt_share" | "chatgpt" => Some(SourceKind::ChatgptShare),
             "claude_share" => Some(SourceKind::ClaudeShare),
             "gemini_share" => Some(SourceKind::GeminiShare),
+            "deepseek_share" | "deepseek" => Some(SourceKind::DeepseekShare),
+            "doubao_share" | "doubao" => Some(SourceKind::DoubaoShare),
+            "kimi_share" => Some(SourceKind::KimiShare),
+            "yuanbao_share" | "yuanbao" => Some(SourceKind::YuanbaoShare),
+            "qwen_share" | "qianwen_share" | "qianwen" => Some(SourceKind::QwenShare),
             _ => None,
         }
     }
@@ -296,6 +316,11 @@ mod tests {
             SourceKind::ChatgptShare,
             SourceKind::ClaudeShare,
             SourceKind::GeminiShare,
+            SourceKind::DeepseekShare,
+            SourceKind::DoubaoShare,
+            SourceKind::KimiShare,
+            SourceKind::YuanbaoShare,
+            SourceKind::QwenShare,
         ] {
             assert_eq!(SourceKind::from_str(kind.as_str()), Some(kind));
         }
