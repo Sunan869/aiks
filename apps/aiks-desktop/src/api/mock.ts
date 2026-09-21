@@ -6,7 +6,7 @@ import type {
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
-  WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus,
+  WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
 } from "./types";
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -88,6 +88,39 @@ export class MockAiksApi implements AiksApi {
     const offset = opts?.offset ?? 0;
     const limit = opts?.limit ?? 50;
     return { items: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset };
+  }
+
+  async importShareUrl(url: string): Promise<ShareImportResult> {
+    await delay(250);
+    const lower = url.toLowerCase();
+    const source = lower.includes("claude.ai")
+      ? "claude_share"
+      : lower.includes("gemini")
+        ? "gemini_share"
+        : "chatgpt_share";
+    const id = sessions.length + 1;
+    const item: SessionItem = {
+      id,
+      source,
+      session_id: `share_mock_${id}`,
+      title: "导入的分享会话",
+      project_name: "Web Chat",
+      project_path: null,
+      updated_at: new Date().toISOString(),
+      content_hash: `share_hash_${id}`,
+      run_id: `share_run_${id}`,
+      pipeline_status: "PROCESSING",
+      current_stage: "PARSED",
+    };
+    sessions.unshift(item);
+    return {
+      source,
+      externalSessionId: item.session_id,
+      title: item.title,
+      messageCount: 8,
+      sessionId: id,
+      pipelineQueued: 1,
+    };
   }
 
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }
