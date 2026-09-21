@@ -1,7 +1,6 @@
 use super::{local_io::ScopedReader, message_parts::*};
 use crate::model::{ContentBlock, MessageRole, NormalizedSession, SourceKind};
 use anyhow::{ensure, Context, Result};
-use serde_json::Value;
 use std::collections::HashSet;
 use std::path::Path;
 

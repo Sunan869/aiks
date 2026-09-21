@@ -179,10 +179,9 @@ pub(crate) fn candidates(io: &ScopedReader, source: SourceKind) -> Result<Vec<Pa
             for workspace in dirs_in(io, Path::new("workspaceStorage"))? {
                 let entries = io.children(&workspace.join("chatSessions"))?;
                 for path in entries {
-                    if path.extension().and_then(|x| x.to_str()) == Some("jsonl") {
-                        add_file(io, &mut files, path)?;
-                    } else if path.extension().and_then(|x| x.to_str()) == Some("json")
-                        && !io.exists(&path.with_extension("jsonl"))?
+                    if path.extension().and_then(|x| x.to_str()) == Some("jsonl")
+                        || (path.extension().and_then(|x| x.to_str()) == Some("json")
+                            && !io.exists(&path.with_extension("jsonl"))?)
                     {
                         add_file(io, &mut files, path)?;
                     }
