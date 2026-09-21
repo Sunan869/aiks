@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod opencode;
+pub mod workbuddy;
 
 use std::path::PathBuf;
 
@@ -171,6 +172,14 @@ pub fn build_registry(config: &crate::config::Config) -> ProviderRegistry {
         match opencode::OpenCodeProvider::new(path) {
             Ok(p) => providers.push(Box::new(p)),
             Err(e) => tracing::warn!("OpenCode provider not available: {}", e),
+        }
+    }
+
+    if config.providers.workbuddy.enabled {
+        let path = config.workbuddy_path();
+        match workbuddy::WorkBuddyProvider::new(path) {
+            Ok(p) => providers.push(Box::new(p)),
+            Err(e) => tracing::warn!("WorkBuddy provider not available: {}", e),
         }
     }
 
