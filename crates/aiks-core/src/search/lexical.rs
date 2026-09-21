@@ -22,14 +22,18 @@ pub(super) fn recall(
     let mut candidates = match indexed(&conn, &expression, filter, corpus) {
         Ok(rows) => rows,
         Err(error) => {
-            warnings.push(format!("{corpus:?} FTS unavailable; using text fallback: {error}"));
+            warnings.push(format!(
+                "{corpus:?} FTS unavailable; using text fallback: {error}"
+            ));
             Vec::new()
         }
     };
     // unicode61 does not segment CJK substrings or preserve punctuation in
     // technical identifiers. Do not trade away these queries for a faster UI.
     let needs_substring = candidates.is_empty()
-        || query.chars().any(|ch| !ch.is_ascii() || "_./:+#-".contains(ch));
+        || query
+            .chars()
+            .any(|ch| !ch.is_ascii() || "_./:+#-".contains(ch));
     if needs_substring {
         match substring(&conn, query, terms, filter, corpus) {
             Ok(rows) => candidates.extend(rows),
@@ -40,7 +44,9 @@ pub(super) fn recall(
                 if corpus == SearchCorpus::Session {
                     match session_metadata(&conn, query, terms, filter) {
                         Ok(rows) => candidates.extend(rows),
-                        Err(error) => warnings.push(format!("Session metadata unavailable: {error}")),
+                        Err(error) => {
+                            warnings.push(format!("Session metadata unavailable: {error}"))
+                        }
                     }
                 }
             }
@@ -184,7 +190,11 @@ fn text_rows(
     haystack: &str,
 ) -> anyhow::Result<Vec<RankedCandidate>> {
     let (project, source) = filter_values(filter);
-    let mut values = vec![project.to_string(), source.to_string(), query.to_lowercase()];
+    let mut values = vec![
+        project.to_string(),
+        source.to_string(),
+        query.to_lowercase(),
+    ];
     values.extend(terms.iter().cloned());
     let predicates = (3..=values.len())
         .map(|index| format!("instr({haystack}, ?{index}) > 0"))
@@ -224,7 +234,11 @@ fn candidate(
         raw_score,
         hit: UnifiedSearchHit {
             corpus,
-            title: if title.is_empty() { format!("AI Session {id}") } else { title },
+            title: if title.is_empty() {
+                format!("AI Session {id}")
+            } else {
+                title
+            },
             entity_id: id,
             chunk_id: None,
             snippet,

@@ -96,7 +96,8 @@ impl<'a> UnifiedSearchService<'a> {
         limit: usize,
         filter: UnifiedSearchFilter,
     ) -> anyhow::Result<UnifiedSearchOutcome> {
-        self.search_with_progress(query, limit, filter, |_| {}).await
+        self.search_with_progress(query, limit, filter, |_| {})
+            .await
     }
 
     /// Publish local recall before waiting for query embeddings. Existing
@@ -196,13 +197,19 @@ impl<'a> UnifiedSearchService<'a> {
             timed_out = result.is_err(),
             "[SEARCH_TIMING] query embedding"
         );
-        let mut vectors = result
-            .map_err(|_| anyhow::anyhow!("query embedding timed out after 8 seconds"))??;
+        let mut vectors =
+            result.map_err(|_| anyhow::anyhow!("query embedding timed out after 8 seconds"))??;
         let query_vector = vectors
             .pop()
             .ok_or_else(|| anyhow::anyhow!("embedding provider returned no query vector"))?;
-        anyhow::ensure!(!query_vector.is_empty(), "embedding provider returned an empty query vector");
-        anyhow::ensure!(query_vector.iter().all(|v| v.is_finite()), "invalid query vector");
+        anyhow::ensure!(
+            !query_vector.is_empty(),
+            "embedding provider returned an empty query vector"
+        );
+        anyhow::ensure!(
+            query_vector.iter().all(|v| v.is_finite()),
+            "invalid query vector"
+        );
 
         let started = Instant::now();
         let result = match &self.db {
@@ -239,7 +246,9 @@ impl<'a> UnifiedSearchService<'a> {
             candidates.extend(self.semantic_sessions(query_vector, model, filter)?);
         }
         candidates.sort_by(|a, b| {
-            b.raw_score.partial_cmp(&a.raw_score).unwrap_or(Ordering::Equal)
+            b.raw_score
+                .partial_cmp(&a.raw_score)
+                .unwrap_or(Ordering::Equal)
         });
         Ok(deduplicate_ranked(candidates))
     }
@@ -264,14 +273,20 @@ impl<'a> UnifiedSearchService<'a> {
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(
-            params![model, SEMANTIC_CANDIDATE_CAP as i64,
+            params![
+                model,
+                SEMANTIC_CANDIDATE_CAP as i64,
                 filter.project.as_deref().unwrap_or("").trim(),
-                filter.source.as_deref().unwrap_or("").trim()],
+                filter.source.as_deref().unwrap_or("").trim()
+            ],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?, row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?, row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(6)?, row.get::<_, String>(7)?,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
                     row.get::<_, Vec<u8>>(8)?,
                 ))
             },
@@ -290,7 +305,11 @@ impl<'a> UnifiedSearchService<'a> {
                     entity_id: id,
                     chunk_id: Some(chunk_id),
                     title,
-                    snippet: if text.trim().is_empty() { summary } else { truncate_chars(&text, 220) },
+                    snippet: if text.trim().is_empty() {
+                        summary
+                    } else {
+                        truncate_chars(&text, 220)
+                    },
                     score: 0.0,
                     match_types: vec!["semantic".to_string()],
                     siyuan_doc_id,
@@ -320,14 +339,20 @@ impl<'a> UnifiedSearchService<'a> {
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(
-            params![model, SEMANTIC_CANDIDATE_CAP as i64,
+            params![
+                model,
+                SEMANTIC_CANDIDATE_CAP as i64,
                 filter.project.as_deref().unwrap_or("").trim(),
-                filter.source.as_deref().unwrap_or("").trim()],
+                filter.source.as_deref().unwrap_or("").trim()
+            ],
             |row| {
                 Ok((
-                    row.get::<_, i64>(0)?, row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?, row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?, row.get::<_, Vec<u8>>(5)?,
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Vec<u8>>(5)?,
                 ))
             },
         )?;
@@ -344,7 +369,11 @@ impl<'a> UnifiedSearchService<'a> {
                     corpus: SearchCorpus::Session,
                     entity_id: session_id.to_string(),
                     chunk_id: Some(chunk_id),
-                    title: if title.is_empty() { format!("AI Session {session_id}") } else { title },
+                    title: if title.is_empty() {
+                        format!("AI Session {session_id}")
+                    } else {
+                        title
+                    },
                     snippet: truncate_chars(&text, 220),
                     score: 0.0,
                     match_types: vec!["semantic".to_string()],
@@ -373,7 +402,9 @@ fn recall_lexical(
         }
     }
     candidates.sort_by(|a, b| {
-        b.raw_score.partial_cmp(&a.raw_score).unwrap_or(Ordering::Equal)
+        b.raw_score
+            .partial_cmp(&a.raw_score)
+            .unwrap_or(Ordering::Equal)
             .then_with(|| a.hit.title.cmp(&b.hit.title))
     });
     (deduplicate_ranked(candidates), warnings)
@@ -387,7 +418,9 @@ struct RankedCandidate {
 
 fn normalized_corpora(requested: &[SearchCorpus]) -> HashSet<SearchCorpus> {
     if requested.is_empty() {
-        [SearchCorpus::Knowledge, SearchCorpus::Session].into_iter().collect()
+        [SearchCorpus::Knowledge, SearchCorpus::Session]
+            .into_iter()
+            .collect()
     } else {
         requested.iter().copied().collect()
     }
@@ -454,22 +487,41 @@ fn is_cjk(ch: char) -> bool {
         0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF)
 }
 
-fn lexical_score(query: &str, terms: &[String], title: &str, secondary: &str, content: &str, metadata: &str) -> f32 {
+fn lexical_score(
+    query: &str,
+    terms: &[String],
+    title: &str,
+    secondary: &str,
+    content: &str,
+    metadata: &str,
+) -> f32 {
     let query_lower = query.to_lowercase();
-    let fields = [(title.to_lowercase(), 12.0, 4.0), (secondary.to_lowercase(), 8.0, 2.0),
-        (content.to_lowercase(), 6.0, 1.0), (metadata.to_lowercase(), 5.0, 1.0)];
+    let fields = [
+        (title.to_lowercase(), 12.0, 4.0),
+        (secondary.to_lowercase(), 8.0, 2.0),
+        (content.to_lowercase(), 6.0, 1.0),
+        (metadata.to_lowercase(), 5.0, 1.0),
+    ];
     let mut score = 0.0;
     for (text, full_weight, term_weight) in fields {
-        if text.contains(&query_lower) { score += full_weight; }
+        if text.contains(&query_lower) {
+            score += full_weight;
+        }
         for term in terms {
-            if text.contains(term) { score += term_weight; }
+            if text.contains(term) {
+                score += term_weight;
+            }
         }
     }
     score
 }
 
 fn make_snippet(secondary: &str, content: &str, terms: &[String]) -> String {
-    let preferred = if !secondary.trim().is_empty() { secondary } else { content };
+    let preferred = if !secondary.trim().is_empty() {
+        secondary
+    } else {
+        content
+    };
     if let Some(position) = first_term_position(preferred, terms) {
         let chars: Vec<char> = preferred.chars().collect();
         let start = position.saturating_sub(50).min(chars.len());
@@ -494,30 +546,45 @@ fn first_term_position(text: &str, terms: &[String]) -> Option<usize> {
 fn truncate_chars(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
     let truncated: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() { format!("{truncated}…") } else { truncated }
+    if chars.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
 }
 
 fn deduplicate_ranked(candidates: Vec<RankedCandidate>) -> Vec<RankedCandidate> {
     let mut seen = HashSet::new();
-    candidates.into_iter().filter(|candidate| {
-        seen.insert((candidate.hit.corpus, candidate.hit.entity_id.clone()))
-    }).collect()
+    candidates
+        .into_iter()
+        .filter(|candidate| seen.insert((candidate.hit.corpus, candidate.hit.entity_id.clone())))
+        .collect()
 }
 
-fn fuse_rrf(lexical: Vec<RankedCandidate>, semantic: Vec<RankedCandidate>, limit: usize) -> Vec<UnifiedSearchHit> {
+fn fuse_rrf(
+    lexical: Vec<RankedCandidate>,
+    semantic: Vec<RankedCandidate>,
+    limit: usize,
+) -> Vec<UnifiedSearchHit> {
     let mut fused: HashMap<(SearchCorpus, String), UnifiedSearchHit> = HashMap::new();
     add_ranked_list(&mut fused, lexical, "lexical");
     add_ranked_list(&mut fused, semantic, "semantic");
     let mut hits: Vec<_> = fused.into_values().collect();
     hits.sort_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal)
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(Ordering::Equal)
             .then_with(|| a.title.cmp(&b.title))
     });
     hits.truncate(limit);
     hits
 }
 
-fn add_ranked_list(fused: &mut HashMap<(SearchCorpus, String), UnifiedSearchHit>, ranked: Vec<RankedCandidate>, match_type: &str) {
+fn add_ranked_list(
+    fused: &mut HashMap<(SearchCorpus, String), UnifiedSearchHit>,
+    ranked: Vec<RankedCandidate>,
+    match_type: &str,
+) {
     for (index, candidate) in ranked.into_iter().enumerate() {
         let contribution = 1.0 / (RRF_K + (index + 1) as f32);
         let key = (candidate.hit.corpus, candidate.hit.entity_id.clone());
@@ -525,13 +592,17 @@ fn add_ranked_list(fused: &mut HashMap<(SearchCorpus, String), UnifiedSearchHit>
             std::collections::hash_map::Entry::Vacant(entry) => {
                 let mut hit = candidate.hit;
                 hit.score = contribution;
-                if !hit.match_types.iter().any(|value| value == match_type) { hit.match_types.push(match_type.to_string()); }
+                if !hit.match_types.iter().any(|value| value == match_type) {
+                    hit.match_types.push(match_type.to_string());
+                }
                 entry.insert(hit);
             }
             std::collections::hash_map::Entry::Occupied(mut entry) => {
                 let existing = entry.get_mut();
                 existing.score += contribution;
-                if !existing.match_types.iter().any(|value| value == match_type) { existing.match_types.push(match_type.to_string()); }
+                if !existing.match_types.iter().any(|value| value == match_type) {
+                    existing.match_types.push(match_type.to_string());
+                }
                 if existing.chunk_id.is_none() && candidate.hit.chunk_id.is_some() {
                     existing.chunk_id = candidate.hit.chunk_id;
                     existing.snippet = candidate.hit.snippet;
@@ -546,7 +617,10 @@ fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
         anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
     }
     let (chunks, _) = bytes.as_chunks::<4>();
-    Ok(chunks.iter().map(|chunk| f32::from_le_bytes(*chunk)).collect())
+    Ok(chunks
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
+        .collect())
 }
 
 #[cfg(test)]
@@ -554,24 +628,47 @@ mod tests {
     use super::*;
 
     fn candidate(corpus: SearchCorpus, id: &str, title: &str) -> RankedCandidate {
-        RankedCandidate { raw_score: 1.0, hit: UnifiedSearchHit {
-            corpus, entity_id: id.to_string(), chunk_id: None, title: title.to_string(),
-            snippet: String::new(), score: 0.0, match_types: Vec::new(), siyuan_doc_id: None,
-        } }
+        RankedCandidate {
+            raw_score: 1.0,
+            hit: UnifiedSearchHit {
+                corpus,
+                entity_id: id.to_string(),
+                chunk_id: None,
+                title: title.to_string(),
+                snippet: String::new(),
+                score: 0.0,
+                match_types: Vec::new(),
+                siyuan_doc_id: None,
+            },
+        }
     }
 
     #[test]
     fn analyzer_preserves_technical_tokens_and_builds_cjk_terms() {
         let terms = analyze_query("如何解决kubernetes节点磁盘空间不足 42804 timestamptz /var/lib/kubelet/pods qwen3.8:27b");
-        for term in ["kubernetes", "42804", "timestamptz", "/var/lib/kubelet/pods", "qwen3.8:27b", "节点", "磁盘"] {
+        for term in [
+            "kubernetes",
+            "42804",
+            "timestamptz",
+            "/var/lib/kubelet/pods",
+            "qwen3.8:27b",
+            "节点",
+            "磁盘",
+        ] {
             assert!(terms.contains(&term.to_string()));
         }
     }
 
     #[test]
     fn rrf_rewards_entities_recalled_by_both_channels() {
-        let lexical = vec![candidate(SearchCorpus::Knowledge, "shared", "shared"), candidate(SearchCorpus::Knowledge, "lexical", "lexical")];
-        let semantic = vec![candidate(SearchCorpus::Knowledge, "shared", "shared"), candidate(SearchCorpus::Session, "semantic", "semantic")];
+        let lexical = vec![
+            candidate(SearchCorpus::Knowledge, "shared", "shared"),
+            candidate(SearchCorpus::Knowledge, "lexical", "lexical"),
+        ];
+        let semantic = vec![
+            candidate(SearchCorpus::Knowledge, "shared", "shared"),
+            candidate(SearchCorpus::Session, "semantic", "semantic"),
+        ];
         let hits = fuse_rrf(lexical, semantic, 10);
         assert_eq!(hits[0].entity_id, "shared");
         assert!(hits[0].match_types.contains(&"lexical".to_string()));
@@ -581,7 +678,10 @@ mod tests {
     #[test]
     fn vector_decoder_rejects_corrupt_blob() {
         assert!(decode_vector(&[1, 2, 3]).is_err());
-        let bytes: Vec<u8> = [1.0_f32, 2.0_f32].into_iter().flat_map(f32::to_le_bytes).collect();
+        let bytes: Vec<u8> = [1.0_f32, 2.0_f32]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
         assert_eq!(decode_vector(&bytes).unwrap(), vec![1.0, 2.0]);
     }
 }

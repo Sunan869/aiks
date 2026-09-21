@@ -29,7 +29,9 @@ impl SearchRuntime {
         if id <= slot.latest {
             return Err("Search cancelled".to_string());
         }
-        if let Some(sender) = slot.cancel.take() { let _ = sender.send(()); }
+        if let Some(sender) = slot.cancel.take() {
+            let _ = sender.send(());
+        }
         let (sender, receiver) = oneshot::channel();
         slot.latest = id;
         slot.cancel = Some(sender);
@@ -40,7 +42,9 @@ impl SearchRuntime {
         let mut requests = self.requests.lock().map_err(|_| "Search state poisoned")?;
         let slot = requests.entry(window.to_string()).or_default();
         if id >= slot.latest {
-            if let Some(sender) = slot.cancel.take() { let _ = sender.send(()); }
+            if let Some(sender) = slot.cancel.take() {
+                let _ = sender.send(());
+            }
             // A cancellation can reach Rust before its corresponding search.
             // Keep the watermark, not one tombstone for every keystroke.
             slot.latest = id;
@@ -51,7 +55,9 @@ impl SearchRuntime {
     fn finish(&self, window: &str, id: u64) {
         if let Ok(mut requests) = self.requests.lock() {
             if let Some(slot) = requests.get_mut(window) {
-                if slot.latest == id { slot.cancel = None; }
+                if slot.latest == id {
+                    slot.cancel = None;
+                }
             }
         }
     }
@@ -59,13 +65,22 @@ impl SearchRuntime {
     fn provider(&self, engine: &aiks_core::AiksEngine) -> Result<Arc<QueryEmbeddingCache>, String> {
         // Identity includes endpoint/model/dimensions/auth, but is never logged
         // or persisted. Changing a provider discards its process-local cache.
-        let identity = serde_json::to_string(engine.embedding_config()).map_err(|e| e.to_string())?;
-        let mut cached = self.provider.lock().map_err(|_| "Search provider state poisoned")?;
+        let identity =
+            serde_json::to_string(engine.embedding_config()).map_err(|e| e.to_string())?;
+        let mut cached = self
+            .provider
+            .lock()
+            .map_err(|_| "Search provider state poisoned")?;
         if let Some((key, provider)) = cached.as_ref() {
-            if key == &identity { return Ok(provider.clone()); }
+            if key == &identity {
+                return Ok(provider.clone());
+            }
         }
-        let models = ModelService::new(engine.ai_config().clone(), engine.embedding_config().clone())
-            .map_err(|e| e.to_string())?;
+        let models = ModelService::new(
+            engine.ai_config().clone(),
+            engine.embedding_config().clone(),
+        )
+        .map_err(|e| e.to_string())?;
         let provider = Arc::new(QueryEmbeddingCache::new(Arc::new(models)));
         *cached = Some((identity, provider.clone()));
         Ok(provider)
@@ -78,16 +93,21 @@ fn runtime() -> &'static SearchRuntime {
 }
 
 fn parse_corpora(values: Vec<String>) -> Result<Vec<SearchCorpus>, String> {
-    values.into_iter().map(|value| match value.trim().to_ascii_lowercase().as_str() {
-        "knowledge" => Ok(SearchCorpus::Knowledge),
-        "session" | "sessions" => Ok(SearchCorpus::Session),
-        other => Err(format!("Unsupported search corpus: {other}")),
-    }).collect()
+    values
+        .into_iter()
+        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "knowledge" => Ok(SearchCorpus::Knowledge),
+            "session" | "sessions" => Ok(SearchCorpus::Session),
+            other => Err(format!("Unsupported search corpus: {other}")),
+        })
+        .collect()
 }
 
 fn transport(mut outcome: UnifiedSearchOutcome, semantic_enabled: bool) -> serde_json::Value {
     if !semantic_enabled {
-        outcome.warnings.retain(|warning| !warning.starts_with("Semantic search is disabled"));
+        outcome
+            .warnings
+            .retain(|warning| !warning.starts_with("Semantic search is disabled"));
         outcome.degraded = !outcome.warnings.is_empty();
     }
     serde_json::json!({
@@ -126,20 +146,23 @@ pub async fn search_all_v42(
         let semantic_enabled = engine.embedding_config().enabled;
         let provider = runtime.provider(engine.as_ref())?;
         let service = UnifiedSearchService::new(engine.db(), provider);
-        let outcome = service.search_with_progress(
-            &query,
-            limit.unwrap_or(30).clamp(1, 100),
-            UnifiedSearchFilter {
-                corpora: parse_corpora(corpora.unwrap_or_default())?,
-                project,
-                source,
-            },
-            move |partial| {
-                if let Some(channel) = &on_progress {
-                    let _ = channel.send(transport(partial.clone(), semantic_enabled));
-                }
-            },
-        ).await.map_err(|error| error.to_string())?;
+        let outcome = service
+            .search_with_progress(
+                &query,
+                limit.unwrap_or(30).clamp(1, 100),
+                UnifiedSearchFilter {
+                    corpora: parse_corpora(corpora.unwrap_or_default())?,
+                    project,
+                    source,
+                },
+                move |partial| {
+                    if let Some(channel) = &on_progress {
+                        let _ = channel.send(transport(partial.clone(), semantic_enabled));
+                    }
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(transport(outcome, semantic_enabled))
     };
     let result = match receiver {
@@ -150,7 +173,9 @@ pub async fn search_all_v42(
         },
         None => search.await,
     };
-    if let Some(id) = request_id { runtime.finish(&label, id); }
+    if let Some(id) = request_id {
+        runtime.finish(&label, id);
+    }
     result
 }
 
@@ -160,8 +185,10 @@ mod tests {
 
     #[test]
     fn corpus_transport_values_are_explicit() {
-        assert_eq!(parse_corpora(vec!["knowledge".into(), "session".into()]).unwrap(),
-            vec![SearchCorpus::Knowledge, SearchCorpus::Session]);
+        assert_eq!(
+            parse_corpora(vec!["knowledge".into(), "session".into()]).unwrap(),
+            vec![SearchCorpus::Knowledge, SearchCorpus::Session]
+        );
         assert!(parse_corpora(vec!["siyuan".into()]).is_err());
     }
 
@@ -175,7 +202,10 @@ mod tests {
         assert_eq!(old.try_recv(), Ok(()));
         runtime.finish("control", 11);
         runtime.cancel("control", 11).unwrap();
-        assert!(matches!(current.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+        assert!(matches!(
+            current.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
         runtime.cancel("control", 12).unwrap();
         assert_eq!(current.try_recv(), Ok(()));
     }
@@ -187,6 +217,9 @@ mod tests {
         let mut second = runtime.begin("second", 1).unwrap();
         runtime.cancel("first", 1).unwrap();
         assert_eq!(first.try_recv(), Ok(()));
-        assert!(matches!(second.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+        assert!(matches!(
+            second.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
     }
 }
