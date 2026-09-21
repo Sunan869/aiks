@@ -124,16 +124,14 @@ fn fts_expression(query: &str, terms: &[String]) -> String {
     // (especially for full-session documents). When the analyzer has already
     // produced a multi-character CJK term, keep that more selective term for
     // FTS and leave exhaustive substring coverage to the fallback path.
-    let has_multi_cjk = terms.iter().any(|term| {
-        term.chars().count() >= 2 && term.chars().all(super::is_cjk)
-    });
+    let has_multi_cjk = terms
+        .iter()
+        .any(|term| term.chars().count() >= 2 && term.chars().all(super::is_cjk));
     let filtered: Vec<&str> = terms
         .iter()
         .map(String::as_str)
         .filter(|term| {
-            !(has_multi_cjk
-                && term.chars().count() == 1
-                && term.chars().all(super::is_cjk))
+            !(has_multi_cjk && term.chars().count() == 1 && term.chars().all(super::is_cjk))
         })
         .collect();
     let values: Vec<&str> = if filtered.is_empty() {
@@ -334,7 +332,6 @@ fn candidate(
         },
     }
 }
-
 
 #[cfg(test)]
 mod tests {
