@@ -208,7 +208,7 @@ async fn capture_in_webview(
     let target_url: tauri::Url = canonical_url
         .parse()
         .map_err(|error| format!("Invalid canonical Share URL: {error}"))?;
-    let script = browser_capture_script(source, &token);
+    let script = browser_capture_script(source, &token, canonical_url);
 
     let (sender, receiver) = oneshot::channel();
     let capture = Arc::new(StdMutex::new(ChunkCapture::new(sender)));
@@ -323,12 +323,16 @@ fn navigation_allowed(source: SourceKind, url: &tauri::Url) -> bool {
     }
 }
 
-fn browser_capture_script(source: SourceKind, token: &str) -> String {
+fn browser_capture_script(source: SourceKind, token: &str, source_url: &str) -> String {
     BROWSER_CAPTURE_SCRIPT
         .replace("__AIKS_TOKEN__", &serde_json::to_string(token).unwrap())
         .replace(
             "__AIKS_PROVIDER__",
             &serde_json::to_string(source.as_str()).unwrap(),
+        )
+        .replace(
+            "__AIKS_SOURCE_URL__",
+            &serde_json::to_string(source_url).unwrap(),
         )
 }
 
@@ -341,6 +345,7 @@ const BROWSER_CAPTURE_SCRIPT: &str = r#"
   const PREFIX = "__AIKS_SHARE_CAPTURE__";
   const TOKEN = __AIKS_TOKEN__;
   const PROVIDER = __AIKS_PROVIDER__;
+  const ORIGINAL_URL = __AIKS_SOURCE_URL__;
   const CHUNK_SIZE = 5500;
   let sent = false;
 
@@ -605,11 +610,17 @@ mod tests {
 
     #[test]
     fn capture_script_is_scoped_to_requested_provider_and_token() {
-        let script = browser_capture_script(SourceKind::ClaudeShare, "abc123");
+        let script = browser_capture_script(
+            SourceKind::ClaudeShare,
+            "abc123",
+            "https://claude.ai/share/test123",
+        );
         assert!(script.contains(r#"const TOKEN = "abc123";"#));
         assert!(script.contains(r#"const PROVIDER = "claude_share";"#));
+        assert!(script.contains(r#"const ORIGINAL_URL = "https://claude.ai/share/test123";"#));
         assert!(!script.contains("__AIKS_TOKEN__"));
         assert!(!script.contains("__AIKS_PROVIDER__"));
+        assert!(!script.contains("__AIKS_SOURCE_URL__"));
     }
 
     #[test]
