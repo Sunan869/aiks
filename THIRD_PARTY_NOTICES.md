@@ -274,3 +274,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+## doubao-nomark
+
+- Repository: https://github.com/ihmily/doubao-nomark
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2026 Hmily
+- Usage: Public Doubao and Qwen share URL formats, Qwen share-info API shape, and Doubao share-page loader structure reference
+- Derived Files:
+  - `apps/aiks-desktop/src-tauri/src/share_import_commands.rs`
+- Notes: |
+  AIKS adapts the public-share extraction concepts into its own Tauri WebView
+  importer and normalized session schema. It does not bundle the upstream
+  browser extension or service.
+
+## OpenCLI — Yuanbao Browser Structure Reference
+
+- Repository: https://github.com/jackwener/OpenCLI
+- Checked Date: 2026-09-21
+- License: Apache-2.0
+- Usage: Tencent Yuanbao rendered-message DOM structure and role-bearing container reference
+- Derived Files:
+  - `apps/aiks-desktop/src-tauri/src/share_import_commands.rs`
+- Notes: |
+  AIKS implements its own read-only public-share extractor. The upstream
+  project is used as a compatibility reference for Yuanbao's rendered DOM.
+
+## yuanbao_ref_link
+
+- Repository: https://github.com/engrecho/yuanbao_ref_link
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2025 Jaylon
+- Usage: Confirmation of the public `https://yb.tencent.com/s/*` share surface and rendered reference-area conventions
+- Derived Files: None (reference only)
