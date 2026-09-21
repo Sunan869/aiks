@@ -2,6 +2,9 @@ name: Provider development checks
 on:
   push:
     branches: [feature/multi-provider-integration]
+    paths:
+      - scripts/provider-dev-patch.py
+      - .github/workflows/provider-dev.yml
   workflow_dispatch:
 permissions:
   contents: write
@@ -41,8 +44,12 @@ jobs:
             git push origin HEAD:refs/heads/feature/multi-provider-integration
           fi
       - name: Core provider regression and existing regression suites
-        run: cargo test -p aiks-core -- --test-threads=1
+        run: |
+          cargo test -p aiks-core -- --test-threads=1 > /tmp/provider-tests.log 2>&1 || { tail -180 /tmp/provider-tests.log; exit 1; }
+          grep -E 'Running |test result:' /tmp/provider-tests.log
       - name: CLI compatibility and core lint
         run: |
-          cargo check -p aiks-cli
-          cargo clippy -p aiks-core --all-targets -- -D warnings
+          cargo check -p aiks-cli > /tmp/provider-check.log 2>&1 || { tail -120 /tmp/provider-check.log; exit 1; }
+          cargo clippy -p aiks-core --all-targets -- -D warnings > /tmp/provider-lint.log 2>&1 || { tail -160 /tmp/provider-lint.log; exit 1; }
+          tail -3 /tmp/provider-check.log
+          tail -3 /tmp/provider-lint.log
