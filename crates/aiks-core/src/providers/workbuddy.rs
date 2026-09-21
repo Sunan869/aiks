@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 use crate::model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
 use crate::providers::{ProviderHealth, SessionProvider, SessionSummary};
 
-const PARSER_VERSION: &str = "workbuddy-jsonl-v1";
+const PARSER_VERSION: &str = "workbuddy-jsonl-v2";
 
 const REQUIRED_SESSION_COLUMNS: &[&str] = &[
     "id",
@@ -146,6 +146,10 @@ impl WorkBuddyProvider {
         DateTime::from_timestamp_millis(ms)
     }
 
+    fn latest_update(updated_at: i64, last_activity_at: Option<i64>) -> Option<DateTime<Utc>> {
+        Self::millis_to_datetime(updated_at.max(last_activity_at.unwrap_or(updated_at)))
+    }
+
     fn project_name_from_cwd(cwd: &str) -> Option<String> {
         let trimmed = cwd.trim_end_matches(['/', '\\']);
         trimmed
@@ -156,7 +160,10 @@ impl WorkBuddyProvider {
 
     fn transcript_index(&self) -> HashMap<String, PathBuf> {
         let projects_dir = self.root.join("projects");
-        if !projects_dir.is_dir() {
+        let Ok(metadata) = std::fs::symlink_metadata(&projects_dir) else {
+            return HashMap::new();
+        };
+        if !metadata.is_dir() {
             return HashMap::new();
         }
 
@@ -172,7 +179,10 @@ impl WorkBuddyProvider {
                 continue;
             }
 
-            let Ok(bytes) = std::fs::read(entry.path()) else {
+            let Ok(path) = self.checked_transcript_path(entry.path()) else {
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(path) else {
                 continue;
             };
             let content = String::from_utf8_lossy(&bytes);
@@ -191,11 +201,28 @@ impl WorkBuddyProvider {
         index
     }
 
+    fn checked_transcript_path(&self, path: &std::path::Path) -> anyhow::Result<PathBuf> {
+        let projects_dir = self.root.join("projects");
+        if !std::fs::symlink_metadata(&projects_dir)?.is_dir() {
+            anyhow::bail!("WorkBuddy projects root must be a real directory");
+        }
+
+        let projects_dir = projects_dir.canonicalize()?;
+        let path = path.canonicalize()?;
+        if !path.starts_with(&projects_dir)
+            || path.extension().and_then(|value| value.to_str()) != Some("jsonl")
+            || !path.is_file()
+        {
+            anyhow::bail!("WorkBuddy transcript must be a JSONL file inside projects");
+        }
+        Ok(path)
+    }
+
     fn event_session_id(event: &Value) -> Option<&str> {
         event
             .get("sessionId")
-            .or_else(|| event.get("session_id"))
             .and_then(Value::as_str)
+            .or_else(|| event.get("session_id").and_then(Value::as_str))
     }
 
     fn event_external_id(event: &Value, index: usize) -> String {
@@ -317,15 +344,15 @@ impl WorkBuddyProvider {
             "reasoning" => {
                 let text = event
                     .get("text")
-                    .or_else(|| event.get("content"))
                     .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_owned();
-                (
-                    MessageRole::Assistant,
-                    vec![ContentBlock::Thinking { text }],
-                )
+                    .or_else(|| event.get("content").and_then(Value::as_str));
+                let block = match text {
+                    Some(text) => ContentBlock::Thinking {
+                        text: text.trim().to_owned(),
+                    },
+                    None => ContentBlock::Unknown { raw: event.clone() },
+                };
+                (MessageRole::Assistant, vec![block])
             }
             "function_call" => {
                 let name = event
@@ -389,24 +416,38 @@ impl WorkBuddyProvider {
         &self,
         path: &std::path::Path,
         expected_session_id: &str,
-    ) -> anyhow::Result<Vec<NormalizedMessage>> {
+    ) -> anyhow::Result<(Vec<NormalizedMessage>, usize)> {
+        let path = self.checked_transcript_path(path)?;
         let bytes = std::fs::read(path)?;
         let content = String::from_utf8_lossy(&bytes);
         let mut messages = Vec::new();
+        let mut malformed_lines = 0;
+        let mut matched_events = 0;
 
         for (index, line) in content.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
             let Ok(event) = serde_json::from_str::<Value>(line) else {
+                malformed_lines += 1;
                 continue;
             };
             if Self::event_session_id(&event) != Some(expected_session_id) {
                 continue;
             }
+            matched_events += 1;
             if let Some(message) = Self::parse_event(&event, index) {
                 messages.push(message);
             }
         }
 
-        Ok(messages)
+        if matched_events == 0 {
+            anyhow::bail!("WorkBuddy transcript has no events for the requested session");
+        }
+        if malformed_lines > 0 {
+            tracing::warn!(malformed_lines, "Skipped malformed WorkBuddy transcript lines");
+        }
+        Ok((messages, malformed_lines))
     }
 
     fn not_found_message(&self) -> String {
@@ -435,6 +476,11 @@ impl SessionProvider for WorkBuddyProvider {
         let permission_mode_expr = Self::optional_expr(&columns, "permission_mode");
         let is_playground_expr = Self::optional_expr(&columns, "is_playground");
         let model_expr = Self::optional_expr(&columns, "model");
+        let updated_expr = if columns.contains("last_activity_at") {
+            "MAX(updated_at, COALESCE(last_activity_at, updated_at))"
+        } else {
+            "updated_at"
+        };
 
         let sql = format!(
             "SELECT id, cwd, title, custom_title, created_at, updated_at, \
@@ -442,19 +488,8 @@ impl SessionProvider for WorkBuddyProvider {
                     {permission_mode_expr}, {is_playground_expr}, {model_expr} \
              FROM sessions \
              WHERE deleted_at IS NULL \
-             ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC"
+             ORDER BY {updated_expr} DESC"
         );
-
-        // If last_activity_at is absent, the ORDER BY must not reference a
-        // non-existent column even though the SELECT uses a NULL alias.
-        let sql = if columns.contains("last_activity_at") {
-            sql
-        } else {
-            sql.replace(
-                "ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC",
-                "ORDER BY COALESCE(updated_at, created_at) DESC",
-            )
-        };
 
         let transcript_paths = self.transcript_index();
         let mut stmt = conn.prepare(&sql)?;
@@ -489,7 +524,7 @@ impl SessionProvider for WorkBuddyProvider {
                 },
                 source_path,
                 started_at: Self::millis_to_datetime(created_at),
-                updated_at: Self::millis_to_datetime(last_activity_at.unwrap_or(updated_at)),
+                updated_at: Self::latest_update(updated_at, last_activity_at),
                 message_count: 0,
             })
         })?;
@@ -580,9 +615,16 @@ impl SessionProvider for WorkBuddyProvider {
                 )
             })?;
 
-        let messages = self.parse_transcript(&source_path, &summary.external_session_id)?;
+        let (messages, malformed_lines) =
+            self.parse_transcript(&source_path, &summary.external_session_id)?;
 
         let mut metadata = HashMap::new();
+        if malformed_lines > 0 {
+            metadata.insert(
+                "parse_warnings".to_string(),
+                serde_json::json!({ "malformed_lines": malformed_lines }),
+            );
+        }
         if let Some(value) = status {
             metadata.insert("status".to_string(), Value::String(value));
         }
@@ -611,7 +653,7 @@ impl SessionProvider for WorkBuddyProvider {
             },
             source_path: Some(source_path),
             started_at: Self::millis_to_datetime(created_at),
-            updated_at: Self::millis_to_datetime(last_activity_at.unwrap_or(updated_at)),
+            updated_at: Self::latest_update(updated_at, last_activity_at),
             model,
             messages,
             usage: None,
