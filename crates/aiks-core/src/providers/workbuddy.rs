@@ -445,7 +445,10 @@ impl WorkBuddyProvider {
             anyhow::bail!("WorkBuddy transcript has no events for the requested session");
         }
         if malformed_lines > 0 {
-            tracing::warn!(malformed_lines, "Skipped malformed WorkBuddy transcript lines");
+            tracing::warn!(
+                malformed_lines,
+                "Skipped malformed WorkBuddy transcript lines"
+            );
         }
         Ok((messages, malformed_lines))
     }
