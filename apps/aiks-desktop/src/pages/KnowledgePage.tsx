@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BookOpen, ExternalLink, Loader2 } from "lucide-react";
+import { formatSourceName } from "../source-display";
 
 interface KnowledgeItem {
   source: string; session_id: string; category: string;
@@ -104,7 +105,7 @@ export default function KnowledgePage() {
                     <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
                       {CATEGORY_LABELS[item.category] ?? item.category}
                     </span>
-                    <span>{item.source}</span>
+                    <span>{formatSourceName(item.source)}</span>
                     <span>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
                   </div>
                 </div>

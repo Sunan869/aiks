@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formatSourceName } from "../source-display";
 
 interface SessionDetailData {
   session: {
@@ -169,7 +170,7 @@ export default function SessionDetailPage({
             </h1>
             <div className="mt-2 space-y-1 text-xs text-gray-500">
               <div className="font-mono break-all">{session.session_id}</div>
-              <div>{session.source}{session.project_name ? ` · ${session.project_name}` : ""}</div>
+              <div>{formatSourceName(session.source)}{session.project_name ? ` · ${session.project_name}` : ""}</div>
               {session.project_path && <div className="break-all font-mono text-gray-400">{session.project_path}</div>}
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
