@@ -296,7 +296,7 @@ fn registry_includes_enabled_workbuddy_provider() {
         .get(SourceKind::WorkBuddy)
         .expect("enabled WorkBuddy provider should be registered");
 
-    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v1");
+    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v2");
 }
 
 #[test]
@@ -317,7 +317,7 @@ fn workbuddy_parser_version_change_forces_incremental_reparse() {
     .unwrap();
 
     let status =
-        IncrementalScanner::check_file(&db, &transcript, "workbuddy", "workbuddy-jsonl-v1")
+        IncrementalScanner::check_file(&db, &transcript, "workbuddy", "workbuddy-jsonl-v2")
             .unwrap();
 
     assert_eq!(status, FileChangeStatus::Modified);
@@ -342,7 +342,7 @@ fn registry_includes_enabled_workbuddy_provider_with_parser_version() {
         .get(SourceKind::WorkBuddy)
         .expect("enabled WorkBuddy provider should be registered");
 
-    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v1");
+    assert_eq!(provider.parser_version(), "workbuddy-jsonl-v2");
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn workbuddy_parser_version_change_marks_transcript_modified() {
         &db,
         &transcript,
         SourceKind::WorkBuddy.as_str(),
-        "workbuddy-jsonl-v0",
+        "workbuddy-jsonl-v1",
         None,
         None,
     )
@@ -370,7 +370,7 @@ fn workbuddy_parser_version_change_marks_transcript_modified() {
         &db,
         &transcript,
         SourceKind::WorkBuddy.as_str(),
-        "workbuddy-jsonl-v1",
+        "workbuddy-jsonl-v2",
     )
     .unwrap();
 
