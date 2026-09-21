@@ -153,7 +153,7 @@ pub async fn verify(config: &Config, session: &NormalizedSession) {
     config.embedding.model = "provider-fixture-vector".into();
     config.embedding.dimensions = Some(3);
     let registry: Arc<ProviderRegistry> = Arc::new(build_registry(&config));
-    let sink = SiYuanSink::new(config.siyuan.clone());
+    let sink = SiYuanSink::new(config.siyuan.clone()).unwrap();
     let sync = SyncEngine::new(Arc::new(config.clone()));
     let options = SyncOptions {
         source_filter: Some(source.into()),

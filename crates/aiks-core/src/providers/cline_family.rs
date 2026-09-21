@@ -54,7 +54,7 @@ fn task_metadata(
         let conn = io.open_readonly(Path::new("globalStorage/state.vscdb"))?;
         let raw: Option<String> = conn
             .query_row(
-                "SELECT value FROM ItemTable WHERE key=?1 AND length(value)<=8388608",
+                "SELECT value FROM ItemTable WHERE key=?1 AND length(CAST(value AS BLOB))<=8388608",
                 [extension(source)],
                 |row| {
                     row.get::<_, String>(0).or_else(|_| {

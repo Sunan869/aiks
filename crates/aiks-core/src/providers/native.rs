@@ -200,6 +200,34 @@ impl NativeProvider {
             match local_paths::marker(&io, self.source) {
                 Ok(true) => {
                     detected = true;
+                    if self.source == SourceKind::Cursor {
+                        let paths = match local_paths::candidates(&io, self.source) {
+                            Ok(paths) => paths,
+                            Err(_) => {
+                                return ProviderHealth::Error {
+                                    message: "Cursor database discovery is incomplete".into(),
+                                }
+                            }
+                        };
+                        if let Some(path) = paths.first() {
+                            let schema = io.open_readonly(path).and_then(|conn| {
+                                conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('cursorDiskKV','ItemTable')", [], |r| r.get::<_, i64>(0)).map_err(Into::into)
+                            });
+                            match schema {
+                                Ok(0) => {
+                                    return ProviderHealth::Unsupported {
+                                        message: "Cursor database schema is unsupported".into(),
+                                    }
+                                }
+                                Err(_) => {
+                                    return ProviderHealth::Error {
+                                        message: "Cursor database schema is unreadable".into(),
+                                    }
+                                }
+                                Ok(_) => {}
+                            }
+                        }
+                    }
                     if self.source != SourceKind::Antigravity {
                         return ProviderHealth::Ok;
                     }
