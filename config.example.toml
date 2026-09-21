@@ -25,6 +25,67 @@ path = ""
 enabled = true
 path = ""
 
+# Local AI session providers. These read history, not run the source tools.
+# A nonempty path overrides paths. With both empty, fixed-layout tools use
+# supported environment variables and platform defaults. Restart after editing.
+# Paths are data roots (see docs/reference-analysis/multi-provider-support.md).
+[providers.antigravity]
+enabled = true
+path = ""
+paths = []
+
+[providers.cursor]
+enabled = true
+path = ""
+paths = []
+
+[providers.cursor_agent]
+enabled = true
+path = ""
+paths = []
+
+[providers.cline]
+enabled = true
+path = ""
+paths = []
+
+[providers.roo_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.kilo_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.github_copilot]
+enabled = true
+path = ""
+paths = []
+
+[providers.kimi_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.qwen_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.continue]
+enabled = true
+path = ""
+paths = []
+
+# Aider never recursively scans home or a drive by default. Configure one or
+# more project roots explicitly, e.g. paths = ['C:\Projects\example'].
+[providers.aider]
+enabled = true
+path = ""
+paths = []
+
 [content]
 include_system = false
 include_thinking = false

@@ -1,0 +1,43 @@
+name: Windows provider contracts
+
+on:
+  pull_request:
+    paths:
+      - 'crates/aiks-core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/provider-contracts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/aiks-core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/provider-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-provider-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-contracts:
+    name: Native provider tests and junction boundaries
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-provider-contracts
+      - name: Run real adapters and Windows-specific safety tests
+        shell: pwsh
+        run: |
+          cargo test -p aiks-core --test multi_provider_acceptance --test multi_provider_variants --test provider_catalog --test provider_local_io --test provider_missing_scope --test provider_platform_variants --test provider_runtime_regressions -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

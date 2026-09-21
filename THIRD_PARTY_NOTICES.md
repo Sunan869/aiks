@@ -224,3 +224,53 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Local AI Session Provider References and Adapted Strategies (PR #46)
+
+### Claude Code History Viewer
+
+- Repository: https://github.com/jhlee0409/claude-code-history-viewer
+- Commit SHA: fdfc766ce7f0d76dceb03087aedac47add33d61b
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2025 JaeHyeok Lee
+- Usage: Reference storage layouts and adapt parsing strategies for the eleven local AI session sources. AIKS uses its own bounded read-only IO, Canonical Model and downstream pipeline; the viewer application is not bundled.
+- Associated native adaptation files under `crates/aiks-core/src/providers/`:
+  - `antigravity.rs`, `cursor/mod.rs`, `cursor_agent.rs`
+  - `cline_family.rs` (Cline / Roo Code / Kilo Code)
+  - `copilot/mod.rs`, `kimi/mod.rs`, `kimi/wire.rs`
+  - `qwen.rs`, `continue_dev.rs`, `aider.rs`
+  - `local_paths.rs`, `message_parts.rs`
+- Notes: This attributes format and parser strategies, not a claim that whole reference modules were vendored. Antigravity IDE token statistics are deliberately not converted into synthetic dialogue. Exact supported layouts and tests are recorded in `docs/reference-analysis/multi-provider-support.md`.
+
+### Kimi Code
+
+- Repository: https://github.com/MoonshotAI/kimi-code
+- Commit SHA: 6a214b85e53e58a9ef6480f27bcb7b0103c0e34e
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2026 Moonshot AI
+- Usage: Official session/wire event semantics reference for the native adapters in `crates/aiks-core/src/providers/kimi/`. Kimi executables, models and account credentials are not bundled or read by these adapters.
+
+### MIT License (Local Provider References)
+
+Copyright (c) 2025 JaeHyeok Lee
+Copyright (c) 2026 Moonshot AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
