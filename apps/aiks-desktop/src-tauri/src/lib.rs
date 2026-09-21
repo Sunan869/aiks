@@ -12,19 +12,46 @@ mod storage_commands;
 mod tray;
 mod workbench;
 
+use std::fs::{self, OpenOptions};
 use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::Mutex;
 
 use aiks_core::runtime::SiyuanRuntime;
 use tauri::{Manager, WindowEvent};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new("aiks=debug,info"))
-        .with_target(false)
+    let log_dir = app_state::data_dir().join("logs");
+    let log_path = log_dir.join("aiks.log");
+    let file_layer = fs::create_dir_all(&log_dir)
+        .ok()
+        .and_then(|_| {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .ok()
+        })
+        .map(|file| {
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_ansi(false)
+                .with_target(false)
+                .with_writer(std::sync::Mutex::new(file))
+        });
+
+    let console_layer = tracing_subscriber::fmt::layer()
         .compact()
+        .with_target(false)
+        .with_writer(std::io::stdout);
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::new("aiks=debug,info"))
+        .with(console_layer)
+        .with(file_layer)
         .init();
+
+    tracing::info!(log_path = %log_path.display(), "AIKS file logging initialized");
 
     let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
 
