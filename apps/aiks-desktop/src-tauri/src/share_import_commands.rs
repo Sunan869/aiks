@@ -592,9 +592,450 @@ const BROWSER_CAPTURE_SCRIPT: &str = r#"
     }, 500);
   };
 
+
+  const toIso = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const millis = value < 100000000000 ? value * 1000 : value;
+      const date = new Date(millis);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+    const numeric = Number(value);
+    if (String(value).trim() && Number.isFinite(numeric)) return toIso(numeric);
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  };
+
+  const titleWithoutBrand = (fallback, patterns) => {
+    let title = (document.title || fallback || "").trim();
+    patterns.forEach((pattern) => {
+      title = title.replace(pattern, "").trim();
+    });
+    return title || fallback;
+  };
+
+  const sortDomNodes = (nodes) => {
+    const unique = Array.from(new Set(nodes));
+    unique.sort((left, right) => {
+      if (left === right) return 0;
+      return left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+    return unique;
+  };
+
+  const normalizeMessages = (messages) => {
+    const result = [];
+    let previousKey = "";
+    (messages || []).forEach((message, index) => {
+      if (!message) return;
+      const role = String(message.role || "unknown").toLowerCase();
+      const text = String(message.text || "").trim();
+      const assets = Array.isArray(message.assets) ? message.assets.filter(Boolean) : [];
+      if (!text && !assets.length) return;
+      const key = role + "\u0000" + text;
+      if (key === previousKey && !assets.length) return;
+      previousKey = key;
+      result.push({
+        externalId: String(message.externalId || "share-turn-" + index),
+        role,
+        text,
+        createdAt: message.createdAt || null,
+        assets
+      });
+    });
+    return result;
+  };
+
+  const pollDomConversation = (options) => {
+    let attempts = 0;
+    let stable = 0;
+    let previousSignature = "";
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      let messages = [];
+      try {
+        messages = normalizeMessages(options.collect());
+      } catch (_) {
+        messages = [];
+      }
+      const signature = messages.map((item) => item.role + ":" + item.text.length).join("|");
+      if (messages.length > 0 && signature === previousSignature) stable += 1;
+      else stable = 0;
+      previousSignature = signature;
+
+      if (messages.length > 0 && stable >= 2) {
+        window.clearInterval(timer);
+        sendData({
+          source: options.source,
+          sourceUrl: ORIGINAL_URL,
+          externalSessionId: options.id,
+          title: options.title(),
+          model: options.model || null,
+          updatedAt: null,
+          messages
+        });
+      } else if (attempts >= (options.maxAttempts || 50)) {
+        window.clearInterval(timer);
+        sendError(options.error || "Share page loaded, but no conversation messages could be extracted");
+      }
+    }, 500);
+  };
+
+  const extractImageAssets = (root) => {
+    if (!root) return [];
+    return Array.from(root.querySelectorAll("img"))
+      .map((img, index) => {
+        const url = img.currentSrc || img.src || "";
+        if (!/^https?:\/\//i.test(url)) return null;
+        return {
+          kind: "image",
+          url,
+          name: img.alt || "image-" + (index + 1),
+          mediaType: null
+        };
+      })
+      .filter(Boolean);
+  };
+
+  const captureDeepseek = async () => {
+    if (location.hostname !== "chat.deepseek.com" || !location.pathname.startsWith("/share/")) return;
+    const id = location.pathname.split("/").filter(Boolean)[1];
+    if (!id) return sendError("DeepSeek share id is missing");
+
+    try {
+      const response = await fetch("/api/v0/share/content?share_id=" + encodeURIComponent(id), {
+        credentials: "omit",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "x-client-locale": "zh_CN",
+          "x-client-platform": "web"
+        }
+      });
+      if (!response.ok) throw new Error("DeepSeek Share API returned HTTP " + response.status);
+      const payload = await response.json();
+      const envelope = payload && payload.data ? payload.data : payload;
+      const data = envelope && envelope.biz_data ? envelope.biz_data : envelope;
+      const rows = Array.isArray(data && data.messages) ? data.messages : [];
+      const messages = rows.map((message, index) => {
+        const rawRole = String(message && message.role || "").toLowerCase();
+        const role = rawRole === "user" ? "user" : rawRole === "assistant" ? "assistant" : rawRole;
+        const assets = [];
+        const files = Array.isArray(message && message.files) ? message.files : [];
+        files.forEach((file) => {
+          const asset = assetFrom(file);
+          if (asset) assets.push(asset);
+        });
+        return {
+          externalId: String(message && (message.message_id || message.id) || "share-turn-" + index),
+          role,
+          text: String(message && (message.content || message.text) || "").trim(),
+          createdAt: toIso(message && (message.inserted_at || message.created_at || message.create_time)),
+          assets
+        };
+      });
+      const normalized = normalizeMessages(messages);
+      if (!normalized.length) throw new Error("DeepSeek Share API returned no messages");
+      sendData({
+        source: "deepseek_share",
+        sourceUrl: ORIGINAL_URL,
+        externalSessionId: id,
+        title: (data && data.title) || titleWithoutBrand("DeepSeek Shared Conversation", [/\s*[-–—|]\s*DeepSeek.*$/i]),
+        model: (data && (data.model_type || data.model || data.model_name)) || "DeepSeek",
+        updatedAt: toIso(data && (data.updated_at || data.update_time)),
+        messages: normalized
+      });
+      return;
+    } catch (_) {}
+
+    pollDomConversation({
+      source: "deepseek_share",
+      id,
+      model: "DeepSeek",
+      title: () => titleWithoutBrand("DeepSeek Shared Conversation", [/\s*[-–—|]\s*DeepSeek.*$/i]),
+      error: "DeepSeek share page loaded, but no conversation messages could be extracted",
+      collect: () => {
+        const nodes = sortDomNodes(Array.from(document.querySelectorAll(".ds-message")));
+        return nodes.map((node, index) => {
+          const assistant = !!node.querySelector(".ds-assistant-message-main-content");
+          const content = assistant
+            ? node.querySelector(".ds-assistant-message-main-content") || node
+            : node;
+          return {
+            externalId: node.getAttribute("data-message-id") || "share-turn-" + index,
+            role: assistant ? "assistant" : "user",
+            text: markdownText(content),
+            createdAt: null,
+            assets: extractImageAssets(content)
+          };
+        });
+      }
+    });
+  };
+
+  const captureDoubao = () => {
+    if (!location.hostname.endsWith("doubao.com")) return;
+    const original = new URL(ORIGINAL_URL);
+    const originalParts = original.pathname.split("/").filter(Boolean);
+    const id = originalParts[1] || location.pathname.split("/").filter(Boolean).slice(-1)[0] || "";
+    if (!id) return sendError("Doubao share id is missing");
+
+    pollDomConversation({
+      source: "doubao_share",
+      id,
+      model: "Doubao",
+      title: () => titleWithoutBrand("豆包分享会话", [/\s*[-–—|]\s*豆包.*$/i]),
+      error: "豆包分享页已加载，但没有找到可导入的对话消息",
+      maxAttempts: 60,
+      collect: () => {
+        let nodes = Array.from(document.querySelectorAll("[data-message-id]"))
+          .filter((node) => !node.parentElement?.closest("[data-message-id]"));
+        if (!nodes.length) {
+          nodes = Array.from(document.querySelectorAll(
+            '[data-message-author-role], [class*="message-user"], [class*="message-assistant"]'
+          ));
+        }
+        nodes = sortDomNodes(nodes);
+        return nodes.map((node, index) => {
+          const explicitRole = node.getAttribute("data-message-author-role");
+          const className = typeof node.className === "string" ? node.className : "";
+          const isUser = explicitRole === "user" ||
+            node.classList.contains("justify-end") ||
+            className.includes("message-user");
+          const isAssistant = explicitRole === "assistant" ||
+            className.includes("message-assistant");
+          if (!isUser && !isAssistant && explicitRole) return null;
+          const content = node.querySelector("[data-plugin-identifier]") || node;
+          return {
+            externalId: node.getAttribute("data-message-id") || "share-turn-" + index,
+            role: isUser ? "user" : "assistant",
+            text: markdownText(content),
+            createdAt: null,
+            assets: extractImageAssets(content)
+          };
+        }).filter(Boolean);
+      }
+    });
+  };
+
+  const captureKimi = () => {
+    if (!location.hostname.endsWith("kimi.com") && location.hostname !== "kimi.moonshot.cn") return;
+    const id = location.pathname.split("/").filter(Boolean)[1];
+    if (!id) return sendError("Kimi share id is missing");
+
+    pollDomConversation({
+      source: "kimi_share",
+      id,
+      model: "Kimi",
+      title: () => titleWithoutBrand("Kimi Shared Conversation", [/\s*[-–—|]\s*Kimi.*$/i]),
+      error: "Kimi share page loaded, but no conversation messages could be extracted",
+      collect: () => {
+        const nodes = sortDomNodes(Array.from(document.querySelectorAll(
+          ".chat-content-item, [data-message-author-role]"
+        )));
+        return nodes.map((node, index) => {
+          const explicitRole = node.getAttribute("data-message-author-role");
+          const isAssistant = explicitRole === "assistant" ||
+            node.classList.contains("chat-content-item-assistant");
+          const isUser = explicitRole === "user" || !!node.querySelector(".user-content");
+          if (!isAssistant && !isUser) return null;
+          const content = isUser ? (node.querySelector(".user-content") || node) : node;
+          return {
+            externalId: node.getAttribute("data-message-id") || "share-turn-" + index,
+            role: isUser && !isAssistant ? "user" : "assistant",
+            text: markdownText(content),
+            createdAt: null,
+            assets: extractImageAssets(content)
+          };
+        }).filter(Boolean);
+      }
+    });
+  };
+
+  const captureYuanbao = () => {
+    if (location.hostname !== "yb.tencent.com" && location.hostname !== "yuanbao.tencent.com") return;
+    const original = new URL(ORIGINAL_URL);
+    const id = original.pathname.split("/").filter(Boolean)[1] || "";
+    if (!id) return sendError("Yuanbao share id is missing");
+
+    pollDomConversation({
+      source: "yuanbao_share",
+      id,
+      model: "Tencent Yuanbao",
+      title: () => titleWithoutBrand("腾讯元宝分享会话", [/\s*[-–—|]\s*(腾讯)?元宝.*$/i]),
+      error: "腾讯元宝分享页已加载，但没有找到可导入的对话消息",
+      maxAttempts: 60,
+      collect: () => {
+        let nodes = Array.from(document.querySelectorAll(
+          ".agent-chat__list__item--human, .agent-chat__list__item--ai"
+        ));
+        nodes = sortDomNodes(nodes);
+        if (nodes.length) {
+          return nodes.map((node, index) => {
+            const isAi = node.classList.contains("agent-chat__list__item--ai");
+            const content = isAi
+              ? (node.querySelector(".hyc-content-md-done, .hyc-content-md, .hyc-common-markdown, .agent-chat__speech-text, .agent-chat__bubble__content") || node)
+              : (node.querySelector(".hyc-component-text .hyc-content-text, .hyc-content-text, .agent-chat__bubble__content") || node);
+            return {
+              externalId: node.getAttribute("data-conv-id") || "share-turn-" + index,
+              role: isAi ? "assistant" : "user",
+              text: markdownText(content),
+              createdAt: null,
+              assets: extractImageAssets(content)
+            };
+          });
+        }
+
+        const generic = sortDomNodes(Array.from(document.querySelectorAll(
+          '[data-message-author-role], [class$="-content-text"], .hyc-common-markdown'
+        )));
+        return generic.map((node, index) => {
+          const explicit = node.getAttribute("data-message-author-role");
+          const isUser = explicit === "user" ||
+            (typeof node.className === "string" && node.className.endsWith("-content-text"));
+          return {
+            externalId: "share-turn-" + index,
+            role: isUser ? "user" : "assistant",
+            text: markdownText(node),
+            createdAt: null,
+            assets: extractImageAssets(node)
+          };
+        });
+      }
+    });
+  };
+
+  const qwenShareId = () => {
+    const url = new URL(ORIGINAL_URL);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] === "share" && parts[1] === "chat" && parts[2]) return parts[2];
+    return url.searchParams.get("shareId") || "";
+  };
+
+  const qwenVisibleResponseText = (responses) => {
+    if (!Array.isArray(responses)) return "";
+    const parts = [];
+    responses.forEach((message) => {
+      if (!message || typeof message !== "object") return;
+      const mime = String(message.mime_type || "");
+      const contentType = String(message.contentType || "");
+      if (mime === "bar/iframe" || mime === "thinking/iframe") return;
+      if (contentType === "plugin" || contentType === "think") return;
+      const content = message.content;
+      if (typeof content === "string" && content.trim()) parts.push(content.trim());
+    });
+    return parts.join("\n\n");
+  };
+
+  const captureQwen = async () => {
+    if (!location.hostname.endsWith("qianwen.com")) return;
+    const id = qwenShareId();
+    if (!id) return sendError("Qwen share id is missing");
+
+    try {
+      const response = await fetch("https://chat2-api.qianwen.com/api/v1/share/info", {
+        method: "POST",
+        credentials: "omit",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "Content-Type": "application/json",
+          Origin: "https://www.qianwen.com"
+        },
+        body: JSON.stringify({ share_id: id, biz_id: "ai_qwen" })
+      });
+      if (!response.ok) throw new Error("Qwen Share API returned HTTP " + response.status);
+      const payload = await response.json();
+      const session = payload && payload.data && payload.data.session;
+      const records = Array.isArray(session && session.record_list) ? session.record_list : [];
+      const messages = [];
+      records.forEach((record, recordIndex) => {
+        const createdAt = toIso(record && (record.created_at || record.create_time || record.updated_at));
+        const requests = Array.isArray(record && record.request_messages) ? record.request_messages : [];
+        const userParts = [];
+        requests.forEach((message) => {
+          const mime = String(message && message.mime_type || "");
+          const content = message && message.content;
+          if (typeof content === "string" && content.trim() && (!mime || mime.startsWith("text/"))) {
+            userParts.push(content.trim());
+          }
+        });
+        if (userParts.length) {
+          messages.push({
+            externalId: "share-turn-" + messages.length,
+            role: "user",
+            text: userParts.join("\n\n"),
+            createdAt,
+            assets: []
+          });
+        }
+
+        const responses = Array.isArray(record && record.response_messages)
+          ? record.response_messages
+          : Array.isArray(record && record.qwen_response_messages)
+            ? record.qwen_response_messages
+            : [];
+        const assistantText = qwenVisibleResponseText(responses);
+        if (assistantText) {
+          messages.push({
+            externalId: "share-turn-" + messages.length,
+            role: "assistant",
+            text: assistantText,
+            createdAt,
+            assets: []
+          });
+        }
+      });
+
+      const normalized = normalizeMessages(messages);
+      if (!normalized.length) throw new Error("Qwen Share API returned no messages");
+      sendData({
+        source: "qwen_share",
+        sourceUrl: ORIGINAL_URL,
+        externalSessionId: id,
+        title: (session && (session.title || session.name)) ||
+          titleWithoutBrand("千问分享会话", [/\s*[-–—|]\s*(千问|Qwen).*$/i]),
+        model: "Qwen",
+        updatedAt: toIso(session && (session.updated_at || session.modified_time)),
+        messages: normalized
+      });
+      return;
+    } catch (_) {}
+
+    pollDomConversation({
+      source: "qwen_share",
+      id,
+      model: "Qwen",
+      title: () => titleWithoutBrand("千问分享会话", [/\s*[-–—|]\s*(千问|Qwen).*$/i]),
+      error: "千问分享页已加载，但没有找到可导入的对话消息",
+      collect: () => {
+        const nodes = sortDomNodes(Array.from(document.querySelectorAll(
+          '[data-message-author-role], [class*="user-message"], [class*="assistant-message"]'
+        )));
+        return nodes.map((node, index) => {
+          const explicit = node.getAttribute("data-message-author-role");
+          const className = typeof node.className === "string" ? node.className : "";
+          const isUser = explicit === "user" || className.includes("user-message");
+          const isAssistant = explicit === "assistant" || className.includes("assistant-message");
+          if (!isUser && !isAssistant) return null;
+          return {
+            externalId: node.getAttribute("data-message-id") || "share-turn-" + index,
+            role: isUser ? "user" : "assistant",
+            text: markdownText(node),
+            createdAt: null,
+            assets: extractImageAssets(node)
+          };
+        }).filter(Boolean);
+      }
+    });
+  };
+
   const start = () => {
     if (PROVIDER === "claude_share") captureClaude().catch(sendError);
     if (PROVIDER === "gemini_share") captureGemini();
+    if (PROVIDER === "deepseek_share") captureDeepseek().catch(sendError);
+    if (PROVIDER === "doubao_share") captureDoubao();
+    if (PROVIDER === "kimi_share") captureKimi();
+    if (PROVIDER === "yuanbao_share") captureYuanbao();
+    if (PROVIDER === "qwen_share") captureQwen().catch(sendError);
   };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start, { once: true });
