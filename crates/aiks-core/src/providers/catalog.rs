@@ -16,7 +16,7 @@ pub const EXTERNAL_SOURCES: [SourceKind; 11] = [
     SourceKind::Continue,
     SourceKind::Aider,
 ];
-pub const ALL_SOURCES: [SourceKind; 19] = [
+pub const ALL_SOURCES: [SourceKind; 24] = [
     SourceKind::ClaudeCode,
     SourceKind::Codex,
     SourceKind::GeminiCli,
@@ -36,6 +36,11 @@ pub const ALL_SOURCES: [SourceKind; 19] = [
     SourceKind::ChatgptShare,
     SourceKind::ClaudeShare,
     SourceKind::GeminiShare,
+    SourceKind::DeepseekShare,
+    SourceKind::DoubaoShare,
+    SourceKind::KimiShare,
+    SourceKind::YuanbaoShare,
+    SourceKind::QwenShare,
 ];
 pub fn external_config(config: &Config, source: SourceKind) -> Option<&ExternalProviderConfig> {
     let p = &config.providers;
@@ -74,7 +79,14 @@ pub fn descriptors(
         .map(|&source| {
             if matches!(
                 source,
-                SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+                SourceKind::ChatgptShare
+                    | SourceKind::ClaudeShare
+                    | SourceKind::GeminiShare
+                    | SourceKind::DeepseekShare
+                    | SourceKind::DoubaoShare
+                    | SourceKind::KimiShare
+                    | SourceKind::YuanbaoShare
+                    | SourceKind::QwenShare
             ) {
                 return ProviderDescriptor {
                     key: source.as_str(),
