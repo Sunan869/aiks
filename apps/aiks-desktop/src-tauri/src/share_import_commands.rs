@@ -1078,5 +1078,27 @@ mod tests {
             SourceKind::GeminiShare,
             &"https://consent.google.com/".parse().unwrap()
         ));
+        assert!(navigation_allowed(
+            SourceKind::DeepseekShare,
+            &"https://chat.deepseek.com/share/test123".parse().unwrap()
+        ));
+        assert!(navigation_allowed(
+            SourceKind::DoubaoShare,
+            &"https://www.doubao.com/thread/test123".parse().unwrap()
+        ));
+        assert!(navigation_allowed(
+            SourceKind::KimiShare,
+            &"https://www.kimi.com/share/test123".parse().unwrap()
+        ));
+        assert!(navigation_allowed(
+            SourceKind::YuanbaoShare,
+            &"https://yb.tencent.com/s/test123".parse().unwrap()
+        ));
+        assert!(navigation_allowed(
+            SourceKind::QwenShare,
+            &"https://chat2-api.qianwen.com/api/v1/share/info"
+                .parse()
+                .unwrap()
+        ));
     }
 }
