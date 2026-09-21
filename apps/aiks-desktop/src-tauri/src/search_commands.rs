@@ -5,7 +5,7 @@ use aiks_core::search::query_cache::QueryEmbeddingCache;
 use aiks_core::{
     ai::ModelService, SearchCorpus, UnifiedSearchFilter, UnifiedSearchOutcome, UnifiedSearchService,
 };
-use tauri::{ipc::Channel, State, Window};
+use tauri::{ipc::JavaScriptChannelId, State, Webview};
 use tokio::sync::oneshot;
 
 use crate::app_state::AppState;
@@ -130,16 +130,19 @@ pub async fn search_all_v42(
     source: Option<String>,
     request_id: Option<u64>,
     cancel_only: Option<bool>,
-    on_progress: Option<Channel<serde_json::Value>>,
-    window: Window,
+    on_progress: Option<JavaScriptChannelId>,
+    webview: Webview,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let runtime = runtime();
-    let label = window.label().to_string();
+    let label = webview.label().to_string();
     if cancel_only.unwrap_or(false) {
         runtime.cancel(&label, request_id.ok_or("Missing search request ID")?)?;
         return Ok(serde_json::Value::Null);
     }
+    // Channel implements CommandArg, not Deserialize. Its JS ID supports
+    // optional arguments and binds the channel to the actual calling webview.
+    let on_progress = on_progress.map(|id| id.channel_on(webview));
     let receiver = request_id.map(|id| runtime.begin(&label, id)).transpose()?;
     let search = async {
         let engine = state.engine().ok_or("Engine not initialized")?;
@@ -190,6 +193,16 @@ mod tests {
             vec![SearchCorpus::Knowledge, SearchCorpus::Session]
         );
         assert!(parse_corpora(vec!["siyuan".into()]).is_err());
+    }
+
+    #[test]
+    fn optional_progress_channel_accepts_js_id_or_null() {
+        assert!(serde_json::from_str::<Option<JavaScriptChannelId>>("null")
+            .unwrap()
+            .is_none());
+        assert!(serde_json::from_str::<Option<JavaScriptChannelId>>(r#""__CHANNEL__:7""#)
+            .unwrap()
+            .is_some());
     }
 
     #[test]
