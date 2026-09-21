@@ -14,6 +14,13 @@ pub fn patch_provider_toml(
 ) -> Result<String> {
     let source = SourceKind::from_str(key).context("Unknown provider key")?;
     ensure!(key == source.as_str(), "Use the stable provider key");
+    ensure!(
+        !matches!(
+            source,
+            SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+        ),
+        "Managed share sources have no local provider configuration"
+    );
     ensure!(paths.len() <= 32, "At most 32 provider roots are allowed");
     ensure!(
         paths

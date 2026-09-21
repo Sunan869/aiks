@@ -30,6 +30,9 @@ pub enum SourceKind {
     QwenCode,
     Continue,
     Aider,
+    ChatgptShare,
+    ClaudeShare,
+    GeminiShare,
 }
 
 impl SourceKind {
@@ -51,6 +54,9 @@ impl SourceKind {
             SourceKind::QwenCode => "qwen_code",
             SourceKind::Continue => "continue",
             SourceKind::Aider => "aider",
+            SourceKind::ChatgptShare => "chatgpt_share",
+            SourceKind::ClaudeShare => "claude_share",
+            SourceKind::GeminiShare => "gemini_share",
         }
     }
 
@@ -72,6 +78,9 @@ impl SourceKind {
             SourceKind::QwenCode => "Qwen Code",
             SourceKind::Continue => "Continue",
             SourceKind::Aider => "Aider",
+            SourceKind::ChatgptShare => "ChatGPT",
+            SourceKind::ClaudeShare => "Claude",
+            SourceKind::GeminiShare => "Gemini",
         }
     }
 
@@ -93,6 +102,9 @@ impl SourceKind {
             "qwen_code" => Some(SourceKind::QwenCode),
             "continue" => Some(SourceKind::Continue),
             "aider" => Some(SourceKind::Aider),
+            "chatgpt_share" | "chatgpt" => Some(SourceKind::ChatgptShare),
+            "claude_share" => Some(SourceKind::ClaudeShare),
+            "gemini_share" => Some(SourceKind::GeminiShare),
             _ => None,
         }
     }
@@ -281,6 +293,9 @@ mod tests {
             SourceKind::GeminiCli,
             SourceKind::OpenCode,
             SourceKind::WorkBuddy,
+            SourceKind::ChatgptShare,
+            SourceKind::ClaudeShare,
+            SourceKind::GeminiShare,
         ] {
             assert_eq!(SourceKind::from_str(kind.as_str()), Some(kind));
         }

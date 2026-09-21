@@ -12,6 +12,7 @@ export function mockSourceDescriptors(): SourceDescriptor[] {
     ["kilo_code", "Kilo Code", "kilo_code"], ["github_copilot", "GitHub Copilot", "github_copilot"],
     ["kimi_code", "Kimi Code", "kimi_code"], ["qwen_code", "Qwen Code", "qwen_code"],
     ["continue", "Continue", "continue"], ["aider", "Aider", "aider"],
+    ["chatgpt_share", "ChatGPT", ""], ["claude_share", "Claude", ""], ["gemini_share", "Gemini", ""],
   ];
-  return pairs.map(([key, display_name, config_key]) => ({ key, display_name, config_key, enabled: true, paths: [], status: key === "aider" ? "not_configured" : key === "antigravity" ? "unsupported" : "ok", message: "Synthetic development fixture", restart_required: false }));
+  return pairs.map(([key, display_name, config_key]) => ({ key, display_name, config_key, configurable: config_key !== "", enabled: true, paths: [], status: key === "aider" ? "not_configured" : key === "antigravity" ? "unsupported" : "ok", message: "Synthetic development fixture", restart_required: false }));
 }

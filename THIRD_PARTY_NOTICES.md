@@ -166,3 +166,61 @@ The following crates are used under their respective licenses:
 | regex | MIT/Apache-2.0 | 1.x |
 | hex | MIT/Apache-2.0 | 0.4.x |
 | tempfile | MIT/Apache-2.0 | 3.x |
+
+
+## chatgpt-share-parser
+
+- Repository: https://github.com/evanhu1/chatgpt-share-parser
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2026 Evan Hu
+- Usage: ChatGPT public Share URL parser (modern React Flight + legacy Next.js payloads)
+- Derived Files:
+  - `apps/aiks-desktop/src/share-import/chatgpt-share-parser.ts`
+- Notes: |
+  AIKS vendors and adapts the MIT parser. Payload lookup was additionally
+  hardened to discover conversation objects by shape instead of relying only
+  on one route key.
+
+## chat-share-reader
+
+- Repository: https://github.com/pencil311/chat-share-reader
+- Checked Date: 2026-09-21
+- License: MIT (declared in package.json)
+- Usage: Reference and adapted selector strategy for browser-side Claude public Share URL extraction
+- Derived Files:
+  - `apps/aiks-desktop/src-tauri/src/share_import_commands.rs`
+- Notes: |
+  AIKS uses its own local Tauri WebView flow rather than the project's hosted
+  MCP service/bookmarklet. Claude selector and browser-extraction concepts are
+  adapted from the MIT project.
+
+## AI Chat Exporter
+
+- Repository: https://github.com/TheBluCoder/AI-chat-exporter
+- Checked Date: 2026-09-21
+- License: MIT
+- Copyright: Copyright (c) 2024 AI Chat Exporter Contributors
+- Usage: Gemini public shared-conversation browser selector concepts
+- Derived Files:
+  - `apps/aiks-desktop/src-tauri/src/share_import_commands.rs`
+
+### MIT License (Share URL parser dependencies)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The applicable copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

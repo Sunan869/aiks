@@ -19,12 +19,14 @@ import type {
   V41Diagnostics,
   FullStatus,
   AiStatus,
+  ShareImportResult,
 } from "./types";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
+  importShareUrl(url: string): Promise<ShareImportResult>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;

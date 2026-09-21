@@ -71,6 +71,6 @@ export default function SourcesPage({ fullStatus }: Props) {
     <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-xl font-semibold">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
     {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
-    <div className="space-y-3">{sources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
+    <div className="space-y-3">{sources.filter(source => source.configurable !== false).map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
   </div>;
 }

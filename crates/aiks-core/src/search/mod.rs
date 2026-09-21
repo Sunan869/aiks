@@ -7,7 +7,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::indexing::EmbeddingProvider;
-use crate::pipeline::embedding_client::cosine_sim;
+use crate::pipeline::embedding_client::{cosine_sim_with_left_norm, l2_norm};
 use crate::storage::StateDb;
 
 mod lexical;
@@ -124,6 +124,14 @@ impl<'a> UnifiedSearchService<'a> {
         anyhow::ensure!(query.chars().count() <= 4096, "Search query is too long");
         let corpora = normalized_corpora(&filter.corpora);
         let terms = analyze_query(query);
+        tracing::info!(
+            query_chars = query.chars().count(),
+            query_terms = terms.len(),
+            corpus_count = corpora.len(),
+            semantic_enabled = self.embeddings.enabled(),
+            limit,
+            "[SEARCH_TIMING] search start"
+        );
         let (lexical, mut warnings) = match &self.db {
             SearchDb::Owned(db) => {
                 let db = db.clone();
@@ -131,11 +139,11 @@ impl<'a> UnifiedSearchService<'a> {
                 let filter = filter.clone();
                 let corpora = corpora.clone();
                 tokio::task::spawn_blocking(move || {
-                    recall_lexical(&db, &query, &terms, &filter, &corpora)
+                    recall_lexical(&db, &query, &terms, &filter, &corpora, limit)
                 })
                 .await?
             }
-            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora),
+            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora, limit),
         };
         let lexical_ms = started.elapsed().as_millis() as u64;
         on_lexical(&UnifiedSearchOutcome {
@@ -238,12 +246,14 @@ impl<'a> UnifiedSearchService<'a> {
         corpora: &HashSet<SearchCorpus>,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let model = self.embeddings.model_name();
+        let query_norm = l2_norm(query_vector);
+        anyhow::ensure!(query_norm > 0.0, "query embedding has zero norm");
         let mut candidates = Vec::new();
         if corpora.contains(&SearchCorpus::Knowledge) {
-            candidates.extend(self.semantic_knowledge(query_vector, model, filter)?);
+            candidates.extend(self.semantic_knowledge(query_vector, query_norm, model, filter)?);
         }
         if corpora.contains(&SearchCorpus::Session) {
-            candidates.extend(self.semantic_sessions(query_vector, model, filter)?);
+            candidates.extend(self.semantic_sessions(query_vector, query_norm, model, filter)?);
         }
         candidates.sort_by(|a, b| {
             b.raw_score
@@ -256,6 +266,7 @@ impl<'a> UnifiedSearchService<'a> {
     fn semantic_knowledge(
         &self,
         query_vector: &[f32],
+        query_norm: f32,
         model: &str,
         filter: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
@@ -272,6 +283,7 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?4 = '' OR ss.source = ?4)
              LIMIT ?2",
         )?;
+        let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
                 model,
@@ -291,15 +303,19 @@ impl<'a> UnifiedSearchService<'a> {
                 ))
             },
         )?;
+        let rows = rows.collect::<Result<Vec<_>, _>>()?;
+        let vector_bytes: usize = rows.iter().map(|row| row.6.len()).sum();
+        let vector_db_ms = db_started.elapsed().as_millis() as u64;
+        let vector_rows = rows.len();
+        let score_started = Instant::now();
         let mut out = Vec::new();
-        for row in rows {
-            let (id, title, summary, siyuan_doc_id, chunk_id, text, bytes) = row?;
+        for (id, title, summary, siyuan_doc_id, chunk_id, text, bytes) in rows {
             let vector = decode_vector(&bytes)?;
             if vector.len() != query_vector.len() {
                 continue;
             }
             out.push(RankedCandidate {
-                raw_score: cosine_sim(query_vector, &vector),
+                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Knowledge,
                     entity_id: id,
@@ -316,12 +332,22 @@ impl<'a> UnifiedSearchService<'a> {
                 },
             });
         }
+        tracing::info!(
+            corpus = "knowledge",
+            vector_db_ms,
+            vector_score_ms = score_started.elapsed().as_millis() as u64,
+            vector_rows,
+            vector_bytes,
+            scored_rows = out.len(),
+            "[SEARCH_TIMING] vector corpus"
+        );
         Ok(out)
     }
 
     fn semantic_sessions(
         &self,
         query_vector: &[f32],
+        query_norm: f32,
         model: &str,
         filter: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
@@ -338,6 +364,7 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?4 = '' OR ss.source = ?4)
              LIMIT ?2",
         )?;
+        let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
                 model,
@@ -356,15 +383,19 @@ impl<'a> UnifiedSearchService<'a> {
                 ))
             },
         )?;
+        let rows = rows.collect::<Result<Vec<_>, _>>()?;
+        let vector_bytes: usize = rows.iter().map(|row| row.5.len()).sum();
+        let vector_db_ms = db_started.elapsed().as_millis() as u64;
+        let vector_rows = rows.len();
+        let score_started = Instant::now();
         let mut out = Vec::new();
-        for row in rows {
-            let (session_id, title, siyuan_doc_id, chunk_id, text, bytes) = row?;
+        for (session_id, title, siyuan_doc_id, chunk_id, text, bytes) in rows {
             let vector = decode_vector(&bytes)?;
             if vector.len() != query_vector.len() {
                 continue;
             }
             out.push(RankedCandidate {
-                raw_score: cosine_sim(query_vector, &vector),
+                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Session,
                     entity_id: session_id.to_string(),
@@ -381,6 +412,15 @@ impl<'a> UnifiedSearchService<'a> {
                 },
             });
         }
+        tracing::info!(
+            corpus = "session",
+            vector_db_ms,
+            vector_score_ms = score_started.elapsed().as_millis() as u64,
+            vector_rows,
+            vector_bytes,
+            scored_rows = out.len(),
+            "[SEARCH_TIMING] vector corpus"
+        );
         Ok(out)
     }
 }
@@ -391,12 +431,14 @@ fn recall_lexical(
     terms: &[String],
     filter: &UnifiedSearchFilter,
     corpora: &HashSet<SearchCorpus>,
+    requested_limit: usize,
 ) -> (Vec<RankedCandidate>, Vec<String>) {
     let mut candidates = Vec::new();
     let mut warnings = Vec::new();
     for corpus in [SearchCorpus::Knowledge, SearchCorpus::Session] {
         if corpora.contains(&corpus) {
-            let (rows, problems) = lexical::recall(db, query, terms, filter, corpus);
+            let (rows, problems) =
+                lexical::recall(db, query, terms, filter, corpus, requested_limit);
             candidates.extend(rows);
             warnings.extend(problems);
         }

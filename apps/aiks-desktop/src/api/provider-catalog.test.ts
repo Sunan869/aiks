@@ -31,9 +31,10 @@ describe("provider catalog", () => {
     expect(sourceStateLabel({ ...roo, enabled: false })).toBe("已禁用");
     expect(sourceStateLabel({ ...roo, restart_required: true })).toBe("待重启生效");
   });
-  it("mock fixture includes all sixteen actual Core source keys and labels", () => {
+  it("mock fixture includes all nineteen Core keys, including the three managed share sources and labels", () => {
     const fixture = mockSourceDescriptors();
-    expect(new Set(fixture.map(d => d.key)).size).toBe(16);
+    expect(new Set(fixture.map(d => d.key)).size).toBe(19);
+    expect(fixture.filter(d => d.configurable !== false)).toHaveLength(16);
     for (const source of fixture) {
       expect(modelSource).toContain(`=> "${source.key}"`);
       expect(modelSource).toContain(`=> "${source.display_name}"`);

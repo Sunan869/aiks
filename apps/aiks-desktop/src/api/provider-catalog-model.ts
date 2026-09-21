@@ -2,6 +2,7 @@ export interface SourceDescriptor {
   key: string;
   display_name: string;
   config_key: string;
+  configurable?: boolean;
   enabled: boolean;
   paths: string[];
   status: string;

@@ -1,5 +1,14 @@
 // Shared Desktop API types
 
+export interface ShareImportResult {
+  source: string;
+  externalSessionId: string;
+  title: string | null;
+  messageCount: number;
+  sessionId: number;
+  pipelineQueued: number;
+}
+
 export interface Overview {
   session_count: number;
   knowledge_count: number;

@@ -16,7 +16,7 @@ pub const EXTERNAL_SOURCES: [SourceKind; 11] = [
     SourceKind::Continue,
     SourceKind::Aider,
 ];
-pub const ALL_SOURCES: [SourceKind; 16] = [
+pub const ALL_SOURCES: [SourceKind; 19] = [
     SourceKind::ClaudeCode,
     SourceKind::Codex,
     SourceKind::GeminiCli,
@@ -33,6 +33,9 @@ pub const ALL_SOURCES: [SourceKind; 16] = [
     SourceKind::QwenCode,
     SourceKind::Continue,
     SourceKind::Aider,
+    SourceKind::ChatgptShare,
+    SourceKind::ClaudeShare,
+    SourceKind::GeminiShare,
 ];
 pub fn external_config(config: &Config, source: SourceKind) -> Option<&ExternalProviderConfig> {
     let p = &config.providers;
@@ -56,6 +59,7 @@ pub struct ProviderDescriptor {
     pub key: &'static str,
     pub display_name: &'static str,
     pub config_key: &'static str,
+    pub configurable: bool,
     pub enabled: bool,
     pub paths: Vec<String>,
     pub status: String,
@@ -68,6 +72,21 @@ pub fn descriptors(
     ALL_SOURCES
         .iter()
         .map(|&source| {
+            if matches!(
+                source,
+                SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+            ) {
+                return ProviderDescriptor {
+                    key: source.as_str(),
+                    display_name: source.display_name(),
+                    config_key: "",
+                    configurable: false,
+                    enabled: true,
+                    paths: Vec::new(),
+                    status: "managed".into(),
+                    message: "通过工作记录页导入分享链接；没有可配置的本地源目录".into(),
+                };
+            }
             let (config_key, enabled, paths) = if let Some(p) = external_config(config, source) {
                 let paths = if !p.path.trim().is_empty() {
                     vec![p.path.clone()]
@@ -115,6 +134,7 @@ pub fn descriptors(
                 key: source.as_str(),
                 display_name: source.display_name(),
                 config_key,
+                configurable: true,
                 enabled,
                 paths,
                 status: status.into(),

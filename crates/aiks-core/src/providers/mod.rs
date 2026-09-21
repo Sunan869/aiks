@@ -18,6 +18,7 @@ pub mod native;
 pub mod opencode;
 mod qwen;
 pub mod settings;
+pub mod share;
 pub mod workbuddy;
 
 use std::path::PathBuf;
@@ -269,5 +270,17 @@ pub fn build_registry(config: &crate::config::Config) -> ProviderRegistry {
             }
         }
     }
+    let share_root = crate::share_import::share_cache_root();
+    for source in [
+        SourceKind::ChatgptShare,
+        SourceKind::ClaudeShare,
+        SourceKind::GeminiShare,
+    ] {
+        providers.push(Box::new(share::CachedShareProvider::new(
+            source,
+            share_root.clone(),
+        )));
+    }
+
     ProviderRegistry::new(providers)
 }
