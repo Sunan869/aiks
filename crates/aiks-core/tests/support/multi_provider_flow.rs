@@ -76,7 +76,7 @@ async fn services(needle: String, knowledge_needle: String) -> Services {
             let path = header.split_whitespace().nth(1).unwrap_or("");
             let payload: Value =
                 serde_json::from_slice(&request[header_end + 4..]).unwrap_or(Value::Null);
-            let response = if path.ends_with("/chat/completions") {
+            let mut response = if path.ends_with("/chat/completions") {
                 if payload.to_string().contains(&needle) {
                     prompt_seen.store(true, Ordering::SeqCst);
                 }
@@ -112,9 +112,24 @@ async fn services(needle: String, knowledge_needle: String) -> Services {
                 json!({"code":0,"data":[{"doOperations":[{"id":id}]}]})
             } else if path.ends_with("/getBlockAttrs") {
                 json!({"code":0,"data":{}})
-            } else {
+            } else if path.ends_with("/query/sql") {
+                let stmt = payload["stmt"].as_str().unwrap();
+                // Mirror the sink's existence query; an absent document must
+                // stay absent, rather than returning a blanket successful row.
+                let id = stmt
+                    .split("id = '")
+                    .nth(1)
+                    .and_then(|s| s.split('\'').next());
+                let found = id.is_some_and(|id| documents.lock().unwrap().contains_key(id));
+                json!({"code":0,"data":if found { vec![json!({"box":"kn"})] } else { Vec::<Value>::new() }})
+            } else if path.ends_with("/setBlockAttrs") {
                 json!({"code":0,"data":null})
+            } else {
+                panic!("unexpected mock endpoint: {path}");
             };
+            if path.starts_with("/api/") {
+                response["msg"] = json!("");
+            }
             let body = response.to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
         }

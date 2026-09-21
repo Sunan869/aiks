@@ -1,3 +1,13 @@
+export interface SyncAndExtractResult {
+  discovered: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  skipped_count: number;
+  failed_count: number;
+  extraction_queued: number;
+}
+
 // Shared Desktop API types
 
 export interface ShareImportResult {
