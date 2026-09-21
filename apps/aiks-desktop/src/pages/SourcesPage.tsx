@@ -1,102 +1,76 @@
-import { useState } from "react";
-import { CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { RefreshCw, Settings2 } from "lucide-react";
 import { getApi } from "../api/client";
 import type { FullStatus } from "../api/types";
+import { useSourceCatalog } from "../ProviderCatalog";
+import { saveProviderSettings } from "../api/provider-catalog";
+import { sourceStateLabel, syncCatalogSource, type SourceDescriptor } from "../api/provider-catalog-model";
 
-interface Props {
-  fullStatus: FullStatus | null;
+interface Props { fullStatus: FullStatus | null; }
+
+function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDescriptor; count: number; diagnostics: string[]; refresh: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [enabled, setEnabled] = useState(source.enabled);
+  const [paths, setPaths] = useState(source.paths.join("\n"));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { if (!editing) { setEnabled(source.enabled); setPaths(source.paths.join("\n")); } }, [source.enabled, source.paths, editing]);
+  const sync = async () => {
+    setBusy(true); setMessage("");
+    try {
+      const result = await syncCatalogSource(getApi(), source);
+      setMessage(`扫描完成：+${result.new_count} 新增，${result.updated_count} 更新，${result.failed_count} 失败`);
+      await refresh();
+    } catch (e) { setMessage(`同步未完成：${String(e)}`); }
+    finally { setBusy(false); }
+  };
+  const save = async () => {
+    setBusy(true); setMessage("");
+    try {
+      await saveProviderSettings(source.key, enabled, paths.split(/\r?\n/).map(p => p.trim()).filter(Boolean));
+      setMessage("已保存。请重启 AIKS 后应用；当前进程仍使用旧配置。");
+      setEditing(false); await refresh();
+    } catch (e) { setMessage(`保存失败：${String(e)}`); }
+    finally { setBusy(false); }
+  };
+  const readable = source.enabled && source.status === "ok" && !source.restart_required;
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">{source.display_name}</h2>
+        <span className={`text-xs ${readable ? "text-green-600" : "text-gray-500"}`}>{sourceStateLabel(source)}</span>
+      </div>
+      <div className="mt-2 break-all text-xs text-gray-500">
+        {source.paths.length ? source.paths.join(" · ") : source.key === "aider" ? "需要配置项目根目录；不会自动扫描整个磁盘。" : "自动探测该工具的本地会话目录"}
+      </div>
+      {source.enabled && source.status !== "ok" && source.message && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{source.message}</p>}
+      {diagnostics.length > 0 && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">最近扫描未完整完成，已有数据保留。诊断：{diagnostics.join("、")}</p>}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-xs text-gray-500">最近扫描发现 <strong className="text-blue-600">{count}</strong> 条会话</span>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setEditing(v => !v)} disabled={busy} className="flex items-center gap-1 rounded border border-gray-200 px-2.5 py-1 text-xs dark:border-gray-600"><Settings2 className="h-3 w-3" />目录与开关</button>
+          <button type="button" onClick={() => void sync()} disabled={busy || !readable} className="flex items-center gap-1 rounded border border-blue-300 px-2.5 py-1 text-xs text-blue-600 disabled:opacity-40 dark:border-blue-700 dark:text-blue-400"><RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />立即同步</button>
+        </div>
+      </div>
+      {editing && <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} disabled={busy} />启用 {source.display_name}</label>
+        <label className="mt-3 block text-xs text-gray-500">数据根目录（每行一个；固定目录工具留空可自动探测）
+          <textarea value={paths} onChange={e => setPaths(e.target.value)} rows={3} disabled={busy} spellCheck={false} className="mt-1 w-full rounded border border-gray-200 bg-transparent p-2 font-mono text-xs dark:border-gray-600" placeholder="填写包含会话存储的绝对目录，而不是安装目录" />
+        </label>
+        <p className="mt-1 text-[11px] text-gray-400">只读取会话和必要元数据。保存只修改当前数据源设置，重启生效；关闭来源不会删除已导入记录。</p>
+        <div className="mt-2 flex gap-2"><button type="button" onClick={() => void save()} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">保存配置</button><button type="button" onClick={() => setEditing(false)} disabled={busy} className="px-2 text-xs text-gray-500">取消</button></div>
+      </div>}
+      {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300">{message}</p>}
+    </section>
+  );
 }
 
-const SOURCE_ICONS: Record<string, string> = {
-  "Codex": "📦",
-  "OpenCode": "🔮",
-  "Gemini CLI": "✨",
-  "Claude Code": "🤖",
-  "WorkBuddy": "🧩",
-};
-const SOURCE_DESCS: Record<string, string> = {
-  "Codex": "OpenAI Codex CLI (~/.codex)",
-  "OpenCode": "OpenCode 数据库",
-  "Gemini CLI": "Google Gemini CLI (~/.gemini)",
-  "Claude Code": "Claude Code (~/.claude)",
-  "WorkBuddy": "WorkBuddy 本地会话 (~/.workbuddy)",
-};
-const SOURCE_KEYS: Record<string, string> = {
-  "Codex": "codex",
-  "OpenCode": "opencode",
-  "Gemini CLI": "gemini_cli",
-  "Claude Code": "claude_code",
-  "WorkBuddy": "workbuddy",
-};
-
 export default function SourcesPage({ fullStatus }: Props) {
-  const [syncing, setSyncing] = useState<Record<string, boolean>>({});
-  const [msgs, setMsgs] = useState<Record<string, string>>({});
-
-  const handleSync = async (source: string) => {
-    const srcKey = SOURCE_KEYS[source] ?? source.toLowerCase();
-    setSyncing(s => ({ ...s, [source]: true }));
-    setMsgs(m => ({ ...m, [source]: "" }));
-    try {
-      const r = await getApi().syncAndExtract(srcKey);
-      setMsgs(m => ({ ...m, [source]: `扫描完成：+${r.new_count} 新增，${r.updated_count} 更新` }));
-    } catch (e) {
-      setMsgs(m => ({ ...m, [source]: `错误：${e}` }));
-    } finally { setSyncing(s => ({ ...s, [source]: false })); }
-  };
-
-  const sources = ["OpenCode", "Codex", "Gemini CLI", "Claude Code", "WorkBuddy"];
-
-  return (
-    <div className="w-full min-w-0 p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">数据源</h1>
-        <p className="text-xs text-gray-400 mt-0.5">AI 工具会话目录状态</p>
-      </div>
-
-      <div className="space-y-3">
-        {sources.map((src) => {
-          const count = fullStatus?.scan_by_source[src] ?? 0;
-          const detected = fullStatus?.provider_health?.[src] ?? false;
-          const isSyncing = syncing[src];
-          const msg = msgs[src];
-
-          return (
-            <div key={src} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2 font-medium text-sm">
-                  <span>{SOURCE_ICONS[src]}</span> {src}
-                </div>
-                <div className={`flex items-center gap-1 text-xs ${detected ? "text-green-600" : "text-gray-400"}`}>
-                  {detected ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                  {detected ? "已连接" : "未检测到"}
-                </div>
-              </div>
-              <div className="text-xs text-gray-400 mb-2">{SOURCE_DESCS[src]}</div>
-
-              {detected ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">
-                    <span className="font-medium text-blue-600">{count}</span> 条历史对话
-                    {fullStatus && fullStatus.db_synced > 0 && (
-                      <span className="text-gray-400 ml-2">· {fullStatus.db_synced} 已同步</span>
-                    )}
-                  </span>
-                  <button onClick={() => handleSync(src)} disabled={isSyncing}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs border border-blue-300 dark:border-blue-600 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin" : ""}`} />
-                    {isSyncing ? "同步中..." : "立即同步"}
-                  </button>
-                </div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">安装 {src} 后 AIKS 会自动识别</div>
-              )}
-              {msg && <div className="text-xs text-gray-500 mt-1">{msg}</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const { sources, loading, error, refresh } = useSourceCatalog();
+  return <div className="w-full min-w-0 p-6">
+    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-xl font-semibold">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
+    {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
+    {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
+    <div className="space-y-3">{sources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
+  </div>;
 }
