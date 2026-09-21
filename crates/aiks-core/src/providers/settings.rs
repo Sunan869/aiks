@@ -17,7 +17,14 @@ pub fn patch_provider_toml(
     ensure!(
         !matches!(
             source,
-            SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+            SourceKind::ChatgptShare
+                | SourceKind::ClaudeShare
+                | SourceKind::GeminiShare
+                | SourceKind::DeepseekShare
+                | SourceKind::DoubaoShare
+                | SourceKind::KimiShare
+                | SourceKind::YuanbaoShare
+                | SourceKind::QwenShare
         ),
         "Managed share sources have no local provider configuration"
     );
