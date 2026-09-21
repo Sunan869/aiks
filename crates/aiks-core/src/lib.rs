@@ -10,6 +10,7 @@ pub mod providers;
 pub mod renderer;
 pub mod runtime;
 pub mod search;
+pub mod share_import;
 pub mod semantic_index;
 pub mod sink;
 pub mod storage;
@@ -46,3 +47,9 @@ pub use semantic_index::{
     rebuild_semantic_index, SemanticIndexRebuildProgress, SemanticIndexRebuildStats,
 };
 pub use sync::{ExtractionCandidate, SyncOptions, SyncOutcome, SyncStats};
+
+pub use share_import::{
+    canonical_share_url, detect_share_source, persist_share_conversation, share_cache_root,
+    share_external_id, ShareAssetInput, ShareConversationInput, ShareImportResult,
+    ShareMessageInput,
+};
