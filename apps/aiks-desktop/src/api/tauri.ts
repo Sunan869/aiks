@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
+import { getChatGptShareId, parseChatGptShareHtml } from "../share-import/chatgpt-share-parser";
 import type {
   Overview,
   SessionPage,
@@ -22,6 +23,7 @@ import type {
   V41Diagnostics,
   FullStatus,
   AiStatus,
+  ShareImportResult,
 } from "./types";
 
 export class TauriAiksApi implements AiksApi {
@@ -56,6 +58,45 @@ export class TauriAiksApi implements AiksApi {
 
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     return invoke("list_sessions_v3", { source: opts?.source, limit: opts?.limit, offset: opts?.offset });
+  }
+
+  async importShareUrl(url: string): Promise<ShareImportResult> {
+    const shareUrl = url.trim();
+    const chatGptShareId = getChatGptShareId(shareUrl);
+    if (!chatGptShareId) {
+      return invoke("import_share_url_browser", { url: shareUrl });
+    }
+
+    const html = await invoke<string>("fetch_chatgpt_share_html", { url: shareUrl });
+    const chat = parseChatGptShareHtml(html);
+    const updatedAt = chat.updatedAt
+      ? new Date(chat.updatedAt * 1000).toISOString()
+      : null;
+
+    return invoke("persist_share_conversation", {
+      input: {
+        source: "chatgpt_share",
+        sourceUrl: shareUrl,
+        externalSessionId: chatGptShareId,
+        title: chat.title || null,
+        model: chat.aiModel || null,
+        updatedAt,
+        messages: chat.replies.map((reply, index) => ({
+          externalId: `share-turn-${index}`,
+          role: reply.type,
+          text: reply.statement,
+          createdAt: reply.createdAt
+            ? new Date(reply.createdAt * 1000).toISOString()
+            : null,
+          assets: reply.assets.map(asset => ({
+            kind: asset.assetType,
+            url: asset.url,
+            name: asset.filename || null,
+            mediaType: null,
+          })),
+        })),
+      },
+    });
   }
   async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> { return invoke("list_pipeline_runs", { limit }); }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
