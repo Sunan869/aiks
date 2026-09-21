@@ -58,7 +58,6 @@ walkdir = "2"
 flate2 = "1"
 dirs = "5"
 regex = "1"
-scraper = "0.20"
 
 # Dev
 tempfile = "3"
