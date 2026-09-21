@@ -7,6 +7,7 @@ mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
 mod search_commands;
+mod share_import_commands;
 pub mod session_workbench;
 mod storage_commands;
 mod tray;
@@ -157,6 +158,10 @@ pub fn run() {
             // V4.2 Unified Search + AI Assist
             search_commands::search_all_v42,
             ai_assist_commands::assist_knowledge_v42,
+            // Public AI web conversation import
+            share_import_commands::fetch_chatgpt_share_html,
+            share_import_commands::persist_share_conversation,
+            share_import_commands::import_share_url_browser,
             // V4.1 SiYuan Embedded Workbench
             diagnostics::get_v41_diagnostics,
             session_workbench::get_session_workbench_doc_id,
