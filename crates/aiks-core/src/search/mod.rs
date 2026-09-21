@@ -139,11 +139,11 @@ impl<'a> UnifiedSearchService<'a> {
                 let filter = filter.clone();
                 let corpora = corpora.clone();
                 tokio::task::spawn_blocking(move || {
-                    recall_lexical(&db, &query, &terms, &filter, &corpora)
+                    recall_lexical(&db, &query, &terms, &filter, &corpora, limit)
                 })
                 .await?
             }
-            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora),
+            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora, limit),
         };
         let lexical_ms = started.elapsed().as_millis() as u64;
         on_lexical(&UnifiedSearchOutcome {
@@ -427,12 +427,14 @@ fn recall_lexical(
     terms: &[String],
     filter: &UnifiedSearchFilter,
     corpora: &HashSet<SearchCorpus>,
+    requested_limit: usize,
 ) -> (Vec<RankedCandidate>, Vec<String>) {
     let mut candidates = Vec::new();
     let mut warnings = Vec::new();
     for corpus in [SearchCorpus::Knowledge, SearchCorpus::Session] {
         if corpora.contains(&corpus) {
-            let (rows, problems) = lexical::recall(db, query, terms, filter, corpus);
+            let (rows, problems) =
+                lexical::recall(db, query, terms, filter, corpus, requested_limit);
             candidates.extend(rows);
             warnings.extend(problems);
         }
