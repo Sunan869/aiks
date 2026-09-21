@@ -141,8 +141,17 @@ pub async fn import_share_url_browser(
     state: State<'_, AppState>,
 ) -> Result<ShareImportCommandResult, String> {
     let source = aiks_core::detect_share_source(&url).map_err(|error| error.to_string())?;
-    if !matches!(source, SourceKind::ClaudeShare | SourceKind::GeminiShare) {
-        return Err("Browser Share importer currently handles Claude and Gemini links".to_string());
+    if !matches!(
+        source,
+        SourceKind::ClaudeShare
+            | SourceKind::GeminiShare
+            | SourceKind::DeepseekShare
+            | SourceKind::DoubaoShare
+            | SourceKind::KimiShare
+            | SourceKind::YuanbaoShare
+            | SourceKind::QwenShare
+    ) {
+        return Err("This Share URL is not supported by the browser importer".to_string());
     }
     let canonical = aiks_core::canonical_share_url(&url).map_err(|error| error.to_string())?;
     let json = capture_in_webview(&app, source, &canonical).await?;
@@ -299,6 +308,16 @@ fn navigation_allowed(source: SourceKind, url: &tauri::Url) -> bool {
                 | "share.gemini.google"
                 | "accounts.google.com"
                 | "consent.google.com"
+        ),
+        SourceKind::DeepseekShare => host == "chat.deepseek.com",
+        SourceKind::DoubaoShare => matches!(host.as_str(), "doubao.com" | "o.doubao.com"),
+        SourceKind::KimiShare => matches!(host.as_str(), "kimi.com" | "kimi.moonshot.cn"),
+        SourceKind::YuanbaoShare => {
+            matches!(host.as_str(), "yb.tencent.com" | "yuanbao.tencent.com")
+        }
+        SourceKind::QwenShare => matches!(
+            host.as_str(),
+            "qianwen.com" | "chat2-api.qianwen.com" | "activity.qianwen.com"
         ),
         _ => false,
     }
