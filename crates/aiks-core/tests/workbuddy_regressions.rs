@@ -136,7 +136,11 @@ async fn malformed_lines_are_reported_without_copying_their_content() {
 async fn a_symlinked_projects_root_is_not_scanned() {
     let root = fixture();
     let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("synthetic.jsonl"), message("s1").to_string()).unwrap();
+    std::fs::write(
+        outside.path().join("synthetic.jsonl"),
+        message("s1").to_string(),
+    )
+    .unwrap();
     std::fs::remove_dir(root.path().join("projects")).unwrap();
     std::os::unix::fs::symlink(outside.path(), root.path().join("projects")).unwrap();
     let provider = provider(&root);
