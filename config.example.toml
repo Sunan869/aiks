@@ -21,6 +21,10 @@ path = ""
 enabled = true
 path = ""
 
+[providers.workbuddy]
+enabled = true
+path = ""
+
 [content]
 include_system = false
 include_thinking = false

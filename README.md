@@ -1,12 +1,12 @@
 # AI Knowledge Sync (AIKS)
 
-AIKS（AI Knowledge Sync）是一个本地优先的 AI 工作知识处理系统。它从 Claude Code、OpenAI Codex CLI、Gemini CLI、OpenCode 的本地 Session 中读取工作记录，统一成 Canonical Model，经持久化 Pipeline 清洗和 AI 提炼后形成结构化 KnowledgeItem，并提供可选 Embedding / Hybrid Search、桌面端浏览以及 SiYuan 同步。
+AIKS（AI Knowledge Sync）是一个本地优先的 AI 工作知识处理系统。它从 Claude Code、OpenAI Codex CLI、Gemini CLI、OpenCode、WorkBuddy 的本地 Session 中读取工作记录，统一成 Canonical Model，经持久化 Pipeline 清洗和 AI 提炼后形成结构化 KnowledgeItem，并提供可选 Embedding / Hybrid Search、桌面端浏览以及 SiYuan 同步。
 
 当前仓库已经包含正式实现，不再是只有设计文档的 V1 骨架。
 
 ## 当前能力
 
-- Claude Code / Codex / Gemini CLI / OpenCode Session Provider。
+- Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy Session Provider。
 - Canonical Session Model、内容 Hash、增量同步与 source 状态跟踪。
 - SQLite 状态库与 migration。
 - 持久化 `pipeline_job` 队列、lease、重试、崩溃恢复和 Pipeline stage 可观测性。
@@ -23,7 +23,7 @@ AI 与 Embedding 在公开/新安装配置中默认关闭，配置兼容的服�
 ## V3 数据流
 
 ```text
-Claude Code / Codex / Gemini CLI / OpenCode
+Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy
                   ↓
           Session Provider Layer
                   ↓
@@ -187,7 +187,7 @@ SiYuan 同步保留 conflict/baseline 保护。已同步知识被后续提炼移
 
 ## Provider 与上游兼容
 
-Provider 的源数据必须只读。OpenCode SQLite 按只读/WAL-aware 模式访问。
+Provider 的源数据必须只读。OpenCode SQLite 与 WorkBuddy SQLite 均按只读/WAL-aware 边界访问；WorkBuddy 仅读取会话元数据与 `projects/**/*.jsonl` transcript，不读取 connectors、memory、MCP secrets 或 file-history 内容。
 
 上游格式变化时，先查看现有 fixtures/tests、当前 Provider 和 `docs/reference-analysis/`，再核对对应官方项目。不要凭猜测修改 parser schema。
 

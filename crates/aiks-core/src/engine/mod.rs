@@ -98,6 +98,9 @@ pub struct FullStatus {
     /// Sessions discovered by provider scan (live count)
     pub scan_total: usize,
     pub scan_by_source: std::collections::HashMap<String, usize>,
+    /// Provider availability is independent of session count. A healthy
+    /// provider may legitimately expose zero sessions.
+    pub provider_health: std::collections::HashMap<String, bool>,
 
     /// Sessions in the state DB (synced or attempted)
     pub db_total: usize,
@@ -286,6 +289,7 @@ impl AiksEngine {
                 || c.name.contains("Codex")
                 || c.name.contains("Gemini")
                 || c.name.contains("OpenCode")
+                || c.name.contains("WorkBuddy")
         });
 
         DoctorResult { checks, all_ok }
@@ -1145,6 +1149,13 @@ impl AiksEngine {
         let scan_result = self.scan(None).await;
         let scan_total = scan_result.total;
         let scan_by_source = scan_result.by_source;
+        let provider_health = self
+            .registry
+            .health_check_all()
+            .await
+            .into_iter()
+            .map(|(source, health)| (source.display_name().to_string(), health.is_ok()))
+            .collect();
 
         // DB state
         let session_repo = SourceSessionRepo::new(&self.db);
@@ -1193,6 +1204,7 @@ impl AiksEngine {
         FullStatus {
             scan_total,
             scan_by_source,
+            provider_health,
             db_total,
             db_synced,
             db_pending,

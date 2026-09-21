@@ -4,10 +4,10 @@
 
 ## 1. 当前产品定位
 
-AIKS V3 是一个本地优先、可观测、可追踪的 AI 工作知识处理系统。它读取 Claude Code、Codex、Gemini CLI、OpenCode 的本地 Session，将原始会话标准化、清洗、提炼为结构化知识，并可选生成向量用于混合检索；SiYuan 是可同步的知识出口之一，不是系统唯一的数据底座。
+AIKS V3 是一个本地优先、可观测、可追踪的 AI 工作知识处理系统。它读取 Claude Code、Codex、Gemini CLI、OpenCode、WorkBuddy 的本地 Session，将原始会话标准化、清洗、提炼为结构化知识，并可选生成向量用于混合检索；SiYuan 是可同步的知识出口之一，不是系统唯一的数据底座。
 
 ```text
-Claude Code / Codex / Gemini CLI / OpenCode
+Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy
                   ↓
           Session Provider Layer
                   ↓
@@ -45,7 +45,8 @@ Provider 只负责发现和读取上游 Session，并输出 AIKS Canonical Model
 - Provider 不得直接创建 KnowledgeItem。
 - Provider 不得把第三方内部数据结构泄漏到下游业务层。
 - Claude/Codex/Gemini 的源文件必须只读。
-- OpenCode SQLite 必须按只读/WAL-aware 方式访问，不得修改其 schema、WAL 或数据。
+- OpenCode SQLite 与 WorkBuddy SQLite 必须按只读/WAL-aware 边界访问，不得修改其 schema、WAL 或数据。
+- WorkBuddy Provider 只可读取 `workbuddy.db` 会话元数据与 `projects/**/*.jsonl` transcript；不得读取或发布 `connectors/`、memory profile、MCP secrets、`.neodata_token` 或 `file-history/` 内容。
 
 ### State / Pipeline
 

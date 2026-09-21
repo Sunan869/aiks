@@ -308,7 +308,9 @@ export class MockAiksApi implements AiksApi {
 
   async getFullStatus(): Promise<FullStatus> {
     return {
-      scan_total: sessions.length, scan_by_source: { opencode: 30, claude_code: 10, codex: 10, gemini_cli: 10 },
+      scan_total: sessions.length,
+      scan_by_source: { "OpenCode": 30, "Claude Code": 10, "Codex": 10, "Gemini CLI": 10, "WorkBuddy": 0 },
+      provider_health: { "OpenCode": true, "Claude Code": true, "Codex": true, "Gemini CLI": true, "WorkBuddy": true },
       db_total: sessions.length, db_synced: 60, db_pending: 0, db_conflict: 0, db_failed: 0,
       last_sync_at: new Date().toISOString(), last_sync_discovered: 60, last_sync_new: 0, last_sync_updated: 0, last_sync_failed: 0,
       extraction_total: 60, extraction_success: 60, extraction_skipped: 0, extraction_failed: 0, extraction_pending: 0,
