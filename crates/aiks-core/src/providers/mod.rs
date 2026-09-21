@@ -17,6 +17,7 @@ mod message_parts;
 pub mod native;
 pub mod opencode;
 mod qwen;
+pub mod settings;
 pub mod workbuddy;
 
 use std::path::PathBuf;

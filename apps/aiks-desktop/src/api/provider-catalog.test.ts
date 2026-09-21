@@ -34,7 +34,7 @@ describe("provider catalog", () => {
   it("mock fixture includes all sixteen actual Core source keys and labels", () => {
     const fixture = mockSourceDescriptors();
     expect(new Set(fixture.map(d => d.key)).size).toBe(16);
-    for (source of fixture) {
+    for (const source of fixture) {
       expect(modelSource).toContain(`=> "${source.key}"`);
       expect(modelSource).toContain(`=> "${source.display_name}"`);
     }

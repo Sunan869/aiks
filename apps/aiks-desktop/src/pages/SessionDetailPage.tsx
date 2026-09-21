@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { formatSourceName } from "../source-display";
+import { useSourceName } from "../ProviderCatalog";
 
 interface SessionDetailData {
   session: {
@@ -63,6 +63,7 @@ export default function SessionDetailPage({
   onViewPipeline,
   onViewRawConversation,
 }: Props) {
+  const formatSourceName = useSourceName();
   const [data, setData] = useState<SessionDetailData | null>(null);
   const [sessionDocId, setSessionDocId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
-import { formatSourceName } from "../source-display";
+import { useSourceName, useSourceCatalog } from "../ProviderCatalog";
+import { sourceFilterOptions } from "../api/provider-catalog-model";
 
 const SOURCE_LABELS: Record<string, string> = {
   opencode: "OpenCode",
@@ -26,6 +27,7 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
 interface Props { onViewDetail?: (sessionId: number) => void; }
 
 export default function SessionsPage({ onViewDetail }: Props) {
+  const formatSourceName = useSourceName();
   const [data, setData] = useState<SessionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +50,8 @@ export default function SessionsPage({ onViewDetail }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const sourceOptions = ["", "opencode", "claude_code", "codex", "gemini_cli"];
+  const { sources, error: catalogError } = useSourceCatalog();
+  const sourceOptions = [{ value: "", label: "全部来源" }, ...sourceFilterOptions(sources)];
 
   return (
     <div className="p-6">
@@ -62,12 +65,13 @@ export default function SessionsPage({ onViewDetail }: Props) {
           onChange={e => { setSource(e.target.value); setPage(0); }}
           className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
         >
-          {sourceOptions.map(s => (
-            <option key={s} value={s}>{s ? SOURCE_LABELS[s] ?? formatSourceName(s) : "全部来源"}</option>
+          {sourceOptions.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       </div>
 
+      {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
           {error}

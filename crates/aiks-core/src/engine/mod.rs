@@ -101,6 +101,8 @@ pub struct FullStatus {
     /// Provider availability is independent of session count. A healthy
     /// provider may legitimately expose zero sessions.
     pub provider_health: std::collections::HashMap<String, bool>,
+    #[serde(default)]
+    pub provider_diagnostics: std::collections::HashMap<String, Vec<String>>,
 
     /// Sessions in the state DB (synced or attempted)
     pub db_total: usize,
@@ -133,6 +135,8 @@ pub struct FullStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
     pub summaries: Vec<SessionSummary>,
+    #[serde(default)]
+    pub diagnostics: std::collections::HashMap<String, Vec<String>>,
     pub by_source: std::collections::HashMap<String, usize>,
     pub total: usize,
 }
@@ -285,11 +289,9 @@ impl AiksEngine {
         });
 
         let all_ok = checks.iter().all(|c| {
-            c.ok || c.name.contains("Claude")
-                || c.name.contains("Codex")
-                || c.name.contains("Gemini")
-                || c.name.contains("OpenCode")
-                || c.name.contains("WorkBuddy")
+            c.ok || crate::providers::catalog::ALL_SOURCES
+                .iter()
+                .any(|source| c.name == source.display_name())
         });
 
         DoctorResult { checks, all_ok }
@@ -297,28 +299,46 @@ impl AiksEngine {
 
     /// Scan all providers for sessions
     pub async fn scan(&self, source_filter: Option<&str>) -> ScanResult {
-        let all = self.registry.discover_all().await;
-        let filtered: Vec<SessionSummary> = if let Some(src) = source_filter {
-            all.into_iter()
-                .filter(|s| s.source.as_str() == src)
-                .collect()
-        } else {
-            all
+        let mut diagnostics = std::collections::HashMap::new();
+        let selected = match source_filter {
+            Some(key) => match SourceKind::from_str(key) {
+                Some(source) => Some(source),
+                None => {
+                    diagnostics.insert("selection".into(), vec!["unknown_source_filter".into()]);
+                    return ScanResult {
+                        summaries: Vec::new(),
+                        by_source: Default::default(),
+                        total: 0,
+                        diagnostics,
+                    };
+                }
+            },
+            None => None,
         };
-
-        let mut by_source: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for s in &filtered {
-            *by_source
-                .entry(s.source.display_name().to_string())
-                .or_insert(0) += 1;
+        let mut summaries = Vec::new();
+        let mut by_source = std::collections::HashMap::new();
+        for (source, result) in self.registry.discover_selected(selected).await {
+            match result {
+                Ok(report) => {
+                    by_source.insert(source.display_name().to_owned(), report.sessions.len());
+                    if !report.complete {
+                        diagnostics.insert(
+                            source.as_str().to_owned(),
+                            report.diagnostics.into_iter().map(|d| d.code).collect(),
+                        );
+                    }
+                    summaries.extend(report.sessions);
+                }
+                Err(_) => {
+                    diagnostics.insert(source.as_str().to_owned(), vec!["scan_failed".into()]);
+                }
+            }
         }
-
-        let total = filtered.len();
         ScanResult {
-            summaries: filtered,
+            total: summaries.len(),
+            summaries,
             by_source,
-            total,
+            diagnostics,
         }
     }
 
@@ -1205,6 +1225,7 @@ impl AiksEngine {
             scan_total,
             scan_by_source,
             provider_health,
+            provider_diagnostics: scan_result.diagnostics,
             db_total,
             db_synced,
             db_pending,
@@ -1224,5 +1245,12 @@ impl AiksEngine {
             ai_ready,
             ai_model: self.config.ai.model.clone(),
         }
+    }
+}
+
+impl AiksEngine {
+    pub async fn provider_descriptors(&self) -> Vec<crate::providers::catalog::ProviderDescriptor> {
+        let health = self.registry.health_check_all().await;
+        crate::providers::catalog::descriptors(&self.config, &health)
     }
 }

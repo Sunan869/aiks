@@ -6,6 +6,7 @@ mod diagnostics;
 mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
+mod provider_commands;
 mod search_commands;
 pub mod session_workbench;
 mod storage_commands;
@@ -77,6 +78,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            provider_commands::get_source_descriptors,
+            provider_commands::save_provider_settings,
             commands::get_status,
             commands::scan_sources,
             commands::sync_now,
