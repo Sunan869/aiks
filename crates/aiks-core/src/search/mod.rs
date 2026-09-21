@@ -124,6 +124,14 @@ impl<'a> UnifiedSearchService<'a> {
         anyhow::ensure!(query.chars().count() <= 4096, "Search query is too long");
         let corpora = normalized_corpora(&filter.corpora);
         let terms = analyze_query(query);
+        tracing::info!(
+            query_chars = query.chars().count(),
+            query_terms = terms.len(),
+            corpus_count = corpora.len(),
+            semantic_enabled = self.embeddings.enabled(),
+            limit,
+            "[SEARCH_TIMING] search start"
+        );
         let (lexical, mut warnings) = match &self.db {
             SearchDb::Owned(db) => {
                 let db = db.clone();
@@ -272,6 +280,7 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?4 = '' OR ss.source = ?4)
              LIMIT ?2",
         )?;
+        let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
                 model,
@@ -291,9 +300,13 @@ impl<'a> UnifiedSearchService<'a> {
                 ))
             },
         )?;
+        let rows = rows.collect::<Result<Vec<_>, _>>()?;
+        let vector_bytes: usize = rows.iter().map(|row| row.6.len()).sum();
+        let vector_db_ms = db_started.elapsed().as_millis() as u64;
+        let vector_rows = rows.len();
+        let score_started = Instant::now();
         let mut out = Vec::new();
-        for row in rows {
-            let (id, title, summary, siyuan_doc_id, chunk_id, text, bytes) = row?;
+        for (id, title, summary, siyuan_doc_id, chunk_id, text, bytes) in rows {
             let vector = decode_vector(&bytes)?;
             if vector.len() != query_vector.len() {
                 continue;
@@ -316,6 +329,15 @@ impl<'a> UnifiedSearchService<'a> {
                 },
             });
         }
+        tracing::info!(
+            corpus = "knowledge",
+            vector_db_ms,
+            vector_score_ms = score_started.elapsed().as_millis() as u64,
+            vector_rows,
+            vector_bytes,
+            scored_rows = out.len(),
+            "[SEARCH_TIMING] vector corpus"
+        );
         Ok(out)
     }
 
@@ -338,6 +360,7 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?4 = '' OR ss.source = ?4)
              LIMIT ?2",
         )?;
+        let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
                 model,
@@ -356,9 +379,13 @@ impl<'a> UnifiedSearchService<'a> {
                 ))
             },
         )?;
+        let rows = rows.collect::<Result<Vec<_>, _>>()?;
+        let vector_bytes: usize = rows.iter().map(|row| row.5.len()).sum();
+        let vector_db_ms = db_started.elapsed().as_millis() as u64;
+        let vector_rows = rows.len();
+        let score_started = Instant::now();
         let mut out = Vec::new();
-        for row in rows {
-            let (session_id, title, siyuan_doc_id, chunk_id, text, bytes) = row?;
+        for (session_id, title, siyuan_doc_id, chunk_id, text, bytes) in rows {
             let vector = decode_vector(&bytes)?;
             if vector.len() != query_vector.len() {
                 continue;
@@ -381,6 +408,15 @@ impl<'a> UnifiedSearchService<'a> {
                 },
             });
         }
+        tracing::info!(
+            corpus = "session",
+            vector_db_ms,
+            vector_score_ms = score_started.elapsed().as_millis() as u64,
+            vector_rows,
+            vector_bytes,
+            scored_rows = out.len(),
+            "[SEARCH_TIMING] vector corpus"
+        );
         Ok(out)
     }
 }

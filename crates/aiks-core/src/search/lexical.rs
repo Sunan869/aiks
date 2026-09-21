@@ -2,6 +2,8 @@
 //! of an unindexed session-id join. Substring fallback remains available for
 //! CJK/technical queries and damaged or missing FTS indexes.
 
+use std::time::Instant;
+
 use rusqlite::{params, params_from_iter, Connection};
 
 use super::{lexical_score, RankedCandidate, SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit};
@@ -16,9 +18,12 @@ pub(super) fn recall(
     filter: &UnifiedSearchFilter,
     corpus: SearchCorpus,
 ) -> (Vec<RankedCandidate>, Vec<String>) {
+    let total_started = Instant::now();
     let mut warnings = Vec::new();
     let expression = fts_expression(query, terms);
     let conn = db.conn();
+
+    let fts_started = Instant::now();
     let mut candidates = match indexed(&conn, &expression, filter, corpus) {
         Ok(rows) => rows,
         Err(error) => {
@@ -28,23 +33,69 @@ pub(super) fn recall(
             Vec::new()
         }
     };
+    let fts_candidates = candidates.len();
+    tracing::info!(
+        corpus = ?corpus,
+        fts_ms = fts_started.elapsed().as_millis() as u64,
+        fts_candidates,
+        "[SEARCH_TIMING] lexical fts"
+    );
+
     // unicode61 does not segment CJK substrings or preserve punctuation in
     // technical identifiers. Do not trade away these queries for a faster UI.
     let needs_substring = candidates.is_empty()
         || query
             .chars()
             .any(|ch| !ch.is_ascii() || "_./:+#-".contains(ch));
+    tracing::info!(
+        corpus = ?corpus,
+        needs_substring,
+        query_terms = terms.len(),
+        "[SEARCH_TIMING] lexical fallback decision"
+    );
     if needs_substring {
+        let substring_started = Instant::now();
         match substring(&conn, query, terms, filter, corpus) {
-            Ok(rows) => candidates.extend(rows),
+            Ok(rows) => {
+                let substring_candidates = rows.len();
+                candidates.extend(rows);
+                tracing::info!(
+                    corpus = ?corpus,
+                    substring_ms = substring_started.elapsed().as_millis() as u64,
+                    substring_candidates,
+                    "[SEARCH_TIMING] lexical substring"
+                );
+            }
             Err(error) => {
+                tracing::info!(
+                    corpus = ?corpus,
+                    substring_ms = substring_started.elapsed().as_millis() as u64,
+                    substring_candidates = 0usize,
+                    failed = true,
+                    "[SEARCH_TIMING] lexical substring"
+                );
                 warnings.push(format!("{corpus:?} text fallback unavailable: {error}"));
                 // A missing session transcript index must not erase knowledge
                 // results. Session metadata is still safely searchable.
                 if corpus == SearchCorpus::Session {
+                    let metadata_started = Instant::now();
                     match session_metadata(&conn, query, terms, filter) {
-                        Ok(rows) => candidates.extend(rows),
+                        Ok(rows) => {
+                            let metadata_candidates = rows.len();
+                            candidates.extend(rows);
+                            tracing::info!(
+                                metadata_ms = metadata_started.elapsed().as_millis() as u64,
+                                metadata_candidates,
+                                "[SEARCH_TIMING] session metadata fallback"
+                            );
+                        }
                         Err(error) => {
+                            tracing::info!(
+                                metadata_ms = metadata_started.elapsed().as_millis() as u64,
+                                metadata_candidates = 0usize,
+                                failed = true,
+                                "[SEARCH_TIMING] session metadata fallback"
+                            );
                             warnings.push(format!("Session metadata unavailable: {error}"))
                         }
                     }
@@ -52,6 +103,13 @@ pub(super) fn recall(
             }
         }
     }
+    tracing::info!(
+        corpus = ?corpus,
+        lexical_corpus_ms = total_started.elapsed().as_millis() as u64,
+        candidate_count = candidates.len(),
+        warning_count = warnings.len(),
+        "[SEARCH_TIMING] lexical corpus complete"
+    );
     (candidates, warnings)
 }
 

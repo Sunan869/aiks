@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use aiks_core::search::query_cache::QueryEmbeddingCache;
 use aiks_core::{
@@ -136,12 +137,20 @@ pub async fn search_all_v42(
 ) -> Result<serde_json::Value, String> {
     let runtime = runtime();
     let label = webview.label().to_string();
+    let command_started = Instant::now();
     if cancel_only.unwrap_or(false) {
         runtime.cancel(&label, request_id.ok_or("Missing search request ID")?)?;
         return Ok(serde_json::Value::Null);
     }
     // Channel implements CommandArg, not Deserialize. Its JS ID supports
     // optional arguments and binds the channel to the actual calling webview.
+    tracing::info!(
+        request_id = request_id.unwrap_or_default(),
+        window = %label,
+        query_chars = query.chars().count(),
+        requested_limit = limit.unwrap_or(30),
+        "[SEARCH_TIMING] tauri request start"
+    );
     let on_progress = on_progress.map(|id| id.channel_on(webview));
     let receiver = request_id.map(|id| runtime.begin(&label, id)).transpose()?;
     let search = async {
@@ -179,6 +188,13 @@ pub async fn search_all_v42(
     if let Some(id) = request_id {
         runtime.finish(&label, id);
     }
+    tracing::info!(
+        request_id = request_id.unwrap_or_default(),
+        window = %label,
+        tauri_total_ms = command_started.elapsed().as_millis() as u64,
+        cancelled_or_failed = result.is_err(),
+        "[SEARCH_TIMING] tauri request complete"
+    );
     result
 }
 
