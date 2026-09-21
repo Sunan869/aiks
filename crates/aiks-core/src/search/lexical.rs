@@ -1,0 +1,250 @@
+//! Indexed lexical candidates. FTS is the driving table, never the inner side
+//! of an unindexed session-id join. Substring fallback remains available for
+//! CJK/technical queries and damaged or missing FTS indexes.
+
+use rusqlite::{params, params_from_iter, Connection};
+
+use super::{lexical_score, RankedCandidate, SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit};
+use crate::storage::StateDb;
+
+const CANDIDATE_CAP: usize = 1024;
+
+pub(super) fn recall(
+    db: &StateDb,
+    query: &str,
+    terms: &[String],
+    filter: &UnifiedSearchFilter,
+    corpus: SearchCorpus,
+) -> (Vec<RankedCandidate>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let expression = fts_expression(query, terms);
+    let conn = db.conn();
+    let mut candidates = match indexed(&conn, &expression, filter, corpus) {
+        Ok(rows) => rows,
+        Err(error) => {
+            warnings.push(format!(
+                "{corpus:?} FTS unavailable; using text fallback: {error}"
+            ));
+            Vec::new()
+        }
+    };
+    // unicode61 does not segment CJK substrings or preserve punctuation in
+    // technical identifiers. Do not trade away these queries for a faster UI.
+    let needs_substring = candidates.is_empty()
+        || query
+            .chars()
+            .any(|ch| !ch.is_ascii() || "_./:+#-".contains(ch));
+    if needs_substring {
+        match substring(&conn, query, terms, filter, corpus) {
+            Ok(rows) => candidates.extend(rows),
+            Err(error) => {
+                warnings.push(format!("{corpus:?} text fallback unavailable: {error}"));
+                // A missing session transcript index must not erase knowledge
+                // results. Session metadata is still safely searchable.
+                if corpus == SearchCorpus::Session {
+                    match session_metadata(&conn, query, terms, filter) {
+                        Ok(rows) => candidates.extend(rows),
+                        Err(error) => {
+                            warnings.push(format!("Session metadata unavailable: {error}"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (candidates, warnings)
+}
+
+fn fts_expression(query: &str, terms: &[String]) -> String {
+    let values: Vec<&str> = if terms.is_empty() {
+        vec![query]
+    } else {
+        terms.iter().map(String::as_str).collect()
+    };
+    values
+        .into_iter()
+        .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn filter_values(filter: &UnifiedSearchFilter) -> (&str, &str) {
+    (
+        filter.project.as_deref().unwrap_or("").trim(),
+        filter.source.as_deref().unwrap_or("").trim(),
+    )
+}
+
+fn indexed(
+    conn: &Connection,
+    expression: &str,
+    filter: &UnifiedSearchFilter,
+    corpus: SearchCorpus,
+) -> anyhow::Result<Vec<RankedCandidate>> {
+    let sql = match corpus {
+        SearchCorpus::Knowledge => {
+            "SELECT ki.id, ki.title,
+                    snippet(knowledge_fts, -1, '', '', '…', 48),
+                    ki.siyuan_doc_id, bm25(knowledge_fts, 0, 4, 2, 1, 1)
+             FROM knowledge_fts
+             CROSS JOIN knowledge_item ki ON ki.id = knowledge_fts.knowledge_id
+             LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+             WHERE knowledge_fts MATCH ?1 AND ki.status = 'active'
+               AND (?2 = '' OR ki.project_name = ?2)
+               AND (?3 = '' OR ss.source = ?3)
+             ORDER BY rank LIMIT ?4"
+        }
+        SearchCorpus::Session => {
+            "SELECT CAST(ss.id AS TEXT), COALESCE(ss.title, ''),
+                    snippet(session_search_fts, -1, '', '', '…', 48),
+                    ss.siyuan_doc_id, bm25(session_search_fts)
+             FROM session_search_fts
+             CROSS JOIN source_session ss ON ss.id = session_search_fts.session_id
+             WHERE session_search_fts MATCH ?1 AND ss.is_missing = 0
+               AND (?2 = '' OR ss.project_name = ?2)
+               AND (?3 = '' OR ss.source = ?3)
+             ORDER BY rank LIMIT ?4"
+        }
+    };
+    let (project, source) = filter_values(filter);
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(
+        params![expression, project, source, CANDIDATE_CAP as i64],
+        |row| {
+            Ok(candidate(
+                corpus,
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                -row.get::<_, f64>(4)? as f32,
+            ))
+        },
+    )?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn substring(
+    conn: &Connection,
+    query: &str,
+    terms: &[String],
+    filter: &UnifiedSearchFilter,
+    corpus: SearchCorpus,
+) -> anyhow::Result<Vec<RankedCandidate>> {
+    let (select, haystack) = match corpus {
+        SearchCorpus::Knowledge => (
+            "SELECT ki.id, ki.title, ki.summary, ki.tags,
+                    substr(ki.content, MAX(1, instr(lower(ki.content), ?3) - 50), 240),
+                    ki.siyuan_doc_id
+             FROM knowledge_item ki
+             LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+             WHERE ki.status = 'active'
+               AND (?1 = '' OR ki.project_name = ?1)
+               AND (?2 = '' OR ss.source = ?2)",
+            "lower(ki.title || ' ' || ki.summary || ' ' || ki.content || ' ' || ki.tags)",
+        ),
+        SearchCorpus::Session => (
+            "SELECT CAST(ss.id AS TEXT), COALESCE(ss.title, ''),
+                    COALESCE(ss.project_name, ''), ss.source,
+                    substr(sf.content, MAX(1, instr(lower(sf.content), ?3) - 50), 240),
+                    ss.siyuan_doc_id
+             FROM session_search_fts sf
+             CROSS JOIN source_session ss ON ss.id = sf.session_id
+             WHERE ss.is_missing = 0
+               AND (?1 = '' OR ss.project_name = ?1)
+               AND (?2 = '' OR ss.source = ?2)",
+            "lower(COALESCE(ss.title, '') || ' ' || COALESCE(ss.project_name, '') || ' ' || ss.source || ' ' || sf.content)",
+        ),
+    };
+    text_rows(conn, query, terms, filter, corpus, select, haystack)
+}
+
+fn session_metadata(
+    conn: &Connection,
+    query: &str,
+    terms: &[String],
+    filter: &UnifiedSearchFilter,
+) -> anyhow::Result<Vec<RankedCandidate>> {
+    text_rows(
+        conn,
+        query,
+        terms,
+        filter,
+        SearchCorpus::Session,
+        "SELECT CAST(ss.id AS TEXT), COALESCE(ss.title, ''),
+                COALESCE(ss.project_name, ''), ss.source, '', ss.siyuan_doc_id
+         FROM source_session ss WHERE ss.is_missing = 0
+           AND (?1 = '' OR ss.project_name = ?1)
+           AND (?2 = '' OR ss.source = ?2)",
+        "lower(COALESCE(ss.title, '') || ' ' || COALESCE(ss.project_name, '') || ' ' || ss.source)",
+    )
+}
+
+fn text_rows(
+    conn: &Connection,
+    query: &str,
+    terms: &[String],
+    filter: &UnifiedSearchFilter,
+    corpus: SearchCorpus,
+    select: &str,
+    haystack: &str,
+) -> anyhow::Result<Vec<RankedCandidate>> {
+    let (project, source) = filter_values(filter);
+    let mut values = vec![
+        project.to_string(),
+        source.to_string(),
+        query.to_lowercase(),
+    ];
+    values.extend(terms.iter().cloned());
+    let predicates = (3..=values.len())
+        .map(|index| format!("instr({haystack}, ?{index}) > 0"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    // LIMIT is a compile-time bound; every user-controlled value is bound.
+    let sql = format!("{select} AND ({predicates}) LIMIT {CANDIDATE_CAP}");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(values), |row| {
+        let id: String = row.get(0)?;
+        let title: String = row.get(1)?;
+        let secondary: String = row.get(2)?;
+        let metadata: String = row.get(3)?;
+        let content: String = row.get(4)?;
+        let score = lexical_score(query, terms, &title, &secondary, &content, &metadata);
+        Ok(candidate(
+            corpus,
+            id,
+            title,
+            super::make_snippet(&secondary, &content, terms),
+            row.get(5)?,
+            score.max(0.001),
+        ))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn candidate(
+    corpus: SearchCorpus,
+    id: String,
+    title: String,
+    snippet: String,
+    siyuan_doc_id: Option<String>,
+    raw_score: f32,
+) -> RankedCandidate {
+    RankedCandidate {
+        raw_score,
+        hit: UnifiedSearchHit {
+            corpus,
+            title: if title.is_empty() {
+                format!("AI Session {id}")
+            } else {
+                title
+            },
+            entity_id: id,
+            chunk_id: None,
+            snippet,
+            score: 0.0,
+            match_types: vec!["lexical".to_string()],
+            siyuan_doc_id,
+        },
+    }
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import type { PipelineSummary, PipelineStats } from "../api/types";
+import { formatSourceName } from "../source-display";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
   READY: { color: "text-green-600", label: "完成", icon: "✓" },
@@ -204,7 +205,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                         {run.session_title || run.run_id}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-gray-500 text-xs">{run.source}</td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{formatSourceName(run.source)}</td>
                     {STAGE_ORDER.map(s => (
                       <StageCell key={s} stage={s} stageRuns={run.stage_runs} />
                     ))}

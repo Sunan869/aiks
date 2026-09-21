@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
+import { formatSourceName } from "../source-display";
 
 const SOURCE_LABELS: Record<string, string> = {
   opencode: "OpenCode",
@@ -62,7 +63,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
           className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
         >
           {sourceOptions.map(s => (
-            <option key={s} value={s}>{s ? SOURCE_LABELS[s] ?? s : "全部来源"}</option>
+            <option key={s} value={s}>{s ? SOURCE_LABELS[s] ?? formatSourceName(s) : "全部来源"}</option>
           ))}
         </select>
       </div>
@@ -105,7 +106,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
                     <div className="text-xs text-gray-400 font-mono mt-0.5">{item.session_id}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                    {SOURCE_LABELS[item.source] ?? item.source}
+                    {SOURCE_LABELS[item.source] ?? formatSourceName(item.source)}
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400 truncate max-w-[120px]">
                     {item.project_name || "—"}
