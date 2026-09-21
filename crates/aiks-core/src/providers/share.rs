@@ -63,7 +63,9 @@ impl SessionProvider for CachedShareProvider {
                         message_count: session.messages.len(),
                     });
                 }
-                Ok(_) => tracing::warn!(path = %path.display(), "Ignoring Share cache with mismatched source"),
+                Ok(_) => {
+                    tracing::warn!(path = %path.display(), "Ignoring Share cache with mismatched source")
+                }
                 Err(error) => tracing::warn!(
                     path = %path.display(),
                     error = %error,
@@ -82,13 +84,19 @@ impl SessionProvider for CachedShareProvider {
     }
 
     async fn load_session(&self, summary: &SessionSummary) -> anyhow::Result<NormalizedSession> {
-        anyhow::ensure!(summary.source == self.source, "Share session source mismatch");
+        anyhow::ensure!(
+            summary.source == self.source,
+            "Share session source mismatch"
+        );
         let path = summary.source_path.as_ref().cloned().unwrap_or_else(|| {
             self.source_dir()
                 .join(format!("{}.json", summary.external_session_id))
         });
         let session = Self::read_session(&path)?;
-        anyhow::ensure!(session.source == self.source, "Cached Share source mismatch");
+        anyhow::ensure!(
+            session.source == self.source,
+            "Cached Share source mismatch"
+        );
         Ok(session)
     }
 
