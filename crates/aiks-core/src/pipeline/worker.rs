@@ -82,7 +82,15 @@ async fn resolve_session_summary(
     // No snapshot yet, or the requested ID was not in the current snapshot.
     // Refresh exactly once while holding this source's lock so concurrent jobs
     // do not all perform the same full provider scan.
-    let discovered = provider.discover_sessions().await?;
+    let report = provider.discover_report().await?;
+    if !report.complete {
+        warn!(
+            source = source.as_str(),
+            diagnostics = report.diagnostics.len(),
+            "Incomplete provider snapshot; preserving valid pipeline sessions"
+        );
+    }
+    let discovered = report.sessions;
     let refreshed: SessionSummaryMap = discovered
         .into_iter()
         .map(|summary| (summary.external_session_id.clone(), summary))

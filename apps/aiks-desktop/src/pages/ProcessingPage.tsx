@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import type { PipelineSummary, PipelineStats } from "../api/types";
-import { formatSourceName } from "../source-display";
+import { useSourceName } from "../ProviderCatalog";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
   READY: { color: "text-green-600", label: "完成", icon: "✓" },
@@ -44,6 +44,7 @@ function StageCell({ stage, stageRuns }: { stage: string; stageRuns: { stage: st
 interface Props { onViewDetail?: (runId: string) => void; }
 
 export default function ProcessingPage({ onViewDetail }: Props) {
+  const formatSourceName = useSourceName();
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [filter, setFilter] = useState<string>("all");

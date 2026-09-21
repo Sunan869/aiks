@@ -293,6 +293,7 @@ pub async fn save_settings(
     settings: AppSettings,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let _provider_config_guard = crate::provider_commands::CONFIG_SAVE_LOCK.lock().await;
     if settings.ai_base_url.trim().is_empty() {
         return Err("AI 服务地址不能为空".to_string());
     }

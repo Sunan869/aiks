@@ -1,3 +1,4 @@
+import type { SyncAndExtractResult } from "./types";
 // Mock API — provides realistic data for browser dev mode
 import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
@@ -354,7 +355,7 @@ export class MockAiksApi implements AiksApi {
   async getAiStatus(): Promise<AiStatus> {
     return { enabled: true, healthy: true, model: "qwen3", display_name: "Mock AI", base_url: "http://127.0.0.1:11434/v1", extraction_stats: { total: 60, success: 60, skipped: 0, failed: 0, pending: 0 } };
   }
-  async syncAndExtract(): Promise<{ discovered: number; new_count: number; updated_count: number }> { return { discovered: 60, new_count: 0, updated_count: 0 }; }
+  async syncAndExtract(): Promise<SyncAndExtractResult> { return { discovered: 60, new_count: 0, updated_count: 0, unchanged_count: 60, skipped_count: 0, failed_count: 0, extraction_queued: 0 }; }
   async scanSources(): Promise<{ total: number; by_source: Record<string, number> }> { return { total: 60, by_source: { opencode: 30, claude_code: 10, codex: 10, gemini_cli: 10 } }; }
   async backfillExtractions(): Promise<{ submitted: number }> { return { submitted: 0 }; }
   async syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }> { return { created: 0, updated: 0, unchanged: knowledge.length, conflict: 0, failed: 0 }; }
