@@ -459,6 +459,17 @@ mod tests {
             canonical_share_url("https://www.qianwen.com/share/chat/qwen1234").unwrap(),
             "https://www.qianwen.com/share/chat/qwen1234"
         );
+        assert_eq!(
+            canonical_share_url(
+                "https://activity.qianwen.com/share?shareId=qwen5678&authorId=test"
+            )
+            .unwrap(),
+            "https://www.qianwen.com/share/chat/qwen5678"
+        );
+        assert_eq!(
+            canonical_share_url("https://www.doubao.com/s/short123").unwrap(),
+            "https://www.doubao.com/s/short123"
+        );
     }
 
     #[test]
