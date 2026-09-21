@@ -1,7 +1,22 @@
+mod aider;
+mod antigravity;
+pub mod catalog;
 pub mod claude;
+mod cline_family;
 pub mod codex;
+mod continue_dev;
+mod copilot;
+mod cursor;
+mod cursor_agent;
+pub mod discovery;
 pub mod gemini;
+mod kimi;
+pub mod local_io;
+mod local_paths;
+mod message_parts;
+pub mod native;
 pub mod opencode;
+mod qwen;
 pub mod workbuddy;
 
 use std::path::PathBuf;
@@ -31,6 +46,7 @@ pub struct SessionSummary {
 pub enum ProviderHealth {
     Ok,
     NotConfigured,
+    Unsupported { message: String },
     NotFound { message: String },
     Error { message: String },
 }
@@ -43,6 +59,7 @@ impl ProviderHealth {
     pub fn message(&self) -> &str {
         match self {
             ProviderHealth::Ok => "OK",
+            ProviderHealth::Unsupported { message } => message.as_str(),
             ProviderHealth::NotConfigured => "Not configured",
             ProviderHealth::NotFound { message } => message.as_str(),
             ProviderHealth::Error { message } => message.as_str(),
@@ -60,6 +77,14 @@ pub trait SessionProvider: Send + Sync {
 
     /// Discover all available session summaries (cheap: no full message parsing)
     async fn discover_sessions(&self) -> anyhow::Result<Vec<SessionSummary>>;
+
+    /// Compatibility default for existing providers; new sources report scope and completeness.
+    async fn discover_report(&self) -> anyhow::Result<discovery::DiscoveryReport> {
+        Ok(discovery::DiscoveryReport {
+            sessions: self.discover_sessions().await?,
+            ..Default::default()
+        })
+    }
 
     /// Load a full normalized session from a summary
     async fn load_session(&self, summary: &SessionSummary) -> anyhow::Result<NormalizedSession>;
@@ -93,14 +118,64 @@ impl ProviderRegistry {
 
     /// Discover all sessions from all providers.
     /// Single provider failures are isolated and logged.
+    pub async fn discover_selected(
+        &self,
+        selected: Option<SourceKind>,
+    ) -> Vec<(SourceKind, anyhow::Result<discovery::DiscoveryReport>)> {
+        use std::future::{poll_fn, Future};
+        use std::pin::Pin;
+        use std::task::Poll;
+        type Output = (SourceKind, anyhow::Result<discovery::DiscoveryReport>);
+        let limit = tokio::sync::Semaphore::new(4);
+        let mut pending: Vec<Pin<Box<dyn Future<Output = Output> + Send + '_>>> = self
+            .providers
+            .iter()
+            .filter(|p| selected.is_none_or(|s| p.source() == s))
+            .map(|p| {
+                let limit = &limit;
+                Box::pin(async move {
+                    let _permit = limit
+                        .acquire()
+                        .await
+                        .expect("local provider semaphore stays open");
+                    (p.source(), p.discover_report().await)
+                }) as Pin<Box<dyn Future<Output = Output> + Send + '_>>
+            })
+            .collect();
+        let mut reports = Vec::new();
+        while !pending.is_empty() {
+            let (index, result) = poll_fn(|cx| {
+                for (index, future) in pending.iter_mut().enumerate() {
+                    if let Poll::Ready(output) = future.as_mut().poll(cx) {
+                        return Poll::Ready((index, output));
+                    }
+                }
+                Poll::Pending
+            })
+            .await;
+            drop(pending.swap_remove(index));
+            reports.push(result);
+        }
+        reports
+    }
+
     pub async fn discover_all(&self) -> Vec<SessionSummary> {
-        self.discover_all_detailed()
+        self.discover_selected(None)
             .await
             .into_iter()
-            .filter_map(|(_, result)| match result {
-                Ok(sessions) => Some(sessions),
-                Err(e) => {
-                    tracing::warn!(error = %e, "Provider discover_sessions failed");
+            .filter_map(|(source, result)| match result {
+                Ok(report) => {
+                    if !report.complete {
+                        tracing::warn!(
+                            source = source.as_str(),
+                            diagnostics = report.diagnostics.len(),
+                            "Provider discovery incomplete; valid sessions retained"
+                        );
+                    }
+                    Some(report.sessions)
+                }
+                Err(_) => {
+                    tracing::warn!(source = source.as_str(), "Provider discovery failed");
                     None
                 }
             })
@@ -108,24 +183,23 @@ impl ProviderRegistry {
             .collect()
     }
 
-    /// R14: discover per source, keeping each provider's scan result (success
-    /// or failure) so callers can distinguish "no sessions" from "scan failed".
     pub async fn discover_all_detailed(
         &self,
     ) -> Vec<(SourceKind, anyhow::Result<Vec<SessionSummary>>)> {
-        let mut results = Vec::new();
-        for provider in &self.providers {
-            let result = provider.discover_sessions().await;
-            if let Err(e) = &result {
-                tracing::warn!(
-                    source = ?provider.source(),
-                    error = %e,
-                    "Provider discover_sessions failed"
-                );
-            }
-            results.push((provider.source(), result));
-        }
-        results
+        self.discover_selected(None)
+            .await
+            .into_iter()
+            .map(|(source, result)| {
+                let result = result.and_then(|report| {
+                    anyhow::ensure!(
+                        report.complete,
+                        "Provider scan incomplete; missing detection prohibited"
+                    );
+                    Ok(report.sessions)
+                });
+                (source, result)
+            })
+            .collect()
     }
 
     /// Perform health check on all providers.
@@ -183,5 +257,16 @@ pub fn build_registry(config: &crate::config::Config) -> ProviderRegistry {
         }
     }
 
+    for source in catalog::EXTERNAL_SOURCES {
+        if let Some(settings) = catalog::external_config(config, source).filter(|p| p.enabled) {
+            match native::NativeProvider::new(source, settings) {
+                Ok(provider) => providers.push(Box::new(provider)),
+                Err(_) => tracing::warn!(
+                    source = source.as_str(),
+                    "External provider configuration invalid"
+                ),
+            }
+        }
+    }
     ProviderRegistry::new(providers)
 }

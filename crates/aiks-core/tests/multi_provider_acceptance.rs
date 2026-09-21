@@ -57,7 +57,7 @@ async fn qwen_code_imports_internal_identity_and_parts() {
         "{\"uuid\":\"a1\",\"parentUuid\":\"u1\",\"sessionId\":\"s1\",\"type\":\"assistant\",\"message\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}}\n"
     ))]);
     let s = load("qwen_code", root.path()).await;
-    assert_eq!(s.external_session_id, "s1");
+    assert_eq!(s.metadata["upstream_session_id"], "s1");
     assert!(text(&s).contains("QWEN_UNIQUE"));
     assert_eq!(s.messages[1].parent_id.as_deref(), Some("u1"));
 }
@@ -72,7 +72,7 @@ async fn continue_imports_history_not_index_or_context_items() {
         ("sessions/sessions.json", r#"[{"sessionId":"index-only"}]"#),
     ]);
     let s = load("continue", root.path()).await;
-    assert_eq!(s.external_session_id, "s1");
+    assert_eq!(s.metadata["upstream_session_id"], "s1");
     assert_eq!(text(&s), "CONTINUE_UNIQUE\nanswer");
     assert!(s.messages.iter().all(|m| m.created_at.is_none()));
 }

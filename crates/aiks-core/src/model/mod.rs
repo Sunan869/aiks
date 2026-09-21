@@ -19,6 +19,17 @@ pub enum SourceKind {
     GeminiCli,
     OpenCode,
     WorkBuddy,
+    Antigravity,
+    Cursor,
+    CursorAgent,
+    Cline,
+    RooCode,
+    KiloCode,
+    GithubCopilot,
+    KimiCode,
+    QwenCode,
+    Continue,
+    Aider,
 }
 
 impl SourceKind {
@@ -29,6 +40,17 @@ impl SourceKind {
             SourceKind::GeminiCli => "gemini_cli",
             SourceKind::OpenCode => "opencode",
             SourceKind::WorkBuddy => "workbuddy",
+            SourceKind::Antigravity => "antigravity",
+            SourceKind::Cursor => "cursor",
+            SourceKind::CursorAgent => "cursor_agent",
+            SourceKind::Cline => "cline",
+            SourceKind::RooCode => "roo_code",
+            SourceKind::KiloCode => "kilo_code",
+            SourceKind::GithubCopilot => "github_copilot",
+            SourceKind::KimiCode => "kimi_code",
+            SourceKind::QwenCode => "qwen_code",
+            SourceKind::Continue => "continue",
+            SourceKind::Aider => "aider",
         }
     }
 
@@ -39,6 +61,17 @@ impl SourceKind {
             SourceKind::GeminiCli => "Gemini CLI",
             SourceKind::OpenCode => "OpenCode",
             SourceKind::WorkBuddy => "WorkBuddy",
+            SourceKind::Antigravity => "Antigravity",
+            SourceKind::Cursor => "Cursor",
+            SourceKind::CursorAgent => "Cursor Agent",
+            SourceKind::Cline => "Cline",
+            SourceKind::RooCode => "Roo Code",
+            SourceKind::KiloCode => "Kilo Code",
+            SourceKind::GithubCopilot => "GitHub Copilot",
+            SourceKind::KimiCode => "Kimi Code",
+            SourceKind::QwenCode => "Qwen Code",
+            SourceKind::Continue => "Continue",
+            SourceKind::Aider => "Aider",
         }
     }
 
@@ -49,6 +82,17 @@ impl SourceKind {
             "gemini_cli" | "gemini" | "geminicli" => Some(SourceKind::GeminiCli),
             "opencode" | "open_code" => Some(SourceKind::OpenCode),
             "workbuddy" | "work_buddy" => Some(SourceKind::WorkBuddy),
+            "antigravity" => Some(SourceKind::Antigravity),
+            "cursor" => Some(SourceKind::Cursor),
+            "cursor_agent" => Some(SourceKind::CursorAgent),
+            "cline" => Some(SourceKind::Cline),
+            "roo_code" => Some(SourceKind::RooCode),
+            "kilo_code" => Some(SourceKind::KiloCode),
+            "github_copilot" => Some(SourceKind::GithubCopilot),
+            "kimi_code" => Some(SourceKind::KimiCode),
+            "qwen_code" => Some(SourceKind::QwenCode),
+            "continue" => Some(SourceKind::Continue),
+            "aider" => Some(SourceKind::Aider),
             _ => None,
         }
     }
