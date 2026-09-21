@@ -7,7 +7,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::indexing::EmbeddingProvider;
-use crate::pipeline::embedding_client::cosine_sim;
+use crate::pipeline::embedding_client::{cosine_sim_with_left_norm, l2_norm};
 use crate::storage::StateDb;
 
 mod lexical;
@@ -246,12 +246,14 @@ impl<'a> UnifiedSearchService<'a> {
         corpora: &HashSet<SearchCorpus>,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let model = self.embeddings.model_name();
+        let query_norm = l2_norm(query_vector);
+        anyhow::ensure!(query_norm > 0.0, "query embedding has zero norm");
         let mut candidates = Vec::new();
         if corpora.contains(&SearchCorpus::Knowledge) {
-            candidates.extend(self.semantic_knowledge(query_vector, model, filter)?);
+            candidates.extend(self.semantic_knowledge(query_vector, query_norm, model, filter)?);
         }
         if corpora.contains(&SearchCorpus::Session) {
-            candidates.extend(self.semantic_sessions(query_vector, model, filter)?);
+            candidates.extend(self.semantic_sessions(query_vector, query_norm, model, filter)?);
         }
         candidates.sort_by(|a, b| {
             b.raw_score
@@ -264,6 +266,7 @@ impl<'a> UnifiedSearchService<'a> {
     fn semantic_knowledge(
         &self,
         query_vector: &[f32],
+        query_norm: f32,
         model: &str,
         filter: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
@@ -312,7 +315,7 @@ impl<'a> UnifiedSearchService<'a> {
                 continue;
             }
             out.push(RankedCandidate {
-                raw_score: cosine_sim(query_vector, &vector),
+                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Knowledge,
                     entity_id: id,
@@ -344,6 +347,7 @@ impl<'a> UnifiedSearchService<'a> {
     fn semantic_sessions(
         &self,
         query_vector: &[f32],
+        query_norm: f32,
         model: &str,
         filter: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
@@ -391,7 +395,7 @@ impl<'a> UnifiedSearchService<'a> {
                 continue;
             }
             out.push(RankedCandidate {
-                raw_score: cosine_sim(query_vector, &vector),
+                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Session,
                     entity_id: session_id.to_string(),
