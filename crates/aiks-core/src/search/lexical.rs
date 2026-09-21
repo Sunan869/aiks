@@ -17,6 +17,7 @@ pub(super) fn recall(
     terms: &[String],
     filter: &UnifiedSearchFilter,
     corpus: SearchCorpus,
+    requested_limit: usize,
 ) -> (Vec<RankedCandidate>, Vec<String>) {
     let total_started = Instant::now();
     let mut warnings = Vec::new();
@@ -41,12 +42,11 @@ pub(super) fn recall(
         "[SEARCH_TIMING] lexical fts"
     );
 
-    // unicode61 does not segment CJK substrings or preserve punctuation in
-    // technical identifiers. Do not trade away these queries for a faster UI.
-    let needs_substring = candidates.is_empty()
-        || query
-            .chars()
-            .any(|ch| !ch.is_ascii() || "_./:+#-".contains(ch));
+    // CJK queries used to force a full substring scan even when FTS had
+    // already produced far more candidates than the UI could display. Keep
+    // substring as a recall safety net when FTS is insufficient, while still
+    // forcing it for technical punctuation that unicode61 does not preserve.
+    let needs_substring = should_run_substring(query, candidates.len(), requested_limit);
     tracing::info!(
         corpus = ?corpus,
         needs_substring,
@@ -111,6 +111,12 @@ pub(super) fn recall(
         "[SEARCH_TIMING] lexical corpus complete"
     );
     (candidates, warnings)
+}
+
+fn should_run_substring(query: &str, fts_candidates: usize, requested_limit: usize) -> bool {
+    let enough_for_request = fts_candidates >= requested_limit.max(1).min(CANDIDATE_CAP);
+    let has_technical_syntax = query.chars().any(|ch| "_./:+#-".contains(ch));
+    !enough_for_request || has_technical_syntax
 }
 
 fn fts_expression(query: &str, terms: &[String]) -> String {
@@ -333,6 +339,19 @@ fn candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn substring_is_skipped_when_fts_already_satisfies_plain_cjk_request() {
+        assert!(!should_run_substring("磁盘", 30, 30));
+        assert!(!should_run_substring("磁盘", 117, 30));
+        assert!(should_run_substring("磁盘", 29, 30));
+    }
+
+    #[test]
+    fn technical_syntax_keeps_substring_safety_net() {
+        assert!(should_run_substring("/var/lib/kubelet/pods", 200, 30));
+        assert!(should_run_substring("qwen3.8:27b", 200, 30));
+    }
 
     #[test]
     fn cjk_fts_prefers_multi_character_terms_over_single_character_prefixes() {

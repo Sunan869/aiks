@@ -112,24 +112,43 @@ impl EmbeddingClient {
     }
 }
 
-/// Cosine similarity between two vectors
-pub fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
+pub fn l2_norm(vector: &[f32]) -> f32 {
+    vector.iter().map(|value| value * value).sum::<f32>().sqrt()
+}
+
+/// Cosine similarity when the caller already has the left-hand vector norm.
+/// Query-time retrieval uses this to avoid recomputing the same query norm for
+/// every document candidate.
+pub fn cosine_sim_with_left_norm(a: &[f32], norm_a: f32, b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() || norm_a == 0.0 {
         return 0.0;
     }
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 {
+    let norm_b = l2_norm(b);
+    if norm_b == 0.0 {
         0.0
     } else {
         dot / (norm_a * norm_b)
     }
 }
 
+/// Cosine similarity between two vectors
+pub fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+    cosine_sim_with_left_norm(a, l2_norm(a), b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cosine_with_precomputed_left_norm_matches_regular_cosine() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![3.0, 2.0, 1.0];
+        let expected = cosine_sim(&a, &b);
+        let actual = cosine_sim_with_left_norm(&a, l2_norm(&a), &b);
+        assert!((expected - actual).abs() < 1e-6);
+    }
 
     #[test]
     fn cosine_identical_vectors() {
