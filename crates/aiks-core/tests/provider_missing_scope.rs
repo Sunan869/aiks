@@ -76,7 +76,10 @@ async fn removing_a_configured_root_does_not_mark_its_old_sessions_missing() {
     let initial = NativeProvider::new(
         SourceKind::Continue,
         &ExternalProviderConfig {
-            paths: vec![a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()],
+            paths: vec![
+                a.to_string_lossy().into_owned(),
+                b.to_string_lossy().into_owned(),
+            ],
             ..Default::default()
         },
     )
@@ -102,7 +105,10 @@ async fn removing_a_configured_root_does_not_mark_its_old_sessions_missing() {
         repo.upsert(
             "continue",
             &summary.external_session_id,
-            summary.source_path.as_deref().and_then(|path| path.to_str()),
+            summary
+                .source_path
+                .as_deref()
+                .and_then(|path| path.to_str()),
             None,
             None,
             summary.title.as_deref(),
