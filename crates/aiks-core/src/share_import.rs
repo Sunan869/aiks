@@ -64,7 +64,7 @@ pub fn detect_share_source(raw_url: &str) -> anyhow::Result<SourceKind> {
     let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
     detect_share_source_url(&url).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini public share links"
+            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini, DeepSeek, Doubao, Kimi, Yuanbao, Qwen public share links"
         )
     })
 }
@@ -73,7 +73,7 @@ pub fn canonical_share_url(raw_url: &str) -> anyhow::Result<String> {
     let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
     let source = detect_share_source_url(&url).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini public share links"
+            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini, DeepSeek, Doubao, Kimi, Yuanbao, Qwen public share links"
         )
     })?;
     let share_id = share_external_id_from_url(source, &url)
@@ -83,6 +83,21 @@ pub fn canonical_share_url(raw_url: &str) -> anyhow::Result<String> {
         SourceKind::ChatgptShare => format!("https://chatgpt.com/share/{share_id}"),
         SourceKind::ClaudeShare => format!("https://claude.ai/share/{share_id}"),
         SourceKind::GeminiShare => format!("https://gemini.google.com/share/{share_id}"),
+        SourceKind::DeepseekShare => format!("https://chat.deepseek.com/share/{share_id}"),
+        SourceKind::DoubaoShare => {
+            let first = url
+                .path_segments()
+                .and_then(|mut parts| parts.find(|part| !part.is_empty()))
+                .unwrap_or("thread");
+            if first == "s" {
+                format!("https://www.doubao.com/s/{share_id}")
+            } else {
+                format!("https://www.doubao.com/thread/{share_id}")
+            }
+        }
+        SourceKind::KimiShare => format!("https://www.kimi.com/share/{share_id}"),
+        SourceKind::YuanbaoShare => format!("https://yb.tencent.com/s/{share_id}"),
+        SourceKind::QwenShare => format!("https://www.qianwen.com/share/chat/{share_id}"),
         _ => anyhow::bail!("not a Share URL source"),
     };
     Ok(canonical)
@@ -104,7 +119,14 @@ pub fn persist_share_conversation(
     anyhow::ensure!(
         matches!(
             source,
-            SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+            SourceKind::ChatgptShare
+                | SourceKind::ClaudeShare
+                | SourceKind::GeminiShare
+                | SourceKind::DeepseekShare
+                | SourceKind::DoubaoShare
+                | SourceKind::KimiShare
+                | SourceKind::YuanbaoShare
+                | SourceKind::QwenShare
         ),
         "Only Share URL sources can be imported"
     );
@@ -294,6 +316,35 @@ fn detect_share_source_url(url: &Url) -> Option<SourceKind> {
         "g.co" if parts.len() == 3 && parts[0] == "gemini" && parts[1] == "share" => {
             Some(SourceKind::GeminiShare)
         }
+        "chat.deepseek.com"
+            if parts.first().copied() == Some("share") && parts.len() == 2 =>
+        {
+            Some(SourceKind::DeepseekShare)
+        }
+        "doubao.com"
+            if matches!(parts.first().copied(), Some("thread") | Some("s"))
+                && parts.len() == 2 =>
+        {
+            Some(SourceKind::DoubaoShare)
+        }
+        "kimi.com" | "kimi.moonshot.cn"
+            if parts.first().copied() == Some("share") && parts.len() == 2 =>
+        {
+            Some(SourceKind::KimiShare)
+        }
+        "yb.tencent.com" if parts.first().copied() == Some("s") && parts.len() == 2 => {
+            Some(SourceKind::YuanbaoShare)
+        }
+        "qianwen.com"
+            if parts.first().copied() == Some("share")
+                && parts.get(1).copied() == Some("chat")
+                && parts.len() == 3 =>
+        {
+            Some(SourceKind::QwenShare)
+        }
+        "activity.qianwen.com" if url.query_pairs().any(|(key, _)| key == "shareId") => {
+            Some(SourceKind::QwenShare)
+        }
         _ => None,
     }
 }
@@ -318,6 +369,23 @@ fn share_external_id_from_url(source: SourceKind, url: &Url) -> Option<String> {
             "share.gemini.google" => parts.first().copied(),
             _ => parts.get(1).copied(),
         },
+        SourceKind::DeepseekShare
+        | SourceKind::DoubaoShare
+        | SourceKind::KimiShare
+        | SourceKind::YuanbaoShare => parts.get(1).copied(),
+        SourceKind::QwenShare => {
+            if url
+                .host_str()?
+                .trim_start_matches("www.")
+                .eq_ignore_ascii_case("activity.qianwen.com")
+            {
+                return url
+                    .query_pairs()
+                    .find_map(|(key, value)| (key == "shareId").then(|| value.into_owned()))
+                    .filter(|value| !value.trim().is_empty());
+            }
+            parts.get(2).copied()
+        }
         _ => None,
     }?;
 
@@ -370,6 +438,26 @@ mod tests {
         assert_eq!(
             canonical_share_url("https://share.gemini.google/abc123").unwrap(),
             "https://gemini.google.com/share/abc123"
+        );
+        assert_eq!(
+            canonical_share_url("https://chat.deepseek.com/share/deep123").unwrap(),
+            "https://chat.deepseek.com/share/deep123"
+        );
+        assert_eq!(
+            canonical_share_url("https://www.doubao.com/thread/doubao123").unwrap(),
+            "https://www.doubao.com/thread/doubao123"
+        );
+        assert_eq!(
+            canonical_share_url("https://www.kimi.com/share/kimi1234").unwrap(),
+            "https://www.kimi.com/share/kimi1234"
+        );
+        assert_eq!(
+            canonical_share_url("https://yb.tencent.com/s/yuanbao123").unwrap(),
+            "https://yb.tencent.com/s/yuanbao123"
+        );
+        assert_eq!(
+            canonical_share_url("https://www.qianwen.com/share/chat/qwen1234").unwrap(),
+            "https://www.qianwen.com/share/chat/qwen1234"
         );
     }
 
