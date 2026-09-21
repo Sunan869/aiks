@@ -200,9 +200,11 @@ mod tests {
         assert!(serde_json::from_str::<Option<JavaScriptChannelId>>("null")
             .unwrap()
             .is_none());
-        assert!(serde_json::from_str::<Option<JavaScriptChannelId>>(r#""__CHANNEL__:7""#)
-            .unwrap()
-            .is_some());
+        assert!(
+            serde_json::from_str::<Option<JavaScriptChannelId>>(r#""__CHANNEL__:7""#)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
