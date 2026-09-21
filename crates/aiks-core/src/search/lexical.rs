@@ -114,10 +114,26 @@ pub(super) fn recall(
 }
 
 fn fts_expression(query: &str, terms: &[String]) -> String {
-    let values: Vec<&str> = if terms.is_empty() {
+    // Single CJK characters create extremely broad prefix matches in FTS5
+    // (especially for full-session documents). When the analyzer has already
+    // produced a multi-character CJK term, keep that more selective term for
+    // FTS and leave exhaustive substring coverage to the fallback path.
+    let has_multi_cjk = terms.iter().any(|term| {
+        term.chars().count() >= 2 && term.chars().all(super::is_cjk)
+    });
+    let filtered: Vec<&str> = terms
+        .iter()
+        .map(String::as_str)
+        .filter(|term| {
+            !(has_multi_cjk
+                && term.chars().count() == 1
+                && term.chars().all(super::is_cjk))
+        })
+        .collect();
+    let values: Vec<&str> = if filtered.is_empty() {
         vec![query]
     } else {
-        terms.iter().map(String::as_str).collect()
+        filtered
     };
     values
         .into_iter()
@@ -153,8 +169,14 @@ fn indexed(
              ORDER BY rank LIMIT ?4"
         }
         SearchCorpus::Session => {
+            // session_search_fts currently stores one potentially very large
+            // transcript per session. FTS5 snippet() has to inspect that large
+            // text for every ranked candidate and dominated real-device search
+            // latency. Return a cheap bounded preview here; CJK/technical
+            // queries still run the substring fallback which produces a
+            // match-centered snippet.
             "SELECT CAST(ss.id AS TEXT), COALESCE(ss.title, ''),
-                    snippet(session_search_fts, -1, '', '', '…', 48),
+                    substr(session_search_fts.content, 1, 220),
                     ss.siyuan_doc_id, bm25(session_search_fts)
              FROM session_search_fts
              CROSS JOIN source_session ss ON ss.id = session_search_fts.session_id
