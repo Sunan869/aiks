@@ -19,6 +19,9 @@ pub enum SourceKind {
     GeminiCli,
     OpenCode,
     WorkBuddy,
+    ChatgptShare,
+    ClaudeShare,
+    GeminiShare,
 }
 
 impl SourceKind {
@@ -29,6 +32,9 @@ impl SourceKind {
             SourceKind::GeminiCli => "gemini_cli",
             SourceKind::OpenCode => "opencode",
             SourceKind::WorkBuddy => "workbuddy",
+            SourceKind::ChatgptShare => "chatgpt_share",
+            SourceKind::ClaudeShare => "claude_share",
+            SourceKind::GeminiShare => "gemini_share",
         }
     }
 
@@ -39,6 +45,9 @@ impl SourceKind {
             SourceKind::GeminiCli => "Gemini CLI",
             SourceKind::OpenCode => "OpenCode",
             SourceKind::WorkBuddy => "WorkBuddy",
+            SourceKind::ChatgptShare => "ChatGPT",
+            SourceKind::ClaudeShare => "Claude",
+            SourceKind::GeminiShare => "Gemini",
         }
     }
 
@@ -49,6 +58,9 @@ impl SourceKind {
             "gemini_cli" | "gemini" | "geminicli" => Some(SourceKind::GeminiCli),
             "opencode" | "open_code" => Some(SourceKind::OpenCode),
             "workbuddy" | "work_buddy" => Some(SourceKind::WorkBuddy),
+            "chatgpt_share" | "chatgpt" => Some(SourceKind::ChatgptShare),
+            "claude_share" => Some(SourceKind::ClaudeShare),
+            "gemini_share" => Some(SourceKind::GeminiShare),
             _ => None,
         }
     }
@@ -237,6 +249,9 @@ mod tests {
             SourceKind::GeminiCli,
             SourceKind::OpenCode,
             SourceKind::WorkBuddy,
+            SourceKind::ChatgptShare,
+            SourceKind::ClaudeShare,
+            SourceKind::GeminiShare,
         ] {
             assert_eq!(SourceKind::from_str(kind.as_str()), Some(kind));
         }

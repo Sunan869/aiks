@@ -114,7 +114,7 @@ pub(super) fn recall(
 }
 
 fn should_run_substring(query: &str, fts_candidates: usize, requested_limit: usize) -> bool {
-    let enough_for_request = fts_candidates >= requested_limit.max(1).min(CANDIDATE_CAP);
+    let enough_for_request = fts_candidates >= requested_limit.clamp(1, CANDIDATE_CAP);
     let has_technical_syntax = query.chars().any(|ch| "_./:+#-".contains(ch));
     !enough_for_request || has_technical_syntax
 }
@@ -124,16 +124,14 @@ fn fts_expression(query: &str, terms: &[String]) -> String {
     // (especially for full-session documents). When the analyzer has already
     // produced a multi-character CJK term, keep that more selective term for
     // FTS and leave exhaustive substring coverage to the fallback path.
-    let has_multi_cjk = terms.iter().any(|term| {
-        term.chars().count() >= 2 && term.chars().all(super::is_cjk)
-    });
+    let has_multi_cjk = terms
+        .iter()
+        .any(|term| term.chars().count() >= 2 && term.chars().all(super::is_cjk));
     let filtered: Vec<&str> = terms
         .iter()
         .map(String::as_str)
         .filter(|term| {
-            !(has_multi_cjk
-                && term.chars().count() == 1
-                && term.chars().all(super::is_cjk))
+            !(has_multi_cjk && term.chars().count() == 1 && term.chars().all(super::is_cjk))
         })
         .collect();
     let values: Vec<&str> = if filtered.is_empty() {
@@ -334,7 +332,6 @@ fn candidate(
         },
     }
 }
-
 
 #[cfg(test)]
 mod tests {

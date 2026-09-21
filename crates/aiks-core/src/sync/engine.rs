@@ -212,16 +212,32 @@ impl SyncEngine {
             self.config.security.redact_secrets,
         );
 
-        let all_summaries = registry.discover_all().await;
-        let total_discovered = all_summaries.len();
-        let summaries: Vec<SessionSummary> = if let Some(src) = &opts.source_filter {
-            all_summaries
-                .into_iter()
-                .filter(|s| s.source.as_str() == src.as_str())
-                .collect()
-        } else {
-            all_summaries
-        };
+        let (summaries, total_discovered): (Vec<SessionSummary>, usize) =
+            if let Some(src) = &opts.source_filter {
+                if let Some(source_kind) = crate::model::SourceKind::from_str(src) {
+                    match registry.get(source_kind) {
+                        Some(provider) => {
+                            let rows = provider.discover_sessions().await?;
+                            let count = rows.len();
+                            (rows, count)
+                        }
+                        None => (Vec::new(), 0),
+                    }
+                } else {
+                    let all = registry.discover_all().await;
+                    let total = all.len();
+                    (
+                        all.into_iter()
+                            .filter(|summary| summary.source.as_str() == src.as_str())
+                            .collect(),
+                        total,
+                    )
+                }
+            } else {
+                let all = registry.discover_all().await;
+                let total = all.len();
+                (all, total)
+            };
 
         info!(
             total_discovered,

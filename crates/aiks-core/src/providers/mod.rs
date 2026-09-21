@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod opencode;
+pub mod share;
 pub mod workbuddy;
 
 use std::path::PathBuf;
@@ -181,6 +182,18 @@ pub fn build_registry(config: &crate::config::Config) -> ProviderRegistry {
             Ok(p) => providers.push(Box::new(p)),
             Err(e) => tracing::warn!("WorkBuddy provider not available: {}", e),
         }
+    }
+
+    let share_root = crate::share_import::share_cache_root();
+    for source in [
+        SourceKind::ChatgptShare,
+        SourceKind::ClaudeShare,
+        SourceKind::GeminiShare,
+    ] {
+        providers.push(Box::new(share::CachedShareProvider::new(
+            source,
+            share_root.clone(),
+        )));
     }
 
     ProviderRegistry::new(providers)
