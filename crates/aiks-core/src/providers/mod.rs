@@ -275,6 +275,11 @@ pub fn build_registry(config: &crate::config::Config) -> ProviderRegistry {
         SourceKind::ChatgptShare,
         SourceKind::ClaudeShare,
         SourceKind::GeminiShare,
+        SourceKind::DeepseekShare,
+        SourceKind::DoubaoShare,
+        SourceKind::KimiShare,
+        SourceKind::YuanbaoShare,
+        SourceKind::QwenShare,
     ] {
         providers.push(Box::new(share::CachedShareProvider::new(
             source,
