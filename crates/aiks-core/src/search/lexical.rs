@@ -328,3 +328,38 @@ fn candidate(
         },
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cjk_fts_prefers_multi_character_terms_over_single_character_prefixes() {
+        let terms = vec!["磁".to_string(), "盘".to_string(), "磁盘".to_string()];
+        let expression = fts_expression("磁盘", &terms);
+        assert_eq!(expression, "\"磁盘\"*");
+    }
+
+    #[test]
+    fn single_cjk_character_search_remains_supported() {
+        let terms = vec!["盘".to_string()];
+        let expression = fts_expression("盘", &terms);
+        assert_eq!(expression, "\"盘\"*");
+    }
+
+    #[test]
+    fn technical_terms_are_preserved_beside_cjk_bigrams() {
+        let terms = vec![
+            "磁".to_string(),
+            "盘".to_string(),
+            "磁盘".to_string(),
+            "kubernetes".to_string(),
+        ];
+        let expression = fts_expression("磁盘 kubernetes", &terms);
+        assert!(expression.contains("\"磁盘\"*"));
+        assert!(expression.contains("\"kubernetes\"*"));
+        assert!(!expression.contains("\"磁\"*"));
+        assert!(!expression.contains("\"盘\"*"));
+    }
+}
