@@ -114,7 +114,10 @@ pub async fn fetch_chatgpt_share_html(url: String) -> Result<String, String> {
     if !response.status().is_success() {
         return Err(format!("ChatGPT share returned HTTP {}", response.status()));
     }
-    if response.content_length().is_some_and(|size| size > 25 * 1024 * 1024) {
+    if response
+        .content_length()
+        .is_some_and(|size| size > 25 * 1024 * 1024)
+    {
         return Err("ChatGPT share page is unexpectedly large".to_string());
     }
     response
