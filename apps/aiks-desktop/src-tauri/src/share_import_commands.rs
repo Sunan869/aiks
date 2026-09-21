@@ -338,6 +338,8 @@ fn browser_capture_script(source: SourceKind, token: &str, source_url: &str) -> 
 
 // Claude selectors are adapted from pencil311/chat-share-reader (MIT).
 // Gemini selectors are adapted from TheBluCoder/AI-chat-exporter (MIT).
+// Doubao/Qwen public-share protocol shapes are adapted from ihmily/doubao-nomark (MIT).
+// Yuanbao message-container structure is cross-checked against OpenCLI (Apache-2.0).
 // See THIRD_PARTY_NOTICES.md.
 const BROWSER_CAPTURE_SCRIPT: &str = r#"
 (() => {
@@ -937,8 +939,7 @@ const BROWSER_CAPTURE_SCRIPT: &str = r#"
         credentials: "omit",
         headers: {
           Accept: "application/json, text/plain, */*",
-          "Content-Type": "application/json",
-          Origin: "https://www.qianwen.com"
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({ share_id: id, biz_id: "ai_qwen" })
       });
