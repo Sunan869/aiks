@@ -1,19 +1,51 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
-use chrono::Utc;
-use reqwest::{Client, Url};
-use scraper::{Html, Selector};
+use chrono::{DateTime, Utc};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
 
-pub const SHARE_PARSER_VERSION: &str = "share-v1";
+pub const SHARE_PARSER_VERSION: &str = "share-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareAssetInput {
+    pub kind: String,
+    pub url: String,
+    pub name: Option<String>,
+    pub media_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMessageInput {
+    pub external_id: Option<String>,
+    pub role: String,
+    pub text: String,
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub assets: Vec<ShareAssetInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareConversationInput {
+    pub source: String,
+    pub source_url: String,
+    pub external_session_id: String,
+    pub title: Option<String>,
+    pub model: Option<String>,
+    pub updated_at: Option<String>,
+    pub messages: Vec<ShareMessageInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ShareImportResult {
     pub source: SourceKind,
     pub external_session_id: String,
@@ -21,390 +53,291 @@ pub struct ShareImportResult {
     pub message_count: usize,
     pub source_url: String,
     pub cache_path: PathBuf,
+    pub content_hash: String,
 }
 
-pub struct ShareImportService {
-    http: Client,
-    cache_root: PathBuf,
+pub fn share_cache_root() -> PathBuf {
+    crate::config::data_root().join("imports").join("share")
 }
 
-impl ShareImportService {
-    pub fn new(cache_root: PathBuf) -> anyhow::Result<Self> {
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .timeout(std::time::Duration::from_secs(30))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36")
-            .build()?;
-        Ok(Self { http, cache_root })
-    }
+pub fn detect_share_source(raw_url: &str) -> anyhow::Result<SourceKind> {
+    let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
+    detect_share_source_url(&url).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini public share links"
+        )
+    })
+}
 
-    pub fn cache_root(&self) -> &Path {
-        &self.cache_root
-    }
+pub fn canonical_share_url(raw_url: &str) -> anyhow::Result<String> {
+    let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
+    let source = detect_share_source_url(&url).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unsupported share URL. Supported: ChatGPT, Claude, Gemini public share links"
+        )
+    })?;
+    let share_id = share_external_id_from_url(source, &url)
+        .ok_or_else(|| anyhow::anyhow!("Share URL is missing a share id"))?;
 
-    pub async fn fetch_and_cache(&self, share_url: &str) -> anyhow::Result<(NormalizedSession, ShareImportResult)> {
-        let requested = Url::parse(share_url.trim()).context("invalid share URL")?;
-        let initial_source = detect_share_source(&requested)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported share URL. Supported: ChatGPT, Claude, Gemini"))?;
+    let canonical = match source {
+        SourceKind::ChatgptShare => format!("https://chatgpt.com/share/{share_id}"),
+        SourceKind::ClaudeShare => format!("https://claude.ai/share/{share_id}"),
+        SourceKind::GeminiShare => format!("https://gemini.google.com/share/{share_id}"),
+        _ => anyhow::bail!("not a Share URL source"),
+    };
+    Ok(canonical)
+}
 
-        let response = self
-            .http
-            .get(requested.clone())
-            .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
-            .send()
-            .await
-            .context("fetch shared conversation")?;
+pub fn share_external_id(raw_url: &str) -> anyhow::Result<String> {
+    let url = Url::parse(raw_url.trim()).context("invalid share URL")?;
+    let source = detect_share_source_url(&url)
+        .ok_or_else(|| anyhow::anyhow!("Unsupported share URL"))?;
+    share_external_id_from_url(source, &url)
+        .ok_or_else(|| anyhow::anyhow!("Share URL is missing a share id"))
+}
 
-        let status = response.status();
-        let final_url = response.url().clone();
-        if !status.is_success() {
-            anyhow::bail!("Share page returned HTTP {status}");
-        }
-
-        let source = detect_share_source(&final_url).unwrap_or(initial_source);
-        anyhow::ensure!(
-            source == initial_source || initial_source == SourceKind::GeminiShare,
-            "Share URL redirected to an unexpected provider"
-        );
-
-        let html = response.text().await.context("read share page")?;
-        let parsed = parse_share_html(source, &html)?;
-        anyhow::ensure!(
-            !parsed.messages.is_empty(),
-            provider_empty_page_error(source)
-        );
-
-        let canonical_url = final_url.to_string();
-        let external_session_id = share_external_id(source, &final_url);
-        let now = Utc::now();
-        let mut metadata = HashMap::new();
-        metadata.insert("share_url".to_string(), serde_json::json!(canonical_url));
-        metadata.insert("imported_at".to_string(), serde_json::json!(now.to_rfc3339()));
-        metadata.insert(
-            "share_provider".to_string(),
-            serde_json::json!(source.display_name()),
-        );
-
-        let mut session = NormalizedSession {
+pub fn persist_share_conversation(
+    mut input: ShareConversationInput,
+) -> anyhow::Result<ShareImportResult> {
+    let source = SourceKind::from_str(input.source.trim())
+        .ok_or_else(|| anyhow::anyhow!("Unknown Share source: {}", input.source))?;
+    anyhow::ensure!(
+        matches!(
             source,
-            external_session_id: external_session_id.clone(),
-            title: parsed.title,
-            project_name: Some(format!("{} Web", source.display_name())),
-            project_path: None,
-            source_path: None,
-            started_at: None,
-            updated_at: Some(now),
-            model: None,
-            messages: parsed.messages,
-            usage: None,
-            metadata,
-        };
+            SourceKind::ChatgptShare | SourceKind::ClaudeShare | SourceKind::GeminiShare
+        ),
+        "Only Share URL sources can be imported"
+    );
+    anyhow::ensure!(!input.messages.is_empty(), "Shared conversation has no messages");
+    anyhow::ensure!(
+        input.messages.len() <= 20_000,
+        "Shared conversation has too many messages"
+    );
 
-        let cache_path = self.cache_path(source, &external_session_id);
-        if let Some(parent) = cache_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("create share cache dir: {}", parent.display()))?;
+    let canonical_url = canonical_share_url(&input.source_url)?;
+    let url_source = detect_share_source(&canonical_url)?;
+    anyhow::ensure!(url_source == source, "Share URL provider does not match parsed source");
+
+    let url_external_id = share_external_id(&canonical_url)?;
+    if input.external_session_id.trim().is_empty() {
+        input.external_session_id = url_external_id.clone();
+    }
+    anyhow::ensure!(
+        input.external_session_id == url_external_id,
+        "Share id does not match the supplied URL"
+    );
+
+    let mut messages = Vec::with_capacity(input.messages.len());
+    let mut latest_message_time = None;
+    for (index, item) in input.messages.into_iter().enumerate() {
+        let created_at = item
+            .created_at
+            .as_deref()
+            .and_then(parse_datetime);
+        if let Some(value) = created_at {
+            latest_message_time = Some(latest_message_time.map_or(value, |current: DateTime<Utc>| {
+                current.max(value)
+            }));
         }
-        session.source_path = Some(cache_path.clone());
 
-        let serialized = serde_json::to_vec_pretty(&session)?;
-        let temp_path = cache_path.with_extension("json.tmp");
-        fs::write(&temp_path, serialized)
-            .with_context(|| format!("write share cache: {}", temp_path.display()))?;
-        if cache_path.exists() {
-            fs::remove_file(&cache_path).ok();
+        let role = MessageRole::from_str(&item.role);
+        let mut blocks = Vec::new();
+        if !item.text.trim().is_empty() {
+            blocks.push(ContentBlock::Text {
+                text: item.text.trim().to_string(),
+            });
         }
-        fs::rename(&temp_path, &cache_path)
-            .with_context(|| format!("commit share cache: {}", cache_path.display()))?;
-
-        let result = ShareImportResult {
-            source,
-            external_session_id,
-            title: session.title.clone(),
-            message_count: session.messages.len(),
-            source_url: canonical_url,
-            cache_path,
-        };
-        Ok((session, result))
-    }
-
-    fn cache_path(&self, source: SourceKind, external_session_id: &str) -> PathBuf {
-        self.cache_root
-            .join(source.as_str())
-            .join(format!("{external_session_id}.json"))
-    }
-}
-
-#[derive(Debug)]
-struct ParsedShare {
-    title: Option<String>,
-    messages: Vec<NormalizedMessage>,
-}
-
-fn parse_share_html(source: SourceKind, html: &str) -> anyhow::Result<ParsedShare> {
-    let document = Html::parse_document(html);
-    let mut messages = match source {
-        SourceKind::ChatgptShare => extract_chatgpt_dom(&document),
-        SourceKind::ClaudeShare => extract_claude_dom(&document),
-        SourceKind::GeminiShare => extract_gemini_dom(&document),
-        _ => Vec::new(),
-    };
-
-    if messages.is_empty() {
-        let body = document
-            .root_element()
-            .text()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
-        messages = match source {
-            SourceKind::ChatgptShare => extract_labeled_transcript(
-                &body,
-                &["You said", "You said:"],
-                &["ChatGPT said", "ChatGPT said:"],
-            ),
-            SourceKind::ClaudeShare => extract_labeled_transcript(
-                &body,
-                &["You said", "You said:", "Human:"],
-                &["Claude responded", "Claude responded:", "Claude:"],
-            ),
-            SourceKind::GeminiShare => extract_labeled_transcript(
-                &body,
-                &["You said", "You said:"],
-                &["Gemini said", "Gemini said:"],
-            ),
-            _ => Vec::new(),
-        };
-    }
-
-    let title = extract_title(source, &document);
-    Ok(ParsedShare { title, messages })
-}
-
-fn extract_chatgpt_dom(document: &Html) -> Vec<NormalizedMessage> {
-    let Ok(selector) = Selector::parse("[data-message-author-role]") else {
-        return Vec::new();
-    };
-    document
-        .select(&selector)
-        .filter_map(|node| {
-            let role = match node.value().attr("data-message-author-role")? {
-                "user" => MessageRole::User,
-                "assistant" => MessageRole::Assistant,
-                _ => return None,
-            };
-            let text = clean_node_text(node.text());
-            (!text.is_empty()).then_some((role, text))
-        })
-        .enumerate()
-        .map(|(index, (role, text))| normalized_message(index, role, text))
-        .collect()
-}
-
-fn extract_claude_dom(document: &Html) -> Vec<NormalizedMessage> {
-    let Ok(selector) = Selector::parse("[data-testid=\"user-message\"], .font-claude-response") else {
-        return Vec::new();
-    };
-    document
-        .select(&selector)
-        .filter_map(|node| {
-            let role = if node.value().attr("data-testid") == Some("user-message") {
-                MessageRole::User
+        for asset in item.assets {
+            if asset.url.trim().is_empty() {
+                continue;
+            }
+            if asset.kind.eq_ignore_ascii_case("image") {
+                blocks.push(ContentBlock::Image {
+                    source: asset.url,
+                    media_type: asset.media_type,
+                });
             } else {
-                MessageRole::Assistant
-            };
-            let text = clean_node_text(node.text());
-            (!text.is_empty()).then_some((role, text))
-        })
-        .enumerate()
-        .map(|(index, (role, text))| normalized_message(index, role, text))
-        .collect()
-}
-
-fn extract_gemini_dom(document: &Html) -> Vec<NormalizedMessage> {
-    for selector_text in [
-        "[data-test-id=\"user-query\"], [data-test-id=\"model-response\"]",
-        "[data-testid=\"user-query\"], [data-testid=\"model-response\"]",
-    ] {
-        let Ok(selector) = Selector::parse(selector_text) else {
-            continue;
-        };
-        let messages: Vec<_> = document
-            .select(&selector)
-            .filter_map(|node| {
-                let attr = node
-                    .value()
-                    .attr("data-test-id")
-                    .or_else(|| node.value().attr("data-testid"))
-                    .unwrap_or_default();
-                let role = if attr.contains("user") {
-                    MessageRole::User
-                } else {
-                    MessageRole::Assistant
-                };
-                let text = clean_node_text(node.text());
-                (!text.is_empty()).then_some((role, text))
-            })
-            .enumerate()
-            .map(|(index, (role, text))| normalized_message(index, role, text))
-            .collect();
-        if !messages.is_empty() {
-            return messages;
-        }
-    }
-    Vec::new()
-}
-
-fn extract_labeled_transcript(
-    body: &str,
-    user_labels: &[&str],
-    assistant_labels: &[&str],
-) -> Vec<NormalizedMessage> {
-    let mut turns: Vec<(MessageRole, String)> = Vec::new();
-    let mut current_role: Option<MessageRole> = None;
-    let mut current = Vec::new();
-
-    let flush = |role: &mut Option<MessageRole>, lines: &mut Vec<String>, turns: &mut Vec<(MessageRole, String)>| {
-        if let Some(value) = role.take() {
-            let text = lines.join("\n").trim().to_string();
-            if !text.is_empty() {
-                turns.push((value, text));
+                blocks.push(ContentBlock::FileReference {
+                    path: asset.url,
+                    name: asset.name,
+                });
             }
         }
-        lines.clear();
-    };
+        if blocks.is_empty() {
+            continue;
+        }
 
-    for raw in body.lines() {
-        let line = raw.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if user_labels.iter().any(|label| line == *label) {
-            flush(&mut current_role, &mut current, &mut turns);
-            current_role = Some(MessageRole::User);
-            continue;
-        }
-        if assistant_labels.iter().any(|label| line == *label) {
-            flush(&mut current_role, &mut current, &mut turns);
-            current_role = Some(MessageRole::Assistant);
-            continue;
-        }
-        if current_role.is_some() {
-            current.push(line.to_string());
-        }
+        messages.push(NormalizedMessage {
+            external_id: item
+                .external_id
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| format!("share-turn-{index}")),
+            parent_id: (index > 0).then(|| format!("share-turn-{}", index - 1)),
+            role,
+            created_at,
+            model: input.model.clone(),
+            blocks,
+            usage: None,
+            metadata: HashMap::new(),
+        });
     }
-    flush(&mut current_role, &mut current, &mut turns);
+    anyhow::ensure!(!messages.is_empty(), "Shared conversation has no usable messages");
 
-    turns
-        .into_iter()
-        .enumerate()
-        .map(|(index, (role, text))| normalized_message(index, role, text))
-        .collect()
-}
+    let source_updated_at = input
+        .updated_at
+        .as_deref()
+        .and_then(parse_datetime)
+        .or(latest_message_time)
+        .unwrap_or_else(Utc::now);
 
-fn normalized_message(index: usize, role: MessageRole, text: String) -> NormalizedMessage {
-    NormalizedMessage {
-        external_id: format!("share-turn-{index}"),
-        parent_id: (index > 0).then(|| format!("share-turn-{}", index - 1)),
-        role,
-        created_at: None,
-        model: None,
-        blocks: vec![ContentBlock::Text { text }],
+    let mut metadata = HashMap::new();
+    metadata.insert("share_url".to_string(), serde_json::json!(canonical_url));
+    metadata.insert("imported_at".to_string(), serde_json::json!(Utc::now().to_rfc3339()));
+    metadata.insert(
+        "share_provider".to_string(),
+        serde_json::json!(source.display_name()),
+    );
+
+    let external_session_id = input.external_session_id;
+    let title = input
+        .title
+        .map(|value| value.trim().chars().take(300).collect::<String>())
+        .filter(|value| !value.is_empty());
+
+    let cache_path = share_cache_root()
+        .join(source.as_str())
+        .join(format!("{external_session_id}.json"));
+
+    let mut session = NormalizedSession {
+        source,
+        external_session_id: external_session_id.clone(),
+        title: title.clone(),
+        project_name: Some(format!("{} Web", source.display_name())),
+        project_path: None,
+        source_path: Some(cache_path.clone()),
+        started_at: messages.iter().filter_map(|message| message.created_at).min(),
+        updated_at: Some(source_updated_at),
+        model: input.model,
+        messages,
         usage: None,
-        metadata: HashMap::new(),
-    }
-}
-
-fn clean_node_text<'a>(parts: impl Iterator<Item = &'a str>) -> String {
-    let mut out = Vec::new();
-    for part in parts {
-        let value = part.trim();
-        if !value.is_empty() && out.last().is_none_or(|last: &String| last != value) {
-            out.push(value.to_string());
-        }
-    }
-    out.join("\n")
-}
-
-fn extract_title(source: SourceKind, document: &Html) -> Option<String> {
-    let preferred = match source {
-        SourceKind::ClaudeShare => vec!["[data-testid=\"page-header\"]", "h1"],
-        SourceKind::ChatgptShare | SourceKind::GeminiShare => vec!["h1", "title"],
-        _ => vec!["title"],
+        metadata,
     };
-    for selector_text in preferred {
-        let Ok(selector) = Selector::parse(selector_text) else {
-            continue;
-        };
-        if let Some(node) = document.select(&selector).next() {
-            let text = clean_node_text(node.text());
-            let text = text
-                .trim()
-                .trim_start_matches("ChatGPT - ")
-                .trim_end_matches(" - Google Gemini")
-                .trim();
-            if !text.is_empty()
-                && !matches!(text, "ChatGPT" | "Claude" | "Google Gemini" | "Gemini")
-            {
-                return Some(text.chars().take(200).collect());
+
+    let content_hash = normalized_session_hash(&session)?;
+    session.metadata.insert(
+        "share_content_hash".to_string(),
+        serde_json::json!(content_hash.clone()),
+    );
+
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create Share URL cache directory: {}", parent.display()))?;
+    }
+    let temp_path = cache_path.with_extension("json.tmp");
+    fs::write(&temp_path, serde_json::to_vec_pretty(&session)?)
+        .with_context(|| format!("write Share URL cache: {}", temp_path.display()))?;
+    if cache_path.exists() {
+        fs::remove_file(&cache_path).ok();
+    }
+    fs::rename(&temp_path, &cache_path)
+        .with_context(|| format!("commit Share URL cache: {}", cache_path.display()))?;
+
+    Ok(ShareImportResult {
+        source,
+        external_session_id,
+        title,
+        message_count: session.messages.len(),
+        source_url: canonical_url,
+        cache_path,
+        content_hash,
+    })
+}
+
+fn detect_share_source_url(url: &Url) -> Option<SourceKind> {
+    if url.scheme() != "https" {
+        return None;
+    }
+    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let parts = url
+        .path_segments()?
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+
+    match host.as_str() {
+        "chatgpt.com" | "chat.openai.com"
+            if parts.first().copied() == Some("share") && parts.len() >= 2 =>
+        {
+            Some(SourceKind::ChatgptShare)
+        }
+        "claude.ai" if parts.first().copied() == Some("share") && parts.len() == 2 => {
+            Some(SourceKind::ClaudeShare)
+        }
+        "gemini.google.com"
+            if parts.first().copied() == Some("share") && parts.len() == 2 =>
+        {
+            Some(SourceKind::GeminiShare)
+        }
+        "share.gemini.google" if parts.len() == 1 => Some(SourceKind::GeminiShare),
+        "g.co"
+            if parts.len() == 3
+                && parts[0] == "gemini"
+                && parts[1] == "share" =>
+        {
+            Some(SourceKind::GeminiShare)
+        }
+        _ => None,
+    }
+}
+
+fn share_external_id_from_url(source: SourceKind, url: &Url) -> Option<String> {
+    let parts = url
+        .path_segments()?
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+
+    let value = match source {
+        SourceKind::ChatgptShare => {
+            if parts.get(1).copied() == Some("e") {
+                parts.get(2).copied()
+            } else {
+                parts.get(1).copied()
             }
         }
-    }
-    None
-}
+        SourceKind::ClaudeShare => parts.get(1).copied(),
+        SourceKind::GeminiShare => match url.host_str()?.trim_start_matches("www.") {
+            "g.co" => parts.get(2).copied(),
+            "share.gemini.google" => parts.first().copied(),
+            _ => parts.get(1).copied(),
+        },
+        _ => None,
+    }?;
 
-pub fn detect_share_source(url: &Url) -> Option<SourceKind> {
-    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
-    let path = url.path();
-    if host == "chatgpt.com" && path.starts_with("/share/") {
-        Some(SourceKind::ChatgptShare)
-    } else if host == "claude.ai" && path.starts_with("/share/") {
-        Some(SourceKind::ClaudeShare)
-    } else if (host == "g.co" && path.starts_with("/gemini/share/"))
-        || (host == "gemini.google.com" && (path.starts_with("/share/") || path.starts_with("/app/")))
-    {
-        Some(SourceKind::GeminiShare)
-    } else {
-        None
-    }
-}
-
-fn share_external_id(source: SourceKind, url: &Url) -> String {
-    let segments: Vec<_> = url
-        .path_segments()
-        .map(|values| values.filter(|value| !value.is_empty()).collect())
-        .unwrap_or_default();
-    let candidate = segments.last().copied().unwrap_or_default();
-    if candidate.len() >= 4
-        && candidate
+    let value = value.trim();
+    if value.len() < 4
+        || !value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
     {
-        return candidate.to_string();
+        return None;
     }
-    let digest = Sha256::digest(format!("{}:{}", source.as_str(), url).as_bytes());
-    hex::encode(&digest[..16])
+    Some(value.to_string())
 }
 
-fn provider_empty_page_error(source: SourceKind) -> &'static str {
-    match source {
-        SourceKind::ClaudeShare => {
-            "No Claude conversation content was found. Claude share pages may require a logged-in browser session; this URL cannot currently be imported by the direct fetcher."
-        }
-        SourceKind::ChatgptShare => {
-            "No ChatGPT conversation content was found. The shared link may have been revoked or the page format may have changed."
-        }
-        SourceKind::GeminiShare => {
-            "No Gemini conversation content was found. The shared link may have been revoked or the page format may have changed."
-        }
-        _ => "No conversation content was found.",
-    }
+fn parse_datetime(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|date| date.with_timezone(&Utc))
 }
 
 pub fn normalized_session_hash(session: &NormalizedSession) -> anyhow::Result<String> {
-    let bytes = serde_json::to_vec(session)?;
-    Ok(hex::encode(Sha256::digest(bytes)))
+    let stable = serde_json::json!({
+        "source": session.source,
+        "external_session_id": session.external_session_id,
+        "title": session.title,
+        "model": session.model,
+        "messages": session.messages,
+    });
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&stable)?)))
 }
 
 #[cfg(test)]
@@ -412,52 +345,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detects_supported_share_urls() {
+    fn detects_and_canonicalizes_supported_share_urls() {
         assert_eq!(
-            detect_share_source(&Url::parse("https://chatgpt.com/share/abc-def").unwrap()),
-            Some(SourceKind::ChatgptShare)
+            detect_share_source("https://chatgpt.com/share/abc-def").unwrap(),
+            SourceKind::ChatgptShare
         );
         assert_eq!(
-            detect_share_source(&Url::parse("https://claude.ai/share/abc-def").unwrap()),
-            Some(SourceKind::ClaudeShare)
+            canonical_share_url("https://chat.openai.com/share/abc-def").unwrap(),
+            "https://chatgpt.com/share/abc-def"
         );
         assert_eq!(
-            detect_share_source(&Url::parse("https://g.co/gemini/share/abc123").unwrap()),
-            Some(SourceKind::GeminiShare)
+            canonical_share_url("https://g.co/gemini/share/abc123").unwrap(),
+            "https://gemini.google.com/share/abc123"
+        );
+        assert_eq!(
+            canonical_share_url("https://share.gemini.google/abc123").unwrap(),
+            "https://gemini.google.com/share/abc123"
         );
     }
 
     #[test]
-    fn parses_chatgpt_role_dom() {
-        let html = r#"<html><body>
-          <h1>Shared chat</h1>
-          <div data-message-author-role="user"><p>Hello</p></div>
-          <div data-message-author-role="assistant"><p>Hi there</p></div>
-        </body></html>"#;
-        let parsed = parse_share_html(SourceKind::ChatgptShare, html).unwrap();
-        assert_eq!(parsed.messages.len(), 2);
-        assert_eq!(parsed.messages[0].role, MessageRole::User);
-        assert_eq!(parsed.messages[1].role, MessageRole::Assistant);
-    }
-
-    #[test]
-    fn parses_claude_stable_selectors() {
-        let html = r#"<html><body>
-          <div data-testid="page-header">Architecture review</div>
-          <div data-testid="user-message">Question</div>
-          <div class="font-claude-response">Answer</div>
-        </body></html>"#;
-        let parsed = parse_share_html(SourceKind::ClaudeShare, html).unwrap();
-        assert_eq!(parsed.title.as_deref(), Some("Architecture review"));
-        assert_eq!(parsed.messages.len(), 2);
-    }
-
-    #[test]
-    fn labeled_fallback_preserves_turn_order() {
-        let text = "Conversation with Gemini\nYou said\nHello\nGemini said\nHi";
-        let turns = extract_labeled_transcript(text, &["You said"], &["Gemini said"]);
-        assert_eq!(turns.len(), 2);
-        assert_eq!(turns[0].role, MessageRole::User);
-        assert_eq!(turns[1].role, MessageRole::Assistant);
+    fn rejects_private_or_non_share_urls() {
+        assert!(detect_share_source("http://chatgpt.com/share/abc-def").is_err());
+        assert!(detect_share_source("https://chatgpt.com/c/abc-def").is_err());
+        assert!(detect_share_source("https://claude.ai/chat/abc-def").is_err());
+        assert!(detect_share_source("https://example.com/share/abc-def").is_err());
     }
 }
