@@ -9,13 +9,24 @@ use aiks_core::{
 };
 
 #[test]
-fn catalog_has_nineteen_unique_stable_keys_and_keeps_old_provider_ids() {
+fn catalog_has_twenty_four_unique_stable_keys_and_keeps_old_provider_ids() {
     let config = Config::default();
     let catalog = descriptors(&config, &[]);
     let keys: std::collections::HashSet<_> = catalog.iter().map(|s| s.key).collect();
-    assert_eq!(keys.len(), 19);
+    assert_eq!(keys.len(), 24);
     assert_eq!(catalog.iter().filter(|d| d.configurable).count(), 16);
-    assert!(patch_provider_toml("", "chatgpt_share", true, &[]).is_err());
+    for key in [
+        "chatgpt_share",
+        "claude_share",
+        "gemini_share",
+        "deepseek_share",
+        "doubao_share",
+        "kimi_share",
+        "yuanbao_share",
+        "qwen_share",
+    ] {
+        assert!(patch_provider_toml("", key, true, &[]).is_err());
+    }
     for source in ALL_SOURCES {
         assert_eq!(SourceKind::from_str(source.as_str()), Some(source));
         assert!(build_registry(&config).get(source).is_some());
