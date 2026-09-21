@@ -83,7 +83,12 @@ async fn a_valid_session_can_finish_pipeline_when_its_neighbor_is_damaged() {
             Some(p.parser_version()),
         )
         .unwrap();
-    let config = Config::default();
+    // This regression tests discovery isolation, not a deployed model service.
+    // Explicitly disable both networks; product defaults are not test fixtures.
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    config.ai.auto_extract = false;
+    config.embedding.enabled = false;
     let worker = PipelineWorker::start_with_limit(
         db.clone(),
         Arc::new(ProviderRegistry::new(vec![Box::new(p)])),
