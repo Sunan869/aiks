@@ -4,6 +4,11 @@ const SOURCE_LABELS: Record<string, string> = {
   chatgpt_share: "ChatGPT",
   claude_share: "Claude",
   gemini_share: "Gemini",
+  deepseek_share: "DeepSeek",
+  doubao_share: "豆包",
+  kimi_share: "Kimi",
+  yuanbao_share: "腾讯元宝",
+  qwen_share: "千问",
 };
 
 export function formatSourceName(source: string | null | undefined): string {
