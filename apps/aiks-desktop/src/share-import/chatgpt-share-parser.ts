@@ -663,6 +663,46 @@ function flattenMessageContent(
   return finalize("");
 }
 
+function findRecordByShape(
+  value: unknown,
+  predicate: (record: Record<string, unknown>) => boolean,
+  maxDepth = 8,
+): Record<string, unknown> | null {
+  const seen = new Set<object>();
+
+  function walk(node: unknown, depth: number): Record<string, unknown> | null {
+    if (depth > maxDepth || node === null || typeof node !== "object") {
+      return null;
+    }
+    if (seen.has(node as object)) return null;
+    seen.add(node as object);
+
+    if (isRecord(node)) {
+      if (predicate(node)) return node;
+      for (const child of Object.values(node)) {
+        const found = walk(child, depth + 1);
+        if (found) return found;
+      }
+    } else if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = walk(child, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  return walk(value, 0);
+}
+
+function looksLikeConversationData(record: Record<string, unknown>): boolean {
+  return (
+    (Array.isArray(record.linear_conversation) &&
+      record.linear_conversation.length > 0) ||
+    (isRecord(record.mapping) && Object.keys(record.mapping).length > 0)
+  );
+}
+
 function parseConversationData(
   data: Record<string, unknown>,
   options: {
@@ -752,14 +792,24 @@ export function parseModernShare(html: string): ChatGptShareConversation {
   const serverResponse = isRecord(route.serverResponse)
     ? route.serverResponse
     : {};
-  const data = isRecord(serverResponse.data) ? serverResponse.data : null;
+  const routedData = isRecord(serverResponse.data) ? serverResponse.data : null;
+  const data = routedData ?? findRecordByShape(decoded, looksLikeConversationData);
 
   if (!data) {
     throw new ChatGptShareParseError("Modern share data not found.");
   }
 
+  const shareNode = findRecordByShape(
+    decoded,
+    (record) => typeof record.sharedConversationId === "string",
+  );
+
   return parseConversationData(data, {
-    shareId: getString(route.sharedConversationId) ?? "shared",
+    shareId:
+      getString(route.sharedConversationId) ??
+      getString(shareNode?.sharedConversationId) ??
+      getString(data.conversation_id) ??
+      "shared",
   });
 }
 
@@ -786,7 +836,8 @@ export function parseLegacyShare(html: string): ChatGptShareConversation {
   const serverResponse = isRecord(pageProps.serverResponse)
     ? pageProps.serverResponse
     : {};
-  const data = isRecord(serverResponse.data) ? serverResponse.data : null;
+  const routedData = isRecord(serverResponse.data) ? serverResponse.data : null;
+  const data = routedData ?? findRecordByShape(payload, looksLikeConversationData);
 
   if (!data) {
     throw new ChatGptShareParseError("Legacy share data not found.");
