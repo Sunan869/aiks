@@ -215,7 +215,7 @@ async fn capture_in_webview(
             let Some(payload) = title.strip_prefix(CAPTURE_PREFIX) else {
                 return;
             };
-            let fields = payload.splitn(7, '|').collect::<Vec<_>>();
+            let fields = payload.splitn(6, '|').collect::<Vec<_>>();
             if fields.len() < 4 || fields[1] != callback_token {
                 return;
             }
@@ -232,10 +232,10 @@ async fn capture_in_webview(
                         state.fail(message);
                         true
                     }
-                    "DATA" if fields.len() >= 7 => {
+                    "DATA" if fields.len() == 6 => {
                         let index = fields[3].parse::<usize>().ok();
                         let total = fields[4].parse::<usize>().ok();
-                        let chunk = fields[5..].join("|");
+                        let chunk = fields[5].to_string();
                         match (index, total) {
                             (Some(index), Some(total)) => state.push_chunk(index, total, chunk),
                             _ => {
