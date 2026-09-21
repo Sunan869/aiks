@@ -114,7 +114,7 @@ pub(super) fn recall(
 }
 
 fn should_run_substring(query: &str, fts_candidates: usize, requested_limit: usize) -> bool {
-    let enough_for_request = fts_candidates >= requested_limit.max(1).min(CANDIDATE_CAP);
+    let enough_for_request = fts_candidates >= requested_limit.clamp(1, CANDIDATE_CAP);
     let has_technical_syntax = query.chars().any(|ch| "_./:+#-".contains(ch));
     !enough_for_request || has_technical_syntax
 }
