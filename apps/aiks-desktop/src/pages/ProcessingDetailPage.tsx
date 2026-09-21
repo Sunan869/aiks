@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { PipelineSummary, StageRun } from "../api/types";
+import { formatSourceName } from "../source-display";
 
 const STAGE_LABELS: Record<string, string> = {
   PARSED: "解析", CLEANED: "清洗", LLM_CHUNKED: "LLM切片",
@@ -127,7 +128,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
               {detail.session_title || detail.run_id}
             </h1>
             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-              <span>{detail.source}</span>
+              <span>{formatSourceName(detail.source)}</span>
               <span>·</span>
               <span>{detail.pipeline_version}</span>
               {detail.started_at && (
