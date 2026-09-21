@@ -70,7 +70,10 @@ async fn missing_knowledge_fts_preserves_hits_and_reports_fallback() {
         .await
         .unwrap();
     assert_eq!(outcome.hits.len(), 1);
-    assert!(outcome.warnings.iter().any(|warning| warning.contains("FTS")));
+    assert!(outcome
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("FTS")));
 }
 
 #[tokio::test]
@@ -84,7 +87,10 @@ async fn unavailable_session_index_does_not_discard_knowledge_hits() {
         .search("llm", 10, UnifiedSearchFilter::default())
         .await
         .unwrap();
-    assert!(outcome.hits.iter().any(|hit| hit.entity_id == "search-fixture"));
+    assert!(outcome
+        .hits
+        .iter()
+        .any(|hit| hit.entity_id == "search-fixture"));
     assert!(outcome.degraded);
 }
 
@@ -99,7 +105,13 @@ async fn stalled_embedding_returns_lexical_results_within_interactive_budget() {
     .await
     .expect("search must not inherit an unbounded or 60-second embedding wait")
     .unwrap();
-    assert!(outcome.hits.iter().any(|hit| hit.entity_id == "search-fixture"));
+    assert!(outcome
+        .hits
+        .iter()
+        .any(|hit| hit.entity_id == "search-fixture"));
     assert!(outcome.degraded);
-    assert!(outcome.warnings.iter().any(|warning| warning.contains("timed out")));
+    assert!(outcome
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("timed out")));
 }
