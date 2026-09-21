@@ -1,0 +1,49 @@
+import { describe, expect, it, vi } from "vitest";
+import { sourceStateLabel, sourceFilterOptions, syncCatalogSource, type SourceDescriptor } from "./provider-catalog-model";
+import { mockSourceDescriptors } from "./provider-catalog.mock";
+import modelSource from "../../../../crates/aiks-core/src/model/mod.rs?raw";
+import sourcesSource from "../pages/SourcesPage.tsx?raw";
+import sessionsSource from "../pages/SessionsPage.tsx?raw";
+
+const roo: SourceDescriptor = { key: "roo_code", display_name: "Roo Code", config_key: "roo_code", enabled: true, paths: [], status: "ok", message: "OK", restart_required: false };
+
+describe("provider catalog", () => {
+  it("sends the stable source key for sync, not a display name", async () => {
+    const syncAndExtract = vi.fn().mockResolvedValue({ new_count: 1 });
+    await syncCatalogSource({ syncAndExtract }, roo);
+    expect(syncAndExtract).toHaveBeenCalledWith("roo_code");
+  });
+  it("preserves stable values in filters even for disabled historical sources", () => {
+    const options = sourceFilterOptions([{ ...roo, enabled: false }]);
+    expect(options).toEqual([{ value: "roo_code", label: "Roo Code" }]);
+  });
+  it("does not sync disabled or unapplied settings", async () => {
+    const syncAndExtract = vi.fn();
+    await expect(syncCatalogSource({ syncAndExtract }, { ...roo, enabled: false })).rejects.toThrow();
+    await expect(syncCatalogSource({ syncAndExtract }, { ...roo, restart_required: true })).rejects.toThrow();
+    expect(syncAndExtract).not.toHaveBeenCalled();
+  });
+  it("keeps healthy empty stores distinct from missing, unsupported and failed stores", () => {
+    expect(sourceStateLabel(roo)).toBe("可读取");
+    expect(sourceStateLabel({ ...roo, status: "not_found" })).toBe("未检测到");
+    expect(sourceStateLabel({ ...roo, status: "unsupported" })).toBe("格式不支持");
+    expect(sourceStateLabel({ ...roo, status: "error" })).toBe("读取异常");
+    expect(sourceStateLabel({ ...roo, enabled: false })).toBe("已禁用");
+    expect(sourceStateLabel({ ...roo, restart_required: true })).toBe("待重启生效");
+  });
+  it("mock fixture includes all sixteen actual Core source keys and labels", () => {
+    const fixture = mockSourceDescriptors();
+    expect(new Set(fixture.map(d => d.key)).size).toBe(16);
+    for (source of fixture) {
+      expect(modelSource).toContain(`=> "${source.key}"`);
+      expect(modelSource).toContain(`=> "${source.display_name}"`);
+    }
+    expect(fixture.find(d => d.key === "workbuddy")?.display_name).toBe("WorkBuddy");
+  });
+  it("both source cards and session filters consume the shared catalog", () => {
+    expect(sourcesSource).toContain("useSourceCatalog");
+    expect(sourcesSource).toContain("syncCatalogSource");
+    expect(sessionsSource).toContain("sourceFilterOptions");
+    expect(sessionsSource).toContain("useSourceCatalog");
+  });
+});
