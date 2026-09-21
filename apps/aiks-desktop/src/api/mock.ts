@@ -98,7 +98,17 @@ export class MockAiksApi implements AiksApi {
       ? "claude_share"
       : lower.includes("gemini")
         ? "gemini_share"
-        : "chatgpt_share";
+        : lower.includes("deepseek")
+          ? "deepseek_share"
+          : lower.includes("doubao")
+            ? "doubao_share"
+            : lower.includes("kimi")
+              ? "kimi_share"
+              : lower.includes("yb.tencent") || lower.includes("yuanbao.tencent")
+                ? "yuanbao_share"
+                : lower.includes("qianwen")
+                  ? "qwen_share"
+                  : "chatgpt_share";
     const id = sessions.length + 1;
     const item: SessionItem = {
       id,
