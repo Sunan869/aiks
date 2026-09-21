@@ -397,7 +397,7 @@ export function buildAssetFilename(
 ): string {
   const base = (messageId ?? "asset").split("-")[0] || "asset";
   const extension = mimeType?.includes("/")
-    ? mimeType.split("/").at(-1)
+    ? mimeType.split("/").slice(-1)[0]
     : null;
 
   return `${base}-${index}.${extension || "bin"}`;
@@ -475,7 +475,7 @@ function flattenMessageContent(
           description,
           downloadable: url.toLowerCase().startsWith("http"),
         });
-        attachmentLines.push(renderAssetReference(assets.at(-1)!));
+        attachmentLines.push(renderAssetReference(assets[assets.length - 1]!));
       }
     }
 
@@ -633,7 +633,7 @@ function flattenMessageContent(
             description: null,
             downloadable: pointer.toLowerCase().startsWith("http"),
           });
-          segments.push(renderAssetReference(assets.at(-1)!));
+          segments.push(renderAssetReference(assets[assets.length - 1]!));
         }
       }
     }
