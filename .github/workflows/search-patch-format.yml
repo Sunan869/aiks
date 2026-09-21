@@ -1,0 +1,26 @@
+name: Search patch formatting helper
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+jobs:
+  format-search-patch:
+    if: github.repository == 'Sunan869/aiks' && github.event.pull_request.head.repo.full_name == 'Sunan869/aiks' && github.head_ref == 'fix/v4.2-search-latency'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format only the reviewed search patch
+        run: |
+          cargo fmt --all
+          git add crates/aiks-core/src/search/mod.rs crates/aiks-core/src/search/lexical.rs crates/aiks-core/src/search/query_cache.rs apps/aiks-desktop/src-tauri/src/search_commands.rs crates/aiks-core/tests/search_progressive.rs
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style: rustfmt the search latency patch'
+          git push origin HEAD:refs/heads/fix/v4.2-search-latency
