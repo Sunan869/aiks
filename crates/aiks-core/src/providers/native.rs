@@ -42,7 +42,7 @@ impl NativeProvider {
             "file is not in this provider's transcript allowlist"
         );
         let (mut sessions, complete) = match self.source {
-            SourceKind::QwenCode => (super::qwen::read(io, path, metadata_only)?, true),
+            SourceKind::QwenCode => super::qwen::read(io, path, metadata_only)?,
             SourceKind::Continue => (super::continue_dev::read(io, path, metadata_only)?, true),
             SourceKind::CursorAgent => (super::cursor_agent::read(io, path, metadata_only)?, true),
             SourceKind::Cline | SourceKind::RooCode | SourceKind::KiloCode => (
@@ -53,7 +53,7 @@ impl NativeProvider {
             SourceKind::KimiCode => (super::kimi::read(io, path, metadata_only)?, true),
             SourceKind::Cursor => super::cursor::read(io, path, metadata_only, expected)?,
             SourceKind::GithubCopilot => super::copilot::read(io, path, metadata_only)?,
-            SourceKind::Antigravity => (super::antigravity::read(io, path, metadata_only)?, true),
+            SourceKind::Antigravity => super::antigravity::read(io, path, metadata_only)?,
             _ => anyhow::bail!("unregistered external source"),
         };
         if matches!(self.source, SourceKind::QwenCode | SourceKind::Continue) {
