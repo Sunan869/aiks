@@ -40,6 +40,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $runtime = Join-Path $env:GITHUB_WORKSPACE 'apps/aiks-desktop/src-tauri/resources/siyuan'
           "AIKS_TEST_SIYUAN_RUNTIME_ROOT=$runtime" >> $env:GITHUB_ENV
+      - name: Windows path and bootstrap contracts
+        shell: pwsh
+        run: |
+          cargo test --locked -p aiks-core --lib bootstrap:: -- --test-threads=1 2>&1 | Tee-Object -FilePath siyuan-path-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Fresh plain and canonical workspace boot
         shell: pwsh
         run: |
@@ -50,5 +55,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: siyuan-windows-startup-${{ github.sha }}
-          path: siyuan-startup-tests.log
+          path: |
+            siyuan-path-tests.log
+            siyuan-startup-tests.log
           retention-days: 3

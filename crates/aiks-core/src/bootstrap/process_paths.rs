@@ -45,8 +45,14 @@ mod tests {
     #[test]
     fn candidates_preserve_drive_unc_unicode_and_spaces() {
         for (input, expected) in [
-            (r"\\?\E:\AIKS data\个人\workspace", r"E:\AIKS data\个人\workspace"),
-            (r"\\?\UNC\server\share\workspace", r"\\server\share\workspace"),
+            (
+                r"\\?\E:\AIKS data\个人\workspace",
+                r"E:\AIKS data\个人\workspace",
+            ),
+            (
+                r"\\?\UNC\server\share\workspace",
+                r"\\server\share\workspace",
+            ),
         ] {
             assert_eq!(windows_candidate(input), Some(PathBuf::from(expected)));
         }
@@ -85,11 +91,8 @@ mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
         let profile = profile.canonicalize().unwrap();
         let workspace = workspace.canonicalize().unwrap();
-        let config = crate::bootstrap::BootstrapConfig::new(
-            profile.clone(),
-            profile.clone(),
-            "Test",
-        );
+        let config =
+            crate::bootstrap::BootstrapConfig::new(profile.clone(), profile.clone(), "Test");
         let runtime = config.runtime_config();
         assert!(!runtime.workspace.to_str().unwrap().starts_with(r"\\?\"));
         assert!(!runtime.runtime_root.to_str().unwrap().starts_with(r"\\?\"));
