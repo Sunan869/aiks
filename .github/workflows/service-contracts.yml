@@ -1,16 +1,12 @@
 name: Service S1 contracts
-
 on:
   push:
     branches: [feature/aiks-service-extraction]
-
 permissions:
   contents: read
-
 concurrency:
   group: service-s1-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   contracts:
     runs-on: ubuntu-24.04
@@ -19,42 +15,58 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Core tests
         run: |
-          cargo test --locked -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 120 /tmp/aiks-core-tests.log; exit 1; }
-          tail -n 60 /tmp/aiks-core-tests.log
-          python3 - <<'PY'
-          import re
-          text = open('/tmp/aiks-core-tests.log').read()
-          results = re.findall(r'test result: ok\. (\d+) passed; (\d+) failed;', text)
-          print('CORE_RESULTS:', sum(int(p) for p, _ in results), 'passed;', sum(int(f) for _, f in results), 'failed')
-          for line in text.splitlines():
-              if 'service_' in line or 'source_directory_is_deleted' in line or 'persisted_jobs_resume' in line:
-                  print(line)
-          PY
+          cargo test --locked -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 80 /tmp/aiks-core-tests.log; exit 1; }
+          tail -n 20 /tmp/aiks-core-tests.log
       - name: Service tests
-        if: hashFiles('apps/aiks-service/Cargo.toml') != ''
-        run: cargo test --locked -p aiks-service -- --test-threads=1
-      - name: Core and CLI Clippy
-        run: cargo clippy --locked -p aiks-core -p aiks-cli --all-targets -- -D warnings
-      - name: Service Clippy
-        if: hashFiles('apps/aiks-service/Cargo.toml') != ''
-        run: cargo clippy --locked -p aiks-service --all-targets -- -D warnings
+        if: always()
+        run: |
+          cargo test --locked -p aiks-service -- --test-threads=1 > /tmp/aiks-service-tests.log 2>&1 || { tail -n 100 /tmp/aiks-service-tests.log; exit 1; }
+          tail -n 45 /tmp/aiks-service-tests.log
+      - name: Core CLI Service Clippy
+        if: always()
+        run: |
+          cargo clippy --locked -p aiks-core -p aiks-cli -p aiks-service --all-targets -- -D warnings > /tmp/aiks-clippy.log 2>&1 || { tail -n 100 /tmp/aiks-clippy.log; exit 1; }
+          tail -n 5 /tmp/aiks-clippy.log
       - name: Formatting
         if: always()
         run: cargo fmt --all --check
       - name: Lockfile must remain unchanged
         if: always()
         run: git diff --exit-code -- Cargo.lock
-      - name: Test reports
+      - name: Source snapshot and test counts
+        if: always()
+        run: |
+          git archive --format=tar.gz -o /tmp/aiks-source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/aiks-source-head.txt
+          python3 - <<'PY'
+          import re,json,pathlib
+          summary={}
+          for name in ['core','service']:
+              path=pathlib.Path('/tmp/aiks-'+name+'-tests.log')
+              text=path.read_text() if path.exists() else ''
+              results=re.findall(r'test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed;',text)
+              summary[name]={'reported_passed':sum(int(p) for p,_ in results),'reported_failed':sum(int(f) for _,f in results)}
+          pathlib.Path('/tmp/aiks-test-summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary))
+          PY
+      - name: Verification artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: service-s1-test-reports-${{ github.sha }}
-          path: /tmp/aiks-core-tests.log
-          retention-days: 7
+          name: service-s1-verification-${{ github.sha }}
+          path: |
+            /tmp/aiks-*-tests.log
+            /tmp/aiks-clippy.log
+            /tmp/aiks-test-summary.json
+            /tmp/aiks-source.tar.gz
+            /tmp/aiks-source-head.txt
+          retention-days: 3
