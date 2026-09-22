@@ -130,7 +130,9 @@ impl ClaudeProvider {
             let entry = match parsed {
                 Ok(entry) => entry,
                 Err(error) => {
-                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    let is_last_nonempty = lines[index + 1..]
+                        .iter()
+                        .all(|value| value.trim().is_empty());
                     if is_last_nonempty && !content.ends_with('\n') {
                         break;
                     }
@@ -227,7 +229,9 @@ impl ClaudeProvider {
             let entry = match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(entry) => entry,
                 Err(error) => {
-                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    let is_last_nonempty = lines[index + 1..]
+                        .iter()
+                        .all(|value| value.trim().is_empty());
                     if is_last_nonempty && !content.ends_with('\n') {
                         anyhow::bail!("Claude transcript is still being written; retry later");
                     }
