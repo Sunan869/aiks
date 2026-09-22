@@ -24,12 +24,12 @@ jobs:
           cache-on-failure: true
       - name: Core tests
         run: |
-          cargo test --locked -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 80 /tmp/aiks-core-tests.log; exit 1; }
+          cargo test --locked --no-fail-fast -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 80 /tmp/aiks-core-tests.log; exit 1; }
           tail -n 20 /tmp/aiks-core-tests.log
       - name: Service tests
         if: always()
         run: |
-          cargo test --locked -p aiks-service -- --test-threads=1 > /tmp/aiks-service-tests.log 2>&1 || { tail -n 100 /tmp/aiks-service-tests.log; exit 1; }
+          cargo test --locked --no-fail-fast -p aiks-service -- --test-threads=1 > /tmp/aiks-service-tests.log 2>&1 || { tail -n 100 /tmp/aiks-service-tests.log; exit 1; }
           tail -n 45 /tmp/aiks-service-tests.log
       - name: Core CLI Service Clippy
         if: always()

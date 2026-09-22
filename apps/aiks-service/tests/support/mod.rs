@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 #[path = "../../../../crates/aiks-core/tests/support/service_fixture.rs"]
-mod fixture;
+pub(super) mod fixture;
 
 pub struct RunningService {
     pub root: tempfile::TempDir,

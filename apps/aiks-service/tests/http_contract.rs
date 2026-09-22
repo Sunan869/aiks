@@ -4,8 +4,7 @@ use std::time::Duration;
 mod support;
 use support::RunningService;
 
-#[path = "../../../crates/aiks-core/tests/support/service_fixture.rs"]
-mod fixture;
+use support::fixture;
 
 #[tokio::test]
 async fn authenticated_upload_replay_worker_and_keyword_search_form_a_real_offline_flow() {
