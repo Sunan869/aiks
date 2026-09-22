@@ -26,22 +26,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Core tests
         run: |
-          cargo test -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 120 /tmp/aiks-core-tests.log; exit 1; }
+          cargo test --locked -p aiks-core -- --test-threads=1 > /tmp/aiks-core-tests.log 2>&1 || { tail -n 120 /tmp/aiks-core-tests.log; exit 1; }
           tail -n 60 /tmp/aiks-core-tests.log
+          python3 - <<'PY'
+          import re
+          text = open('/tmp/aiks-core-tests.log').read()
+          results = re.findall(r'test result: ok\. (\d+) passed; (\d+) failed;', text)
+          print('CORE_RESULTS:', sum(int(p) for p, _ in results), 'passed;', sum(int(f) for _, f in results), 'failed')
+          for line in text.splitlines():
+              if 'service_' in line or 'source_directory_is_deleted' in line or 'persisted_jobs_resume' in line:
+                  print(line)
+          PY
       - name: Service tests
         if: hashFiles('apps/aiks-service/Cargo.toml') != ''
-        run: cargo test -p aiks-service -- --test-threads=1
+        run: cargo test --locked -p aiks-service -- --test-threads=1
       - name: Core and CLI Clippy
-        run: cargo clippy -p aiks-core -p aiks-cli --all-targets -- -D warnings
+        run: cargo clippy --locked -p aiks-core -p aiks-cli --all-targets -- -D warnings
       - name: Service Clippy
         if: hashFiles('apps/aiks-service/Cargo.toml') != ''
-        run: cargo clippy -p aiks-service --all-targets -- -D warnings
+        run: cargo clippy --locked -p aiks-service --all-targets -- -D warnings
       - name: Formatting
         if: always()
         run: cargo fmt --all --check
-      - name: Dependency lock delta
+      - name: Lockfile must remain unchanged
         if: always()
-        run: git diff -- Cargo.lock
+        run: git diff --exit-code -- Cargo.lock
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

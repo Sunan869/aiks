@@ -149,6 +149,17 @@ impl<'a> PipelineJobRepo<'a> {
 
     /// Atomically claim one available job and attach its canonical identity.
     pub fn claim_next(&self) -> anyhow::Result<Option<ClaimedPipelineJob>> {
+        self.claim_next_for_input(false)
+    }
+
+    pub fn claim_next_snapshot(&self) -> anyhow::Result<Option<ClaimedPipelineJob>> {
+        self.claim_next_for_input(true)
+    }
+
+    fn claim_next_for_input(
+        &self,
+        snapshot_only: bool,
+    ) -> anyhow::Result<Option<ClaimedPipelineJob>> {
         let now_dt = Utc::now();
         let now = now_dt.to_rfc3339();
         let lease_until = (now_dt + Duration::seconds(LEASE_SECONDS)).to_rfc3339();
@@ -171,6 +182,10 @@ impl<'a> PipelineJobRepo<'a> {
                  WHERE pj.status = 'PENDING'
                    AND pj.session_id IS NOT NULL
                    AND pj.pipeline_run_id IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1 FROM service_job_input si
+                       WHERE si.pipeline_run_id=pj.pipeline_run_id AND si.durable_job_id=pj.id
+                   ) = ?2
                    AND (pj.available_at IS NULL OR pj.available_at <= ?1)
                    AND NOT EXISTS (
                        SELECT 1 FROM pipeline_job running
@@ -179,7 +194,7 @@ impl<'a> PipelineJobRepo<'a> {
                    )
                  ORDER BY pj.created_at ASC, pj.generation ASC
                  LIMIT 1",
-                params![now],
+                params![now, snapshot_only],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,

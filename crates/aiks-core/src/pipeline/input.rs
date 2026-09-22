@@ -70,7 +70,9 @@ impl SnapshotInput {
             .optional()?
             .context("Persisted pipeline input is missing or inconsistent")?
         };
-        let bytes = stored.bytes.context("Persisted input exceeds its byte budget")?;
+        let bytes = stored
+            .bytes
+            .context("Persisted input exceeds its byte budget")?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|_| anyhow::anyhow!("Persisted pipeline input is invalid"))?;
         let hash = snapshot_content_hash(&stored.parser_version, &value)?;

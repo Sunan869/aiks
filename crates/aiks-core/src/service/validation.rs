@@ -72,10 +72,7 @@ pub fn validate_submission(
     let request_hash = canonical_hash(&envelope)?;
     let session = envelope.get("session").ok_or(ServiceError::InvalidInput)?;
     let canonical_json = canonical_bytes(session)?;
-    let content_hash = canonical_hash(&serde_json::json!({
-        "parser_version": request.parser_version,
-        "session": session,
-    }))?;
+    let content_hash = snapshot_content_hash(&request.parser_version, session)?;
     Ok(ValidatedSnapshot {
         submission: request.clone(),
         canonical_json,
@@ -166,4 +163,14 @@ fn canonical_bytes(value: &Value) -> Result<Vec<u8>, ServiceError> {
 
 fn canonical_hash(value: &Value) -> Result<String, ServiceError> {
     Ok(hex::encode(Sha256::digest(canonical_bytes(value)?)))
+}
+
+pub(crate) fn snapshot_content_hash(
+    parser_version: &str,
+    session: &Value,
+) -> Result<String, ServiceError> {
+    canonical_hash(&serde_json::json!({
+        "parser_version": parser_version,
+        "session": session,
+    }))
 }

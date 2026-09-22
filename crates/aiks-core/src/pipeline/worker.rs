@@ -9,7 +9,10 @@
 /// Runs automatically when new sessions are discovered via sync.
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
+use tokio::sync::{mpsc, watch, Mutex, Semaphore};
+use tokio::task::{JoinHandle, JoinSet};
+
+use super::input::{PipelineInputSource, SnapshotInput};
 use tracing::{error, info, warn};
 
 use crate::ai::{config::AiModelConfig, ModelService};
@@ -110,6 +113,15 @@ async fn resolve_session_summary(
 pub struct PipelineWorker {
     db: Arc<StateDb>,
     wake_tx: mpsc::Sender<()>,
+    snapshot_only: bool,
+    stop: watch::Sender<Option<tokio::time::Instant>>,
+    supervisor: Mutex<Option<JoinHandle<anyhow::Result<()>>>>,
+}
+
+struct WorkerControl {
+    wake_tx: mpsc::Sender<()>,
+    semaphore: Arc<Semaphore>,
+    stop_rx: watch::Receiver<Option<tokio::time::Instant>>,
 }
 
 impl PipelineWorker {
@@ -119,8 +131,8 @@ impl PipelineWorker {
         ai_config: AiModelConfig,
         embedding_config: EmbeddingConfig,
     ) -> Self {
-        let max_concurrent = ai_config.max_concurrent.max(1);
-        Self::start_with_limit(db, registry, ai_config, embedding_config, max_concurrent)
+        let limit = ai_config.max_concurrent.max(1);
+        Self::start_with_limit(db, registry, ai_config, embedding_config, limit)
     }
 
     pub fn start_with_limit(
@@ -130,35 +142,106 @@ impl PipelineWorker {
         embedding_config: EmbeddingConfig,
         max_concurrent: usize,
     ) -> Self {
+        Self::start_with_input(
+            db,
+            PipelineInputSource::LegacyProviders(registry),
+            ai_config,
+            embedding_config,
+            max_concurrent,
+        )
+    }
+
+    /// Service mode has no ProviderRegistry and cannot scan employee files.
+    pub fn start_from_snapshots(
+        db: Arc<StateDb>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+    ) -> Self {
+        let limit = ai_config.max_concurrent.max(1);
+        Self::start_with_input(
+            db,
+            PipelineInputSource::PersistedSnapshots,
+            ai_config,
+            embedding_config,
+            limit,
+        )
+    }
+
+    fn start_with_input(
+        db: Arc<StateDb>,
+        input: PipelineInputSource,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        max_concurrent: usize,
+    ) -> Self {
         let (wake_tx, wake_rx) = mpsc::channel(1);
-        let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
-        let worker_wake_tx = wake_tx.clone();
-        let worker_db = Arc::clone(&db);
-
-        tokio::spawn(async move {
-            run_worker(
-                wake_rx,
-                worker_db,
-                registry,
-                ai_config,
-                embedding_config,
-                worker_wake_tx,
-                semaphore,
-            )
-            .await;
-        });
-
-        let worker = Self { db, wake_tx };
-        let _ = worker.wake_tx.try_send(());
+        let (stop, stop_rx) = watch::channel(None);
+        let control = WorkerControl {
+            wake_tx: wake_tx.clone(),
+            semaphore: Arc::new(Semaphore::new(max_concurrent.max(1))),
+            stop_rx,
+        };
+        let snapshot_only = input.is_snapshot();
+        let supervisor = tokio::spawn(run_worker(
+            wake_rx,
+            db.clone(),
+            input,
+            ai_config,
+            embedding_config,
+            control,
+        ));
+        let worker = Self {
+            db,
+            wake_tx,
+            snapshot_only,
+            stop,
+            supervisor: Mutex::new(Some(supervisor)),
+        };
+        worker.wake();
         worker
     }
 
-    /// Persist first, then wake the worker. A full wake channel is fine: it
-    /// means a wake is already pending and the durable row is still safe.
-    pub fn submit(&self, job: PipelineJob) -> anyhow::Result<()> {
-        PipelineJobRepo::new(&self.db).enqueue(&job)?;
+    pub fn wake(&self) {
         let _ = self.wake_tx.try_send(());
+    }
+
+    /// Legacy submit remains compatible; service ingestion commits its own
+    /// snapshot/run/job/receipt transaction before waking this worker.
+    pub fn submit(&self, job: PipelineJob) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.snapshot_only,
+            "Snapshot jobs require atomic ingestion"
+        );
+        PipelineJobRepo::new(&self.db).enqueue(&job)?;
+        self.wake();
         Ok(())
+    }
+
+    /// Stop claiming work, drain tasks until the deadline, then cancel and join
+    /// any remaining children. Cancelling this future does not detach the handle.
+    pub async fn shutdown(&self, grace: Duration) -> anyhow::Result<()> {
+        let deadline = tokio::time::Instant::now() + grace;
+        self.stop.send_if_modified(|current| {
+            if current.is_none() {
+                *current = Some(deadline);
+                true
+            } else {
+                false
+            }
+        });
+        let mut guard = self.supervisor.lock().await;
+        let Some(handle) = guard.as_mut() else {
+            return Ok(());
+        };
+        let result = handle.await;
+        *guard = None;
+        result?
+    }
+}
+
+impl Drop for PipelineWorker {
+    fn drop(&mut self) {
+        self.stop.send_replace(Some(tokio::time::Instant::now()));
     }
 }
 
@@ -244,19 +327,34 @@ pub fn recover_interrupted_runs(db: &Arc<StateDb>, worker: &PipelineWorker) -> u
 async fn run_worker(
     mut wake_rx: mpsc::Receiver<()>,
     db: Arc<StateDb>,
-    registry: Arc<ProviderRegistry>,
+    input: PipelineInputSource,
     ai_config: AiModelConfig,
     embedding_config: EmbeddingConfig,
-    wake_tx: mpsc::Sender<()>,
-    semaphore: Arc<Semaphore>,
-) {
+    control: WorkerControl,
+) -> anyhow::Result<()> {
+    let WorkerControl {
+        wake_tx,
+        semaphore,
+        mut stop_rx,
+    } = control;
+    let mut tasks = JoinSet::new();
     info!("[PIPELINE] Durable worker started");
     let discovery_cache = Arc::new(ProviderDiscoveryCache::default());
     let mut poll = tokio::time::interval(Duration::from_millis(500));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    loop {
+    'supervisor: loop {
+        if stop_rx.borrow().is_some() {
+            break;
+        }
         tokio::select! {
+            biased;
+            _ = stop_rx.changed() => break,
+            completed = tasks.join_next(), if !tasks.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    warn!(error = %error, "[PIPELINE] Task stopped unexpectedly");
+                }
+            }
             signal = wake_rx.recv() => {
                 if signal.is_none() {
                     break;
@@ -266,13 +364,22 @@ async fn run_worker(
         }
 
         loop {
+            if stop_rx.borrow().is_some() {
+                break 'supervisor;
+            }
             let permit = match Arc::clone(&semaphore).try_acquire_owned() {
                 Ok(permit) => permit,
                 Err(tokio::sync::TryAcquireError::NoPermits) => break,
-                Err(tokio::sync::TryAcquireError::Closed) => return,
+                Err(tokio::sync::TryAcquireError::Closed) => break 'supervisor,
             };
 
-            let claimed = match PipelineJobRepo::new(&db).claim_next() {
+            let repo = PipelineJobRepo::new(&db);
+            let next = if input.is_snapshot() {
+                repo.claim_next_snapshot()
+            } else {
+                repo.claim_next()
+            };
+            let claimed = match next {
                 Ok(Some(claimed)) => claimed,
                 Ok(None) => {
                     drop(permit);
@@ -289,51 +396,39 @@ async fn run_worker(
             };
 
             let task_db = Arc::clone(&db);
-            let task_registry = Arc::clone(&registry);
+            let task_input = input.clone();
             let task_ai = ai_config.clone();
             let task_embedding = embedding_config.clone();
             let task_wake = wake_tx.clone();
             let task_discovery_cache = Arc::clone(&discovery_cache);
 
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let durable_job_id = claimed.durable_job_id.clone();
                 let attempt = claimed.attempt;
                 let job = claimed.job;
 
-                // Keep long AI/embedding jobs leased while they are alive. A
-                // crashed process stops heartbeating and the lease becomes
-                // claimable by the next worker after LEASE_SECONDS.
-                let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
-                let lease_db = Arc::clone(&task_db);
-                let lease_job_id = durable_job_id.clone();
-                let heartbeat = tokio::spawn(async move {
-                    let mut tick = tokio::time::interval(Duration::from_secs(10));
-                    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    tick.tick().await;
-                    loop {
-                        tokio::select! {
-                            _ = &mut stop_rx => break,
-                            _ = tick.tick() => {
-                                if let Err(e) = PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id) {
-                                    warn!(job_id = %lease_job_id, error = %e, "[PIPELINE] Lease renewal failed");
-                                }
+                // Lease renewal shares the child future, so aborting a task
+                // cannot leave a detached heartbeat holding the database open.
+                let execution = run_pipeline(
+                    &task_db, &task_input, &task_discovery_cache,
+                    &task_ai, &task_embedding, &job,
+                );
+                tokio::pin!(execution);
+                let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+                heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                heartbeat.tick().await;
+                let result = loop {
+                    tokio::select! {
+                        result = &mut execution => break result,
+                        _ = heartbeat.tick() => {
+                            match PipelineJobRepo::new(&task_db).renew_lease(&durable_job_id) {
+                                Ok(true) => {}
+                                Ok(false) => break Err(anyhow::anyhow!("Pipeline lease was lost")),
+                                Err(error) => break Err(error),
                             }
                         }
                     }
-                });
-
-                let result = run_pipeline(
-                    &task_db,
-                    &task_registry,
-                    &task_discovery_cache,
-                    &task_ai,
-                    &task_embedding,
-                    &job,
-                )
-                .await;
-
-                let _ = stop_tx.send(());
-                let _ = heartbeat.await;
+                };
 
                 let durable_repo = PipelineJobRepo::new(&task_db);
                 match result {
@@ -390,7 +485,22 @@ async fn run_worker(
         }
     }
 
+    let deadline = (*stop_rx.borrow()).unwrap_or_else(tokio::time::Instant::now);
+    let drained = tokio::time::timeout_at(deadline, async {
+        while let Some(result) = tasks.join_next().await {
+            if let Err(error) = result {
+                warn!(error = %error, "[PIPELINE] Task stopped during shutdown");
+            }
+        }
+    })
+    .await;
+    if drained.is_err() {
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+        anyhow::bail!("Pipeline shutdown deadline reached; unfinished leases remain recoverable");
+    }
     info!("[PIPELINE] Durable worker stopped");
+    Ok(())
 }
 
 /// R13: map a run_pipeline error message back to its pipeline stage.
@@ -417,7 +527,7 @@ fn extract_failed_stage(error: &str) -> &'static str {
 
 async fn run_pipeline(
     db: &Arc<StateDb>,
-    registry: &ProviderRegistry,
+    input: &PipelineInputSource,
     discovery_cache: &ProviderDiscoveryCache,
     ai_config: &AiModelConfig,
     embedding_config: &EmbeddingConfig,
@@ -447,37 +557,55 @@ async fn run_pipeline(
     // ── Stage 1: PARSE ────────────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("PARSED"), None, None)?;
 
-    // Find source kind
-    let source_kind = match crate::model::SourceKind::from_str(&job.source) {
-        Some(k) => k,
-        None => fail_stage!("PARSED", format!("Unknown source: {}", job.source)),
-    };
+    let session = match input {
+        PipelineInputSource::LegacyProviders(registry) => {
+            // Find source kind
+            let source_kind = match crate::model::SourceKind::from_str(&job.source) {
+                Some(k) => k,
+                None => fail_stage!("PARSED", format!("Unknown source: {}", job.source)),
+            };
 
-    // Load session from provider
-    let provider = match registry.get(source_kind) {
-        Some(p) => p,
-        None => fail_stage!(
-            "PARSED",
-            format!("Provider not found for {:?}", source_kind)
-        ),
-    };
+            // Load session from provider
+            let provider = match registry.get(source_kind) {
+                Some(p) => p,
+                None => fail_stage!(
+                    "PARSED",
+                    format!("Provider not found for {:?}", source_kind)
+                ),
+            };
 
-    let summary = match resolve_session_summary(
-        provider,
-        discovery_cache,
-        source_kind,
-        &job.session_external_id,
-    )
-    .await
-    {
-        Ok(summary) => summary,
-        Err(e) => fail_stage!("PARSED", format!("Discover/resolve failed: {}", e)),
-    };
+            let summary = match resolve_session_summary(
+                provider,
+                discovery_cache,
+                source_kind,
+                &job.session_external_id,
+            )
+            .await
+            {
+                Ok(summary) => summary,
+                Err(e) => fail_stage!("PARSED", format!("Discover/resolve failed: {}", e)),
+            };
 
-    let session = match provider.load_session(&summary).await {
-        Ok(s) => s,
-        Err(e) => fail_stage!("PARSED", format!("Load session failed: {}", e)),
+            let session = match provider.load_session(&summary).await {
+                Ok(s) => s,
+                Err(e) => fail_stage!("PARSED", format!("Load session failed: {}", e)),
+            };
+
+            session
+        }
+        PipelineInputSource::PersistedSnapshots => match SnapshotInput::load_for_run(db, run_id) {
+            Ok((session, _fence)) => session,
+            Err(error) => fail_stage!("PARSED", error),
+        },
     };
+    // A later upload may change source_session metadata while an older run
+    // is leased. Its processing input must retain its own snapshot metadata.
+    let mut effective_job = job.clone();
+    if input.is_snapshot() {
+        effective_job.session_title = session.title.clone();
+        effective_job.project_name = session.project_name.clone();
+    }
+    let job = &effective_job;
 
     repo.record_stage(
         run_id,
