@@ -1,0 +1,48 @@
+name: Service S1 contracts
+
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-s1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify unchanged baseline before first contract implementation
+        if: contains(github.event.head_commit.message, 'specify S1 snapshot contracts')
+        run: |
+          git worktree add --detach /tmp/aiks-s1-baseline 8101587725261f13f878d26776e5b41407096724
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo test --manifest-path /tmp/aiks-s1-baseline/Cargo.toml -p aiks-core -- --test-threads=1
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo check --manifest-path /tmp/aiks-s1-baseline/Cargo.toml -p aiks-cli
+      - name: Core tests
+        run: cargo test -p aiks-core -- --test-threads=1
+      - name: Service tests
+        if: hashFiles('apps/aiks-service/Cargo.toml') != ''
+        run: cargo test -p aiks-service -- --test-threads=1
+      - name: Core and CLI Clippy
+        run: cargo clippy -p aiks-core -p aiks-cli --all-targets -- -D warnings
+      - name: Service Clippy
+        if: hashFiles('apps/aiks-service/Cargo.toml') != ''
+        run: cargo clippy -p aiks-service --all-targets -- -D warnings
+      - name: Formatting
+        if: always()
+        run: cargo fmt --all --check
+      - name: Dependency lock delta
+        if: always()
+        run: git diff -- Cargo.lock
