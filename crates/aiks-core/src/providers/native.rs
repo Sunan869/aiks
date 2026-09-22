@@ -42,7 +42,7 @@ impl NativeProvider {
             "file is not in this provider's transcript allowlist"
         );
         let (mut sessions, complete) = match self.source {
-            SourceKind::QwenCode => (super::qwen::read(io, path, metadata_only)?, true),
+            SourceKind::QwenCode => super::qwen::read(io, path, metadata_only)?,
             SourceKind::Continue => (super::continue_dev::read(io, path, metadata_only)?, true),
             SourceKind::CursorAgent => (super::cursor_agent::read(io, path, metadata_only)?, true),
             SourceKind::Cline | SourceKind::RooCode | SourceKind::KiloCode => (
@@ -52,8 +52,8 @@ impl NativeProvider {
             SourceKind::Aider => (super::aider::read(io, path, metadata_only)?, true),
             SourceKind::KimiCode => (super::kimi::read(io, path, metadata_only)?, true),
             SourceKind::Cursor => super::cursor::read(io, path, metadata_only, expected)?,
-            SourceKind::GithubCopilot => (super::copilot::read(io, path, metadata_only)?, true),
-            SourceKind::Antigravity => (super::antigravity::read(io, path, metadata_only)?, true),
+            SourceKind::GithubCopilot => super::copilot::read(io, path, metadata_only)?,
+            SourceKind::Antigravity => super::antigravity::read(io, path, metadata_only)?,
             _ => anyhow::bail!("unregistered external source"),
         };
         if matches!(self.source, SourceKind::QwenCode | SourceKind::Continue) {
@@ -136,12 +136,45 @@ impl NativeProvider {
                 }
                 let (sessions, complete) = match self.parse(&io, &relative, true, None) {
                     Ok(parsed) => parsed,
-                    Err(_) => {
+                    Err(error)
+                        if self.source == SourceKind::GithubCopilot
+                            && relative.extension().and_then(|value| value.to_str())
+                                == Some("json")
+                            && error.to_string().contains("invalid provider JSON") =>
+                    {
+                        tracing::warn!(
+                            source = self.source.as_str(),
+                            store_index = store,
+                            path = %relative.display(),
+                            error = %error,
+                            "Skipping unreadable standalone Copilot chat session"
+                        );
+                        // Flat VS Code chat-session files are independent snapshots.
+                        // Quarantine one unreadable historical snapshot so hundreds of
+                        // valid neighbors remain usable, but suppress missing detection
+                        // for this source so previously imported data is never deleted.
+                        report.suppress_missing_detection();
+                        continue;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            source = self.source.as_str(),
+                            store_index = store,
+                            path = %relative.display(),
+                            error = %error,
+                            "Provider candidate could not be parsed"
+                        );
                         report.incomplete("transcript_or_schema_unreadable", store);
                         continue;
                     }
                 };
                 if !complete {
+                    tracing::warn!(
+                        source = self.source.as_str(),
+                        store_index = store,
+                        path = %relative.display(),
+                        "Provider candidate was only partially readable"
+                    );
                     report.incomplete("partial_store", store);
                 }
                 for s in sessions {

@@ -1,0 +1,207 @@
+name: Cross-platform Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v prefix"
+        required: true
+        default: "0.2.0"
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+    paths:
+      - "siyuan.version"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aiks-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Release metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      runtime_tag: ${{ steps.meta.outputs.runtime_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace_version="$(awk -F'"' '/^version = "/ {print $2; exit}' Cargo.toml)"
+          tauri_version="$(python3 -c 'import json; print(json.load(open("apps/aiks-desktop/src-tauri/tauri.conf.json"))["version"])')"
+          package_version="$(python3 -c 'import json; print(json.load(open("apps/aiks-desktop/package.json"))["version"])')"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            release_tag="v$version"
+          elif [[ "$REF_NAME" == v* ]]; then
+            release_tag="$REF_NAME"
+            version="${release_tag#v}"
+          else
+            version="$workspace_version"
+            release_tag="v$version"
+          fi
+
+          if [[ "$version" != "$workspace_version" || "$version" != "$tauri_version" || "$version" != "$package_version" ]]; then
+            echo "Version mismatch: requested=$version workspace=$workspace_version tauri=$tauri_version package=$package_version" >&2
+            exit 1
+          fi
+
+          runtime_tag="$(grep '^release_tag=' siyuan.version | cut -d= -f2-)"
+          test -n "$runtime_tag"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "runtime_tag=$runtime_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Verify pinned runtime release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNTIME_TAG: ${{ steps.meta.outputs.runtime_tag }}
+        shell: bash
+        run: gh release view "$RUNTIME_TAG" --repo Sunan869/aiks-siyuan >/dev/null
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            bundles: nsis,msi
+          - platform: macos-x64
+            runner: macos-15-intel
+            bundles: dmg
+          - platform: macos-arm64
+            runner: macos-15
+            bundles: dmg
+          - platform: linux-x64
+            runner: ubuntu-24.04
+            bundles: deb,appimage
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            bundles: deb,appimage
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/aiks-desktop/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             libwebkit2gtk-4.1-dev             build-essential             curl             wget             file             libxdo-dev             libssl-dev             libayatana-appindicator3-dev             librsvg2-dev             patchelf             libfuse2
+
+      - name: Fetch locked SiYuan runtime
+        shell: bash
+        if: runner.os != 'Windows'
+        run: python3 scripts/fetch-siyuan-runtime.py --force
+
+      - name: Fetch locked SiYuan runtime
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: python scripts/fetch-siyuan-runtime.py --force
+
+      - name: Install desktop dependencies
+        working-directory: apps/aiks-desktop
+        run: npm ci
+
+      - name: Build Tauri bundles
+        working-directory: apps/aiks-desktop
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+        run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      - name: Collect release assets
+        shell: python
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          import os, shutil
+          from pathlib import Path
+          bundle = Path("target/release/bundle")
+          out = Path("release-assets")
+          out.mkdir(exist_ok=True)
+          allowed = {".exe", ".msi", ".dmg", ".deb", ".AppImage"}
+          copied = 0
+          for path in bundle.rglob("*"):
+              if not path.is_file():
+                  continue
+              if path.suffix not in allowed and not path.name.endswith(".AppImage"):
+                  continue
+              shutil.copy2(path, out / f"{os.environ['PLATFORM']}-{path.name}")
+              copied += 1
+          if copied == 0:
+              raise SystemExit(f"No release bundles found under {bundle}")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiks-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  release:
+    name: Publish AIKS Release
+    needs:
+      - metadata
+      - build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: aiks-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.release_tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RUNTIME_TAG: ${{ needs.metadata.outputs.runtime_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG"               --repo "$GITHUB_REPOSITORY"               --target "$GITHUB_SHA"               --title "AIKS v${VERSION}"               --notes "AIKS cross-platform validation release.
+
+          Platforms:
+          - Windows x64
+          - macOS Intel x64
+          - macOS Apple Silicon arm64
+          - Linux x64
+          - Linux arm64
+
+          Embedded SiYuan runtime: ${RUNTIME_TAG}
+
+          These validation builds are not production code-signed/notarized yet. Windows SmartScreen or macOS Gatekeeper may show a warning on first launch."
+          fi
+          gh release upload "$TAG" release-assets/*             --repo "$GITHUB_REPOSITORY"             --clobber

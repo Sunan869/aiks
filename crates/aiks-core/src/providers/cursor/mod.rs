@@ -47,7 +47,7 @@ fn exact(conn: &Connection, table: &str, key: &str) -> Result<Option<Value>> {
         matches!(table, "cursorDiskKV" | "ItemTable"),
         "invalid Cursor table"
     );
-    let query = format!("SELECT length(CAST(value AS BLOB)), CASE WHEN length(CAST(value AS BLOB))<=8388608 THEN value ELSE NULL END FROM {table} WHERE key=?1");
+    let query = format!("SELECT length(CAST(value AS BLOB)), CASE WHEN length(CAST(value AS BLOB))<=8388608 THEN value ELSE NULL END FROM {table} WHERE key=?1 AND value IS NOT NULL");
     let row: Option<(u64, Option<String>)> = conn
         .query_row(&query, [key], |r| {
             Ok((
@@ -203,7 +203,7 @@ pub(crate) fn read(
     let mut result = Vec::new();
     let mut complete = true;
     if has_table(&conn, "cursorDiskKV")? {
-        let mut statement = conn.prepare("SELECT key, length(CAST(value AS BLOB)), CASE WHEN length(CAST(value AS BLOB))<=8388608 THEN value ELSE NULL END FROM cursorDiskKV WHERE key>='composerData:' AND key<'composerData;' ORDER BY key LIMIT 100001")?;
+        let mut statement = conn.prepare("SELECT key, length(CAST(value AS BLOB)), CASE WHEN length(CAST(value AS BLOB))<=8388608 THEN value ELSE NULL END FROM cursorDiskKV WHERE key>='composerData:' AND key<'composerData;' AND value IS NOT NULL ORDER BY key LIMIT 100001")?;
         let mut rows = statement.query([])?;
         let mut count = 0_usize;
         let mut total = 0_u64;
@@ -265,6 +265,11 @@ pub(crate) fn read(
                 }
             }
         }
+    } else if relative.starts_with("workspaceStorage") {
+        // A Cursor workspace state database exists for every workspace, even when
+        // that workspace never stored Composer chat history. Treat those unrelated
+        // databases as an empty candidate instead of poisoning the whole provider scan.
+        return Ok((Vec::new(), true));
     } else {
         anyhow::bail!("unsupported Cursor database schema");
     }

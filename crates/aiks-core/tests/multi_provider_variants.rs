@@ -125,6 +125,47 @@ async fn missing_aider_roots_are_not_configured_and_empty_continue_is_healthy() 
     assert!(p.discover_sessions().await.unwrap().is_empty());
 }
 #[tokio::test]
+async fn qwen_and_antigravity_discovery_tolerate_only_active_tails() {
+    let qwen = tempfile::tempdir().unwrap();
+    put(
+        qwen.path(),
+        "projects/p/chats/s.jsonl",
+        concat!(
+            "{\"sessionId\":\"s1\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"parts\":[{\"text\":\"question\"}]}}\n",
+            "{\"sessionId\":\"s1\",\"type\":\"assistant\",\"message\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}}\n",
+            "{\"sessionId\":"
+        ),
+    );
+    let qwen_provider = provider(SourceKind::QwenCode, qwen.path());
+    let qwen_report = qwen_provider.discover_report().await.unwrap();
+    assert!(qwen_report.complete);
+    assert_eq!(qwen_report.sessions.len(), 1);
+    assert!(qwen_provider
+        .load_session(&qwen_report.sessions[0])
+        .await
+        .is_err());
+
+    let antigravity = tempfile::tempdir().unwrap();
+    put(
+        antigravity.path(),
+        "brain/s1/.system_generated/logs/transcript_full.jsonl",
+        concat!(
+            "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"content\":\"question\"}\n",
+            "{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"content\":\"answer\"}\n",
+            "{\"step_index\":"
+        ),
+    );
+    let antigravity_provider = provider(SourceKind::Antigravity, antigravity.path());
+    let antigravity_report = antigravity_provider.discover_report().await.unwrap();
+    assert!(antigravity_report.complete);
+    assert_eq!(antigravity_report.sessions.len(), 1);
+    assert!(antigravity_provider
+        .load_session(&antigravity_report.sessions[0])
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn antigravity_usage_only_never_produces_conversations() {
     let root = tempfile::tempdir().unwrap();
     put(
@@ -197,10 +238,10 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     let root = tempfile::tempdir().unwrap();
     let path = "workspaceStorage/ws/chatSessions/s1.jsonl";
     let events = [
-        json!({"kind":0,"v":{"sessionId":"s1","requests":[{"message":{"text":"VS_CODE"},"response":[{"value":"old"},{"value":"remove"}]}]}}),
+        json!({"kind":0,"v":{"sessionId":"s1","requests":[{"message":{"text":"VS_CODE"},"response":[{"value":"old"},{"value":"remove"},{"value":"stale"}]}]}}),
         json!({"kind":1,"k":["requests",0,"response",0,"value"],"v":"new"}),
+        json!({"kind":2,"k":["requests",0,"response"],"i":1}),
         json!({"kind":2,"k":["requests",0,"response"],"v":[{"value":"tail"}]}),
-        json!({"kind":3,"k":["requests",0,"response",1]}),
     ];
     let content = events
         .iter()
@@ -220,6 +261,65 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     );
     assert!(p.discover_sessions().await.is_err());
 }
+#[tokio::test]
+async fn copilot_corrupt_flat_neighbor_does_not_poison_valid_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n"
+        ),
+    );
+    put(
+        root.path(),
+        "workspaceStorage/ws/chatSessions/broken.json",
+        "{\"sessionId\":\"broken\",\"requests\":[",
+    );
+    let p = provider(SourceKind::GithubCopilot, root.path());
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert!(!report.missing_detection_safe);
+    assert_eq!(report.sessions.len(), 1);
+    assert!(p.discover_sessions().await.is_ok());
+}
+
+#[tokio::test]
+async fn copilot_discovery_tolerates_only_an_active_partial_tail() {
+    let root = tempfile::tempdir().unwrap();
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":"
+        ),
+    );
+    let p = provider(SourceKind::GithubCopilot, root.path());
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert_eq!(report.sessions.len(), 1);
+    assert!(p.load_session(&report.sessions[0]).await.is_err());
+
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{broken}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n"
+        ),
+    );
+    let report = p.discover_report().await.unwrap();
+    assert!(!report.complete);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "partial_store"));
+}
+
 fn kimi(root: &Path, events: &[Value]) -> NativeProvider {
     put(
         root,
@@ -318,6 +418,11 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
         )
         .unwrap();
     }
+    conn.execute(
+        "INSERT INTO cursorDiskKV(key, value) VALUES('composerData:null-record', NULL)",
+        [],
+    )
+    .unwrap();
     let p = provider(SourceKind::Cursor, root.path());
     let a = one(&p).await;
     assert_eq!(texts(&a), "cursor question\ncursor answer");
@@ -335,5 +440,19 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
     ws.execute_batch("CREATE TABLE ItemTable(key TEXT PRIMARY KEY,value TEXT);")
         .unwrap();
     ws.execute("INSERT INTO ItemTable VALUES('composer.composerData',?1)", [json!({"allComposers":[{"composerId":"s2","conversation":[{"type":1,"text":"legacy"},{"type":2,"text":"answer"}]}]}).to_string()]).unwrap();
-    assert_eq!(p.discover_sessions().await.unwrap().len(), 2);
+
+    std::fs::create_dir_all(root.path().join("workspaceStorage/without-chat")).unwrap();
+    let unrelated = rusqlite::Connection::open(
+        root.path()
+            .join("workspaceStorage/without-chat/state.vscdb"),
+    )
+    .unwrap();
+    unrelated
+        .execute_batch("CREATE TABLE unrelated(key TEXT PRIMARY KEY,value TEXT);")
+        .unwrap();
+    drop(unrelated);
+
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert_eq!(report.sessions.len(), 2);
 }

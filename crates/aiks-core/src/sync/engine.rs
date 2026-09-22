@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::model::hash::compute_session_hash;
+use crate::model::{hash::compute_session_hash, ContentBlock, MessageRole, NormalizedSession};
 use crate::providers::{ProviderRegistry, SessionSummary};
 use crate::renderer::MarkdownRenderer;
 use crate::sink::SiYuanSink;
@@ -64,6 +64,38 @@ pub struct SyncStats {
 fn hash_markdown(md: &str) -> String {
     use sha2::{Digest, Sha256};
     format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
+}
+
+fn meaningful_session_content(session: &NormalizedSession) -> (usize, bool) {
+    let mut chars = 0_usize;
+    let mut has_media = false;
+
+    for message in &session.messages {
+        if !matches!(message.role, MessageRole::User | MessageRole::Assistant) {
+            continue;
+        }
+        for block in &message.blocks {
+            match block {
+                ContentBlock::Text { text } => {
+                    chars += text.trim().chars().count();
+                }
+                ContentBlock::Image { source, .. } if !source.trim().is_empty() => {
+                    has_media = true;
+                }
+                ContentBlock::FileReference { path, .. } if !path.trim().is_empty() => {
+                    has_media = true;
+                }
+                ContentBlock::Unknown { raw } => {
+                    if let Some(text) = raw.as_str() {
+                        chars += text.trim().chars().count();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    (chars, has_media)
 }
 
 /// Persist a trustworthy remote-content baseline without marking the whole sync
@@ -390,6 +422,13 @@ impl SyncEngine {
             }
         };
 
+        let (meaningful_chars, has_media) = meaningful_session_content(&session);
+        if meaningful_chars == 0 && !has_media {
+            return SyncOutcome::Skipped {
+                reason: "No meaningful user/assistant content".to_string(),
+            };
+        }
+
         let min_msgs = self.config.content.minimum_messages;
         if min_msgs > 0 && session.messages.len() < min_msgs {
             return SyncOutcome::Skipped {
@@ -397,6 +436,16 @@ impl SyncEngine {
                     "Only {} messages (min: {})",
                     session.messages.len(),
                     min_msgs
+                ),
+            };
+        }
+
+        let min_chars = self.config.content.minimum_session_chars;
+        if min_chars > 0 && meaningful_chars < min_chars && !has_media {
+            return SyncOutcome::Skipped {
+                reason: format!(
+                    "Only {} meaningful characters (min: {})",
+                    meaningful_chars, min_chars
                 ),
             };
         }
@@ -781,7 +830,7 @@ impl SyncEngine {
         for (source, result) in per_source {
             match result {
                 Ok(report) => {
-                    if !report.complete {
+                    if !report.complete || !report.missing_detection_safe {
                         continue;
                     }
                     covered_scopes.insert(source.as_str().to_string(), report.covered_paths);
@@ -861,5 +910,82 @@ impl SyncEngine {
             info!("[PIPELINE] Enqueued {} sessions into pipeline", count);
         }
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod meaningful_content_tests {
+    use super::*;
+    use crate::model::NormalizedMessage;
+    use std::collections::HashMap;
+
+    fn sample_session(messages: Vec<NormalizedMessage>) -> NormalizedSession {
+        NormalizedSession {
+            source: crate::model::SourceKind::GithubCopilot,
+            external_session_id: "test".to_string(),
+            title: Some("Untitled Session".to_string()),
+            project_name: Some("Example".to_string()),
+            project_path: Some("C:/example".to_string()),
+            source_path: None,
+            started_at: None,
+            updated_at: None,
+            model: None,
+            messages,
+            usage: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn message(role: MessageRole, blocks: Vec<ContentBlock>) -> NormalizedMessage {
+        NormalizedMessage {
+            external_id: "m".to_string(),
+            parent_id: None,
+            role,
+            created_at: None,
+            model: None,
+            blocks,
+            usage: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn meaningful_session_content_rejects_metadata_only_sessions() {
+        assert_eq!(
+            meaningful_session_content(&sample_session(Vec::new())),
+            (0, false)
+        );
+        assert_eq!(
+            meaningful_session_content(&sample_session(vec![message(
+                MessageRole::Assistant,
+                vec![ContentBlock::Thinking {
+                    text: "hidden reasoning".to_string(),
+                }],
+            )])),
+            (0, false)
+        );
+    }
+
+    #[test]
+    fn meaningful_session_content_accepts_short_text_and_media() {
+        assert_eq!(
+            meaningful_session_content(&sample_session(vec![message(
+                MessageRole::User,
+                vec![ContentBlock::Text {
+                    text: "  hi  ".to_string(),
+                }],
+            )])),
+            (2, false)
+        );
+        assert_eq!(
+            meaningful_session_content(&sample_session(vec![message(
+                MessageRole::User,
+                vec![ContentBlock::Image {
+                    source: "https://example.test/image.png".to_string(),
+                    media_type: Some("image/png".to_string()),
+                }],
+            )])),
+            (0, true)
+        );
     }
 }

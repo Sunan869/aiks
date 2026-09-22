@@ -10,7 +10,7 @@ pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
-) -> Result<Vec<NormalizedSession>> {
+) -> Result<(Vec<NormalizedSession>, bool)> {
     if relative.starts_with("workspaceStorage") {
         return vscode::read(io, relative, metadata_only);
     }
@@ -50,10 +50,12 @@ pub(crate) fn read(
     }
     s.metadata.insert("entrypoint".into(), entrypoint.into());
     let mut calls = HashSet::new();
+    let mut saw_event = false;
     let report = io.for_each_jsonl(relative, |index, event| {
         let kind = event["type"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Copilot event type missing"))?;
+        saw_event = true;
         let data = &event["data"];
         let stamp = event.get("timestamp").and_then(timestamp);
         if let Some(stamp) = stamp {
@@ -134,7 +136,11 @@ pub(crate) fn read(
         }
         Ok(())
     })?;
-    ensure!(report.complete, "Copilot events incomplete; retry later");
+    let safe_live_tail = metadata_only
+        && saw_event
+        && report.partial_tail
+        && report.malformed_lines == 0
+        && !report.source_changed;
     complete(&mut s);
-    Ok(vec![s])
+    Ok((vec![s], report.complete || safe_live_tail))
 }
