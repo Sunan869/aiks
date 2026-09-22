@@ -1,11 +1,8 @@
 version=3.8.3
 workbench_version=4.2.0
 release_repo=Sunan869/aiks-siyuan
-release_tag=aiks-runtime-v4.2.0-824c9ee6aacb
-asset=aiks-siyuan-runtime-windows-x64.zip
-platform=windows-x64
-sha256=4c7f07741f4347f52d2f975a0811ba766bc2db7470d3a82c287e27bf8047d5ed
+release_tag=aiks-runtime-v4.2.0-ddbb8b34121f
 upstream_commit=8641553a1f07374001902d3ce773285db1292b2d
-fork_commit=824c9ee6aacbb209e40440da34f50113482d1dc0
+fork_commit=ddbb8b34121f11a38a310135043c21564224ecef
 profile=aiks-embedded
 bridge_protocol=1
