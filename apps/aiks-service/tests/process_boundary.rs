@@ -1,9 +1,9 @@
+#[cfg(unix)]
 use serde_json::{json, Value};
 use std::{process::Stdio, time::Duration};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::Command,
-};
+#[cfg(unix)]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 
 #[tokio::test]
 async fn binary_rejects_team_and_nonloopback_without_opening_the_database() {

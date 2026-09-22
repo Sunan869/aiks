@@ -79,18 +79,39 @@ async fn guard(State(gate): State<Arc<Gate>>, request: Request, next: Next) -> R
     if request.headers().contains_key(header::CONTENT_ENCODING) {
         return ApiError(ServiceError::InvalidInput).into_response();
     }
-    if request
-        .headers()
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok())
-        .is_some_and(|size| size > MAX_BODY as u64)
-    {
-        return ApiError(ServiceError::TooLarge).into_response();
-    }
     let Ok(_permit) = gate.inflight.try_acquire() else {
         return ApiError(ServiceError::Unavailable).into_response();
     };
+    let length = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if length.is_some_and(|size| size > MAX_BODY as u64) {
+        // On Windows, abandoning an in-flight body can reset the connection
+        // before the client reads 413. Drain only a bounded near-limit body;
+        // never deserialize it, wait unboundedly, or drain a huge declaration.
+        const DRAIN_LIMIT: usize = MAX_BODY + 64 * 1024;
+        if length.is_some_and(|size| size <= DRAIN_LIMIT as u64)
+            && !request.headers().contains_key(header::EXPECT)
+        {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                axum::body::to_bytes(request.into_body(), DRAIN_LIMIT),
+            )
+            .await;
+        }
+        let mut response = ApiError(ServiceError::TooLarge).into_response();
+        response.headers_mut().insert(
+            header::CONNECTION,
+            header::HeaderValue::from_static("close"),
+        );
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
+        return response;
+    }
     let mut response = match tokio::time::timeout(Duration::from_secs(30), next.run(request)).await
     {
         Ok(response) => response,
