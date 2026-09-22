@@ -136,6 +136,25 @@ impl NativeProvider {
                 }
                 let (sessions, complete) = match self.parse(&io, &relative, true, None) {
                     Ok(parsed) => parsed,
+                    Err(error)
+                        if self.source == SourceKind::GithubCopilot
+                            && relative.extension().and_then(|value| value.to_str())
+                                == Some("json") =>
+                    {
+                        tracing::warn!(
+                            source = self.source.as_str(),
+                            store_index = store,
+                            path = %relative.display(),
+                            error = %error,
+                            "Skipping unreadable standalone Copilot chat session"
+                        );
+                        // Flat VS Code chat-session files are independent snapshots.
+                        // Quarantine one unreadable historical snapshot so hundreds of
+                        // valid neighbors remain usable, but suppress missing detection
+                        // for this source so previously imported data is never deleted.
+                        report.suppress_missing_detection();
+                        continue;
+                    }
                     Err(error) => {
                         tracing::warn!(
                             source = self.source.as_str(),
