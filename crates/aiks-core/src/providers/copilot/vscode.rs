@@ -42,9 +42,9 @@ fn target<'a>(value: &'a mut Value, path: &[Value], growth: &mut usize) -> Resul
     }
     Ok(value)
 }
-fn state(io: &ScopedReader, relative: &Path) -> Result<Value> {
+fn state(io: &ScopedReader, relative: &Path, metadata_only: bool) -> Result<(Value, bool)> {
     if relative.extension().and_then(|v| v.to_str()) == Some("json") {
-        return io.read_json(relative);
+        return Ok((io.read_json(relative)?, true));
     }
     let mut snapshot = None;
     let mut growth = 0_usize;
@@ -68,19 +68,37 @@ fn state(io: &ScopedReader, relative: &Path) -> Result<Value> {
                     event.get("v").context("VS Code set value missing")?.clone();
             }
             2 => {
-                let items = event["v"]
-                    .as_array()
-                    .context("VS Code append requires array")?;
-                growth += items.len();
-                ensure!(growth <= 100_000, "VS Code patch growth budget exceeded");
                 let value = target(state, path, &mut growth)?;
                 if value.is_null() {
                     *value = json!([]);
                 }
-                value
+                let array = value
                     .as_array_mut()
-                    .context("VS Code append target is not array")?
-                    .extend(items.iter().cloned());
+                    .context("VS Code append target is not array")?;
+
+                // Current VS Code mutation logs may emit a Push entry with only
+                // `i`, meaning "truncate from this index", and no appended values.
+                if let Some(index) = event.get("i").and_then(Value::as_u64) {
+                    let index = usize::try_from(index)
+                        .context("VS Code append index is too large")?;
+                    ensure!(index < 100_000, "VS Code append index exceeds budget");
+                    if index < array.len() {
+                        array.truncate(index);
+                    } else if index > array.len() {
+                        growth += index - array.len();
+                        ensure!(growth <= 100_000, "VS Code patch growth budget exceeded");
+                        array.resize(index, Value::Null);
+                    }
+                }
+
+                if let Some(items) = event.get("v") {
+                    let items = items
+                        .as_array()
+                        .context("VS Code append values must be an array")?;
+                    growth += items.len();
+                    ensure!(growth <= 100_000, "VS Code patch growth budget exceeded");
+                    array.extend(items.iter().cloned());
+                }
             }
             3 => {
                 let (last, parents) = path
@@ -104,15 +122,19 @@ fn state(io: &ScopedReader, relative: &Path) -> Result<Value> {
         }
         Ok(())
     })?;
-    ensure!(report.complete, "VS Code patch log incomplete; retry later");
-    snapshot.context("VS Code snapshot missing")
+    let snapshot = snapshot.context("VS Code snapshot missing")?;
+    let safe_live_tail = metadata_only
+        && report.partial_tail
+        && report.malformed_lines == 0
+        && !report.source_changed;
+    Ok((snapshot, report.complete || safe_live_tail))
 }
 pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
 ) -> Result<Vec<NormalizedSession>> {
-    let value = state(io, relative)?;
+    let (value, complete_read) = state(io, relative, metadata_only)?;
     let upstream = string(&value, "sessionId").context("VS Code session ID missing")?;
     let workspace = relative
         .parent()
@@ -223,5 +245,5 @@ pub(crate) fn read(
         }
     }
     complete(&mut s);
-    Ok(vec![s])
+    Ok((vec![s], complete_read))
 }
