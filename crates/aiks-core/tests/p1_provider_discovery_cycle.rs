@@ -56,7 +56,14 @@ impl SessionProvider for GatedProvider {
     async fn load_session(&self, summary: &SessionSummary) -> anyhow::Result<NormalizedSession> {
         self.entered.add_permits(1);
         self.release.acquire().await?.forget();
-        let mut input = fixture::submission("space", "instance", "registration", "u1", 0, "Cycle content");
+        let mut input = fixture::submission(
+            "space",
+            "instance",
+            "registration",
+            "u1",
+            0,
+            "Cycle content",
+        );
         input.session.external_session_id = summary.external_session_id.clone();
         input.session.title = summary.title.clone();
         Ok(input.session)
@@ -146,8 +153,14 @@ async fn active_load_keeps_discovery_snapshot_but_a_later_idle_cycle_refreshes_i
     let worker = PipelineWorker::start_with_limit(
         db.clone(),
         registry,
-        AiModelConfig { enabled: false, ..Default::default() },
-        EmbeddingConfig { enabled: false, ..Default::default() },
+        AiModelConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        EmbeddingConfig {
+            enabled: false,
+            ..Default::default()
+        },
         4,
     );
     let first = submit(&db, &worker, 0);
@@ -156,14 +169,22 @@ async fn active_load_keeps_discovery_snapshot_but_a_later_idle_cycle_refreshes_i
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let second = submit(&db, &worker, 1);
     entered(&loaded).await;
-    assert_eq!(discoveries.load(Ordering::SeqCst), 1, "active work is not an idle queue");
+    assert_eq!(
+        discoveries.load(Ordering::SeqCst),
+        1,
+        "active work is not an idle queue"
+    );
     release.add_permits(2);
     done(&db, &[first, second]).await;
     // Give the drained supervisor a poll so this really is a distinct cycle.
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let third = submit(&db, &worker, 2);
     entered(&loaded).await;
-    assert_eq!(discoveries.load(Ordering::SeqCst), 2, "true idle must discard stale discovery");
+    assert_eq!(
+        discoveries.load(Ordering::SeqCst),
+        2,
+        "true idle must discard stale discovery"
+    );
     release.add_permits(1);
     done(&db, &[third]).await;
     worker.shutdown(Duration::from_secs(2)).await.unwrap();

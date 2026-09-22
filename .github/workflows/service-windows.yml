@@ -1,0 +1,27 @@
+name: Service Windows contracts
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+permissions:
+  contents: read
+concurrency:
+  group: service-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Core service and ownership contracts
+        run: cargo test --locked -p aiks-core --test service_storage --test service_ingestion --test service_worker --test service_revisions --test service_revision_guards --test service_revision_recovery --test service_query_provenance -- --test-threads=1
+      - name: Real HTTP and process contracts
+        run: cargo test --locked --no-fail-fast -p aiks-service -- --test-threads=1
+      - name: CLI compatibility
+        run: cargo check --locked -p aiks-cli

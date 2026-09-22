@@ -385,9 +385,12 @@ async fn run_worker(
                 Ok(Some(claimed)) => claimed,
                 Ok(None) => {
                     drop(permit);
-                    // The durable queue is idle: end this discovery cycle so a
-                    // later sync/backfill starts from fresh provider metadata.
-                    discovery_cache.clear().await;
+                    // No claimable row does not mean idle while tasks are
+                    // loading or awaiting a model. Keep their discovery cycle.
+                    // Once both are drained, the next cycle must refresh.
+                    if tasks.is_empty() {
+                        discovery_cache.clear().await;
+                    }
                     break;
                 }
                 Err(e) => {
