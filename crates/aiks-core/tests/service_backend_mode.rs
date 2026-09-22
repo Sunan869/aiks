@@ -8,5 +8,8 @@ fn backend_defaults_legacy_and_unknown_modes_do_not_silently_start_a_writer() {
         assert!(toml::from_str::<Config>(&format!("[backend]\nmode={value:?}\n")).is_err());
     }
     let config: Config = toml::from_str("[backend]\nmode='service_local'\n").unwrap();
-    assert_eq!(serde_json::to_value(config).unwrap()["backend"]["mode"], "service_local");
+    assert_eq!(
+        serde_json::to_value(config).unwrap()["backend"]["mode"],
+        "service_local"
+    );
 }

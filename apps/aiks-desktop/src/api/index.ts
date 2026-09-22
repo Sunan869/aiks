@@ -72,6 +72,5 @@ export function isTauriContext(): boolean {
 }
 
 export function shouldUseMock(): boolean {
-  if (import.meta.env.VITE_AIKS_MOCK === "true") return true;
-  return !isTauriContext();
+  return import.meta.env.DEV && import.meta.env.VITE_AIKS_MOCK === "true";
 }

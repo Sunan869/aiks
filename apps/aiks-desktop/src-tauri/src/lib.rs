@@ -9,6 +9,8 @@ mod lifecycle;
 mod provider_commands;
 mod search_commands;
 pub mod service_client;
+mod service_commands;
+mod service_desktop;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
@@ -16,7 +18,7 @@ mod tray;
 mod workbench;
 
 use std::fs::{self, OpenOptions};
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use aiks_core::runtime::SiyuanRuntime;
@@ -107,6 +109,16 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            service_commands::service_status,
+            service_commands::service_collect_selected,
+            service_commands::service_uploads,
+            service_commands::service_get_receipt,
+            service_commands::service_get_job,
+            service_commands::service_search,
+            service_commands::service_sessions,
+            service_commands::service_session,
+            service_commands::service_knowledge,
+            service_commands::service_knowledge_list,
             provider_commands::get_source_descriptors,
             provider_commands::save_provider_settings,
             commands::get_status,
@@ -182,11 +194,7 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let close_to_tray = window
-                    .app_handle()
-                    .try_state::<app_state::AppState>()
-                    .map(|state| state.close_to_tray.load(Ordering::Acquire))
-                    .unwrap_or(true);
+                let close_to_tray = lifecycle::close_to_tray(window.app_handle());
 
                 if close_to_tray || window.label() != "control" {
                     window.hide().ok();

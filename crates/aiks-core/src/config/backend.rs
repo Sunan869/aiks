@@ -18,4 +18,6 @@ impl BackendMode {
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct BackendConfig { pub mode: BackendMode }
+pub struct BackendConfig {
+    pub mode: BackendMode,
+}

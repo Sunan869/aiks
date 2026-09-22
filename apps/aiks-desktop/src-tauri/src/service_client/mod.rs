@@ -1,7 +1,7 @@
 //! Client-only transport and upload state. Never opens a business StateDb.
 pub mod collector;
-pub mod supervisor;
 mod outbox;
+pub mod supervisor;
 mod transport;
 
 use aiks_core::service::{validate_submission, SnapshotSubmission};

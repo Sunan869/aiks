@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import bootstrapSource from "../../../../crates/aiks-core/src/bootstrap/mod.rs?raw";
 import runtimeSource from "../../../../crates/aiks-core/src/runtime/mod.rs?raw";
 import syncEngineSource from "../../../../crates/aiks-core/src/sync/engine.rs?raw";
-import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
+import lifecycleSource from "../../src-tauri/src/lifecycle/legacy.rs?raw";
 
 describe("V4.2 SiYuan runtime resilience boundaries", () => {
   it("waits for the SiYuan kernel to finish booting instead of accepting version-only readiness", () => {
