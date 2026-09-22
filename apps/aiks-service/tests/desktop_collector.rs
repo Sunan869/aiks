@@ -1,10 +1,7 @@
 #[path = "../../aiks-desktop/src-tauri/src/service_client/mod.rs"]
 pub mod service_client;
-// Compiles the production collector next to its exact sibling module.
-#[path = "../../aiks-desktop/src-tauri/src/service_client/collector.rs"]
-pub mod collector;
 use service_client::*;
-use collector::*;
+use service_client::collector::*;
 mod support;
 use support::RunningService;
 use std::{sync::Arc,time::Duration};

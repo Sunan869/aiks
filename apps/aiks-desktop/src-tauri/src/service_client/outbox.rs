@@ -118,6 +118,29 @@ impl CollectorOutbox {
             |r| r.get(0),
         )?)
     }
+    pub(super) fn registration(&self, key: &str) -> ClientResult<Option<String>> {
+        let key = format!("registration/{key}");
+        let value: Option<String> = self.conn()?.query_row("SELECT value FROM collector_meta WHERE key=?1", [key], |r| r.get(0)).optional()?;
+        if value.as_ref().is_some_and(|v| !super::valid_id(v)) {
+            return Err(ClientError::Storage);
+        }
+        Ok(value)
+    }
+    pub(super) fn remember_registration(&self, key: &str, id: &str) -> ClientResult<()> {
+        if key.len() > 2048 || !super::valid_id(id) {
+            return Err(ClientError::InvalidInput);
+        }
+        let key = format!("registration/{key}");
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("INSERT INTO collector_meta(key,value) VALUES (?1,?2) ON CONFLICT(key) DO NOTHING", params![key,id])?;
+        let value: String = tx.query_row("SELECT value FROM collector_meta WHERE key=?1", [&key], |r| r.get(0))?;
+        if value != id {
+            return Err(ClientError::Conflict);
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn enqueue(&self, pending: &PendingSubmission) -> ClientResult<EnqueueOutcome> {
         let s = pending.submission();
         let mut conn = self.conn()?;
