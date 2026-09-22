@@ -1,0 +1,42 @@
+name: Service offline network-isolated contract
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+permissions:
+  contents: read
+concurrency:
+  group: service-offline-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build the real contract binary
+        run: |
+          cargo test --locked -p aiks-service --test offline_flow --no-run --message-format=json > /tmp/offline-build.jsonl
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[json.loads(line) for line in pathlib.Path('/tmp/offline-build.jsonl').read_text().splitlines()]
+          tests=[r['executable'] for r in rows if r.get('reason')=='compiler-artifact' and r.get('target',{}).get('name')=='offline_flow' and r.get('executable')]
+          assert len(tests)==1,tests
+          pathlib.Path('/tmp/offline-test-path').write_text(tests[0])
+          PY
+      - name: Test without any non-loopback network interface
+        run: |
+          set -o pipefail
+          test_path=$(cat /tmp/offline-test-path)
+          sudo unshare --net -- sh -c 'ip link set lo up; AIKS_TEST_ISOLATED_NETWORK=1 exec "$1" --test-threads=1' test "$test_path" 2>&1 | tee offline-network-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: service-offline-${{ github.sha }}
+          path: offline-network-test.log
+          retention-days: 3
