@@ -50,7 +50,7 @@ pub fn sessions(db: &StateDb, ctx: &LocalContext, page: Page) -> Result<Value, S
                 d.indexed_revision,d.completed_revision
          FROM service_session_binding b JOIN source_session ss ON ss.id=b.session_id
          LEFT JOIN service_derived_state d ON d.session_id=b.session_id
-         WHERE b.principal_id=?1 AND b.space_id=?2 AND ss.is_missing=0
+         WHERE b.principal_id=?1 AND b.space_id=?2
          ORDER BY ss.id DESC LIMIT ?3 OFFSET ?4",
     )?;
     let items = stmt.query_map(params![ctx.principal_id(),ctx.space_id(),page.limit as i64,page.offset as i64], |row| {
@@ -58,21 +58,50 @@ pub fn sessions(db: &StateDb, ctx: &LocalContext, page: Page) -> Result<Value, S
         let indexed: Option<u32> = row.get(4)?;
         Ok(json!({"session_id":row.get::<_,i64>(0)?.to_string(),"source":row.get::<_,String>(1)?,
             "title":row.get::<_,String>(2)?,"revision":revision,"indexed_revision":indexed,
-            "completed_revision":row.get::<_,Option<u32>>(5)?,"index_current":indexed==Some(revision)}))
+            "completed_revision":row.get::<_,Option<u32>>(5)?,"index_current":revision>0 && indexed==Some(revision),"snapshot_state":if revision==0 {"source_unavailable"} else {"ready"}}))
     })?.collect::<Result<Vec<_>,_>>()?;
     Ok(json!({"items":items,"limit":page.limit,"offset":page.offset}))
 }
 
 pub fn session(db: &StateDb, ctx: &LocalContext, id: &str) -> Result<Value, ServiceError> {
     let id: i64 = id.parse().map_err(|_| ServiceError::NotFound)?;
-    let conn = db.conn();
-    let (revision, bytes): (u32, Option<Vec<u8>>) = conn.query_row(
-        "SELECT s.revision,CASE WHEN length(s.canonical_json)<=16777216 THEN s.canonical_json END
+    let mut conn = db.conn();
+    let tx = conn.transaction()?;
+    let (revision, title, source): (u32, String, String) = tx
+        .query_row(
+            "SELECT b.current_revision, substr(COALESCE(ss.title,''),1,4096),ss.source
          FROM service_session_binding b JOIN source_session ss ON ss.id=b.session_id
-         JOIN service_session_snapshot s ON s.session_id=b.session_id AND s.revision=b.current_revision
-         WHERE b.session_id=?1 AND b.principal_id=?2 AND b.space_id=?3 AND ss.is_missing=0",
-        params![id,ctx.principal_id(),ctx.space_id()], |row| Ok((row.get(0)?,row.get(1)?)),
-    ).optional()?.ok_or(ServiceError::NotFound)?;
+         WHERE b.session_id=?1 AND b.principal_id=?2 AND b.space_id=?3",
+            params![id, ctx.principal_id(), ctx.space_id()],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?
+        .ok_or(ServiceError::NotFound)?;
+    if revision == 0 {
+        let projection: Option<Option<String>> = tx
+            .query_row(
+                "SELECT CASE WHEN length(CAST(content AS BLOB))<=1048576 THEN content END
+             FROM session_search_fts WHERE session_id=?1 LIMIT 1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        return Ok(
+            json!({"session_id":id.to_string(),"title":title,"source":source,
+            "revision":null,"session":null,"snapshot_state":"source_unavailable",
+            "content_state":if projection.is_some(){"legacy_projection"}else{"unavailable"},
+            "content":projection.flatten(),"index_current":false}),
+        );
+    }
+    let bytes: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT CASE WHEN length(canonical_json)<=16777216 THEN canonical_json END
+         FROM service_session_snapshot WHERE session_id=?1 AND revision=?2",
+            params![id, revision],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or(ServiceError::Internal)?;
     let mut session: NormalizedSession =
         serde_json::from_slice(&bytes.ok_or(ServiceError::TooLarge)?)
             .map_err(|_| ServiceError::Internal)?;
@@ -82,7 +111,9 @@ pub fn session(db: &StateDb, ctx: &LocalContext, id: &str) -> Result<Value, Serv
     for message in &mut session.messages {
         message.metadata.clear();
     }
-    Ok(json!({"session_id":id.to_string(),"revision":revision,"session":session}))
+    Ok(
+        json!({"session_id":id.to_string(),"revision":revision,"session":session,"snapshot_state":"ready"}),
+    )
 }
 
 pub fn receipt(
@@ -165,11 +196,12 @@ pub fn knowledge(
     let mut result = tx.query_row(
         "SELECT ki.id,substr(ki.title,1,4096),substr(ki.summary,1,16384),substr(ki.category,1,256),
             CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
-            d.revision,b.current_revision,ki.siyuan_doc_id,
+            d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id,
             CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END
-         FROM knowledge_item ki JOIN service_session_binding b ON b.session_id=ki.source_session_id
+         FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
+         LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
-         WHERE ki.id=?1 AND ki.status='active' AND b.principal_id=?2 AND b.space_id=?3",
+         WHERE ki.id=?1 AND ki.status='active' AND ((b.principal_id=?2 AND b.space_id=?3) OR (kb.principal_id=?2 AND kb.space_id=?3))",
         params![id,ctx.principal_id(),ctx.space_id()], |row| {
             let revision: Option<u32> = row.get(5)?;
             let current_revision: u32 = row.get(6)?;
@@ -192,10 +224,11 @@ pub fn knowledge_list(db: &StateDb, ctx: &LocalContext, page: Page) -> Result<Va
     page.validate()?;
     let conn = db.conn();
     let mut stmt = conn.prepare(
-        "SELECT ki.id,substr(ki.title,1,4096),d.revision,b.current_revision,ki.siyuan_doc_id IS NOT NULL
-         FROM knowledge_item ki JOIN service_session_binding b ON b.session_id=ki.source_session_id
+        "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL
+         FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
+         LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
-         WHERE ki.status='active' AND b.principal_id=?1 AND b.space_id=?2
+         WHERE ki.status='active' AND ((b.principal_id=?1 AND b.space_id=?2) OR (kb.principal_id=?1 AND kb.space_id=?2))
          ORDER BY ki.rowid DESC LIMIT ?3 OFFSET ?4")?;
     let items = stmt.query_map(params![ctx.principal_id(),ctx.space_id(),page.limit as i64,page.offset as i64], |row| {
         let revision: Option<u32> = row.get(2)?;

@@ -110,147 +110,155 @@ impl ServiceStore {
 
         let mut conn = self.db().conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let registered: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM service_source_registration
+        let result = accept_in_tx(&tx, context, snapshot)?;
+        tx.commit()?;
+        Ok(result)
+    }
+}
+
+pub(crate) fn accept_in_tx(
+    tx: &Transaction<'_>,
+    context: &LocalContext,
+    snapshot: &ValidatedSnapshot,
+) -> Result<(SnapshotReceipt, bool, bool), ServiceError> {
+    let input = &snapshot.submission;
+    let registered: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM service_source_registration
              WHERE id=?1 AND principal_id=?2 AND space_id=?3 AND source=?4)",
+        params![
+            input.source_registration_id,
+            context.principal_id(),
+            context.space_id(),
+            input.session.source.as_str()
+        ],
+        |row| row.get(0),
+    )?;
+    if !registered {
+        return Err(ServiceError::NotFound);
+    }
+    if let Some((stored_hash, receipt)) = find_receipt(tx, context, snapshot)? {
+        if stored_hash != snapshot.request_hash {
+            return Err(ServiceError::Conflict);
+        }
+        return Ok((receipt, false, false));
+    }
+
+    let binding: Option<(i64, u32)> = tx
+        .query_row(
+            "SELECT session_id, current_revision FROM service_session_binding
+                 WHERE principal_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",
             params![
-                input.source_registration_id,
                 context.principal_id(),
                 context.space_id(),
-                input.session.source.as_str()
+                input.source_registration_id,
+                input.session.external_session_id
             ],
-            |row| row.get(0),
-        )?;
-        if !registered {
-            return Err(ServiceError::NotFound);
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let current_revision = binding.map(|(_, revision)| revision).unwrap_or(0);
+    if input.expected_revision != current_revision {
+        return Err(ServiceError::Conflict);
+    }
+    let now = Utc::now().to_rfc3339();
+    if let Some((session_id, revision)) = binding {
+        if let Some(receipt) = reuse_current(tx, session_id, revision, snapshot)? {
+            save_receipt(tx, context, snapshot, &receipt, &now)?;
+            return Ok((receipt, false, true));
         }
-        if let Some((stored_hash, receipt)) = find_receipt(&tx, context, snapshot)? {
-            if stored_hash != snapshot.request_hash {
-                return Err(ServiceError::Conflict);
-            }
-            tx.commit()?;
-            return Ok((receipt, false, false));
-        }
-
-        let binding: Option<(i64, u32)> = tx
-            .query_row(
-                "SELECT session_id, current_revision FROM service_session_binding
-                 WHERE principal_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",
-                params![
-                    context.principal_id(),
-                    context.space_id(),
-                    input.source_registration_id,
-                    input.session.external_session_id
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        let current_revision = binding.map(|(_, revision)| revision).unwrap_or(0);
-        if input.expected_revision != current_revision {
-            return Err(ServiceError::Conflict);
-        }
-        let now = Utc::now().to_rfc3339();
-        if let Some((session_id, revision)) = binding {
-            if let Some(receipt) = reuse_current(&tx, session_id, revision, snapshot)? {
-                save_receipt(&tx, context, snapshot, &receipt, &now)?;
-                tx.commit()?;
-                return Ok((receipt, false, true));
-            }
-        }
-        let revision = current_revision
-            .checked_add(1)
-            .ok_or(ServiceError::RevisionExhausted)?;
-        let session_id = match binding {
-            Some((session_id, _)) => session_id,
-            None => create_binding(&tx, context, snapshot, &now)?,
-        };
-        tx.execute(
-            "UPDATE source_session SET title=?2, project_name=?3, source_updated_at=?4,
+    }
+    let revision = current_revision
+        .checked_add(1)
+        .ok_or(ServiceError::RevisionExhausted)?;
+    let session_id = match binding {
+        Some((session_id, _)) => session_id,
+        None => create_binding(tx, context, snapshot, &now)?,
+    };
+    tx.execute(
+        "UPDATE source_session SET title=?2, project_name=?3, source_updated_at=?4,
              content_hash=?5, parser_version=?6, last_seen_at=?7, updated_at=?7, is_missing=0
              WHERE id=?1",
-            params![
-                session_id,
-                input.session.title,
-                input.session.project_name,
-                input.session.updated_at.map(|value| value.to_rfc3339()),
-                snapshot.content_hash,
-                input.parser_version,
-                now
-            ],
-        )?;
-        let advanced = tx.execute(
-            "UPDATE service_session_binding SET current_revision=?2
+        params![
+            session_id,
+            input.session.title,
+            input.session.project_name,
+            input.session.updated_at.map(|value| value.to_rfc3339()),
+            snapshot.content_hash,
+            input.parser_version,
+            now
+        ],
+    )?;
+    let advanced = tx.execute(
+        "UPDATE service_session_binding SET current_revision=?2
              WHERE session_id=?1 AND current_revision=?3",
-            params![session_id, revision, current_revision],
-        )?;
-        if advanced != 1 {
-            return Err(ServiceError::Conflict);
-        }
-        // Advancing current_revision invalidates provenance without deleting
-        // already published/user-edited knowledge. NULL is explicitly unknown.
-        tx.execute(
-            "INSERT INTO service_derived_state(session_id) VALUES (?1)
+        params![session_id, revision, current_revision],
+    )?;
+    if advanced != 1 {
+        return Err(ServiceError::Conflict);
+    }
+    // Advancing current_revision invalidates provenance without deleting
+    // already published/user-edited knowledge. NULL is explicitly unknown.
+    tx.execute(
+        "INSERT INTO service_derived_state(session_id) VALUES (?1)
              ON CONFLICT(session_id) DO NOTHING",
-            [session_id],
-        )?;
-        let snapshot_id = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO service_session_snapshot
+        [session_id],
+    )?;
+    let snapshot_id = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO service_session_snapshot
              (id, session_id, revision, parser_version, content_hash, canonical_json, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                snapshot_id,
-                session_id,
-                revision,
-                input.parser_version,
-                snapshot.content_hash,
-                snapshot.canonical_json,
-                now
-            ],
-        )?;
-        // Legacy upsert reuses one run per pipeline version. Snapshot input
-        // requires an immutable run per revision instead; do not rebind it.
-        let pipeline_run_id = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO pipeline_run
+        params![
+            snapshot_id,
+            session_id,
+            revision,
+            input.parser_version,
+            snapshot.content_hash,
+            snapshot.canonical_json,
+            now
+        ],
+    )?;
+    // Legacy upsert reuses one run per pipeline version. Snapshot input
+    // requires an immutable run per revision instead; do not rebind it.
+    let pipeline_run_id = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO pipeline_run
              (id, session_id, status, pipeline_version, source_hash, created_at, updated_at)
              VALUES (?1, ?2, 'DISCOVERED', ?3, ?4, ?5, ?5)",
-            params![
-                pipeline_run_id,
-                session_id,
-                format!("service-v1/r{revision}"),
-                snapshot.content_hash,
-                now
-            ],
-        )?;
-        let job = PipelineJob {
-            pipeline_run_id: pipeline_run_id.clone(),
-            session_id,
-            session_external_id: input.session.external_session_id.clone(),
-            source: input.session.source.as_str().to_owned(),
-            session_title: input.session.title.clone(),
-            project_name: input.session.project_name.clone(),
-        };
-        let queued = PipelineJobRepo::enqueue_snapshot_in_tx(&tx, &job)
-            .map_err(|_| ServiceError::Internal)?;
-        tx.execute(
-            "INSERT INTO service_job_input (pipeline_run_id, snapshot_id, durable_job_id)
-             VALUES (?1, ?2, ?3)",
-            params![pipeline_run_id, snapshot_id, queued.durable_job_id],
-        )?;
-        let receipt = SnapshotReceipt {
-            receipt_id: Uuid::new_v4().to_string(),
-            session_id: session_id.to_string(),
-            snapshot_id,
-            revision,
-            job_id: queued.durable_job_id,
+        params![
             pipeline_run_id,
-            state: "accepted".to_owned(),
-        };
-        save_receipt(&tx, context, snapshot, &receipt, &now)?;
-        tx.commit()?;
-        Ok((receipt, queued.inserted, true))
-    }
+            session_id,
+            format!("service-v1/r{revision}"),
+            snapshot.content_hash,
+            now
+        ],
+    )?;
+    let job = PipelineJob {
+        pipeline_run_id: pipeline_run_id.clone(),
+        session_id,
+        session_external_id: input.session.external_session_id.clone(),
+        source: input.session.source.as_str().to_owned(),
+        session_title: input.session.title.clone(),
+        project_name: input.session.project_name.clone(),
+    };
+    let queued =
+        PipelineJobRepo::enqueue_snapshot_in_tx(tx, &job).map_err(|_| ServiceError::Internal)?;
+    tx.execute(
+        "INSERT INTO service_job_input (pipeline_run_id, snapshot_id, durable_job_id)
+             VALUES (?1, ?2, ?3)",
+        params![pipeline_run_id, snapshot_id, queued.durable_job_id],
+    )?;
+    let receipt = SnapshotReceipt {
+        receipt_id: Uuid::new_v4().to_string(),
+        session_id: session_id.to_string(),
+        snapshot_id,
+        revision,
+        job_id: queued.durable_job_id,
+        pipeline_run_id,
+        state: "accepted".to_owned(),
+    };
+    save_receipt(tx, context, snapshot, &receipt, &now)?;
+    Ok((receipt, queued.inserted, true))
 }
 
 fn find_receipt(

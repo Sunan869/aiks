@@ -277,6 +277,10 @@ impl StateDb {
             "../../migrations/015_service_knowledge_revisions.sql"
         ))
         .context("run V16 per-knowledge provenance migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/016_service_knowledge_binding.sql"
+        ))
+        .context("run V17 standalone knowledge ownership migration")?;
         tx.commit()?;
         Ok(())
     }

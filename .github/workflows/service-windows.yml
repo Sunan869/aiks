@@ -20,7 +20,7 @@ jobs:
         with:
           cache-on-failure: true
       - name: Core service and ownership contracts
-        run: cargo test --locked -p aiks-core --test service_storage --test service_ingestion --test service_worker --test service_revisions --test service_revision_guards --test service_revision_recovery --test service_query_provenance -- --test-threads=1
+        run: cargo test --locked -p aiks-core --test service_storage --test service_ingestion --test service_worker --test service_revisions --test service_revision_guards --test service_revision_recovery --test service_query_provenance --test service_migration -- --test-threads=1
       - name: Real HTTP and process contracts
         run: cargo test --locked --no-fail-fast -p aiks-service -- --test-threads=1
       - name: CLI compatibility
