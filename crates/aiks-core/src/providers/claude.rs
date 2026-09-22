@@ -24,6 +24,13 @@ use crate::providers::{ProviderHealth, SessionSummary};
 
 const PARSER_VERSION: &str = "claude-v1";
 
+type ClaudeSessionSummary = (
+    Option<String>,
+    usize,
+    Option<String>,
+    Option<DateTime<Utc>>,
+);
+
 pub struct ClaudeProvider {
     base_dir: PathBuf,
 }
@@ -113,7 +120,7 @@ impl ClaudeProvider {
     /// Extract session summary from JSONL content in a single pass.
     fn scan_summary(
         content: &str,
-    ) -> anyhow::Result<(Option<String>, usize, Option<String>, Option<DateTime<Utc>>)> {
+    ) -> anyhow::Result<ClaudeSessionSummary> {
         let mut title: Option<String> = None;
         let mut cwd: Option<String> = None;
         let mut started_at: Option<DateTime<Utc>> = None;
