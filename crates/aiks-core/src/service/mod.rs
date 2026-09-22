@@ -1,6 +1,7 @@
 //! Transport-independent service contracts. No Tauri or source filesystem access.
 
 mod contracts;
+mod ingestion;
 mod repo;
 mod validation;
 

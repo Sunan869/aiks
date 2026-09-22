@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use rusqlite::{params, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use uuid::Uuid;
 
 use crate::storage::StateDb;
@@ -44,12 +44,37 @@ impl<'a> PipelineJobRepo<'a> {
     /// A newer hash supersedes older *pending* generations but never cancels a
     /// running generation; the new generation waits until the running one exits.
     pub fn enqueue(&self, job: &PipelineJob) -> anyhow::Result<EnqueueResult> {
-        let now = Utc::now().to_rfc3339();
         let mut conn = self.db.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let result = Self::enqueue_in_tx(&tx, job)?;
+        tx.commit()?;
+        Ok(result)
+    }
 
-        // `session_id` is the canonical identity. Derive provider/external
-        // identity from the DB instead of trusting duplicated caller strings.
+    /// Transactional primitive shared with atomic ingestion. Does not commit.
+    pub fn enqueue_in_tx(
+        tx: &Transaction<'_>,
+        job: &PipelineJob,
+    ) -> anyhow::Result<EnqueueResult> {
+        Self::enqueue_with_identity_in_tx(tx, job, false)
+    }
+
+    /// A snapshot revision cannot reuse an older active job merely because
+    /// its content hash returned to a previous value (A -> B -> A).
+    pub fn enqueue_snapshot_in_tx(
+        tx: &Transaction<'_>,
+        job: &PipelineJob,
+    ) -> anyhow::Result<EnqueueResult> {
+        Self::enqueue_with_identity_in_tx(tx, job, true)
+    }
+
+    fn enqueue_with_identity_in_tx(
+        tx: &Transaction<'_>,
+        job: &PipelineJob,
+        exact_run: bool,
+    ) -> anyhow::Result<EnqueueResult> {
+        let now = Utc::now().to_rfc3339();
+        // Derive canonical identity rather than trusting caller duplicates.
         let (canonical_source, canonical_external_id, source_hash): (String, String, String) = tx
             .query_row(
                 "SELECT source, external_session_id, COALESCE(content_hash, '')
@@ -59,7 +84,6 @@ impl<'a> PipelineJobRepo<'a> {
             )
             .optional()?
             .ok_or_else(|| anyhow::anyhow!("source_session not found: {}", job.session_id))?;
-
         let run_exists: i64 = tx.query_row(
             "SELECT COUNT(*) FROM pipeline_run WHERE id = ?1 AND session_id = ?2",
             params![job.pipeline_run_id, job.session_id],
@@ -72,43 +96,36 @@ impl<'a> PipelineJobRepo<'a> {
                 job.session_id
             );
         }
-
         let existing: Option<String> = tx
             .query_row(
                 "SELECT id FROM pipeline_job
                  WHERE session_id = ?1 AND source_hash = ?2
                    AND status IN ('PENDING', 'RUNNING')
+                   AND (?3 = 0 OR pipeline_run_id = ?4)
                  ORDER BY generation DESC LIMIT 1",
-                params![job.session_id, source_hash],
+                params![job.session_id, source_hash, exact_run, job.pipeline_run_id],
                 |row| row.get(0),
             )
             .optional()?;
-
         if let Some(durable_job_id) = existing {
-            tx.commit()?;
             return Ok(EnqueueResult {
                 durable_job_id,
                 inserted: false,
             });
         }
-
         let generation: i64 = tx.query_row(
             "SELECT COALESCE(MAX(generation), 0) + 1 FROM pipeline_job
              WHERE session_id = ?1",
             params![job.session_id],
             |row| row.get(0),
         )?;
-
-        // Pending work for an older source hash is obsolete. A RUNNING job is
-        // allowed to finish; claim_next() prevents the next generation from
-        // running concurrently for the same canonical session.
+        // claim_next prevents simultaneous generations for the same session.
         tx.execute(
             "UPDATE pipeline_job
              SET status = 'SUPERSEDED', updated_at = ?1
              WHERE session_id = ?2 AND status = 'PENDING'",
             params![now, job.session_id],
         )?;
-
         let durable_job_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO pipeline_job
@@ -127,34 +144,25 @@ impl<'a> PipelineJobRepo<'a> {
                 job.pipeline_run_id
             ],
         )?;
-
-        tx.commit()?;
         Ok(EnqueueResult {
             durable_job_id,
             inserted: true,
         })
     }
 
-    /// Atomically claim one available job and attach the current pipeline/session
-    /// metadata needed by the worker. SQLite IMMEDIATE transaction prevents two
-    /// processes from claiming the same row concurrently.
+    /// Atomically claim one available job and attach its canonical identity.
     pub fn claim_next(&self) -> anyhow::Result<Option<ClaimedPipelineJob>> {
         let now_dt = Utc::now();
         let now = now_dt.to_rfc3339();
         let lease_until = (now_dt + Duration::seconds(LEASE_SECONDS)).to_rfc3339();
-
         let mut conn = self.db.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-
-        // A dead worker eventually releases its claim. Live workers renew their
-        // lease periodically, so this only recovers genuinely abandoned work.
         tx.execute(
             "UPDATE pipeline_job
              SET status = 'PENDING', lease_until = NULL, available_at = ?1, updated_at = ?1
              WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
             params![now],
         )?;
-
         let row = tx
             .query_row(
                 "SELECT pj.id, pj.attempt,
@@ -189,7 +197,6 @@ impl<'a> PipelineJobRepo<'a> {
                 },
             )
             .optional()?;
-
         let Some((
             durable_job_id,
             previous_attempt,
@@ -204,7 +211,6 @@ impl<'a> PipelineJobRepo<'a> {
             tx.commit()?;
             return Ok(None);
         };
-
         let attempt = previous_attempt + 1;
         let changed = tx.execute(
             "UPDATE pipeline_job
@@ -216,7 +222,6 @@ impl<'a> PipelineJobRepo<'a> {
             tx.commit()?;
             return Ok(None);
         }
-
         tx.commit()?;
         Ok(Some(ClaimedPipelineJob {
             durable_job_id,
@@ -271,7 +276,6 @@ impl<'a> PipelineJobRepo<'a> {
             params![durable_job_id],
             |row| row.get(0),
         )?;
-
         if attempt >= MAX_ATTEMPTS {
             conn.execute(
                 "UPDATE pipeline_job
@@ -282,7 +286,6 @@ impl<'a> PipelineJobRepo<'a> {
             )?;
             return Ok(FailureDisposition::Terminal);
         }
-
         let backoff_index =
             (attempt.saturating_sub(1) as usize).min(RETRY_BACKOFF_SECONDS.len().saturating_sub(1));
         let available_at =
