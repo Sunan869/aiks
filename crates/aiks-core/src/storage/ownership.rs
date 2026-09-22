@@ -21,7 +21,9 @@ impl BusinessDbLease {
         } else {
             std::env::current_dir()?.join(path)
         };
-        let name = absolute.file_name().context("Database filename is required")?;
+        let name = absolute
+            .file_name()
+            .context("Database filename is required")?;
         let parent = absolute.parent().context("Database parent is required")?;
         for component in parent.ancestors() {
             reject_link(component, false)?;
@@ -40,7 +42,9 @@ impl BusinessDbLease {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let file = options.open(&lock_path).context("Cannot open database ownership lock")?;
+        let file = options
+            .open(&lock_path)
+            .context("Cannot open database ownership lock")?;
         FileExt::try_lock_exclusive(&file)
             .context("Business database is already owned by another process")?;
         // Check again after acquiring ownership, before any SQLite operation.
