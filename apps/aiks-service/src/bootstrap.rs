@@ -2,13 +2,18 @@ use crate::{build_router, LocalAuth, ServiceConfig, ServiceRuntime};
 use serde::Deserialize;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Bootstrap {
     token: String,
+    #[serde(default)] owner_control: bool,
+    #[serde(default)] owner_lifetime: bool,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnerCommand { command: String, boot_nonce: String }
 
 pub async fn run() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -17,18 +22,8 @@ pub async fn run() -> anyhow::Result<()> {
     let mut bootstrap = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--config" if path.is_none() => {
-                path = Some(PathBuf::from(
-                    args.next()
-                        .ok_or_else(|| anyhow::anyhow!("Missing config"))?,
-                ))
-            }
-            "--listen" if listen.is_none() => {
-                listen = Some(
-                    args.next()
-                        .ok_or_else(|| anyhow::anyhow!("Missing listen address"))?,
-                )
-            }
+            "--config" if path.is_none() => path = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("Missing config"))?)),
+            "--listen" if listen.is_none() => listen = Some(args.next().ok_or_else(|| anyhow::anyhow!("Missing listen address"))?),
             "--bootstrap-stdin" if !bootstrap => bootstrap = true,
             _ => anyhow::bail!("Unsupported argument"),
         }
@@ -40,56 +35,63 @@ pub async fn run() -> anyhow::Result<()> {
     file.read_to_end(&mut bytes).await?;
     anyhow::ensure!(bytes.len() <= 1024 * 1024, "Config exceeds budget");
     let mut config: ServiceConfig = toml::from_str(std::str::from_utf8(&bytes)?)?;
-    if let Some(listen) = listen {
-        config.listen = listen.parse()?;
-    }
+    if let Some(listen) = listen { config.listen = listen.parse()?; }
     config.validate()?;
-    let mut stdin = BufReader::new(tokio::io::stdin().take(4097));
+    // Two bounded frames, bootstrap plus an explicitly opted-in owner command.
+    let mut stdin = BufReader::new(tokio::io::stdin().take(8194));
     let mut frame = String::new();
     tokio::time::timeout(Duration::from_secs(5), stdin.read_line(&mut frame)).await??;
-    anyhow::ensure!(
-        frame.ends_with('\n') && frame.len() <= 4096,
-        "Invalid bootstrap frame"
-    );
+    anyhow::ensure!(frame.ends_with('\n') && frame.len() <= 4096, "Invalid bootstrap frame");
     let boot: Bootstrap = serde_json::from_str(&frame)?;
-    // Validate credentials before acquiring the database or starting work.
+    anyhow::ensure!(!boot.owner_lifetime || boot.owner_control,"Invalid owner lifetime");
     LocalAuth::new(&boot.token, "pending-instance")?;
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let address = listener.local_addr()?;
     let runtime = Arc::new(ServiceRuntime::open(config.runtime_config()).await?);
     let identity = runtime.context();
     let auth = LocalAuth::new(&boot.token, identity.instance_id())?.with_authority(address)?;
-    let ready = json!({"api_version":1,"instance_id":identity.instance_id(),"boot_nonce":auth.boot_nonce(),"address":address.to_string()});
-    drop(boot);
-    drop(frame);
-    drop(stdin);
+    let nonce = auth.boot_nonce().to_owned();
+    let (controlled,lifetime) = (boot.owner_control,boot.owner_lifetime);
+    let ready = json!({"api_version":1,"instance_id":identity.instance_id(),"space_id":identity.space_id(),"boot_nonce":nonce,"address":address.to_string()});
+    drop(boot); drop(frame);
     let mut stdout = tokio::io::stdout();
     stdout.write_all(format!("{ready}\n").as_bytes()).await?;
     stdout.flush().await?;
-    // Client pipe EOF is intentionally not a shutdown signal.
-    let server = axum::serve(listener, build_router(runtime.clone(), auth))
-        .with_graceful_shutdown(shutdown_signal());
-    let result = server.await;
+    let stop = async move {
+        tokio::select! {
+            _ = shutdown_signal() => {},
+            _ = owner_shutdown(stdin, controlled, lifetime, nonce) => {},
+        }
+    };
+    let result = axum::serve(listener, build_router(runtime.clone(), auth))
+        .with_graceful_shutdown(stop).await;
     let drained = runtime.shutdown(Duration::from_secs(10)).await;
-    result?;
-    drained?;
-    Ok(())
+    result?; drained?; Ok(())
 }
 
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut term) => {
-                tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{}}
-            }
-            Err(_) => {
-                let _ = tokio::signal::ctrl_c().await;
+async fn owner_shutdown<R: AsyncRead + Unpin>(mut stdin: BufReader<R>, enabled: bool, lifetime: bool, nonce: String) {
+    if enabled {
+        let mut frame = String::new();
+        if let Ok(size) = stdin.read_line(&mut frame).await {
+            // Only the managed sidecar opts into parent-pipe lifetime. Independent
+            // services retain the original stdin-EOF-does-not-stop contract.
+            if size == 0 && lifetime { return; }
+            if size > 0 && size <= 4096 && frame.ends_with('\n') {
+                if let Ok(command) = serde_json::from_str::<OwnerCommand>(&frame) {
+                    if command.command == "shutdown" && command.boot_nonce == nonce { return; }
+                }
             }
         }
     }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
+    std::future::pending::<()>().await;
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)] {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut term) => { tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} } }
+            Err(_) => { let _ = tokio::signal::ctrl_c().await; }
+        }
     }
+    #[cfg(not(unix))] { let _ = tokio::signal::ctrl_c().await; }
 }

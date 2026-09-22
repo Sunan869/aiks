@@ -1,8 +1,6 @@
 #[path = "../../aiks-desktop/src-tauri/src/service_client/mod.rs"]
 pub mod service_client;
-#[path = "../../aiks-desktop/src-tauri/src/service_client/supervisor.rs"]
-mod supervisor;
-use supervisor::ReadyHandshake;
+use service_client::supervisor::ReadyHandshake;
 use service_client::ClientError;
 use serde_json::json;
 

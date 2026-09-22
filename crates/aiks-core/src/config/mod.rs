@@ -1,6 +1,9 @@
 // CI lint baseline: pre-existing Clippy debt; remove allowances incrementally.
 #![allow(clippy::derivable_impls)]
 
+pub mod backend;
+pub use backend::{BackendConfig, BackendMode};
+
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -13,6 +16,7 @@ use crate::pipeline::EmbeddingConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub backend: BackendConfig,
     pub sync: SyncConfig,
     pub providers: ProvidersConfig,
     pub content: ContentConfig,
@@ -28,6 +32,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            backend: BackendConfig::default(),
             sync: SyncConfig::default(),
             providers: ProvidersConfig::default(),
             content: ContentConfig::default(),
