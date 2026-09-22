@@ -133,7 +133,7 @@ pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
-) -> Result<Vec<NormalizedSession>> {
+) -> Result<(Vec<NormalizedSession>, bool)> {
     let (value, complete_read) = state(io, relative, metadata_only)?;
     let upstream = string(&value, "sessionId").context("VS Code session ID missing")?;
     let workspace = relative
