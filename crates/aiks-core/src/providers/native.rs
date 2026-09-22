@@ -139,7 +139,8 @@ impl NativeProvider {
                     Err(error)
                         if self.source == SourceKind::GithubCopilot
                             && relative.extension().and_then(|value| value.to_str())
-                                == Some("json") =>
+                                == Some("json")
+                            && error.to_string().contains("invalid provider JSON") =>
                     {
                         tracing::warn!(
                             source = self.source.as_str(),
