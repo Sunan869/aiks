@@ -56,6 +56,10 @@ pub enum ServiceError {
     Conflict,
     #[error("Dependency temporarily unavailable")]
     Unavailable,
+    #[error("AI is not configured or is disabled")]
+    AiDisabled,
+    #[error("Canonical content is temporarily unavailable")]
+    ContentUnavailable,
     #[error("Internal service error")]
     Internal,
     #[error("Revision limit reached")]
@@ -73,6 +77,8 @@ impl ServiceError {
             Self::NotFound => "not_found",
             Self::Conflict => "conflict",
             Self::Unavailable => "unavailable",
+            Self::AiDisabled => "ai_disabled",
+            Self::ContentUnavailable => "content_unavailable",
             Self::Internal => "internal",
             Self::RevisionExhausted => "revision_exhausted",
         }

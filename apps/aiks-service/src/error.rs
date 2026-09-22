@@ -20,7 +20,9 @@ impl IntoResponse for ApiError {
             ServiceError::Conflict | ServiceError::RevisionExhausted => StatusCode::CONFLICT,
             ServiceError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             ServiceError::IncompleteSnapshot => StatusCode::UNPROCESSABLE_ENTITY,
-            ServiceError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            ServiceError::Unavailable
+            | ServiceError::AiDisabled
+            | ServiceError::ContentUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             ServiceError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::BAD_REQUEST,
         };

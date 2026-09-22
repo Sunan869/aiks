@@ -22,13 +22,19 @@ impl ScopedFilter {
         let Some(ctx) = &self.context else {
             return "1=1".into();
         };
-        let revision = match corpus {
-            SearchCorpus::Session => "d.indexed_revision",
-            SearchCorpus::Knowledge => "d.knowledge_revision",
+        let (join, revision) = match corpus {
+            SearchCorpus::Session => (
+                "JOIN service_derived_state d ON d.session_id=b.session_id",
+                "d.indexed_revision",
+            ),
+            SearchCorpus::Knowledge => (
+                "JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id",
+                "d.revision",
+            ),
         };
         format!(
             "EXISTS (SELECT 1 FROM service_session_binding b
-             JOIN service_derived_state d ON d.session_id=b.session_id
+             {join}
              WHERE b.session_id=ss.id AND b.principal_id='{}' AND b.space_id='{}'
                AND {revision}=b.current_revision)",
             ctx.principal_id().replace('\'', "''"),

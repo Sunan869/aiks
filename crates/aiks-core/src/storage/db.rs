@@ -273,6 +273,10 @@ impl StateDb {
         .context("run V14 service derived revision migration")?;
         tx.execute_batch(include_str!("../../migrations/014_service_read_epoch.sql"))
             .context("run V15 service read epoch migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/015_service_knowledge_revisions.sql"
+        ))
+        .context("run V16 per-knowledge provenance migration")?;
         tx.commit()?;
         Ok(())
     }

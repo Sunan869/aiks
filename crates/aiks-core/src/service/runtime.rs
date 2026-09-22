@@ -150,7 +150,7 @@ impl ServiceRuntime {
                 .content
                 .get_document_markdown_bounded(doc_id, query::MAX_CONTENT_BYTES)
                 .await
-                .map_err(|_| ServiceError::Unavailable)?;
+                .map_err(|_| ServiceError::ContentUnavailable)?;
             let checked = self.knowledge_metadata(id).await?;
             if checked.generation != result.generation || checked.doc_id != result.doc_id {
                 return Err(ServiceError::Conflict);
@@ -164,15 +164,17 @@ impl ServiceRuntime {
         id: String,
         operation: AiAssistOperation,
     ) -> Result<Value, ServiceError> {
+        // Authorize the resource first, without fetching remote content when off.
+        self.knowledge_metadata(id.clone()).await?;
+        if !self.models.llm_config().enabled {
+            return Err(ServiceError::AiDisabled);
+        }
         let view = self.knowledge(id.clone()).await?;
         if view.stale {
             return Err(ServiceError::Conflict);
         }
         if view.doc_id.is_none() {
             return Err(ServiceError::InvalidInput);
-        }
-        if !self.models.llm_config().enabled {
-            return Err(ServiceError::Unavailable);
         }
         let request = AiAssistRequest {
             operation,

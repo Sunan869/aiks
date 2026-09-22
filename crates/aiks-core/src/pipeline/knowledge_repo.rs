@@ -235,6 +235,19 @@ impl<'a> KnowledgeRepo<'a> {
 
         let ids = result_res?;
         if let Some(fence) = fence {
+            // Only regenerated drafts advance; preserved user/published items
+            // must not inherit the new extraction's source revision.
+            for id in &ids {
+                conn.execute(
+                    "INSERT INTO service_knowledge_revision(knowledge_id,session_id,revision)
+                     SELECT id,source_session_id,?3 FROM knowledge_item
+                     WHERE id=?1 AND source_session_id=?2 AND managed_by='pipeline'
+                       AND siyuan_doc_id IS NULL
+                     ON CONFLICT(knowledge_id) DO UPDATE SET
+                       session_id=excluded.session_id, revision=excluded.revision",
+                    params![id, session_id, fence.revision],
+                )?;
+            }
             fence.record_knowledge_in_tx(&conn)?;
         }
         conn.commit()?;

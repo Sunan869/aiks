@@ -90,8 +90,7 @@ pub fn receipt(
     ctx: &LocalContext,
     id: &str,
 ) -> Result<SnapshotReceipt, ServiceError> {
-    Ok(db
-        .conn()
+    db.conn()
         .query_row(
             "SELECT r.id,s.session_id,s.id,s.revision,r.durable_job_id,r.pipeline_run_id
          FROM service_ingest_receipt r JOIN service_session_snapshot s ON s.id=r.snapshot_id
@@ -112,12 +111,11 @@ pub fn receipt(
             },
         )
         .optional()?
-        .ok_or(ServiceError::NotFound)?)
+        .ok_or(ServiceError::NotFound)
 }
 
 pub fn job(db: &StateDb, ctx: &LocalContext, id: &str) -> Result<Value, ServiceError> {
-    Ok(db
-        .conn()
+    db.conn()
         .query_row(
             "SELECT j.id,j.status,j.attempt,r.status,s.revision,b.current_revision
          FROM pipeline_job j JOIN service_job_input i ON i.durable_job_id=j.id
@@ -135,7 +133,7 @@ pub fn job(db: &StateDb, ctx: &LocalContext, id: &str) -> Result<Value, ServiceE
             },
         )
         .optional()?
-        .ok_or(ServiceError::NotFound)?)
+        .ok_or(ServiceError::NotFound)
 }
 
 #[derive(Clone, Serialize)]
@@ -167,10 +165,10 @@ pub fn knowledge(
     let mut result = tx.query_row(
         "SELECT ki.id,substr(ki.title,1,4096),substr(ki.summary,1,16384),substr(ki.category,1,256),
             CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
-            d.knowledge_revision,b.current_revision,ki.siyuan_doc_id,
+            d.revision,b.current_revision,ki.siyuan_doc_id,
             CASE WHEN ki.siyuan_doc_id IS NULL AND length(ki.content)<=1048576 THEN ki.content END
          FROM knowledge_item ki JOIN service_session_binding b ON b.session_id=ki.source_session_id
-         LEFT JOIN service_derived_state d ON d.session_id=b.session_id
+         LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.id=?1 AND ki.status='active' AND b.principal_id=?2 AND b.space_id=?3",
         params![id,ctx.principal_id(),ctx.space_id()], |row| {
             let revision: Option<u32> = row.get(5)?;
@@ -194,9 +192,9 @@ pub fn knowledge_list(db: &StateDb, ctx: &LocalContext, page: Page) -> Result<Va
     page.validate()?;
     let conn = db.conn();
     let mut stmt = conn.prepare(
-        "SELECT ki.id,substr(ki.title,1,4096),d.knowledge_revision,b.current_revision,ki.siyuan_doc_id IS NOT NULL
+        "SELECT ki.id,substr(ki.title,1,4096),d.revision,b.current_revision,ki.siyuan_doc_id IS NOT NULL
          FROM knowledge_item ki JOIN service_session_binding b ON b.session_id=ki.source_session_id
-         LEFT JOIN service_derived_state d ON d.session_id=b.session_id
+         LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.status='active' AND b.principal_id=?1 AND b.space_id=?2
          ORDER BY ki.rowid DESC LIMIT ?3 OFFSET ?4")?;
     let items = stmt.query_map(params![ctx.principal_id(),ctx.space_id(),page.limit as i64,page.offset as i64], |row| {
@@ -228,8 +226,8 @@ pub fn search_response(
                 AND b.principal_id=?2 AND b.space_id=?3 AND d.indexed_revision=b.current_revision",
             SearchCorpus::Knowledge => "SELECT b.current_revision FROM service_session_binding b
                 JOIN knowledge_item ki ON ki.source_session_id=b.session_id
-                JOIN service_derived_state d ON d.session_id=b.session_id WHERE ki.id=?1
-                AND b.principal_id=?2 AND b.space_id=?3 AND d.knowledge_revision=b.current_revision AND ki.status='active'",
+                JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id WHERE ki.id=?1
+                AND b.principal_id=?2 AND b.space_id=?3 AND d.revision=b.current_revision AND ki.status='active'",
         };
         // Recall has already applied the scope BEFORE its limits. This is a
         // second consistency fence, not an authorization-by-post-filter design.

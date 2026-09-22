@@ -39,7 +39,7 @@ async fn published_body_comes_from_fixed_content_api_and_draft_is_explicit() {
         post(|headers: HeaderMap, Json(value): Json<Value>| async move {
             assert_eq!(headers["authorization"], "Token synthetic-content-secret");
             assert_eq!(value, json!({"id":"mapped-doc"}));
-            Json(json!({"code":0,"data":{"kramdown":"# CANONICAL_REMOTE_BODY"}}))
+            Json(json!({"code":0,"msg":"","data":{"kramdown":"# CANONICAL_REMOTE_BODY"}}))
         }),
     ))
     .await;
@@ -118,7 +118,7 @@ async fn disabled_ai_does_not_contact_content_or_model_services() {
     let count = seen.clone();
     let remote = upstream(Router::new().fallback(move || {
         count.fetch_add(1, Ordering::SeqCst);
-        async { Json(json!({"code":0,"data":{"kramdown":"# Canonical content"}})) }
+        async { Json(json!({"code":0,"msg":"","data":{"kramdown":"# Canonical content"}})) }
     }))
     .await;
     let s = RunningService::configured(|config| {
@@ -163,7 +163,7 @@ async fn content_redirects_never_forward_the_internal_credential() {
     let count = seen.clone();
     let target = upstream(Router::new().fallback(move || {
         count.fetch_add(1, Ordering::SeqCst);
-        async { Json(json!({"code":0,"data":{"kramdown":"not permitted"}})) }
+        async { Json(json!({"code":0,"msg":"","data":{"kramdown":"not permitted"}})) }
     }))
     .await;
     let url = target.base.clone();
@@ -202,7 +202,7 @@ async fn content_read_rechecks_visibility_without_holding_a_database_lock_across
         async move {
             ready.add_permits(1);
             gate.acquire().await.unwrap().forget();
-            Json(json!({"code":0,"data":{"kramdown":"REVOKED_CONTENT"}}))
+            Json(json!({"code":0,"msg":"","data":{"kramdown":"REVOKED_CONTENT"}}))
         }
     }))
     .await;
