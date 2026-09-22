@@ -52,10 +52,7 @@ impl<'a> PipelineJobRepo<'a> {
     }
 
     /// Transactional primitive shared with atomic ingestion. Does not commit.
-    pub fn enqueue_in_tx(
-        tx: &Transaction<'_>,
-        job: &PipelineJob,
-    ) -> anyhow::Result<EnqueueResult> {
+    pub fn enqueue_in_tx(tx: &Transaction<'_>, job: &PipelineJob) -> anyhow::Result<EnqueueResult> {
         Self::enqueue_with_identity_in_tx(tx, job, false)
     }
 
