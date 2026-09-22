@@ -191,7 +191,29 @@ pub fn chunk_for_llm(session_id: i64, messages: &[NormalizedMessage]) -> ChunkRe
 
 /// Persist chunks to DB
 pub fn save_chunks(db: &StateDb, chunks: &[SessionChunk]) -> anyhow::Result<()> {
-    let conn = db.conn();
+    save_chunks_guarded(db, chunks, None)
+}
+
+pub fn save_chunks_guarded(
+    db: &StateDb,
+    chunks: &[SessionChunk],
+    fence: Option<&crate::service::RevisionFence>,
+) -> anyhow::Result<()> {
+    let mut locked = db.conn();
+    let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    if let Some(fence) = fence {
+        fence.check_in_tx(&conn)?;
+        anyhow::ensure!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.session_id == fence.session_id),
+            "Chunk belongs to another revision session"
+        );
+        conn.execute(
+            "DELETE FROM session_chunk WHERE session_id=?1",
+            [fence.session_id],
+        )?;
+    }
     let now = Utc::now().to_rfc3339();
 
     // Delete old chunks for this session
@@ -216,19 +238,31 @@ pub fn save_chunks(db: &StateDb, chunks: &[SessionChunk]) -> anyhow::Result<()> 
             ],
         )?;
     }
+    conn.commit()?;
     Ok(())
 }
 
 /// Load chunks from DB for a session
 pub fn load_chunks(db: &StateDb, session_id: i64) -> anyhow::Result<Vec<(i32, String)>> {
-    let conn = db.conn();
+    load_chunks_guarded(db, session_id, None)
+}
+
+pub fn load_chunks_guarded(
+    db: &StateDb,
+    session_id: i64,
+    fence: Option<&crate::service::RevisionFence>,
+) -> anyhow::Result<Vec<(i32, String)>> {
+    let mut locked = db.conn();
+    let conn = locked.transaction()?;
+    if let Some(fence) = fence {
+        fence.check_session_in_tx(&conn, session_id)?;
+    }
     let mut stmt = conn.prepare(
         "SELECT chunk_index, content FROM session_chunk WHERE session_id = ?1 ORDER BY chunk_index",
     )?;
     let result: Vec<(i32, String)> = stmt
         .query_map(params![session_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(result)
 }
 

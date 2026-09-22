@@ -20,6 +20,7 @@ pub enum PipelineStage {
     Indexed,
     Ready,
     RawOnly,
+    Superseded,
     Failed,
 }
 
@@ -38,6 +39,7 @@ impl PipelineStage {
             PipelineStage::Indexed => "INDEXED",
             PipelineStage::Ready => "READY",
             PipelineStage::RawOnly => "RAW_ONLY",
+            PipelineStage::Superseded => "SUPERSEDED",
             PipelineStage::Failed => "FAILED",
         }
     }
@@ -56,6 +58,7 @@ impl PipelineStage {
             "INDEXED" => PipelineStage::Indexed,
             "READY" => PipelineStage::Ready,
             "RAW_ONLY" => PipelineStage::RawOnly,
+            "SUPERSEDED" => PipelineStage::Superseded,
             _ => PipelineStage::Failed,
         }
     }

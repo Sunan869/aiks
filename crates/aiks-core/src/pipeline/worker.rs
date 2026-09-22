@@ -24,10 +24,12 @@ use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
 use crate::pipeline::repo::PipelineRepo;
-use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
+use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks_guarded};
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
 use crate::renderer::MarkdownRenderer;
+use crate::service::SupersededRevision;
 use crate::storage::StateDb;
+use anyhow::Context;
 
 #[derive(Debug, Clone)]
 pub struct PipelineJob {
@@ -431,10 +433,13 @@ async fn run_worker(
                 };
 
                 let durable_repo = PipelineJobRepo::new(&task_db);
+                let result = result.and_then(|()| durable_repo.mark_succeeded(&durable_job_id));
                 match result {
-                    Ok(()) => {
-                        if let Err(e) = durable_repo.mark_succeeded(&durable_job_id) {
-                            error!(job_id = %durable_job_id, error = %e, "[PIPELINE] Failed to mark durable job DONE");
+                    Ok(()) => {}
+                    Err(e) if e.downcast_ref::<SupersededRevision>().is_some() => {
+                        if let Err(error) = durable_repo.mark_superseded(&durable_job_id) {
+                            error!(job_id = %durable_job_id, error = %error,
+                                "[PIPELINE] Failed to persist superseded revision");
                         }
                     }
                     Err(e) => {
@@ -557,6 +562,7 @@ async fn run_pipeline(
     // ── Stage 1: PARSE ────────────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("PARSED"), None, None)?;
 
+    let mut revision_fence = None;
     let session = match input {
         PipelineInputSource::LegacyProviders(registry) => {
             // Find source kind
@@ -594,7 +600,11 @@ async fn run_pipeline(
             session
         }
         PipelineInputSource::PersistedSnapshots => match SnapshotInput::load_for_run(db, run_id) {
-            Ok((session, _fence)) => session,
+            Ok((session, fence)) => {
+                fence.check_current(db)?;
+                revision_fence = Some(fence);
+                session
+            }
             Err(error) => fail_stage!("PARSED", error),
         },
     };
@@ -644,7 +654,7 @@ async fn run_pipeline(
     );
 
     if clean_result.cleaned_count == 0 {
-        repo.mark_finished(run_id, "RAW_ONLY")?;
+        repo.mark_finished_guarded(run_id, "RAW_ONLY", revision_fence.as_ref())?;
         return Ok(());
     }
 
@@ -660,21 +670,24 @@ async fn run_pipeline(
         embedding_config.clone(),
     )?);
     SessionIndexService::new(Arc::clone(db), models)
-        .index_session(SessionIndexInput {
-            session_id: job.session_id,
-            external_id: job.session_external_id.clone(),
-            source: job.source.clone(),
-            title: job.session_title.clone().or_else(|| session.title.clone()),
-            normalized_text,
-        })
+        .index_session_guarded(
+            SessionIndexInput {
+                session_id: job.session_id,
+                external_id: job.session_external_id.clone(),
+                source: job.source.clone(),
+                title: job.session_title.clone().or_else(|| session.title.clone()),
+                normalized_text,
+            },
+            revision_fence.as_ref(),
+        )
         .await
-        .map_err(|error| anyhow::anyhow!("SESSION_INDEX: {error}"))?;
+        .context("SESSION_INDEX")?;
 
     // ── Stage 3: LLM CHUNK ───────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("LLM_CHUNKED"), None, None)?;
 
     let chunk_result = chunk_for_llm(job.session_id, &clean_result.messages);
-    save_chunks(db, &chunk_result.chunks)?;
+    save_chunks_guarded(db, &chunk_result.chunks, revision_fence.as_ref())?;
 
     repo.record_stage(
         run_id,
@@ -694,7 +707,7 @@ async fn run_pipeline(
     // ── Stage 4: AI EXTRACT ──────────────────────────────────────────────────
     if !ai_config.enabled {
         info!("[AI] AI disabled, marking RAW_ONLY");
-        repo.mark_finished(run_id, "RAW_ONLY")?;
+        repo.mark_finished_guarded(run_id, "RAW_ONLY", revision_fence.as_ref())?;
         return Ok(());
     }
 
@@ -710,16 +723,18 @@ async fn run_pipeline(
     };
 
     let item_count = match ai_stage
-        .run(
+        .run_guarded(
             db,
             run_id,
             job.session_id,
             job.session_title.as_deref(),
             job.project_name.as_deref(),
+            revision_fence.as_ref(),
         )
         .await
     {
         Ok(n) => n,
+        Err(e) if e.downcast_ref::<SupersededRevision>().is_some() => return Err(e),
         Err(e) => {
             let msg = format!("AI extraction failed: {}", e);
             warn!(run_id, error = %e, "[AI] Extraction failed");
@@ -729,7 +744,7 @@ async fn run_pipeline(
     };
 
     if item_count == 0 {
-        repo.mark_finished(run_id, "RAW_ONLY")?;
+        repo.mark_finished_guarded(run_id, "RAW_ONLY", revision_fence.as_ref())?;
         return Ok(());
     }
 
@@ -777,7 +792,7 @@ async fn run_pipeline(
     )?;
 
     // ── DONE ──────────────────────────────────────────────────────────────────
-    repo.mark_finished(run_id, "READY")?;
+    repo.mark_finished_guarded(run_id, "READY", revision_fence.as_ref())?;
     info!(
         session_id = job.session_id,
         run_id = %run_id,

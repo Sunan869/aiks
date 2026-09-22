@@ -44,9 +44,7 @@ impl GatedModel {
 }
 
 async fn model() -> GatedModel {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     let release = Arc::new(Semaphore::new(0));
     let gate = release.clone();
@@ -183,7 +181,11 @@ async fn late_result_case(title_only: bool) {
             ..Default::default()
         },
     );
-    assert!(remote.next_request().await.to_string().contains("REVISION_INPUT_ONE"));
+    assert!(remote
+        .next_request()
+        .await
+        .to_string()
+        .contains("REVISION_INPUT_ONE"));
     input.submission_id = "second".into();
     input.expected_revision = 1;
     input.session.title = Some("Current title".into());

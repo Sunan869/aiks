@@ -171,6 +171,34 @@ impl<'a> PipelineJobRepo<'a> {
              WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
             params![now],
         )?;
+        if snapshot_only {
+            // Includes failed/recovered old attempts. Never consume an old
+            // snapshot again, and never confuse a SQLite error with supersession.
+            tx.execute(
+                "UPDATE pipeline_run SET status='SUPERSEDED', finished_at=?1, updated_at=?1,
+                    error_stage=NULL, error_message=NULL
+                 WHERE id IN (
+                    SELECT i.pipeline_run_id FROM service_job_input i
+                    JOIN service_session_snapshot s ON s.id=i.snapshot_id
+                    JOIN service_session_binding b ON b.session_id=s.session_id
+                    JOIN pipeline_job j ON j.id=i.durable_job_id
+                    WHERE s.revision < b.current_revision AND j.status IN ('PENDING','SUPERSEDED')
+                 ) AND status IN ('DISCOVERED','PROCESSING','FAILED')",
+                [&now],
+            )?;
+            tx.execute(
+                "UPDATE pipeline_job SET status='SUPERSEDED', lease_until=NULL,
+                    available_at=NULL, last_error=NULL, updated_at=?1
+                 WHERE status='PENDING' AND id IN (
+                    SELECT i.durable_job_id FROM service_job_input i
+                    JOIN service_session_snapshot s ON s.id=i.snapshot_id
+                    JOIN service_session_binding b ON b.session_id=s.session_id
+                    WHERE s.revision < b.current_revision
+                 )",
+                [&now],
+            )?;
+        }
+
         let row = tx
             .query_row(
                 "SELECT pj.id, pj.attempt,
@@ -264,7 +292,11 @@ impl<'a> PipelineJobRepo<'a> {
 
     pub fn mark_succeeded(&self, durable_job_id: &str) -> anyhow::Result<()> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.db.conn();
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(fence) = crate::service::RevisionFence::for_job_in_tx(&conn, durable_job_id)? {
+            fence.check_in_tx(&conn)?;
+        }
         conn.execute(
             "UPDATE pipeline_job
              SET status = 'DONE', lease_until = NULL, available_at = NULL,
@@ -272,6 +304,40 @@ impl<'a> PipelineJobRepo<'a> {
              WHERE id = ?2",
             params![now, durable_job_id],
         )?;
+        conn.commit()?;
+        Ok(())
+    }
+
+    /// Only a checked, obsolete snapshot can enter this non-error terminal state.
+    pub fn mark_superseded(&self, durable_job_id: &str) -> anyhow::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let mut locked = self.db.conn();
+        let tx = locked.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let fence = crate::service::RevisionFence::for_job_in_tx(&tx, durable_job_id)?
+            .ok_or_else(|| anyhow::anyhow!("Legacy job has no snapshot revision"))?;
+        match fence.check_in_tx(&tx) {
+            Err(error)
+                if error
+                    .downcast_ref::<crate::service::SupersededRevision>()
+                    .is_some() => {}
+            Err(error) => return Err(error),
+            Ok(()) => anyhow::bail!("Cannot supersede the current snapshot"),
+        }
+        let changed = tx.execute(
+            "UPDATE pipeline_job SET status='SUPERSEDED', lease_until=NULL,
+                available_at=NULL,last_error=NULL,updated_at=?1
+             WHERE id=?2 AND status IN ('RUNNING','PENDING')",
+            params![now, durable_job_id],
+        )?;
+        if changed == 1 {
+            tx.execute(
+                "UPDATE pipeline_run SET status='SUPERSEDED', finished_at=?1,
+                    updated_at=?1,error_stage=NULL,error_message=NULL
+                 WHERE id=(SELECT pipeline_run_id FROM service_job_input WHERE durable_job_id=?2)",
+                params![now, durable_job_id],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

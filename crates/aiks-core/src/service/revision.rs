@@ -38,7 +38,10 @@ impl RevisionFence {
         if revision < current {
             return Err(SupersededRevision.into());
         }
-        ensure!(revision == current, "Snapshot revision is ahead of its binding");
+        ensure!(
+            revision == current,
+            "Snapshot revision is ahead of its binding"
+        );
         Ok(())
     }
 
@@ -47,15 +50,14 @@ impl RevisionFence {
         tx: &Transaction<'_>,
         session_id: i64,
     ) -> anyhow::Result<()> {
-        ensure!(self.session_id == session_id, "Revision belongs to another session");
+        ensure!(
+            self.session_id == session_id,
+            "Revision belongs to another session"
+        );
         self.check_in_tx(tx)
     }
 
-    pub(crate) fn check_run_in_tx(
-        &self,
-        tx: &Transaction<'_>,
-        run_id: &str,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn check_run_in_tx(&self, tx: &Transaction<'_>, run_id: &str) -> anyhow::Result<()> {
         let matches: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM service_job_input i
              JOIN pipeline_run r ON r.id=i.pipeline_run_id
@@ -78,21 +80,30 @@ impl RevisionFence {
         tx: &Transaction<'_>,
         job_id: &str,
     ) -> anyhow::Result<Option<Self>> {
-        let fence = tx.query_row(
-            "SELECT s.session_id, s.id, s.revision FROM service_job_input i
+        let fence = tx
+            .query_row(
+                "SELECT s.session_id, s.id, s.revision FROM service_job_input i
              JOIN service_session_snapshot s ON s.id=i.snapshot_id
              JOIN pipeline_job j ON j.id=i.durable_job_id
               AND j.pipeline_run_id=i.pipeline_run_id AND j.session_id=s.session_id
              JOIN pipeline_run r ON r.id=i.pipeline_run_id AND r.session_id=s.session_id
              WHERE j.id=?1",
-            [job_id],
-            |row| Ok(Self { session_id: row.get(0)?, snapshot_id: row.get(1)?, revision: row.get(2)? }),
-        ).optional()?;
+                [job_id],
+                |row| {
+                    Ok(Self {
+                        session_id: row.get(0)?,
+                        snapshot_id: row.get(1)?,
+                        revision: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
         if fence.is_none() {
             let needs_snapshot: bool = tx.query_row(
                 "SELECT r.pipeline_version LIKE 'service-v1/%' FROM pipeline_job j
                  JOIN pipeline_run r ON r.id=j.pipeline_run_id WHERE j.id=?1",
-                [job_id], |row| row.get(0),
+                [job_id],
+                |row| row.get(0),
             )?;
             ensure!(!needs_snapshot, "Service job lost its immutable input");
         }

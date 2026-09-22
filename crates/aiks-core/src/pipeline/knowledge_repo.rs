@@ -33,6 +33,16 @@ impl<'a> KnowledgeRepo<'a> {
         project_name: Option<&str>,
         result: &V3ExtractionResult,
     ) -> anyhow::Result<Vec<String>> {
+        self.save_items_guarded(session_id, project_name, result, None)
+    }
+
+    pub fn save_items_guarded(
+        &self,
+        session_id: i64,
+        project_name: Option<&str>,
+        result: &V3ExtractionResult,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<Vec<String>> {
         #[derive(Debug)]
         struct ExistingIdentity {
             id: String,
@@ -53,9 +63,12 @@ impl<'a> KnowledgeRepo<'a> {
             format!("{}\u{1f}{}", normalize(category), normalize(title))
         }
 
-        let conn = self.db.conn();
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(fence) = fence {
+            fence.check_session_in_tx(&conn, session_id)?;
+        }
         let now = Utc::now().to_rfc3339();
-        conn.execute_batch("BEGIN IMMEDIATE")?;
 
         let result_res: anyhow::Result<Vec<String>> = (|| {
             let existing: Vec<ExistingIdentity> = {
@@ -220,16 +233,12 @@ impl<'a> KnowledgeRepo<'a> {
             Ok(item_ids)
         })();
 
-        match result_res {
-            Ok(ids) => {
-                conn.execute_batch("COMMIT")?;
-                Ok(ids)
-            }
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(e)
-            }
+        let ids = result_res?;
+        if let Some(fence) = fence {
+            fence.record_knowledge_in_tx(&conn)?;
         }
+        conn.commit()?;
+        Ok(ids)
     }
 
     /// Get all knowledge items for a session.

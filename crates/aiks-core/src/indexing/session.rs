@@ -41,6 +41,14 @@ impl SessionIndexService {
         &self,
         input: SessionIndexInput,
     ) -> anyhow::Result<SessionIndexResult> {
+        self.index_session_guarded(input, None).await
+    }
+
+    pub async fn index_session_guarded(
+        &self,
+        input: SessionIndexInput,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<SessionIndexResult> {
         if input.session_id <= 0 {
             anyhow::bail!("session_id must be positive");
         }
@@ -115,12 +123,11 @@ impl SessionIndexService {
             )
         }) {
             self.upsert_fts(
-                input.session_id,
-                external_id,
-                source,
+                (input.session_id, external_id, source),
                 &title,
                 project_name.as_deref(),
                 &input.normalized_text,
+                fence,
             )?;
             let chunk_count = state.as_ref().map(|value| value.chunk_count).unwrap_or(0);
             return Ok(SessionIndexResult {
@@ -157,7 +164,7 @@ impl SessionIndexService {
             content_hash: &content_hash,
             chunks: &prepared,
         };
-        self.begin_rebuild(&rebuild)?;
+        self.begin_rebuild(&rebuild, fence)?;
 
         let embed_result = if embedding_enabled {
             self.embed_chunks(&prepared, configured_dimensions).await
@@ -185,7 +192,7 @@ impl SessionIndexService {
             vectors: &vectors,
             last_error: embedding_error.as_deref(),
         };
-        self.finish_rebuild(&finish)?;
+        self.finish_rebuild(&finish, fence)?;
 
         Ok(SessionIndexResult {
             content_hash,
@@ -228,7 +235,11 @@ impl SessionIndexService {
         Ok(())
     }
 
-    fn begin_rebuild(&self, rebuild: &SessionRebuildContext<'_>) -> anyhow::Result<()> {
+    fn begin_rebuild(
+        &self,
+        rebuild: &SessionRebuildContext<'_>,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<()> {
         let session_id = rebuild.session_id;
         let external_id = rebuild.external_id;
         let source = rebuild.source;
@@ -238,8 +249,16 @@ impl SessionIndexService {
         let content_hash = rebuild.content_hash;
         let chunks = rebuild.chunks;
         let now = Utc::now().to_rfc3339();
-        let conn = self.db.conn();
-        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(fence) = fence {
+            fence.check_session_in_tx(&conn, session_id)?;
+            conn.execute(
+                "INSERT INTO service_derived_state(session_id,indexed_revision) VALUES (?1,NULL)
+                 ON CONFLICT(session_id) DO UPDATE SET indexed_revision=NULL",
+                [session_id],
+            )?;
+        }
         let result: anyhow::Result<()> = (|| {
             conn.execute(
                 "DELETE FROM session_embedding_record
@@ -298,13 +317,8 @@ impl SessionIndexService {
             )?;
             Ok(())
         })();
-        match result {
-            Ok(()) => conn.execute_batch("COMMIT")?,
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(error);
-            }
-        }
+        result?;
+        conn.commit()?;
         Ok(())
     }
 
@@ -350,7 +364,11 @@ impl SessionIndexService {
         Ok((vectors, dimensions))
     }
 
-    fn finish_rebuild(&self, finish: &SessionFinishContext<'_>) -> anyhow::Result<()> {
+    fn finish_rebuild(
+        &self,
+        finish: &SessionFinishContext<'_>,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<()> {
         let session_id = finish.session_id;
         let content_hash = finish.content_hash;
         let chunks = finish.chunks;
@@ -368,7 +386,11 @@ impl SessionIndexService {
         }
 
         let now = Utc::now().to_rfc3339();
-        let conn = self.db.conn();
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(fence) = fence {
+            fence.check_session_in_tx(&conn, session_id)?;
+        }
         let current: Option<(String, String)> = conn
             .query_row(
                 "SELECT status, COALESCE(indexed_hash, '') FROM session_index_state WHERE session_id = ?1",
@@ -382,7 +404,6 @@ impl SessionIndexService {
             anyhow::bail!("Session index rebuild was superseded: {session_id}");
         }
 
-        conn.execute_batch("BEGIN IMMEDIATE")?;
         let result: anyhow::Result<()> = (|| {
             if let Some(model) = embedding_model {
                 for (chunk, vector) in chunks.iter().zip(vectors.iter()) {
@@ -422,26 +443,28 @@ impl SessionIndexService {
             }
             Ok(())
         })();
-        match result {
-            Ok(()) => conn.execute_batch("COMMIT")?,
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(error);
-            }
+        result?;
+        if let Some(fence) = fence {
+            fence.record_indexed_in_tx(&conn)?;
         }
+        conn.commit()?;
         Ok(())
     }
 
     fn upsert_fts(
         &self,
-        session_id: i64,
-        external_id: &str,
-        source: &str,
+        identity: (i64, &str, &str),
         title: &str,
         project_name: Option<&str>,
         normalized_text: &str,
+        fence: Option<&crate::service::RevisionFence>,
     ) -> anyhow::Result<()> {
-        let conn = self.db.conn();
+        let (session_id, external_id, source) = identity;
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(fence) = fence {
+            fence.check_session_in_tx(&conn, session_id)?;
+        }
         conn.execute(
             "DELETE FROM session_search_fts WHERE session_id = ?1",
             params![session_id],
@@ -459,6 +482,10 @@ impl SessionIndexService {
                 normalized_text
             ],
         )?;
+        if let Some(fence) = fence {
+            fence.record_indexed_in_tx(&conn)?;
+        }
+        conn.commit()?;
         Ok(())
     }
 }

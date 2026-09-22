@@ -177,6 +177,13 @@ impl ServiceStore {
         if advanced != 1 {
             return Err(ServiceError::Conflict);
         }
+        // Advancing current_revision invalidates provenance without deleting
+        // already published/user-edited knowledge. NULL is explicitly unknown.
+        tx.execute(
+            "INSERT INTO service_derived_state(session_id) VALUES (?1)
+             ON CONFLICT(session_id) DO NOTHING",
+            [session_id],
+        )?;
         let snapshot_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO service_session_snapshot

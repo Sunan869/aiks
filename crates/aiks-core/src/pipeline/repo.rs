@@ -106,12 +106,31 @@ impl<'a> PipelineRepo<'a> {
 
     /// Mark pipeline run as finished
     pub fn mark_finished(&self, run_id: &str, status: &str) -> anyhow::Result<()> {
-        let conn = self.db.conn();
+        self.mark_finished_guarded(run_id, status, None)
+    }
+
+    pub fn mark_finished_guarded(
+        &self,
+        run_id: &str,
+        status: &str,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<()> {
+        let mut locked = self.db.conn();
+        let conn = locked.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(fence) = fence {
+            fence.check_run_in_tx(&conn, run_id)?;
+        }
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE pipeline_run SET finished_at = ?1, status = ?2, updated_at = ?1 WHERE id = ?3",
             params![now, status, run_id],
         )?;
+        if let Some(fence) = fence {
+            if matches!(status, "READY" | "RAW_ONLY") {
+                fence.record_completed_in_tx(&conn)?;
+            }
+        }
+        conn.commit()?;
         Ok(())
     }
 

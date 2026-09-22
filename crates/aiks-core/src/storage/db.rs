@@ -267,6 +267,10 @@ impl StateDb {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute_batch(SCHEMA_V13_SQL)
             .context("run V13 service snapshot migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/013_service_derived_revisions.sql"
+        ))
+        .context("run V14 service derived revision migration")?;
         tx.commit()?;
         Ok(())
     }

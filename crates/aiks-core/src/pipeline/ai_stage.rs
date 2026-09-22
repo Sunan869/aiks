@@ -24,7 +24,7 @@ use crate::ai::{
 };
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;
-use crate::pipeline::session_chunker::load_chunks;
+use crate::pipeline::session_chunker::load_chunks_guarded;
 use crate::storage::StateDb;
 use crate::util::SecretSanitizer;
 
@@ -102,11 +102,31 @@ impl AiStage {
         session_title: Option<&str>,
         project_name: Option<&str>,
     ) -> anyhow::Result<usize> {
+        self.run_guarded(
+            db,
+            pipeline_run_id,
+            session_id,
+            session_title,
+            project_name,
+            None,
+        )
+        .await
+    }
+
+    pub async fn run_guarded(
+        &self,
+        db: &StateDb,
+        pipeline_run_id: &str,
+        session_id: i64,
+        session_title: Option<&str>,
+        project_name: Option<&str>,
+        fence: Option<&crate::service::RevisionFence>,
+    ) -> anyhow::Result<usize> {
         let pipeline_repo = PipelineRepo::new(db);
         let knowledge_repo = KnowledgeRepo::new(db);
 
         // Load chunks from DB
-        let chunks = load_chunks(db, session_id)?;
+        let chunks = load_chunks_guarded(db, session_id, fence)?;
 
         if chunks.is_empty() {
             anyhow::bail!("No chunks found for session {}", session_id);
@@ -149,6 +169,11 @@ impl AiStage {
         );
 
         if !result.worth_extracting || result.items.is_empty() {
+            if fence.is_some() {
+                let mut empty = result.clone();
+                empty.items.clear();
+                knowledge_repo.save_items_guarded(session_id, project_name, &empty, fence)?;
+            }
             info!(
                 session_id,
                 score = result.knowledge_score,
@@ -176,7 +201,7 @@ impl AiStage {
         );
 
         // Save knowledge items
-        knowledge_repo.save_items(session_id, project_name, &result)?;
+        knowledge_repo.save_items_guarded(session_id, project_name, &result, fence)?;
 
         pipeline_repo.record_stage(
             pipeline_run_id,
