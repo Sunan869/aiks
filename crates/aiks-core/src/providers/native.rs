@@ -52,7 +52,7 @@ impl NativeProvider {
             SourceKind::Aider => (super::aider::read(io, path, metadata_only)?, true),
             SourceKind::KimiCode => (super::kimi::read(io, path, metadata_only)?, true),
             SourceKind::Cursor => super::cursor::read(io, path, metadata_only, expected)?,
-            SourceKind::GithubCopilot => (super::copilot::read(io, path, metadata_only)?, true),
+            SourceKind::GithubCopilot => super::copilot::read(io, path, metadata_only)?,
             SourceKind::Antigravity => (super::antigravity::read(io, path, metadata_only)?, true),
             _ => anyhow::bail!("unregistered external source"),
         };
@@ -136,12 +136,25 @@ impl NativeProvider {
                 }
                 let (sessions, complete) = match self.parse(&io, &relative, true, None) {
                     Ok(parsed) => parsed,
-                    Err(_) => {
+                    Err(error) => {
+                        tracing::warn!(
+                            source = self.source.as_str(),
+                            store_index = store,
+                            path = %relative.display(),
+                            error = %error,
+                            "Provider candidate could not be parsed"
+                        );
                         report.incomplete("transcript_or_schema_unreadable", store);
                         continue;
                     }
                 };
                 if !complete {
+                    tracing::warn!(
+                        source = self.source.as_str(),
+                        store_index = store,
+                        path = %relative.display(),
+                        "Provider candidate was only partially readable"
+                    );
                     report.incomplete("partial_store", store);
                 }
                 for s in sessions {
