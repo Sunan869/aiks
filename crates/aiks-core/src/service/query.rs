@@ -166,7 +166,7 @@ pub fn knowledge(
         "SELECT ki.id,substr(ki.title,1,4096),substr(ki.summary,1,16384),substr(ki.category,1,256),
             CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
             d.revision,b.current_revision,ki.siyuan_doc_id,
-            CASE WHEN ki.siyuan_doc_id IS NULL AND length(ki.content)<=1048576 THEN ki.content END
+            CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END
          FROM knowledge_item ki JOIN service_session_binding b ON b.session_id=ki.source_session_id
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.id=?1 AND ki.status='active' AND b.principal_id=?2 AND b.space_id=?3",
