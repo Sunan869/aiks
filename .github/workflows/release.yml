@@ -10,6 +10,10 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+    paths:
+      - "siyuan.version"
 
 permissions:
   contents: write
@@ -44,9 +48,12 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
             release_tag="v$version"
-          else
+          elif [[ "$REF_NAME" == v* ]]; then
             release_tag="$REF_NAME"
             version="${release_tag#v}"
+          else
+            version="$workspace_version"
+            release_tag="v$version"
           fi
 
           if [[ "$version" != "$workspace_version" || "$version" != "$tauri_version" || "$version" != "$package_version" ]]; then
