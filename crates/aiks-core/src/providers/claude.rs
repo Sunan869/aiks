@@ -642,11 +642,26 @@ mod tests {
     }
 
     #[test]
+    fn active_tail_is_visible_to_discovery_but_rejected_on_load() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("session.jsonl");
+        let content = concat!(
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"question\"},\"uuid\":\"u1\"}\n",
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"answer\"},\"uuid\":\"a1\"}\n",
+            "{\"type\":\"assistant\",\"message\":"
+        );
+        std::fs::write(&file, content).unwrap();
+        let summary = ClaudeProvider::scan_summary(content).unwrap();
+        assert_eq!(summary.1, 2);
+        assert!(ClaudeProvider::parse_jsonl(&file).is_err());
+    }
+
+    #[test]
     fn scan_summary_extracts_title() {
         let content = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"How do I implement a binary search?"}]},"uuid":"m1","sessionId":"s","cwd":"/home/user/project","timestamp":"2024-01-01T00:00:00Z","parentUuid":null}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Binary search is..."}]},"uuid":"m2","sessionId":"s","cwd":"/home/user/project","timestamp":"2024-01-01T00:00:01Z","parentUuid":"m1"}
 "#;
-        let (title, count, cwd, started_at) = ClaudeProvider::scan_summary(content);
+        let (title, count, cwd, started_at) = ClaudeProvider::scan_summary(content).unwrap();
         assert_eq!(
             title.as_deref(),
             Some("How do I implement a binary search?")
