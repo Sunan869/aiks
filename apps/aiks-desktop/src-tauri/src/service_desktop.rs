@@ -19,6 +19,7 @@ pub struct ServiceDesktop {
     provider_config:Config,
     providers:Arc<ProviderRegistry>,
     gate:Semaphore,
+    lifecycle_gate:Mutex<()>,
     stopping:AtomicBool,
     cancel:watch::Sender<bool>,
     delivery:Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -31,39 +32,65 @@ impl ServiceDesktop {
         let (cancel,_)=watch::channel(false);
         Self {phase:RwLock::new("starting"),error:RwLock::new(None),client:RwLock::new(None),
             outbox:RwLock::new(None),owner:Mutex::new(None),content:Mutex::new(None),
-            profile_lease:std::sync::Mutex::new(None),provider_config:config,providers,gate:Semaphore::new(1),
+            profile_lease:std::sync::Mutex::new(None),provider_config:config,providers,gate:Semaphore::new(1),lifecycle_gate:Mutex::new(()),
             stopping:AtomicBool::new(false),cancel,delivery:Mutex::new(None),close_to_tray}
     }
     pub async fn start(self:&Arc<Self>,app:&AppHandle)->anyhow::Result<()> {
-        let result=self.start_inner(app).await;
+        let lifecycle_guard=self.lifecycle_gate.lock().await;
+        self.ensure_running()?;
+        let result=self.start_inner(app).await.and_then(|()|self.ensure_running());
         if result.is_err() {
-            self.shutdown().await;
+            self.stopping.store(true,Ordering::Release);
+            self.cancel.send_replace(true);
+            self.stop_owned().await;
             *self.phase.write().await="failed";
             *self.error.write().await=Some("service_start_failed");
         }
+        drop(lifecycle_guard);
         result
     }
+    fn ensure_running(&self)->anyhow::Result<()> {
+        anyhow::ensure!(!self.stopping.load(Ordering::Acquire),"Service startup cancelled");
+        Ok(())
+    }
     async fn start_inner(self:&Arc<Self>,app:&AppHandle)->anyhow::Result<()> {
+        self.ensure_running()?;
+        let mut cancelled=self.cancel.subscribe();
         let root=crate::app_state::data_dir().join("service-local");
         let lease=BusinessDbLease::acquire(&root.join("desktop-owner"))?;
         *self.profile_lease.lock().map_err(|_|anyhow::anyhow!("Profile lock unavailable"))?=Some(lease);
-        for folder in ["data","config","logs","siyuan/workspace"] {std::fs::create_dir_all(root.join(folder))?;}
+        for folder in ["data","config","logs","siyuan/workspace"] {
+            let path=root.join(folder);
+            validate_private_path(&path,false)?;
+            std::fs::create_dir_all(path)?;
+        }
         let root=root.canonicalize()?;
         let resource=app.path().resource_dir()?;
-        // Fail before spawning content when the new business binary is missing.
         let binary=binary_path(&resource)?;
-        let runtime_root=crate::bootstrap::find_runtime_root(app)?;
+        let runtime_root=crate::bootstrap::locate_runtime_root(app)?;
         let bootstrap=BootstrapConfig::new(runtime_root,root.clone(),"AIKS Service Knowledge");
         validate_runtime(&bootstrap)?;
         let runtime=Arc::new(SiyuanRuntime::new(bootstrap.runtime_config()));
-        // Own the runtime before awaiting startup, so all error paths clean up.
         *self.content.lock().await=Some(runtime.clone());
-        let info=runtime.start().await?;
+        self.ensure_running()?;
+        let info=tokio::select! {
+            _=cancelled.changed()=>anyhow::bail!("Service startup cancelled"),
+            result=runtime.start()=>result?,
+        };
+        self.ensure_running()?;
         let path=prepare_config(&root,&info.base_url)?;
-        let owner=OwnedService::start(&binary,&path,None).await?;
+        let identity_path=root.join("instance-id");
+        validate_private_path(&identity_path,true)?;
+        let expected=if identity_path.exists(){
+            anyhow::ensure!(std::fs::metadata(&identity_path)?.len()<=128,"Invalid stored instance identity");
+            Some(std::fs::read_to_string(&identity_path)?.trim().to_owned())
+        }else{None};
+        let owner=tokio::select! {
+            _=cancelled.changed()=>anyhow::bail!("Service startup cancelled"),
+            result=OwnedService::start(&binary,&path,expected.as_deref())=>result?,
+        };
         let client=owner.client();
         let instance=client.connection().instance_id().to_owned();
-        let identity_path=root.join("instance-id");
         if identity_path.exists() {
             let existing=std::fs::read_to_string(&identity_path)?;
             if existing.trim()!=instance {
@@ -76,6 +103,7 @@ impl ServiceDesktop {
         *self.owner.lock().await=Some(owner);
         *self.client.write().await=Some(client);
         *self.outbox.write().await=Some(outbox);
+        self.ensure_running()?;
         *self.phase.write().await="ready";
         let state=self.clone();
         *self.delivery.lock().await=Some(tokio::spawn(async move {
@@ -148,9 +176,13 @@ impl ServiceDesktop {
         Ok(json!({"sources":reports,"delivery":"queued"}))
     }
     pub async fn shutdown(&self){
-        if self.stopping.swap(true,Ordering::AcqRel){return;}
-        *self.phase.write().await="stopping";
+        self.stopping.store(true,Ordering::Release);
         self.cancel.send_replace(true);
+        let _lifecycle_guard=self.lifecycle_gate.lock().await;
+        *self.phase.write().await="stopping";
+        self.stop_owned().await;
+    }
+    async fn stop_owned(&self){
         let delivery=self.delivery.lock().await.take();
         if let Some(task)=delivery {task.abort();let _=task.await;}
         let _permit=tokio::time::timeout(Duration::from_secs(5),self.gate.acquire()).await;
@@ -172,6 +204,7 @@ impl ServiceDesktop {
 
 fn prepare_config(root:&Path,content_url:&str)->anyhow::Result<PathBuf>{
     let models=root.join("config/models.toml");
+    validate_private_path(&models,true)?;
     if !models.exists(){write_private(&models,b"[ai]\nenabled=false\nbase_url=\"http://127.0.0.1:11434/v1\"\nmodel=\"\"\n\n[embedding]\nenabled=false\nbase_url=\"http://127.0.0.1:11434/v1\"\nmodel=\"\"\n",true)?;}
     let metadata=std::fs::symlink_metadata(&models)?;
     anyhow::ensure!(metadata.is_file()&&!metadata.file_type().is_symlink()&&metadata.len()<=1024*1024,"Invalid service model configuration");
@@ -197,10 +230,76 @@ fn prepare_config(root:&Path,content_url:&str)->anyhow::Result<PathBuf>{
 }
 fn write_private(path:&Path,content:&[u8],new:bool)->anyhow::Result<()> {
     use std::io::Write;
-    if let Ok(meta)=std::fs::symlink_metadata(path){anyhow::ensure!(meta.is_file()&&!meta.file_type().is_symlink(),"Invalid configuration file");}
-    let mut options=std::fs::OpenOptions::new();
-    options.write(true);
+    validate_private_path(path,true)?;
+    let mut options=std::fs::OpenOptions::new();options.write(true);
     if new {options.create_new(true);}else{options.create(true).truncate(true);}
     #[cfg(unix)] {use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}
     let mut file=options.open(path)?;file.write_all(content)?;file.sync_all()?;Ok(())
+}
+
+// Defensive native boundary, not an OS sandbox against a same-user attacker.
+fn validate_private_path(path:&Path,file:bool)->anyhow::Result<()> {
+    for (index,component) in path.ancestors().enumerate(){
+        let meta=match std::fs::symlink_metadata(component){
+            Ok(meta)=>meta,
+            Err(error) if error.kind()==std::io::ErrorKind::NotFound=>continue,
+            Err(error)=>return Err(error.into()),
+        };
+        anyhow::ensure!(!meta.file_type().is_symlink(),"Linked profile path is not supported");
+        #[cfg(windows)] {
+            use std::os::windows::fs::MetadataExt;
+            anyhow::ensure!(meta.file_attributes()&0x400==0,"Reparse profile path is not supported");
+        }
+        if index==0&&file{
+            anyhow::ensure!(meta.is_file(),"Profile configuration must be a regular file");
+            #[cfg(unix)] {
+                use std::os::unix::fs::MetadataExt;
+                anyhow::ensure!(meta.nlink()==1,"Hard-linked profile file is not supported");
+            }
+        }else{anyhow::ensure!(meta.is_dir(),"Profile ancestor must be a directory");}
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod service_desktop_tests {
+    use super::*;
+    #[tokio::test]
+    async fn shutdown_cancels_startup_before_waiting_and_cleanup_is_serialized(){
+        let state=Arc::new(ServiceDesktop::new(Config::default()));
+        let lifecycle=state.lifecycle_gate.lock().await;
+        let mut cancelled=state.cancel.subscribe();
+        let other=state.clone();
+        let stopping=tokio::spawn(async move {other.shutdown().await;});
+        tokio::time::timeout(Duration::from_secs(2),cancelled.changed()).await.unwrap().unwrap();
+        assert!(state.ensure_running().is_err());
+        assert!(!stopping.is_finished());
+        drop(lifecycle);
+        stopping.await.unwrap();state.shutdown().await;
+        assert_eq!(*state.phase.read().await,"stopped");
+    }
+    #[test]
+    fn profile_links_and_model_defaults_cannot_escape_the_new_space(){
+        let root=std::env::temp_dir().join(format!("aiks-profile-test-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        let path=prepare_config(&root,"http://127.0.0.1:12345").unwrap();
+        let value:toml::Value=toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["ai"]["enabled"].as_bool(),Some(false));
+        assert_eq!(value["ai"]["model"].as_str(),Some(""));
+        assert_eq!(value["embedding"]["enabled"].as_bool(),Some(false));
+        let models=root.join("config/models.toml");
+        std::fs::write(&models,"[ai]\nmodel='explicit-name'\n").unwrap();
+        let path=prepare_config(&root,"http://127.0.0.1:12345").unwrap();
+        let value:toml::Value=toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["ai"]["enabled"].as_bool(),Some(false));
+        assert_eq!(value["ai"]["base_url"].as_str(),Some(""));
+        #[cfg(unix)] {
+            std::fs::remove_file(&models).unwrap();
+            let target=root.join("private-models");std::fs::write(&target,"DO_NOT_TOUCH").unwrap();
+            std::os::unix::fs::symlink(&target,&models).unwrap();
+            assert!(prepare_config(&root,"http://127.0.0.1:12345").is_err());
+            assert_eq!(std::fs::read_to_string(target).unwrap(),"DO_NOT_TOUCH");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
