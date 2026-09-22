@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags};
 
+use super::ownership::BusinessDbLease;
+
 const SCHEMA_V1_SQL: &str = include_str!("../../migrations/001_init.sql");
 const SCHEMA_V3_SQL: &str = include_str!("../../migrations/002_v3_pipeline.sql");
 const SCHEMA_V4_SQL: &str = include_str!("../../migrations/003_pipeline_job.sql");
@@ -16,6 +18,7 @@ const SCHEMA_V9_SQL: &str = include_str!("../../migrations/008_v41_siyuan_conten
 const SCHEMA_V10_SQL: &str = include_str!("../../migrations/009_v42_knowledge_index.sql");
 const SCHEMA_V11_SQL: &str = include_str!("../../migrations/010_v42_deleted_knowledge_status.sql");
 const SCHEMA_V12_SQL: &str = include_str!("../../migrations/011_v42_session_search.sql");
+const SCHEMA_V13_SQL: &str = include_str!("../../migrations/012_service_snapshots.sql");
 
 /// AIKS state database.
 ///
@@ -26,6 +29,8 @@ const SCHEMA_V12_SQL: &str = include_str!("../../migrations/011_v42_session_sear
 /// Always acquire the lock, do the DB work, release, then do the async I/O.
 pub struct StateDb {
     conn: Mutex<Connection>,
+    // Fields drop in declaration order: SQLite closes before ownership releases.
+    lease: Option<BusinessDbLease>,
 }
 
 // StateDb is now genuinely thread-safe: the Mutex serializes all access.
@@ -34,8 +39,24 @@ unsafe impl Send for StateDb {}
 unsafe impl Sync for StateDb {}
 
 impl StateDb {
-    /// Open (or create) the state database at the given path.
+    /// Compatibility entry point. Runtime owners use open_exclusive; isolated
+    /// repository tests may still intentionally open additional connections.
     pub fn open(path: &Path) -> anyhow::Result<Self> {
+        Self::open_inner(path, None)
+    }
+
+    /// Acquire process ownership before opening SQLite or running migrations.
+    pub fn open_exclusive(path: &Path) -> anyhow::Result<Self> {
+        let lease = BusinessDbLease::acquire(path)?;
+        let canonical_path = lease.database_path().to_path_buf();
+        Self::open_inner(&canonical_path, Some(lease))
+    }
+
+    pub fn has_exclusive_lease(&self) -> bool {
+        self.lease.is_some()
+    }
+
+    fn open_inner(path: &Path, lease: Option<BusinessDbLease>) -> anyhow::Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("create state DB dir: {}", parent.display()))?;
@@ -47,9 +68,11 @@ impl StateDb {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         let db = Self {
             conn: Mutex::new(conn),
+            lease,
         };
         db.run_migrations()?;
         Ok(db)
@@ -65,11 +88,12 @@ impl StateDb {
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         Ok(Self {
             conn: Mutex::new(conn),
+            lease: None,
         })
     }
 
     fn run_migrations(&self) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("DB mutex poisoned");
+        let mut conn = self.conn.lock().expect("DB mutex poisoned");
         conn.execute_batch(SCHEMA_V1_SQL)
             .context("run V1 migrations")?;
         conn.execute_batch(SCHEMA_V3_SQL)
@@ -238,6 +262,12 @@ impl StateDb {
         conn.execute_batch(SCHEMA_V12_SQL)
             .context("run V12 AI session search migrations")?;
 
+        // New service tables are additive and committed atomically. Identity
+        // initialization is separate and never adopts legacy records implicitly.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute_batch(SCHEMA_V13_SQL)
+            .context("run V13 service snapshot migration")?;
+        tx.commit()?;
         Ok(())
     }
 

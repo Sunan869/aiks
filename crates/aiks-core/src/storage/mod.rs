@@ -1,4 +1,5 @@
 pub mod db;
+pub mod ownership;
 pub mod repo;
 
 pub use db::StateDb;
@@ -18,7 +19,8 @@ pub fn rebuild_sync_index_only(db: &StateDb) -> anyhow::Result<()> {
         DELETE FROM source_file_state;
         -- Reset content hashes so all sessions will re-sync
         UPDATE source_session SET content_hash = NULL, updated_at = datetime('now');
-    ",
+    
+",
     )?;
     tracing::info!("[REBUILD] Sync index cleared; knowledge data preserved");
     Ok(())
