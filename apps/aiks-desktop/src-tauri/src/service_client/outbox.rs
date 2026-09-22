@@ -120,7 +120,14 @@ impl CollectorOutbox {
     }
     pub(super) fn registration(&self, key: &str) -> ClientResult<Option<String>> {
         let key = format!("registration/{key}");
-        let value: Option<String> = self.conn()?.query_row("SELECT value FROM collector_meta WHERE key=?1", [key], |r| r.get(0)).optional()?;
+        let value: Option<String> = self
+            .conn()?
+            .query_row(
+                "SELECT value FROM collector_meta WHERE key=?1",
+                [key],
+                |r| r.get(0),
+            )
+            .optional()?;
         if value.as_ref().is_some_and(|v| !super::valid_id(v)) {
             return Err(ClientError::Storage);
         }
@@ -133,8 +140,15 @@ impl CollectorOutbox {
         let key = format!("registration/{key}");
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute("INSERT INTO collector_meta(key,value) VALUES (?1,?2) ON CONFLICT(key) DO NOTHING", params![key,id])?;
-        let value: String = tx.query_row("SELECT value FROM collector_meta WHERE key=?1", [&key], |r| r.get(0))?;
+        tx.execute(
+            "INSERT INTO collector_meta(key,value) VALUES (?1,?2) ON CONFLICT(key) DO NOTHING",
+            params![key, id],
+        )?;
+        let value: String = tx.query_row(
+            "SELECT value FROM collector_meta WHERE key=?1",
+            [&key],
+            |r| r.get(0),
+        )?;
         if value != id {
             return Err(ClientError::Conflict);
         }

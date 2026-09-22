@@ -8,6 +8,7 @@ mod knowledge_commands;
 mod lifecycle;
 mod provider_commands;
 mod search_commands;
+pub mod service_client;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
