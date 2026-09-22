@@ -13,9 +13,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::model::{
-    hash::compute_session_hash, ContentBlock, MessageRole, NormalizedSession,
-};
+use crate::model::{hash::compute_session_hash, ContentBlock, MessageRole, NormalizedSession};
 use crate::providers::{ProviderRegistry, SessionSummary};
 use crate::renderer::MarkdownRenderer;
 use crate::sink::SiYuanSink;
@@ -99,7 +97,6 @@ fn meaningful_session_content(session: &NormalizedSession) -> (usize, bool) {
 
     (chars, has_media)
 }
-
 
 /// Persist a trustworthy remote-content baseline without marking the whole sync
 /// successful yet. This is intentionally separate from `mark_synced`: attrs can
@@ -916,7 +913,6 @@ impl SyncEngine {
     }
 }
 
-
 #[cfg(test)]
 mod meaningful_content_tests {
     use super::*;
@@ -955,7 +951,10 @@ mod meaningful_content_tests {
 
     #[test]
     fn meaningful_session_content_rejects_metadata_only_sessions() {
-        assert_eq!(meaningful_session_content(&sample_session(Vec::new())), (0, false));
+        assert_eq!(
+            meaningful_session_content(&sample_session(Vec::new())),
+            (0, false)
+        );
         assert_eq!(
             meaningful_session_content(&sample_session(vec![message(
                 MessageRole::Assistant,
