@@ -30,29 +30,59 @@ impl RunningService {
         let token = "ab".repeat(32); // Synthetic test credential, never a user secret.
         let instance_id = runtime.context().instance_id().to_owned();
         let space_id = runtime.context().space_id().to_owned();
-        let auth = LocalAuth::new(&token, &instance_id).unwrap().with_authority(bound).unwrap();
+        let auth = LocalAuth::new(&token, &instance_id)
+            .unwrap()
+            .with_authority(bound)
+            .unwrap();
         let app = build_router(runtime.clone(), auth);
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
-            axum::serve(listener, app).with_graceful_shutdown(async { let _ = stopped.await; }).await.unwrap();
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+                .unwrap();
         });
         Self {
-            root, path, base: format!("http://{bound}"), token, instance_id, space_id,
-            client: Client::builder().no_proxy().timeout(Duration::from_secs(5)).build().unwrap(),
-            runtime, stop: Some(stop), task: Some(task),
+            root,
+            path,
+            base: format!("http://{bound}"),
+            token,
+            instance_id,
+            space_id,
+            client: Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            runtime,
+            stop: Some(stop),
+            task: Some(task),
         }
     }
 
     pub fn auth(&self, request: RequestBuilder) -> RequestBuilder {
-        request.bearer_auth(&self.token).header("X-AIKS-Instance-ID", &self.instance_id)
+        request
+            .bearer_auth(&self.token)
+            .header("X-AIKS-Instance-ID", &self.instance_id)
     }
 
     pub async fn registration(&self) -> String {
-        let response = self.auth(self.client.post(format!("{}/api/v1/source-registrations", self.base)))
+        let response = self
+            .auth(
+                self.client
+                    .post(format!("{}/api/v1/source-registrations", self.base)),
+            )
             .json(&serde_json::json!({"source":"continue","registration_key":"synthetic-device"}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 200);
-        response.json::<Value>().await.unwrap()["source_registration_id"].as_str().unwrap().to_owned()
+        response.json::<Value>().await.unwrap()["source_registration_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
     }
 
     pub async fn stop(mut self) {
@@ -64,7 +94,11 @@ impl RunningService {
 
 impl Drop for RunningService {
     fn drop(&mut self) {
-        if let Some(stop) = self.stop.take() { let _ = stop.send(()); }
-        if let Some(task) = self.task.take() { task.abort(); }
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
