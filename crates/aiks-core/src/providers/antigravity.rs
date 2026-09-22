@@ -8,7 +8,7 @@ pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
-) -> Result<Vec<NormalizedSession>> {
+) -> Result<(Vec<NormalizedSession>, bool)> {
     let upstream = relative
         .components()
         .nth(1)
@@ -81,13 +81,13 @@ pub(crate) fn read(
         Ok(())
     })?;
     ensure!(
-        report.complete,
-        "Antigravity transcript incomplete; retry later"
-    );
-    ensure!(
         recognized > 0,
         "unsupported Antigravity transcript schema; no verified message steps"
     );
+    let safe_live_tail = metadata_only
+        && report.partial_tail
+        && report.malformed_lines == 0
+        && !report.source_changed;
     complete(&mut s);
-    Ok(vec![s])
+    Ok((vec![s], report.complete || safe_live_tail))
 }

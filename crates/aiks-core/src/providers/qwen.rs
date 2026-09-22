@@ -8,7 +8,7 @@ pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
-) -> Result<Vec<NormalizedSession>> {
+) -> Result<(Vec<NormalizedSession>, bool)> {
     let path = io.checked_path(relative)?;
     let mut sessions = BTreeMap::<String, NormalizedSession>::new();
     let report = io.for_each_jsonl(relative, |index, event| {
@@ -50,18 +50,21 @@ pub(crate) fn read(
         Ok(())
     })?;
     ensure!(
-        report.complete,
-        "Qwen transcript is incomplete; previous import must be retained"
-    );
-    ensure!(
         !sessions.is_empty(),
         "Qwen transcript has no session identity"
     );
-    Ok(sessions
-        .into_values()
-        .map(|mut s| {
-            complete(&mut s);
-            s
-        })
-        .collect())
+    let safe_live_tail = metadata_only
+        && report.partial_tail
+        && report.malformed_lines == 0
+        && !report.source_changed;
+    Ok((
+        sessions
+            .into_values()
+            .map(|mut s| {
+                complete(&mut s);
+                s
+            })
+            .collect(),
+        report.complete || safe_live_tail,
+    ))
 }

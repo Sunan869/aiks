@@ -29,6 +29,7 @@ pub struct ReadReport {
     pub complete: bool,
     pub malformed_lines: usize,
     pub partial_tail: bool,
+    pub source_changed: bool,
 }
 #[derive(Debug, Clone)]
 pub struct ScopedReader {
@@ -233,7 +234,9 @@ impl ScopedReader {
             }
             index += 1;
         }
-        report.complete &= self.unchanged(relative, &before)?;
+        let unchanged = self.unchanged(relative, &before)?;
+        report.source_changed = !unchanged;
+        report.complete &= unchanged;
         Ok(report)
     }
     pub fn jsonl(&self, relative: &Path) -> Result<Vec<(usize, Value)>> {

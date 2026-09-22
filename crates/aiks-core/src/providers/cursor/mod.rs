@@ -265,6 +265,11 @@ pub(crate) fn read(
                 }
             }
         }
+    } else if relative.starts_with("workspaceStorage") {
+        // A Cursor workspace state database exists for every workspace, even when
+        // that workspace never stored Composer chat history. Treat those unrelated
+        // databases as an empty candidate instead of poisoning the whole provider scan.
+        return Ok((Vec::new(), true));
     } else {
         anyhow::bail!("unsupported Cursor database schema");
     }
