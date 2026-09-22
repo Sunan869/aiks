@@ -1,0 +1,54 @@
+name: Real SiYuan Windows startup
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+    paths:
+      - 'crates/aiks-core/src/bootstrap/**'
+      - 'crates/aiks-core/src/runtime/**'
+      - 'crates/aiks-core/tests/siyuan_real_windows.rs'
+      - 'siyuan.version'
+      - 'scripts/fetch-siyuan-runtime.py'
+      - '.github/workflows/siyuan-windows-startup.yml'
+permissions:
+  contents: read
+concurrency:
+  group: siyuan-windows-startup-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-kernel:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: actions/cache@v4
+        with:
+          path: .build/cache/aiks-siyuan
+          key: siyuan-smoke-windows-x64-${{ hashFiles('siyuan.version') }}
+      - name: Prepare the exact locked runtime
+        shell: pwsh
+        run: |
+          python scripts/fetch-siyuan-runtime.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtime = Join-Path $env:GITHUB_WORKSPACE 'apps/aiks-desktop/src-tauri/resources/siyuan'
+          "AIKS_TEST_SIYUAN_RUNTIME_ROOT=$runtime" >> $env:GITHUB_ENV
+      - name: Fresh plain and canonical workspace boot
+        shell: pwsh
+        run: |
+          cargo test --locked -p aiks-core --test siyuan_real_windows -- --ignored --nocapture --test-threads=1 2>&1 | Tee-Object -FilePath siyuan-startup-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: siyuan-windows-startup-${{ github.sha }}
+          path: siyuan-startup-tests.log
+          retention-days: 3
