@@ -11,6 +11,7 @@ pub mod renderer;
 pub mod runtime;
 pub mod search;
 pub mod semantic_index;
+pub mod service;
 pub mod share_import;
 pub mod sink;
 pub mod storage;

@@ -1,4 +1,6 @@
-use aiks_core::model::{ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind};
+use aiks_core::model::{
+    ContentBlock, MessageRole, NormalizedMessage, NormalizedSession, SourceKind,
+};
 use aiks_core::service::SnapshotSubmission;
 use std::collections::HashMap;
 

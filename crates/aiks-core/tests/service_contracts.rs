@@ -6,17 +6,29 @@ use serde_json::json;
 mod fixture;
 
 fn input() -> SnapshotSubmission {
-    fixture::submission("space", "instance", "registration", "upload-1", 0, "秘密正文")
+    fixture::submission(
+        "space",
+        "instance",
+        "registration",
+        "upload-1",
+        0,
+        "秘密正文",
+    )
 }
 
 #[test]
 fn valid_snapshot_preserves_unknown_blocks_and_does_not_print_content() {
     let mut request = input();
-    request.session.messages[0].blocks.push(ContentBlock::Unknown {
-        raw: json!({"future": "sensitive-unknown"}),
-    });
+    request.session.messages[0]
+        .blocks
+        .push(ContentBlock::Unknown {
+            raw: json!({"future": "sensitive-unknown"}),
+        });
     request.session.source_path = Some("/never/read/this/file.jsonl".into());
-    request.session.metadata.insert("url".into(), json!("http://127.0.0.1:1/private"));
+    request
+        .session
+        .metadata
+        .insert("url".into(), json!("http://127.0.0.1:1/private"));
     let accepted = validate_submission(&request).unwrap();
     let stored: serde_json::Value = serde_json::from_slice(&accepted.canonical_json).unwrap();
     assert_eq!(stored["messages"][0]["blocks"].as_array().unwrap().len(), 2);
@@ -30,20 +42,35 @@ fn valid_snapshot_preserves_unknown_blocks_and_does_not_print_content() {
 fn incomplete_snapshot_has_a_stable_error() {
     let mut request = input();
     request.complete = false;
-    assert_eq!(validate_submission(&request).unwrap_err().code(), "incomplete_snapshot");
+    assert_eq!(
+        validate_submission(&request).unwrap_err().code(),
+        "incomplete_snapshot"
+    );
 }
 
 #[test]
 fn unsupported_protocol_and_empty_identifiers_are_rejected() {
     let mut request = input();
     request.api_version = 2;
-    assert_eq!(validate_submission(&request).unwrap_err().code(), "unsupported_version");
+    assert_eq!(
+        validate_submission(&request).unwrap_err().code(),
+        "unsupported_version"
+    );
     request.api_version = 1;
-    for field in ["submission_id", "service_instance_id", "space_id", "source_registration_id", "parser_version"] {
+    for field in [
+        "submission_id",
+        "service_instance_id",
+        "space_id",
+        "source_registration_id",
+        "parser_version",
+    ] {
         let mut value = serde_json::to_value(&request).unwrap();
         value[field] = json!(" ");
         let invalid: SnapshotSubmission = serde_json::from_value(value).unwrap();
-        assert_eq!(validate_submission(&invalid).unwrap_err().code(), "invalid_input");
+        assert_eq!(
+            validate_submission(&invalid).unwrap_err().code(),
+            "invalid_input"
+        );
     }
     request.session.external_session_id.clear();
     assert!(validate_submission(&request).is_err());
@@ -61,13 +88,19 @@ fn clients_cannot_smuggle_owner_or_role_fields() {
 #[test]
 fn fingerprints_are_canonical_and_submission_id_is_not_payload_identity() {
     let mut first = input();
-    first.session.metadata.insert("z".into(), json!({"b": 2, "a": 1}));
+    first
+        .session
+        .metadata
+        .insert("z".into(), json!({"b": 2, "a": 1}));
     first.session.metadata.insert("a".into(), json!(1));
     let mut second = first.clone();
     second.submission_id = "upload-2".into();
     second.session.metadata.clear();
     second.session.metadata.insert("a".into(), json!(1));
-    second.session.metadata.insert("z".into(), json!({"a": 1, "b": 2}));
+    second
+        .session
+        .metadata
+        .insert("z".into(), json!({"a": 1, "b": 2}));
     let a = validate_submission(&first).unwrap();
     let b = validate_submission(&second).unwrap();
     assert_eq!(a.request_hash, b.request_hash);
@@ -102,10 +135,16 @@ fn title_parser_and_message_order_are_revision_content() {
 fn message_and_block_budgets_are_enforced_without_truncating() {
     let mut messages = input();
     messages.session.messages = vec![messages.session.messages[0].clone(); 20_001];
-    assert_eq!(validate_submission(&messages).unwrap_err().code(), "too_large");
+    assert_eq!(
+        validate_submission(&messages).unwrap_err().code(),
+        "too_large"
+    );
     let mut blocks = input();
     blocks.session.messages[0].blocks = vec![ContentBlock::Text { text: "x".into() }; 257];
-    assert_eq!(validate_submission(&blocks).unwrap_err().code(), "too_large");
+    assert_eq!(
+        validate_submission(&blocks).unwrap_err().code(),
+        "too_large"
+    );
 }
 
 #[test]
@@ -114,7 +153,10 @@ fn serialized_byte_budget_and_nested_unknown_data_are_bounded() {
     oversized.session.messages[0].blocks = vec![ContentBlock::Text {
         text: "x".repeat(16 * 1024 * 1024 + 1),
     }];
-    assert_eq!(validate_submission(&oversized).unwrap_err().code(), "too_large");
+    assert_eq!(
+        validate_submission(&oversized).unwrap_err().code(),
+        "too_large"
+    );
     let mut deep = input();
     let mut value = json!("leaf");
     for _ in 0..80 {
