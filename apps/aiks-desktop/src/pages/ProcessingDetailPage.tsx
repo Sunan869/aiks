@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { PipelineSummary, StageRun } from "../api/types";
-import { formatSourceName } from "../source-display";
+import { useSourceName } from "../ProviderCatalog";
 
 const STAGE_LABELS: Record<string, string> = {
   PARSED: "解析", CLEANED: "清洗", LLM_CHUNKED: "LLM切片",
@@ -66,6 +66,7 @@ interface Props {
 }
 
 export default function ProcessingDetailPage({ runId, onBack }: Props) {
+  const formatSourceName = useSourceName();
   const [detail, setDetail] = useState<PipelineSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);

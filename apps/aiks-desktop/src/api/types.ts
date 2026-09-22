@@ -1,3 +1,13 @@
+export interface SyncAndExtractResult {
+  discovered: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  skipped_count: number;
+  failed_count: number;
+  extraction_queued: number;
+}
+
 // Shared Desktop API types
 
 export interface ShareImportResult {
@@ -246,6 +256,7 @@ export interface FullStatus {
   scan_total: number;
   scan_by_source: Record<string, number>;
   provider_health: Record<string, boolean>;
+  provider_diagnostics?: Record<string, string[]>;
   db_total: number;
   db_synced: number;
   db_pending: number;

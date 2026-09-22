@@ -48,6 +48,17 @@ Provider 只负责发现和读取上游 Session，并输出 AIKS Canonical Model
 - OpenCode SQLite 与 WorkBuddy SQLite 必须按只读/WAL-aware 边界访问，不得修改其 schema、WAL 或数据。
 - WorkBuddy Provider 只可读取 `workbuddy.db` 会话元数据与 `projects/**/*.jsonl` transcript；不得读取或发布 `connectors/`、memory profile、MCP secrets、`.neodata_token` 或 `file-history/` 内容。
 
+### 新增本地来源（PR #46）
+
+Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider 通过 `providers/native.rs` 与各格式模块接入。旧五个来源身份保持不变，来源显示和筛选统一消费 Core catalog；Share URL 缓存来源仍与本地目录来源区分。
+
+- 新来源只经 `ScopedReader` 读取允许的 transcript 和必要元数据；加载时复查来源身份及路径边界，拒绝逃逸链接/reparse points，并保留读取预算和完整性诊断。
+- Cursor 与 Kilo 索引 SQLite 只读且读取 WAL；不得枚举与会话无关的配置值或凭据。
+- 部分扫描保留有效会话，但不能据此将未扫描/损坏/禁用来源的旧记录标为缺失。
+- Antigravity IDE 的 usage/token 缓存不是对话，不得用它伪造消息。Aider 不默认扫描用户主目录或整个磁盘。
+- Provider tests 必须显式配置 AI/Embedding 或使用回环测试服务；不得依赖部署模型默认值，也不得为了测试通过修改部署配置。
+- `multi_provider_acceptance` 对 11 个适配器分别运行实际同步、去重、提炼、发布与混合搜索；真实安装环境和版本兼容范围仍单独验收。参见 `docs/reference-analysis/multi-provider-support.md`。
+
 ### State / Pipeline
 
 SQLite 是本地状态和持久任务的事实源。`pipeline_job` 是持久队列，内存 channel 只能承担有界唤醒等辅助职责，不得恢复成无界 payload backlog。

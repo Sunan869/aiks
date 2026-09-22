@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
-import { formatSourceName } from "../source-display";
+import { useSourceName, useSourceCatalog } from "../ProviderCatalog";
+import { sourceFilterOptions } from "../api/provider-catalog-model";
 
 const SOURCE_LABELS: Record<string, string> = {
   opencode: "OpenCode",
@@ -12,6 +13,11 @@ const SOURCE_LABELS: Record<string, string> = {
   chatgpt_share: "ChatGPT",
   claude_share: "Claude",
   gemini_share: "Gemini",
+  deepseek_share: "DeepSeek",
+  doubao_share: "豆包",
+  kimi_share: "Kimi",
+  yuanbao_share: "腾讯元宝",
+  qwen_share: "千问",
 };
 
 const PIPELINE_STATUS_COLORS: Record<string, string> = {
@@ -30,6 +36,8 @@ const PIPELINE_STATUS_LABELS: Record<string, string> = {
 interface Props { onViewDetail?: (sessionId: number) => void; }
 
 export default function SessionsPage({ onViewDetail }: Props) {
+  const formatSourceName = useSourceName();
+  const { sources, error: catalogError } = useSourceCatalog();
   const [data, setData] = useState<SessionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,17 +65,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const sourceOptions = [
-    "",
-    "opencode",
-    "claude_code",
-    "codex",
-    "gemini_cli",
-    "workbuddy",
-    "chatgpt_share",
-    "claude_share",
-    "gemini_share",
-  ];
+  const sourceOptions = [{ value: "", label: "全部来源" }, ...sourceFilterOptions(sources)];
 
   const importShare = async () => {
     const url = shareUrl.trim();
@@ -113,13 +111,14 @@ export default function SessionsPage({ onViewDetail }: Props) {
             onChange={e => { setSource(e.target.value); setPage(0); }}
             className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
-            {sourceOptions.map(s => (
-              <option key={s} value={s}>{s ? SOURCE_LABELS[s] ?? formatSourceName(s) : "全部来源"}</option>
+            {sourceOptions.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </div>
       </div>
 
+      {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
           {error}
@@ -192,7 +191,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">导入 AI 分享会话</h2>
                 <p className="mt-1 text-xs text-gray-500">
-                  支持 ChatGPT、Claude、Gemini 的公开 Share URL
+                  支持 ChatGPT、Claude、Gemini、DeepSeek、豆包、Kimi、腾讯元宝、千问的公开 Share URL
                 </p>
               </div>
               <button
@@ -218,7 +217,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
                 className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400"
               />
               <p className="text-xs leading-5 text-gray-500">
-                仅支持公开分享链接。Claude / Gemini 如遇浏览器验证，AIKS 会自动打开临时窗口，完成验证后会继续导入。
+                仅支持公开分享链接。需要网页渲染或遇到验证时，AIKS 会自动打开临时窗口，完成后继续导入。
               </p>
               {importError && (
                 <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300">

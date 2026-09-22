@@ -212,32 +212,30 @@ impl SyncEngine {
             self.config.security.redact_secrets,
         );
 
-        let (summaries, total_discovered): (Vec<SessionSummary>, usize) =
-            if let Some(src) = &opts.source_filter {
-                if let Some(source_kind) = crate::model::SourceKind::from_str(src) {
-                    match registry.get(source_kind) {
-                        Some(provider) => {
-                            let rows = provider.discover_sessions().await?;
-                            let count = rows.len();
-                            (rows, count)
-                        }
-                        None => (Vec::new(), 0),
+        let selected_provider = opts
+            .source_filter
+            .as_deref()
+            .map(|key| {
+                crate::model::SourceKind::from_str(key)
+                    .ok_or_else(|| anyhow::anyhow!("Unknown source filter"))
+            })
+            .transpose()?;
+        let mut summaries = Vec::new();
+        for (source, result) in registry.discover_selected(selected_provider).await {
+            match result {
+                Ok(report) => {
+                    if !report.complete {
+                        warn!(
+                            source = source.as_str(),
+                            "Provider scan incomplete; missing detection disabled"
+                        );
                     }
-                } else {
-                    let all = registry.discover_all().await;
-                    let total = all.len();
-                    (
-                        all.into_iter()
-                            .filter(|summary| summary.source.as_str() == src.as_str())
-                            .collect(),
-                        total,
-                    )
+                    summaries.extend(report.sessions);
                 }
-            } else {
-                let all = registry.discover_all().await;
-                let total = all.len();
-                (all, total)
-            };
+                Err(_) => warn!(source = source.as_str(), "Provider scan failed"),
+            }
+        }
+        let total_discovered = summaries.len();
 
         info!(
             total_discovered,
@@ -772,7 +770,8 @@ impl SyncEngine {
     ) -> anyhow::Result<usize> {
         let source_session_repo = SourceSessionRepo::new(db);
         let all_stored = source_session_repo.list_all()?;
-        let per_source = registry.discover_all_detailed().await;
+        let per_source = registry.discover_selected(None).await;
+        let mut covered_scopes = std::collections::HashMap::new();
 
         let mut visible: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
@@ -781,9 +780,13 @@ impl SyncEngine {
 
         for (source, result) in per_source {
             match result {
-                Ok(sessions) => {
+                Ok(report) => {
+                    if !report.complete {
+                        continue;
+                    }
+                    covered_scopes.insert(source.as_str().to_string(), report.covered_paths);
                     scanned_sources.insert(source.as_str().to_string());
-                    for s in sessions {
+                    for s in report.sessions {
                         visible.insert((source.as_str().to_string(), s.external_session_id));
                     }
                 }
@@ -804,6 +807,17 @@ impl SyncEngine {
             }
             if !scanned_sources.contains(&stored.source) {
                 continue;
+            }
+            if let Some(scopes) = covered_scopes.get(&stored.source) {
+                if !scopes.is_empty()
+                    && !stored.source_path.as_ref().is_some_and(|path| {
+                        scopes
+                            .iter()
+                            .any(|scope| std::path::Path::new(path).starts_with(scope))
+                    })
+                {
+                    continue;
+                }
             }
             let key = (stored.source.clone(), stored.external_session_id.clone());
             if !visible.contains(&key) {

@@ -1,3 +1,4 @@
+import type { SyncAndExtractResult } from "./types";
 // Desktop API interface — all Tauri commands go through this abstraction
 import type {
   Overview,
@@ -58,7 +59,7 @@ export interface AiksApi {
   // Compatibility / operational APIs
   getFullStatus(): Promise<FullStatus>;
   getAiStatus(): Promise<AiStatus>;
-  syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }>;
+  syncAndExtract(source?: string): Promise<SyncAndExtractResult>;
   scanSources(source?: string): Promise<{ total: number; by_source: Record<string, number> }>;
   backfillExtractions(): Promise<{ submitted: number }>;
   syncKnowledgeToSiyuan(): Promise<{ created: number; updated: number; unchanged: number; conflict: number; failed: number }>;

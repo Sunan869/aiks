@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BookOpen, ExternalLink, Loader2 } from "lucide-react";
-import { formatSourceName } from "../source-display";
+import { useSourceName } from "../ProviderCatalog";
 
 interface KnowledgeItem {
   source: string; session_id: string; category: string;
@@ -14,6 +14,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function KnowledgePage() {
+  const formatSourceName = useSourceName();
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [siyuanUrl, setSiyuanUrl] = useState<string | null>(null);

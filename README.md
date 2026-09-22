@@ -4,9 +4,17 @@ AIKS（AI Knowledge Sync）是一个本地优先的 AI 工作知识处理系统�
 
 当前仓库已经包含正式实现，不再是只有设计文档的 V1 骨架。
 
+## 多工具本地会话接入
+
+新增原生只读来源：Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider。它们与原有五个来源复用 Canonical Session、同步、持久任务、知识提炼和搜索，不依赖安装另一个会话查看器。
+
+**支持范围不是各工具的所有历史版本。** Antigravity 当前可导入已有 CLI transcript；只有 IDE token/usage 缓存时会明确显示格式不支持，绝不把统计数据拼成用户/助手对话。Cursor Agent 当前支持 JSONL，Kimi 覆盖主 Agent wire 与旧 context 布局，Copilot 覆盖 CLI/Desktop 本地事件和 VS Code 会话快照/补丁。Aider 必须显式配置项目根目录。
+
+数据源页面统一展示正式名称、状态和目录配置；保存目录/开关后需要重启。来源稳定 key 不随品牌名变化，关闭来源或移除配置根不会删除已导入记录。自动化样例与实际安装环境验收分别记录；具体文件布局、测试入口和已知限制见 `docs/reference-analysis/multi-provider-support.md`。
+
 ## 当前能力
 
-- Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy Session Provider。
+- 原有五个 Session Provider，加上上述 11 个本地来源适配器；精确支持范围见支持矩阵。
 - Canonical Session Model、内容 Hash、增量同步与 source 状态跟踪。
 - SQLite 状态库与 migration。
 - 持久化 `pipeline_job` 队列、lease、重试、崩溃恢复和 Pipeline stage 可观测性。

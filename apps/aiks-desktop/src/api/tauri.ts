@@ -1,3 +1,4 @@
+import type { SyncAndExtractResult } from "./types";
 // Tauri API implementation — wraps invoke() calls
 import { invoke } from "@tauri-apps/api/core";
 import type { AiksApi } from "./index";
@@ -182,7 +183,7 @@ export class TauriAiksApi implements AiksApi {
 
   async getFullStatus(): Promise<FullStatus> { return invoke("get_full_status"); }
   async getAiStatus(): Promise<AiStatus> { return invoke("get_ai_status"); }
-  async syncAndExtract(source?: string): Promise<{ discovered: number; new_count: number; updated_count: number }> { return invoke("sync_and_extract", { source }); }
+  async syncAndExtract(source?: string): Promise<SyncAndExtractResult> { return invoke("sync_and_extract", { source }); }
   async scanSources(source?: string): Promise<{ total: number; by_source: Record<string, number> }> { return invoke("scan_sources", { source }); }
   async backfillExtractions(): Promise<{ submitted: number }> {
     const r = await invoke<{ submitted: number }>("backfill_extractions");

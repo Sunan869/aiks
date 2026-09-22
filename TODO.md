@@ -61,12 +61,12 @@ P0 与 P1 代码评审问题已经在 `review/integration` 中集中处理；后
 
 ### Providers
 
-新增 Provider 前先确认真实需求，并延续只读 source + canonical model 边界。候选包括：
+PR #46 的 11 个本地来源已有原生适配器，精确格式与自动化证据见 `docs/reference-analysis/multi-provider-support.md`；不再将同一批来源作为尚未开始的重复开发任务。
 
-- [ ] Cursor。
-- [ ] Windsurf。
-- [ ] Copilot CLI。
-- [ ] Qwen Code / Kimi 等本地或 CLI Agent。
+- [ ] 对上述来源完成真实安装环境与版本矩阵验收（尤其 Windows 自动目录发现）。
+- [ ] Antigravity IDE 的真实消息存储：当前仅统计缓存不支持，不把 usage 伪造为对话。
+- [ ] 尚未覆盖的历史/未来格式按匿名 fixture 增量适配；Cursor Agent 非 JSONL、新 Kimi 子 Agent 等不因来源名称已注册就视为已验证。
+- [ ] Windsurf 仍是单独候选，不属于本次 11 个来源范围。
 
 ### Distribution / Operations
 

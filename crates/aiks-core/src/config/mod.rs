@@ -86,6 +86,18 @@ pub struct ProvidersConfig {
     pub gemini: ProviderConfig,
     pub opencode: ProviderConfig,
     pub workbuddy: ProviderConfig,
+    pub antigravity: ExternalProviderConfig,
+    pub cursor: ExternalProviderConfig,
+    pub cursor_agent: ExternalProviderConfig,
+    pub cline: ExternalProviderConfig,
+    pub roo_code: ExternalProviderConfig,
+    pub kilo_code: ExternalProviderConfig,
+    pub github_copilot: ExternalProviderConfig,
+    pub kimi_code: ExternalProviderConfig,
+    pub qwen_code: ExternalProviderConfig,
+    #[serde(rename = "continue")]
+    pub continue_dev: ExternalProviderConfig,
+    pub aider: ExternalProviderConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -413,5 +425,22 @@ mod data_root_tests {
         let reloaded = Config::from_file(&path).unwrap();
         assert!(reloaded.embedding.enabled);
         assert_eq!(reloaded.embedding.base_url, "http://example.invalid/v1");
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExternalProviderConfig {
+    pub enabled: bool,
+    pub path: String,
+    pub paths: Vec<String>,
+}
+impl Default for ExternalProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            path: String::new(),
+            paths: Vec::new(),
+        }
     }
 }

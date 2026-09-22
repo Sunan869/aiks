@@ -77,6 +77,7 @@ pub async fn get_embedding_settings() -> Result<EmbeddingSettings, String> {
 
 #[tauri::command]
 pub async fn save_embedding_settings(settings: EmbeddingSettings) -> Result<(), String> {
+    let _provider_config_guard = crate::provider_commands::CONFIG_SAVE_LOCK.lock().await;
     let mut config = load_config()?;
     apply_settings(&mut config, &settings)?;
     persist_config(&config)
