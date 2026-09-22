@@ -47,47 +47,90 @@ impl RunningService {
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
             axum::serve(listener, app)
-                .with_graceful_shutdown(async { let _ = stopped.await; })
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
                 .await
                 .unwrap();
         });
         Self {
-            root, path, base: format!("http://{bound}"), token, instance_id, space_id,
-            client: Client::builder().no_proxy().timeout(Duration::from_secs(5)).build().unwrap(),
-            runtime, stop: Some(stop), task: Some(task),
+            root,
+            path,
+            base: format!("http://{bound}"),
+            token,
+            instance_id,
+            space_id,
+            client: Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            runtime,
+            stop: Some(stop),
+            task: Some(task),
         }
     }
 
     pub fn auth(&self, request: RequestBuilder) -> RequestBuilder {
-        request.bearer_auth(&self.token).header("X-AIKS-Instance-ID", &self.instance_id)
+        request
+            .bearer_auth(&self.token)
+            .header("X-AIKS-Instance-ID", &self.instance_id)
     }
 
     pub async fn registration(&self) -> String {
-        let response = self.auth(self.client.post(format!("{}/api/v1/source-registrations", self.base)))
+        let response = self
+            .auth(
+                self.client
+                    .post(format!("{}/api/v1/source-registrations", self.base)),
+            )
             .json(&serde_json::json!({"source":"continue","registration_key":"synthetic-device"}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 200);
-        response.json::<Value>().await.unwrap()["source_registration_id"].as_str().unwrap().to_owned()
+        response.json::<Value>().await.unwrap()["source_registration_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
     }
 
     pub async fn ingest_ready(&self, text: &str) -> Value {
         let reg = self.registration().await;
-        let input = fixture::submission(&self.space_id, &self.instance_id, &reg, "fixture", 0, text);
-        let response = self.auth(self.client.post(format!("{}/api/v1/session-snapshots", self.base)))
-            .json(&input).send().await.unwrap();
+        let input =
+            fixture::submission(&self.space_id, &self.instance_id, &reg, "fixture", 0, text);
+        let response = self
+            .auth(
+                self.client
+                    .post(format!("{}/api/v1/session-snapshots", self.base)),
+            )
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 202);
         let receipt: Value = response.json().await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                let response = self.auth(self.client.get(format!("{}/api/v1/jobs/{}", self.base, receipt["job_id"].as_str().unwrap())))
-                    .send().await.unwrap();
+                let response = self
+                    .auth(self.client.get(format!(
+                        "{}/api/v1/jobs/{}",
+                        self.base,
+                        receipt["job_id"].as_str().unwrap()
+                    )))
+                    .send()
+                    .await
+                    .unwrap();
                 assert_eq!(response.status(), 200);
                 let job: Value = response.json().await.unwrap();
-                if job["status"] == "DONE" { break; }
+                if job["status"] == "DONE" {
+                    break;
+                }
                 assert_ne!(job["status"], "FAILED");
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         receipt
     }
 
@@ -96,7 +139,8 @@ impl RunningService {
         db.execute("INSERT INTO knowledge_item (id,source_session_id,title,category,summary,content,created_at,updated_at,siyuan_doc_id)
                     VALUES (?1,?2,'Synthetic knowledge','implementation','Synthetic summary','SQLITE_DRAFT_ONLY','test','test',?3)",
             rusqlite::params![id,receipt["session_id"].as_str().unwrap(),doc]).unwrap();
-        db.execute("UPDATE service_derived_state SET knowledge_revision=1", []).unwrap();
+        db.execute("UPDATE service_derived_state SET knowledge_revision=1", [])
+            .unwrap();
     }
 
     pub async fn stop(mut self) {
@@ -108,7 +152,11 @@ impl RunningService {
 
 impl Drop for RunningService {
     fn drop(&mut self) {
-        if let Some(stop) = self.stop.take() { let _ = stop.send(()); }
-        if let Some(task) = self.task.take() { task.abort(); }
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
