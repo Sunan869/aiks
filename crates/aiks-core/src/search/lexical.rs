@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use rusqlite::{params, params_from_iter, Connection};
 
-use super::{lexical_score, RankedCandidate, SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit};
+use super::{lexical_score, RankedCandidate, ScopedFilter, SearchCorpus, UnifiedSearchHit};
 use crate::storage::StateDb;
 
 const CANDIDATE_CAP: usize = 1024;
@@ -15,7 +15,7 @@ pub(super) fn recall(
     db: &StateDb,
     query: &str,
     terms: &[String],
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
     corpus: SearchCorpus,
     requested_limit: usize,
 ) -> (Vec<RankedCandidate>, Vec<String>) {
@@ -146,7 +146,7 @@ fn fts_expression(query: &str, terms: &[String]) -> String {
         .join(" OR ")
 }
 
-fn filter_values(filter: &UnifiedSearchFilter) -> (&str, &str) {
+fn filter_values(filter: &ScopedFilter) -> (&str, &str) {
     (
         filter.project.as_deref().unwrap_or("").trim(),
         filter.source.as_deref().unwrap_or("").trim(),
@@ -156,7 +156,7 @@ fn filter_values(filter: &UnifiedSearchFilter) -> (&str, &str) {
 fn indexed(
     conn: &Connection,
     expression: &str,
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
     corpus: SearchCorpus,
 ) -> anyhow::Result<Vec<RankedCandidate>> {
     let sql = match corpus {
@@ -191,7 +191,11 @@ fn indexed(
         }
     };
     let (project, source) = filter_values(filter);
-    let mut stmt = conn.prepare(sql)?;
+    let sql = sql.replace(
+        "ORDER BY rank",
+        &format!("AND {} ORDER BY rank", filter.predicate(corpus)),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
         params![expression, project, source, CANDIDATE_CAP as i64],
         |row| {
@@ -212,7 +216,7 @@ fn substring(
     conn: &Connection,
     query: &str,
     terms: &[String],
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
     corpus: SearchCorpus,
 ) -> anyhow::Result<Vec<RankedCandidate>> {
     let (select, haystack) = match corpus {
@@ -247,7 +251,7 @@ fn session_metadata(
     conn: &Connection,
     query: &str,
     terms: &[String],
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
 ) -> anyhow::Result<Vec<RankedCandidate>> {
     text_rows(
         conn,
@@ -268,7 +272,7 @@ fn text_rows(
     conn: &Connection,
     query: &str,
     terms: &[String],
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
     corpus: SearchCorpus,
     select: &str,
     haystack: &str,
@@ -285,7 +289,10 @@ fn text_rows(
         .collect::<Vec<_>>()
         .join(" OR ");
     // LIMIT is a compile-time bound; every user-controlled value is bound.
-    let sql = format!("{select} AND ({predicates}) LIMIT {CANDIDATE_CAP}");
+    let sql = format!(
+        "{select} AND ({predicates}) AND {} LIMIT {CANDIDATE_CAP}",
+        filter.predicate(corpus)
+    );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(values), |row| {
         let id: String = row.get(0)?;

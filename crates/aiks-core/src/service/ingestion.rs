@@ -80,6 +80,15 @@ impl ServiceStore {
         context: &LocalContext,
         snapshot: &ValidatedSnapshot,
     ) -> Result<(SnapshotReceipt, bool), ServiceError> {
+        let (receipt, queued, _) = self.accept_with_flags(context, snapshot)?;
+        Ok((receipt, queued))
+    }
+
+    pub(crate) fn accept_with_flags(
+        &self,
+        context: &LocalContext,
+        snapshot: &ValidatedSnapshot,
+    ) -> Result<(SnapshotReceipt, bool, bool), ServiceError> {
         if *context != self.local_context() {
             return Err(ServiceError::Unauthorized);
         }
@@ -120,7 +129,7 @@ impl ServiceStore {
                 return Err(ServiceError::Conflict);
             }
             tx.commit()?;
-            return Ok((receipt, false));
+            return Ok((receipt, false, false));
         }
 
         let binding: Option<(i64, u32)> = tx
@@ -145,7 +154,7 @@ impl ServiceStore {
             if let Some(receipt) = reuse_current(&tx, session_id, revision, snapshot)? {
                 save_receipt(&tx, context, snapshot, &receipt, &now)?;
                 tx.commit()?;
-                return Ok((receipt, false));
+                return Ok((receipt, false, true));
             }
         }
         let revision = current_revision
@@ -240,7 +249,7 @@ impl ServiceStore {
         };
         save_receipt(&tx, context, snapshot, &receipt, &now)?;
         tx.commit()?;
-        Ok((receipt, queued.inserted))
+        Ok((receipt, queued.inserted, true))
     }
 }
 

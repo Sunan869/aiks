@@ -10,14 +10,18 @@ pub(super) struct ScopedFilter {
 
 impl std::ops::Deref for ScopedFilter {
     type Target = UnifiedSearchFilter;
-    fn deref(&self) -> &Self::Target { &self.filter }
+    fn deref(&self) -> &Self::Target {
+        &self.filter
+    }
 }
 
 impl ScopedFilter {
     /// Only persistent server-issued identity is quoted here. Query, project and
     /// source inputs remain bound parameters in every existing search path.
     pub fn predicate(&self, corpus: SearchCorpus) -> String {
-        let Some(ctx) = &self.context else { return "1=1".into(); };
+        let Some(ctx) = &self.context else {
+            return "1=1".into();
+        };
         let revision = match corpus {
             SearchCorpus::Session => "d.indexed_revision",
             SearchCorpus::Knowledge => "d.knowledge_revision",

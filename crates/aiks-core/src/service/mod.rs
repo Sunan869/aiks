@@ -11,3 +11,7 @@ pub use repo::{LocalContext, ServiceStore};
 pub use revision::{RevisionFence, SupersededRevision};
 pub(crate) use validation::snapshot_content_hash;
 pub use validation::validate_submission;
+
+pub mod query;
+mod runtime;
+pub use runtime::{ServiceRuntime, ServiceRuntimeConfig};

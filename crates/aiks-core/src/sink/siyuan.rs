@@ -102,6 +102,63 @@ impl SiYuanSink {
         })
     }
 
+    /// Read-only service adapter: no credential forwarding through redirects.
+    pub fn service_reader(mut config: SiYuanConfig) -> anyhow::Result<Self> {
+        let url = reqwest::Url::parse(&config.base_url)?;
+        anyhow::ensure!(
+            matches!(url.scheme(), "http" | "https")
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && matches!(url.path(), "" | "/"),
+            "Invalid content store origin"
+        );
+        config.base_url = config.base_url.trim_end_matches('/').to_string();
+        let mut sink = Self::new(config)?;
+        sink.client = Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
+        Ok(sink)
+    }
+
+    /// Fixed endpoint and trusted mapped document ID; never a caller URL/path.
+    pub async fn get_document_markdown_bounded(
+        &self,
+        doc_id: &str,
+        budget: usize,
+    ) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            !doc_id.is_empty() && doc_id.len() <= 256,
+            "Invalid mapped document identity"
+        );
+        let url = format!("{}/api/block/getBlockKramdown", self.base_url);
+        let mut response = self
+            .request_builder(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({"id":doc_id}))
+            .send()
+            .await?;
+        anyhow::ensure!(response.status().is_success(), "Content store unavailable");
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            anyhow::ensure!(
+                bytes.len().saturating_add(chunk.len()) <= budget,
+                "Content response exceeds budget"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        #[derive(Deserialize)]
+        struct Content {
+            kramdown: String,
+        }
+        let parsed: ApiResponse<Content> = serde_json::from_slice(&bytes)?;
+        anyhow::ensure!(parsed.code == 0, "Content store rejected mapped document");
+        let content = parsed.data.context("Content store returned no document")?;
+        Ok(strip_kramdown_attrs(&content.kramdown))
+    }
+
     pub fn sink_name() -> &'static str {
         SINK_NAME
     }

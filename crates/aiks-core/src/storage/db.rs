@@ -271,6 +271,8 @@ impl StateDb {
             "../../migrations/013_service_derived_revisions.sql"
         ))
         .context("run V14 service derived revision migration")?;
+        tx.execute_batch(include_str!("../../migrations/014_service_read_epoch.sql"))
+            .context("run V15 service read epoch migration")?;
         tx.commit()?;
         Ok(())
     }

@@ -11,6 +11,8 @@ use crate::pipeline::embedding_client::{cosine_sim_with_left_norm, l2_norm};
 use crate::storage::StateDb;
 
 mod lexical;
+mod scope;
+use scope::ScopedFilter;
 pub mod query_cache;
 
 const RRF_K: f32 = 60.0;
@@ -71,13 +73,27 @@ impl std::ops::Deref for SearchDb<'_> {
 pub struct UnifiedSearchService<'a> {
     db: SearchDb<'a>,
     embeddings: Arc<dyn EmbeddingProvider>,
+    context: Option<crate::service::LocalContext>,
 }
 
 impl UnifiedSearchService<'static> {
+    pub(crate) fn scoped(
+        db: Arc<StateDb>,
+        embeddings: Arc<dyn EmbeddingProvider>,
+        context: crate::service::LocalContext,
+    ) -> Self {
+        Self {
+            db: SearchDb::Owned(db),
+            embeddings,
+            context: Some(context),
+        }
+    }
+
     pub fn new(db: Arc<StateDb>, embeddings: Arc<dyn EmbeddingProvider>) -> Self {
         Self {
             db: SearchDb::Owned(db),
             embeddings,
+            context: None,
         }
     }
 }
@@ -87,6 +103,7 @@ impl<'a> UnifiedSearchService<'a> {
         Self {
             db: SearchDb::Borrowed(db),
             embeddings,
+            context: None,
         }
     }
 
@@ -112,6 +129,10 @@ impl<'a> UnifiedSearchService<'a> {
     where
         F: FnMut(&UnifiedSearchOutcome) + Send,
     {
+        let filter = ScopedFilter {
+            filter,
+            context: self.context.clone(),
+        };
         let started = Instant::now();
         let query = query.trim();
         if query.is_empty() || limit == 0 {
@@ -189,7 +210,7 @@ impl<'a> UnifiedSearchService<'a> {
     async fn semantic_recall(
         &self,
         query: &str,
-        filter: &UnifiedSearchFilter,
+        filter: &ScopedFilter,
         corpora: &HashSet<SearchCorpus>,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let started = Instant::now();
@@ -242,7 +263,7 @@ impl<'a> UnifiedSearchService<'a> {
     fn semantic_candidates(
         &self,
         query_vector: &[f32],
-        filter: &UnifiedSearchFilter,
+        filter: &ScopedFilter,
         corpora: &HashSet<SearchCorpus>,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let model = self.embeddings.model_name();
@@ -268,10 +289,10 @@ impl<'a> UnifiedSearchService<'a> {
         query_vector: &[f32],
         query_norm: f32,
         model: &str,
-        filter: &UnifiedSearchFilter,
+        filter: &ScopedFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let conn = self.db.conn();
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT ki.id, ki.title, ki.summary, ki.project_name, ki.siyuan_doc_id,
                     ss.source, kc.id, kc.text, er.vector
              FROM embedding_record er
@@ -281,8 +302,10 @@ impl<'a> UnifiedSearchService<'a> {
              WHERE er.model = ?1 AND ki.status = 'active' AND er.vector IS NOT NULL
                AND (?3 = '' OR ki.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
-             LIMIT ?2",
-        )?;
+             AND {} LIMIT ?2",
+            filter.predicate(SearchCorpus::Knowledge),
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
@@ -349,10 +372,10 @@ impl<'a> UnifiedSearchService<'a> {
         query_vector: &[f32],
         query_norm: f32,
         model: &str,
-        filter: &UnifiedSearchFilter,
+        filter: &ScopedFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let conn = self.db.conn();
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT ss.id, COALESCE(ss.title, ''), ss.siyuan_doc_id,
                     sc.id, sc.text, er.vector
              FROM session_embedding_record er
@@ -362,8 +385,10 @@ impl<'a> UnifiedSearchService<'a> {
              WHERE er.model = ?1 AND st.status = 'ready' AND ss.is_missing = 0
                AND (?3 = '' OR ss.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
-             LIMIT ?2",
-        )?;
+             AND {} LIMIT ?2",
+            filter.predicate(SearchCorpus::Session),
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let db_started = Instant::now();
         let rows = stmt.query_map(
             params![
@@ -429,7 +454,7 @@ fn recall_lexical(
     db: &StateDb,
     query: &str,
     terms: &[String],
-    filter: &UnifiedSearchFilter,
+    filter: &ScopedFilter,
     corpora: &HashSet<SearchCorpus>,
     requested_limit: usize,
 ) -> (Vec<RankedCandidate>, Vec<String>) {

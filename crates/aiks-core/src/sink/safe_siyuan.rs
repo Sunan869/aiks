@@ -46,6 +46,14 @@ impl SiYuanSink {
         })
     }
 
+    /// Preserve the canonical safety wrapper when constructing the service's
+    /// fixed-origin, no-redirect content reader.
+    pub fn service_reader(config: SiYuanConfig) -> anyhow::Result<Self> {
+        Ok(Self {
+            inner: siyuan::SiYuanSink::service_reader(config)?,
+        })
+    }
+
     pub fn sink_name() -> &'static str {
         siyuan::SiYuanSink::sink_name()
     }
