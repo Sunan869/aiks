@@ -372,9 +372,11 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
     ws.execute("INSERT INTO ItemTable VALUES('composer.composerData',?1)", [json!({"allComposers":[{"composerId":"s2","conversation":[{"type":1,"text":"legacy"},{"type":2,"text":"answer"}]}]}).to_string()]).unwrap();
 
     std::fs::create_dir_all(root.path().join("workspaceStorage/without-chat")).unwrap();
-    let unrelated =
-        rusqlite::Connection::open(root.path().join("workspaceStorage/without-chat/state.vscdb"))
-            .unwrap();
+    let unrelated = rusqlite::Connection::open(
+        root.path()
+            .join("workspaceStorage/without-chat/state.vscdb"),
+    )
+    .unwrap();
     unrelated
         .execute_batch("CREATE TABLE unrelated(key TEXT PRIMARY KEY,value TEXT);")
         .unwrap();
