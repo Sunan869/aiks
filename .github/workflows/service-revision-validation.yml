@@ -1,0 +1,50 @@
+name: Service revision UI and source validation
+
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+    paths:
+      - 'apps/aiks-desktop/**'
+      - 'crates/aiks-core/tests/service_revision*'
+      - '.github/workflows/service-revision-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/aiks-desktop/package-lock.json
+      - run: npm ci
+        working-directory: apps/aiks-desktop
+      - run: npm test
+        working-directory: apps/aiks-desktop
+      - run: npm run build
+        working-directory: apps/aiks-desktop
+  source-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source for reproducible review
+        run: |
+          git archive --format=tar.gz -o /tmp/aiks-source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/aiks-source-head.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiks-source-${{ github.sha }}
+          path: |
+            /tmp/aiks-source.tar.gz
+            /tmp/aiks-source-head.txt
+          retention-days: 1
