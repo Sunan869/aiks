@@ -190,8 +190,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG"               --repo "$GITHUB_REPOSITORY"               --target "$GITHUB_SHA"               --title "AIKS v${VERSION}"               --notes "AIKS cross-platform validation release.
+          notes="AIKS cross-platform validation release.
 
           Platforms:
           - Windows x64
@@ -203,5 +202,20 @@ jobs:
           Embedded SiYuan runtime: ${RUNTIME_TAG}
 
           These validation builds are not production code-signed/notarized yet. Windows SmartScreen or macOS Gatekeeper may show a warning on first launch."
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "AIKS v${VERSION}" \
+              --notes "$notes"
+          else
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "AIKS v${VERSION}" \
+              --notes "$notes"
           fi
-          gh release upload "$TAG" release-assets/*             --repo "$GITHUB_REPOSITORY"             --clobber
+
+          gh release upload "$TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
