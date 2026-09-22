@@ -113,20 +113,41 @@ impl ClaudeProvider {
     /// Extract session summary from JSONL content in a single pass.
     fn scan_summary(
         content: &str,
-    ) -> (Option<String>, usize, Option<String>, Option<DateTime<Utc>>) {
+    ) -> anyhow::Result<(Option<String>, usize, Option<String>, Option<DateTime<Utc>>)> {
         let mut title: Option<String> = None;
         let mut cwd: Option<String> = None;
         let mut started_at: Option<DateTime<Utc>> = None;
         let mut count = 0usize;
 
-        for line in content.lines() {
-            let line = line.trim();
+        let lines = content.lines().collect::<Vec<_>>();
+        for (index, raw_line) in lines.iter().enumerate() {
+            let line = raw_line.trim();
             if line.is_empty() {
                 continue;
             }
 
-            let is_user = line.contains("\"type\":\"user\"") || line.contains("\"type\":\"human\"");
-            let is_assistant = line.contains("\"type\":\"assistant\"");
+            let parsed = serde_json::from_str::<serde_json::Value>(line);
+            let entry = match parsed {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    if is_last_nonempty && !content.ends_with('\n') {
+                        break;
+                    }
+                    anyhow::bail!(
+                        "Claude transcript contains malformed JSON at line {}: {}",
+                        index + 1,
+                        error
+                    );
+                }
+            };
+
+            let is_user = matches!(
+                entry.get("type").and_then(|value| value.as_str()),
+                Some("user" | "human")
+            );
+            let is_assistant =
+                entry.get("type").and_then(|value| value.as_str()) == Some("assistant");
             if is_user || is_assistant {
                 count += 1;
             }
@@ -135,10 +156,6 @@ impl ClaudeProvider {
             if !need_parse {
                 continue;
             }
-
-            let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
-                continue;
-            };
 
             if cwd.is_none() {
                 if let Some(c) = entry.get("cwd").and_then(|v| v.as_str()) {
@@ -157,7 +174,7 @@ impl ClaudeProvider {
             }
         }
 
-        (title, count, cwd, started_at)
+        Ok((title, count, cwd, started_at))
     }
 
     fn extract_title(entry: &serde_json::Value) -> Option<String> {
@@ -201,12 +218,27 @@ impl ClaudeProvider {
         // Collect agent_id mapping from progress events (tool_use_id → agent_id)
         let mut agent_map: HashMap<String, String> = HashMap::new();
 
-        for line in content.lines() {
-            let line = line.trim();
+        let lines = content.lines().collect::<Vec<_>>();
+        for (index, raw_line) in lines.iter().enumerate() {
+            let line = raw_line.trim();
             if line.is_empty() {
                 continue;
             }
-            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+            let entry = match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(entry) => entry,
+                Err(error) => {
+                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    if is_last_nonempty && !content.ends_with('\n') {
+                        anyhow::bail!("Claude transcript is still being written; retry later");
+                    }
+                    anyhow::bail!(
+                        "Claude transcript contains malformed JSON at line {}: {}",
+                        index + 1,
+                        error
+                    );
+                }
+            };
+            {
                 if entry.get("type").and_then(|t| t.as_str()) == Some("progress") {
                     let parent_id = entry.get("parentToolUseID").and_then(|v| v.as_str());
                     let agent_id = entry
@@ -223,14 +255,18 @@ impl ClaudeProvider {
         }
 
         let mut msg_index = 0usize;
-        for line in content.lines() {
-            let line = line.trim();
+        for (index, raw_line) in lines.iter().enumerate() {
+            let line = raw_line.trim();
             if line.is_empty() {
                 continue;
             }
-            let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
-                continue;
-            };
+            let entry = serde_json::from_str::<serde_json::Value>(line).map_err(|error| {
+                anyhow::anyhow!(
+                    "Claude transcript contains malformed JSON at line {}: {}",
+                    index + 1,
+                    error
+                )
+            })?;
             if let Some(msg) = Self::parse_entry(&entry, msg_index, &agent_map) {
                 msg_index += 1;
                 messages.push(msg);
@@ -456,7 +492,17 @@ impl super::SessionProvider for ClaudeProvider {
                 }
             };
 
-            let (title, count, cwd, started_at) = Self::scan_summary(&content);
+            let (title, count, cwd, started_at) = match Self::scan_summary(&content) {
+                Ok(summary) => summary,
+                Err(error) => {
+                    tracing::warn!(
+                        path = %file_path.display(),
+                        error = %error,
+                        "Ignoring malformed Claude session during discovery"
+                    );
+                    continue;
+                }
+            };
             let project_path = cwd.unwrap_or_else(|| Self::dir_name_to_path(&project_dir_name));
 
             let mtime = fs::metadata(&file_path)
