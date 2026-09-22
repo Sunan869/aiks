@@ -125,6 +125,44 @@ async fn missing_aider_roots_are_not_configured_and_empty_continue_is_healthy() 
     assert!(p.discover_sessions().await.unwrap().is_empty());
 }
 #[tokio::test]
+async fn qwen_and_antigravity_discovery_tolerate_only_active_tails() {
+    let qwen = tempfile::tempdir().unwrap();
+    put(
+        qwen.path(),
+        "projects/p/chats/s.jsonl",
+        concat!(
+            "{\"sessionId\":\"s1\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"parts\":[{\"text\":\"question\"}]}}\n",
+            "{\"sessionId\":\"s1\",\"type\":\"assistant\",\"message\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}}\n",
+            "{\"sessionId\":"
+        ),
+    );
+    let qwen_provider = provider(SourceKind::QwenCode, qwen.path());
+    let qwen_report = qwen_provider.discover_report().await.unwrap();
+    assert!(qwen_report.complete);
+    assert_eq!(qwen_report.sessions.len(), 1);
+    assert!(qwen_provider.load_session(&qwen_report.sessions[0]).await.is_err());
+
+    let antigravity = tempfile::tempdir().unwrap();
+    put(
+        antigravity.path(),
+        "brain/s1/.system_generated/logs/transcript_full.jsonl",
+        concat!(
+            "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"content\":\"question\"}\n",
+            "{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"content\":\"answer\"}\n",
+            "{\"step_index\":"
+        ),
+    );
+    let antigravity_provider = provider(SourceKind::Antigravity, antigravity.path());
+    let antigravity_report = antigravity_provider.discover_report().await.unwrap();
+    assert!(antigravity_report.complete);
+    assert_eq!(antigravity_report.sessions.len(), 1);
+    assert!(antigravity_provider
+        .load_session(&antigravity_report.sessions[0])
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn antigravity_usage_only_never_produces_conversations() {
     let root = tempfile::tempdir().unwrap();
     put(
