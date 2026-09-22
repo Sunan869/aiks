@@ -79,8 +79,8 @@ fn state(io: &ScopedReader, relative: &Path, metadata_only: bool) -> Result<(Val
                 // Current VS Code mutation logs may emit a Push entry with only
                 // `i`, meaning "truncate from this index", and no appended values.
                 if let Some(index) = event.get("i").and_then(Value::as_u64) {
-                    let index = usize::try_from(index)
-                        .context("VS Code append index is too large")?;
+                    let index =
+                        usize::try_from(index).context("VS Code append index is too large")?;
                     ensure!(index < 100_000, "VS Code append index exceeds budget");
                     if index < array.len() {
                         array.truncate(index);
