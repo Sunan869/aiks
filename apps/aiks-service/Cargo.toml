@@ -1,0 +1,24 @@
+[package]
+name = "aiks-service"
+version.workspace = true
+edition.workspace = true
+description = "Authenticated loopback AIKS snapshot and query service"
+
+[dependencies]
+aiks-core = { path = "../../crates/aiks-core" }
+axum = "0.8"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded = "0.7"
+sha2.workspace = true
+hex.workspace = true
+subtle = "2"
+uuid.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+rusqlite.workspace = true
+tempfile.workspace = true

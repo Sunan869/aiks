@@ -4,6 +4,7 @@ members = [
     "crates/aiks-core",
     "apps/aiks-cli",
     "apps/aiks-desktop/src-tauri",
+    "apps/aiks-service",
 ]
 
 [workspace.package]
