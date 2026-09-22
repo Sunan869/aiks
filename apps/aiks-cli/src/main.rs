@@ -31,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
         Some(path) => aiks_core::Config::from_file(path)?,
         None => aiks_core::Config::default(),
     };
-    let _writer = aiks_core::storage::ownership::BusinessDbLease::acquire(&settings.state_db_path())?;
+    let _writer =
+        aiks_core::storage::ownership::BusinessDbLease::acquire(&settings.state_db_path())?;
 
     match &cli.command {
         Commands::Doctor => {
@@ -42,7 +43,11 @@ async fn main() -> anyhow::Result<()> {
             let engine = AiksEngine::initialize(engine_config)?;
             cli::scan::run(&engine, source.clone()).await?;
         }
-        Commands::Sync { source, dry_run, overwrite } => {
+        Commands::Sync {
+            source,
+            dry_run,
+            overwrite,
+        } => {
             let engine = AiksEngine::initialize(engine_config)?;
             cli::sync::run(&engine, source.clone(), *dry_run, *overwrite).await?;
         }
@@ -64,10 +69,17 @@ async fn main() -> anyhow::Result<()> {
         Commands::ResetData { yes } => {
             cli::resync::reset_all_data(engine_config, *yes).await?;
         }
-        Commands::SyncKnowledge { overwrite_conflicts } => {
+        Commands::SyncKnowledge {
+            overwrite_conflicts,
+        } => {
             let engine = AiksEngine::initialize(engine_config)?;
-            let stats = engine.sync_knowledge_to_siyuan(*overwrite_conflicts).await?;
-            println!("Knowledge sync complete: created={} updated={} unchanged={} conflict={} failed={}",stats.created,stats.updated,stats.unchanged,stats.conflict,stats.failed);
+            let stats = engine
+                .sync_knowledge_to_siyuan(*overwrite_conflicts)
+                .await?;
+            println!(
+                "Knowledge sync complete: created={} updated={} unchanged={} conflict={} failed={}",
+                stats.created, stats.updated, stats.unchanged, stats.conflict, stats.failed
+            );
         }
     }
     Ok(())

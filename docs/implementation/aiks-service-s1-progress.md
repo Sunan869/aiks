@@ -1,58 +1,45 @@
-# AIKS Service S1 — current execution status
+# AIKS Service S1 — implementation and verification index
 
-Updated 2026-09-22. This is the current status index; the task-specific ledgers and Git history retain earlier RED/GREEN checkpoints. Do not treat their older pending-task lists as the current branch state.
+Updated 2026-09-22. Branch `feature/aiks-service-extraction`; main synchronized by PR47/63c23a2. The S1 plan is `docs/superpowers/plans/2026-09-22-aiks-service-extraction-s1.md`; architecture spec is the corresponding specs document. Older task ledgers remain historical evidence, not current pending lists.
 
-Plan: `docs/superpowers/plans/2026-09-22-aiks-service-extraction-s1.md`.
-Spec: `docs/superpowers/specs/2026-09-22-aiks-service-extraction-design.md`.
-Branch: `feature/aiks-service-extraction`; base `8101587725261f13f878d26776e5b41407096724`.
+## Implementation boundary
 
-## Current milestone
+Tasks 1–8 supply snapshot contracts, service identity/writer ownership, atomic ingestion/receipts, durable snapshot Worker, revision-safe derived writes, personal HTTP runtime, explicit internal legacy adoption, and client-only outbox/transport/collector.
 
-Task 8 collector/transport/outbox behavior is implemented, linked into the actual Tauri library, and tested on Linux and Windows. The complete service-mode Desktop workflow is NOT implemented yet. Task 9 startup/supervisor/IPC/UI and Task 10 end-to-end acceptance remain. S1 must not be described as complete or ready for an installer release.
+Task 9 now supplies strict legacy/service_local selection, mutually exclusive startup, fixed-path owned Service supervision with private bootstrap, native controlled actions, actual ServiceStatusPage, proper tray routes, and `scripts/dev.ps1` orchestration. Source scanning never occurs on the server. Startup cancellation and cleanup serialize on a lifecycle gate; locating Service runtime assets cannot install a bridge into the legacy workspace. Both legacy Desktop and CLI take the shared writer lease before business writes.
 
-| Task | Actual implementation status |
-| --- | --- |
-| 1. Snapshot contracts and validation | Implemented; protocol, complete-input, identity and byte/depth budgets tested. |
-| 2. Service identity and exclusive writer primitive | Implemented; real subprocess ownership/crash recovery tested. Legacy Desktop/CLI integration of this lease is still Task 9. |
-| 3. Atomic snapshot ingestion and receipts | Implemented; idempotency, revision CAS, rollback, immutable receipts and ABA generations tested. |
-| 4. Persisted-snapshot Worker | Implemented; no service-side Provider discovery or path fallback; source deletion and restart recovery tested. |
-| 5. Transactional revision fences | Implemented; late model/vector results cannot overwrite newer derived state; current valid generations still complete. |
-| 6. Independent personal Service | Implemented; authenticated numeric-loopback API, bounded inputs, process lifetime, scoped queries, fixed canonical-content access and opt-in model use tested. |
-| 7. Explicit legacy-state adoption | Implemented internal Core operation; IDs, maps, published/user content, unavailable sources and rollback tested. No real user database has been adopted; this function does not create backups for the user. |
-| 8. Native collector, transport and outbox | Implemented and linked; real Service tests and actual Tauri-library tests are green. User-facing conflict reconciliation and controlled invocation are not a delivered UI. |
-| 9. Desktop first HTTP workflow | Pending: mutually exclusive startup modes, fixed-binary supervisor, bootstrap verification, legacy writer handoff, controlled IPC and real status/search/receipt UI. |
-| 10. Final S1 integration and review | Pending. A full workspace regression has passed, but the final complete workflow, offline model/content scenario, final review and acceptance docs cannot precede Task 9. |
+Task 10 now includes real child-process/client/Provider/model processing, source deletion, canonical publisher/index/body integration, real restart/identity behavior, and a loopback-only Linux network namespace test. Its final all-green claim must be checked against the final immutable HEAD after formatting/docs, not inferred from earlier runs.
 
-## Latest verified checkpoints
+User guide and scope: `docs/implementation/aiks-service-s1.md`.
 
-### c6c937ed24194fc221850df9bf696a932af61545 — real collector delivery
+## Observed checkpoints
 
-Linux Actions `35702330063`: Core 358 reported passing test executions / 0 failed; Service 29 / 0 failed; Core/CLI/Service all-target Clippy passed and Cargo.lock unchanged. The only failing step at this implementation checkpoint was formatting, subsequently corrected.
+- 63c23a2 / 35706022816: merged-main baseline verified before Task 9.
+- 32ed6bb / 35707393821: new backend enum and owned shutdown behavior failed as expected before implementation.
+- cf5756c / 35710705189: Core365/0, Service33/1. Only bounded collector progress failed: [3,0,0] instead of [3,3,1].
+- 8ad3360: persisted a scan cursor separate from upload acknowledgement, preserving fixed instance/space/submission/revision semantics.
+- 011eeff / 35711836122: Core365/0 and Service35/0; only rustfmt failed in this workflow. Real owned supervisor, parent-pipe lifetime and offline publisher flow passed.
+- 011eeff / 35711836120: 101 frontend tests passed; four newly added wiring regressions failed for legacy-workspace side effects, startup cancellation, wrong tray routing and overbroad local-only wording.
+- 095bc89 / 35712721461: those four frontend regressions passed with the complete frontend suite and production build.
+- 095bc89 / 35712721489: Linux/Windows native client contracts and Linux full-workspace tests/Clippy passed. The native controller gained additional lifecycle/configuration tests exercised by the full suite.
+- 095bc89 / 35712721455: real offline integration passed in an isolated namespace with no non-loopback route, AI and embeddings enabled against local fixtures.
 
-Windows Actions `35702329712`: service ownership/adoption/revision contracts, complete Service HTTP/process/client tests, and CLI compilation passed.
+The closing candidate applies only reviewed rustfmt blobs plus documentation/verification changes and removes the temporary generated-files workflow. The final verification workflows have `contents: read`; none can rewrite this branch. No transformation or auto-commit script remains.
 
-The three previously failing collector assertions at `5afd939` now pass: real Continue capture and pre-queue redaction followed by source-directory deletion, delivery/Worker completion/search; cached-registration offline collection with explicit exclusions; rejection of malformed Claude JSONL before any upload.
+## Review and rulings
 
-### c389d7d62218df751227c069dbb4f50d358917fa — actual native library validation
+Final review: self-review (no subagent tool); no independent reviewer is claimed. Reviewed current implementation against all S1 tasks and preserved S2–S4 boundaries. Critical/important findings addressed: source batch starvation; Service startup touching a legacy bridge; exit racing startup; service tray opening a legacy window; inaccurate local-only inference promise. Added regression evidence is listed above. Native filesystem guards reject linked/reparse profile paths and do not invent a sandbox against a malicious same-user process.
 
-Actions `35703577335` completed successfully on both platforms:
-- Linux and Windows: `cargo test --locked -p aiks-desktop --test service_client -- --test-threads=1` passed both tests. These link `aiks_desktop_lib::service_client`, not a path-imported substitute for the native library.
-- Linux: `cargo clippy --locked --workspace --all-targets -- -D warnings` passed with no warning/error lines in its saved log.
-- Linux: `cargo test --locked --no-fail-fast --workspace -- --test-threads=1` passed. Saved result summaries report 424 passing executions, 0 failed, 0 ignored; this includes the subprocess writer probe, not 424 claimed distinct test functions.
-- Both runners: tracked source and Cargo.lock remained unchanged. Windows does not claim to have run the Linux-only full-workspace step.
+Ruling: retain config default legacy, but dev.ps1 explicitly selects new local mode and provides -Legacy. This preserves normal old configuration semantics while offering the requested one-command development workflow. Cost: direct npm/packaged startup follows config, not the script's mode.
 
-Frontend Actions `35703577297` passed the existing frontend tests and production build. This verifies regression compatibility, not a new ServiceStatusPage: that page is Task 9.
+Ruling: use an isolated service-local space for first validation, with no automatic adoption of real user DBs. Internal explicit adoption remains tested. Cost: old history is not automatically visible in the new page; avoids unintended schema migration or data disclosure.
 
-The closing formatting change is the reviewed rustfmt-only blob for the native test file, generated from exactly c389d7d with check_exit=0. Use the subsequent canonical HEAD's Actions for its own final check status; do not label an in-progress run green based on the previous commit.
+Ruling: only an explicitly managed sidecar opts into parent-pipe EOF lifetime. Independent Service stdin EOF retains its previous contract. Cost: abrupt GUI death stops its owned Service, while persisted work resumes next launch; normal exit still drains it.
 
-## Boundaries and remaining work
+Ruling: a true version conflict stays blocked with its original payload and visible error; no blind expected_revision update or silent target switch. Exact lost acknowledgements are replayed idempotently. Cost: manual content reconciliation is required for real divergent histories; full shared editing is S2.
 
-All work is on the feature branch. No main update, merge, release, real database adoption, private conversation scan, or live model/SiYuan call was performed. Rust commands run on GitHub Actions because this working environment has no Rust toolchain or direct repository clone access. Synthetic loopback services and temporary files are used by the tests.
+Ruling: the offline test's publication is an internal reuse of the canonical publisher, not a shipped HTTP write route. Cost: S1 UI reads drafts/published mapped content but has no generic publish/edit button; that remains S2.
 
-The new outbox is a separate client database, refuses business StateDb files, fixes instance/space/submission/revision/hash at enqueue, and never changes that target on a connection switch. Transport rejects redirects/proxies/unsafe origins and verifies the expected personal instance before sending conversation bytes. Already registered sources can be captured while the Service is unavailable; first-time source registration still requires the intended Service.
+Deferred minors: Service lists expose the recent bounded page and detailed session JSON rather than full legacy UI parity; optional model settings are edited in the local TOML and require restart; installer bundling and default migration remain S3. Existing npm dependency audit warnings are recorded as release-hardening debt, not falsely marked cleared by functional CI. Real graphical/runtime/model quality and data-volume acceptance belong to the user's local validation.
 
-A conflicting upload remains blocked and never blindly changes expected_revision. An unrecorded successful acknowledgement is recovered by replaying the immutable submission. Full user-facing receipt/version reconciliation is not implemented by pretending every HTTP 409 is a successful replay.
-
-The native module export does not start a second Worker or change legacy startup. The Service-local Desktop supervisor and legacy Desktop/CLI exclusive-writer adoption must be wired before enabling the new mode. Do not run the old GUI concurrently against a Service-owned business database and claim the handoff is complete.
-
-CI's SiYuan resource file is a test-only placeholder, not an installer or a graphical runtime acceptance test. Team ACLs, remote listeners, RAG, complete packaged deployment and automatic old-data migration are not S1 checkpoint claims. No independent reviewer or completed whole-branch review is claimed.
+No main update after PR47, no release, no real database adoption, no private conversation scan or use of a real model account. Development and CI artifacts use synthetic sources and model/content fixtures. The previous patches based on 36125a2 must not be applied to this branch.

@@ -1,212 +1,108 @@
 # AI Knowledge Sync (AIKS)
 
-AIKS（AI Knowledge Sync）是一个本地优先的 AI 工作知识处理系统。它从 Claude Code、OpenAI Codex CLI、Gemini CLI、OpenCode、WorkBuddy 的本地 Session 中读取工作记录，统一成 Canonical Model，经持久化 Pipeline 清洗和 AI 提炼后形成结构化 KnowledgeItem，并提供可选 Embedding / Hybrid Search、桌面端浏览以及 SiYuan 同步。
+AIKS 是一个本地优先的 AI 工作知识处理系统：从 AI 工具的本地 Session 读取工作记录，转换为 Canonical Model，经持久化 Pipeline 清洗和提炼形成 KnowledgeItem，并提供可选向量/混合搜索、桌面阅读以及 SiYuan 协同。
 
-当前仓库已经包含正式实现，不再是只有设计文档的 V1 骨架。
+## 当前分支：独立本地 Service（S1）
+
+`feature/aiks-service-extraction` 新增独立 Rust `aiks-service` 和本地桌面 HTTP 链路。Provider 在客户端采集，完整快照进入独立 outbox；服务持久接收后独立处理，不要求原会话文件继续存在。服务模式不再启动桌面内的旧业务引擎。
+
+Windows 在仓库根目录一键启动：
+
+```powershell
+.\scripts\dev.ps1
+```
+
+该脚本先检查指定版本思源、前端依赖并构建 Service，再启动 Vite/Tauri；原生桌面控制器管理本机 Service 和思源。旧模式保留：
+
+```powershell
+.\scripts\dev.ps1 -Legacy
+```
+
+**新模式使用 `<AIKS 数据根>/service-local/` 独立空间，不会自动搬走或清空旧个人库。** 模型配置为该目录的 `config/models.toml`，首次 AI/Embedding 均关闭，不继承旧部署地址。启用前填写实际模型 endpoint/model，修改后重启。完全离线还需要预先准备运行资源和本机模型；配置远程模型会发送相应输入到远程 endpoint。
+
+配置字段 `backend.mode` 默认仍为 `legacy`；开发脚本显式选择 `service_local`。直接 `npm run tauri dev` 遵循配置而不是自动启动新模式。服务启动失败不会悄悄回退旧引擎；mock 仅允许 `DEV + VITE_AIKS_MOCK=true` 显式启用。
+
+新工作台支持选源采集/排除、分批继续、上传与回执、任务状态、会话/知识阅读和搜索。关闭到托盘保留进程，正常退出停止自有子进程。开发命令不等于新安装包；项目/部门权限、远程多用户、受控思源写入与知识库问答属于后续阶段。详见 [S1 使用、验证和回滚说明](docs/implementation/aiks-service-s1.md)。
 
 ## 多工具本地会话接入
 
-新增原生只读来源：Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider。它们与原有五个来源复用 Canonical Session、同步、持久任务、知识提炼和搜索，不依赖安装另一个会话查看器。
+原有 Claude Code、Codex、Gemini CLI、OpenCode、WorkBuddy，加上 Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider，共用统一会话和后续业务逻辑。
 
-**支持范围不是各工具的所有历史版本。** Antigravity 当前可导入已有 CLI transcript；只有 IDE token/usage 缓存时会明确显示格式不支持，绝不把统计数据拼成用户/助手对话。Cursor Agent 当前支持 JSONL，Kimi 覆盖主 Agent wire 与旧 context 布局，Copilot 覆盖 CLI/Desktop 本地事件和 VS Code 会话快照/补丁。Aider 必须显式配置项目根目录。
+**支持范围不是每种工具的所有历史版本。** Antigravity 只有 IDE usage/token 缓存时不会伪造对话；Cursor Agent 支持已验证 JSONL；Kimi 包含主 Agent wire 与旧 context；Copilot 包含 CLI/Desktop 本地事件与 VS Code 会话快照/补丁；Aider 必须指定项目根。具体文件布局、版本差异及测试入口见 [来源支持矩阵](docs/reference-analysis/multi-provider-support.md)。
 
-数据源页面统一展示正式名称、状态和目录配置；保存目录/开关后需要重启。来源稳定 key 不随品牌名变化，关闭来源或移除配置根不会删除已导入记录。自动化样例与实际安装环境验收分别记录；具体文件布局、测试入口和已知限制见 `docs/reference-analysis/multi-provider-support.md`。
+目录和开关变更后重启，稳定 key 不随品牌显示名变化。关闭来源或删除配置根不会删除已导入记录。真实安装环境验收与匿名样例自动化测试分开记录。
 
-## 当前能力
+## 能力与运行边界
 
-- 原有五个 Session Provider，加上上述 11 个本地来源适配器；精确支持范围见支持矩阵。
-- Canonical Session Model、内容 Hash、增量同步与 source 状态跟踪。
-- SQLite 状态库与 migration。
-- 持久化 `pipeline_job` 队列、lease、重试、崩溃恢复和 Pipeline stage 可观测性。
-- OpenAI-compatible AI Knowledge Extraction。
-- KnowledgeItem / KnowledgeChunk / Embedding 持久化。
-- FTS + 可选向量 rerank 的混合搜索；向量后端不可用时保留文本结果并报告 degraded 状态。
-- React + Vite + Tauri Desktop。
-- CLI：doctor、scan、sync、status、daemon、resync、rebuild/reset、knowledge sync。
-- SiYuan Session / Knowledge 同步、映射、冲突检测和 baseline。
-- Secret Sanitizer、Archive、Provider fixtures 与 Rust 回归测试。
+- Canonical Session、内容 Hash、增量同步与来源跟踪。
+- SQLite 正式 migration、持久 `pipeline_job`、lease、重试与崩溃恢复。
+- OpenAI-compatible 知识提炼、KnowledgeItem/Chunk、可选 Embedding。
+- FTS 与有界向量召回/重排，向量服务失败保留文本结果并明确 degraded。
+- React/Vite/Tauri 桌面、独立 Service 与 Rust CLI。
+- 原有 SiYuan Session/Knowledge 映射、发布冲突与 baseline 保护。
+- 客户端 Secret Sanitizer、归档、只读 Provider fixtures 和回归测试。
 
-AI 与 Embedding 在公开/新安装配置中默认关闭，配置兼容的服务后再启用。
+新 Service 的模型配置强制 opt-in。Legacy 保留兼容行为，使用旧配置或默认值之前应核对其 AI/Embedding 开关和 endpoint；不要把旧部署默认值视为新 Service 的网络策略。
 
-## V3 数据流
+Service 通过内部固定适配器读取已发布的思源规范正文，SQLite 承担业务状态、草稿和可重建的检索投影；思源不可用不会冒充返回 SQLite 的发布正文。S1 不向普通用户提供思源通用代理、SQL、任意文件/URL或进程 API。当前只支持受认证的 numeric-loopback personal Service，不能直接作为团队服务对外开放。
+
+## 代码目录
 
 ```text
-Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy
-                  ↓
-          Session Provider Layer
-                  ↓
-          Canonical Session Model
-                  ↓
-       Parse / Clean / Durable Pipeline
-                  ↓
-            AI Extraction
-                  ↓
-            KnowledgeItem
-             ↙       ↘
-        FTS/Text      Embedding
-             ↘       ↙
-           Hybrid Search
-            ↙       ↘
-       Desktop/CLI    SiYuan
+crates/aiks-core/                 统一领域逻辑、Provider、Pipeline、索引、内容适配
+  migrations/                    唯一业务 migration 链
+apps/aiks-cli/                   原有 CLI，先获取业务数据库所有权
+apps/aiks-service/               独立 HTTP/后台服务，不依赖 Tauri
+apps/aiks-desktop/               React/Vite 与 Tauri
+  src-tauri/src/service_client/  客户端通信、独立 outbox、采集、子进程管理
+  src-tauri/src/lifecycle/       保留的 legacy 启动流程
+scripts/dev.ps1                  Windows 本地 Service 开发入口，支持 -Legacy
+docs/implementation/             当前实施和验收记录
+docs/reference-analysis/         上游格式与版本边界
 ```
 
-SiYuan 是支持的 Knowledge Sink / Session Archive 目标，而不是 AIKS 唯一的数据底座。核心状态、Knowledge 和搜索能力均由 AIKS 自身维护。
+业务仍复用 `crates/aiks-core`，根目录没有第二套重复的 `src/`/migration。客户端队列有独立 schema，不得用业务数据库作为 outbox。
 
-## Repository Layout
+## 开发环境与测试
 
-```text
-.
-├── crates/
-│   └── aiks-core/              # 核心领域逻辑、Provider、Pipeline、SQLite、Knowledge/Search
-│       ├── src/
-│       └── migrations/         # 唯一正式 migration 链
-├── apps/
-│   ├── aiks-cli/               # Rust CLI
-│   └── aiks-desktop/           # React/Vite + Tauri
-│       └── src-tauri/
-├── docs/                       # 设计、实施、历史评审和参考分析
-├── references/                 # 上游项目研究说明
-├── config.example.toml         # 示例配置
-├── AGENTS.md                   # 当前工程约束
-└── TODO.md                     # 当前剩余路线图
-```
-
-根目录没有另一套可编译 `src/`；核心实现以 workspace 中的 `crates/aiks-core` 为准。
-
-## Requirements
-
-基础开发环境：
-
-- Rust stable / Cargo。
-- Node.js 22+ 与 npm（Desktop frontend）。
-- 构建 Tauri Desktop 时，需要对应操作系统的 Tauri 2 系统依赖。
-- SiYuan、AI endpoint、Embedding endpoint 都是按需配置的外部服务，不是运行 Core tests 的前置条件。
-
-## 配置
-
-从示例开始：
+需要 Rust stable/Cargo、Node.js 22+、npm，以及目标平台 Tauri 2 系统依赖。首次准备运行资源和依赖需要网络，模型文件另行准备。测试默认使用临时文件和回环 fixture，不要求用户部署真实模型或思源。
 
 ```bash
-cp config.example.toml config.toml
-```
-
-Windows PowerShell 可使用：
-
-```powershell
-Copy-Item config.example.toml config.toml
-```
-
-重要配置段：
-
-- `[providers.*]`：各 Session Provider 是否启用及自定义路径。
-- `[sync]`：扫描、Watcher、debounce、并发等。
-- `[ai]`：OpenAI-compatible Knowledge Extraction；默认 `enabled = false`。
-- `[embedding]`：可选 Embedding；默认 `enabled = false`。
-- `[siyuan]`：SiYuan HTTP API、Notebook 和根路径。
-- `[security]`：Secret redaction。
-
-不要把真实 Token、API Key 或内部网络地址提交到仓库。SiYuan Token 建议通过环境变量或本地配置提供。
-
-## Build & Test
-
-### Rust workspace
-
-```bash
-cargo build --workspace
-cargo test --workspace
-```
-
-只验证 Core：
-
-```bash
-cargo test -p aiks-core
-```
-
-### CLI
-
-查看帮助：
-
-```bash
-cargo run -p aiks-cli -- --help
-```
-
-使用指定配置做环境检查：
-
-```bash
-cargo run -p aiks-cli -- --config ./config.toml doctor
-```
-
-常用命令包括：
-
-```text
-doctor
-scan [--source ...]
-sync [--source ...] [--dry-run] [--overwrite]
-status
-daemon
-resync
-rebuild-state
-reset-data
-sync-knowledge
-```
-
-其中 `reset-data` 是破坏性操作；不要把它与只重建同步索引的 `rebuild-state` 混用。
-
-### Desktop frontend
-
-```bash
+cargo fmt --all --check
+cargo test --locked -p aiks-core
+cargo test --locked -p aiks-service
+cargo check --locked -p aiks-cli
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 cd apps/aiks-desktop
 npm ci
+npm test
 npm run build
 ```
 
-前端开发服务器：
+纯 Linux CI 需要 WebKit/AppIndicator 依赖；CI 的思源占位目录只能支持编译，不是运行资源或安装包。Windows 测试会执行真实 Service 进程与 HTTP 契约。网络隔离验证仅在独立 Linux namespace 中禁用外部路由，不修改主机防火墙。
+
+旧 CLI 使用：
 
 ```bash
-npm run dev
+cargo run -p aiks-cli -- --help
+cargo run -p aiks-cli -- --config ./config.toml doctor
 ```
 
-运行 Tauri Desktop：
+命令包含 doctor、scan、sync、status、daemon、resync、rebuild-state、reset-data、sync-knowledge。**reset-data 是破坏性操作**，不要与普通重建或新模式试用混用。不同程序同时写同一业务库时应明确锁冲突，不并行写入。
 
-```bash
-npm run tauri dev
-```
+## 配置与数据安全
 
-## 搜索行为
+根目录 `config.example.toml` 描述旧版完整配置；来源配置继续使用 `[providers.*]`，同步使用 `[sync]`，脱敏使用 `[security]`。新 Service 的模型与生成的运行配置分开保存，详见 S1 说明。不要把真实 Token/API Key 或内部网络地址提交到仓库。
 
-文本搜索是基础能力；Embedding/Vector 是可选增强。
+对发布内容的用户修改继续遵守冲突/baseline 保护。会话追加或重新提炼时，旧模型结果不得覆盖新版本；保留的用户知识不会被另一条知识的提炼结果标成当前版本。原始文件损坏、部分发现、禁用来源不等于授权删除已导入数据。
 
-- 用户 FTS 输入会按字面量安全处理，不直接暴露给 FTS5 grammar。
-- FTS 不可用或执行失败时，会回退到参数化 LIKE 并标记 degraded。
-- Vector 服务不可用时，文本结果仍会返回，并报告 `VectorUnavailable`。
-- 当前向量 rerank 使用有界候选集（上限 512），不会在普通查询里加载并排序全库所有 embedding。
+新空间不会自动共享本地历史。源路径只作为受控来源信息，服务不能根据员工电脑路径或任意正文 URL 抓取文件。排除和规则脱敏在进入上传队列之前执行，但不能宣传成绝对不会泄露敏感内容。
 
-## Pipeline 可靠性
+## 阶段与质量说明
 
-Pipeline 工作保存在 SQLite `pipeline_job` 中，而不是依赖无界内存队列。Worker 使用 lease / heartbeat / persisted attempts / retry budget 支持重启恢复，并通过 `pipeline_run` / stage 状态提供可观测性。
+S1 是个人本地开发工作流，不代表团队 ACL、文档协作、RAG、公开部署和多平台新安装包均已完成。真机显示、真实模型质量、版本兼容及大库性能仍单独验收。
 
-如果 Embedding 已明确启用并配置，它属于必需阶段：分块、Embedding 或索引失败不会被错误标记为 `READY`。Embedding 未启用时对应阶段可以显式 `SKIPPED`。
+最终验证以对应提交的 Actions 为准，而不是历史绿色记录；状态索引见 [实施进度](docs/implementation/aiks-service-s1-progress.md)。本分支不自动合入 main 或发布安装包。既有 npm 依赖审计告警需要单独跟踪，功能测试通过不等于供应链安全审计通过。不要向不可信网络开放开发服务器。
 
-## Knowledge 与 SiYuan
-
-AI 提炼结果以 KnowledgeItem 为核心。本地 Knowledge identity 会尽量在安全匹配时保持稳定，以避免重复的远端 SiYuan 文档；无法安全判断为同一知识时宁可创建新身份，也不做模糊映射迁移。
-
-SiYuan 同步保留 conflict/baseline 保护。已同步知识被后续提炼移除时，本地保留 `REMOVED` 映射 tombstone 以维持远端可追踪性。
-
-## Provider 与上游兼容
-
-Provider 的源数据必须只读。OpenCode SQLite 与 WorkBuddy SQLite 均按只读/WAL-aware 边界访问；WorkBuddy 仅读取会话元数据与 `projects/**/*.jsonl` transcript，不读取 connectors、memory、MCP secrets 或 file-history 内容。
-
-上游格式变化时，先查看现有 fixtures/tests、当前 Provider 和 `docs/reference-analysis/`，再核对对应官方项目。不要凭猜测修改 parser schema。
-
-主要参考项目及历史分析见 `references/README.md` 和 `docs/reference-analysis/`。
-
-## 项目成熟度
-
-AIKS 当前适合作为持续演进中的内部 Alpha/Beta 使用：核心链路和较完整的 Rust 回归测试已经存在，P0/P1 可靠性问题已进行集中修复；仓库 CI、前端测试基线、发布/打包卫生和历史敏感信息审计仍在工程化路线图中。
-
-当前未完成项请以 GitHub Issues 与 `TODO.md` 为准，历史 `docs/design/` / `docs/implementation/` 文档不应被当作比当前代码更高优先级的现行约束。
-
-## Contributing
-
-修改前请先阅读 `AGENTS.md`。行为修复优先补回归测试，避免把无关重构或全仓格式化混入小型 PR。重大改动至少验证 Core；涉及 Desktop 时同时验证前端 build / Tauri Rust 部分。
+修改前阅读 [AGENTS.md](AGENTS.md)。历史设计用于理解演进，现行代码、测试、批准的范围与明确实施记录优先；不要重复实现已经存在的 Provider/处理/搜索。

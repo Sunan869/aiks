@@ -27,6 +27,12 @@ jobs:
         with:
           shared-key: service-native-desktop
           cache-on-failure: true
+      - name: Windows PowerShell 5.1 development entrypoint contract
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          & .\tests\dev-script-contract.ps1
+          if (-not $?) { exit 1 }
       - name: Install Tauri Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -42,6 +48,11 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked -p aiks-desktop --test service_client -- --test-threads=1 2>&1 | tee native-desktop-tests.log
+      - name: Native Service lifecycle and configuration
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked -p aiks-desktop --lib service_desktop_tests -- --test-threads=1 2>&1 | tee native-service-lifecycle.log
       - name: Full workspace Clippy
         if: always() && runner.os == 'Linux'
         shell: bash
@@ -65,6 +76,7 @@ jobs:
           name: service-native-${{ matrix.os }}-${{ github.sha }}
           path: |
             native-desktop-tests.log
+            native-service-lifecycle.log
             workspace-clippy.log
             workspace-tests.log
           retention-days: 3

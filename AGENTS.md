@@ -1,181 +1,110 @@
 # AGENTS.md
 
-本文件是 AI Coding Agent 和贡献者修改 AIKS 时应遵守的现行工程约束。历史设计文档用于理解演进过程；如果与本文件或当前代码冲突，以当前代码、测试和本文件为准。
+本文件是 AI Coding Agent 与贡献者的现行工程约束。历史文档用于理解演进；不要用历史进度覆盖当前代码、测试、批准的规格和最新实施记录。
 
-## 1. 当前产品定位
+## 1. 产品与代码边界
 
-AIKS V3 是一个本地优先、可观测、可追踪的 AI 工作知识处理系统。它读取 Claude Code、Codex、Gemini CLI、OpenCode、WorkBuddy 的本地 Session，将原始会话标准化、清洗、提炼为结构化知识，并可选生成向量用于混合检索；SiYuan 是可同步的知识出口之一，不是系统唯一的数据底座。
+AIKS 是本地优先的 AI 工作知识处理系统。Provider 读取本地 Session，统一为 Canonical Model，经持久任务清洗、提炼、分块与可选向量进入知识/会话检索，并与 SiYuan 内容服务协同。
 
-```text
-Claude Code / Codex / Gemini CLI / OpenCode / WorkBuddy
-                  ↓
-          Session Provider Layer
-                  ↓
-          Canonical Session Model
-                  ↓
-       Parse / Clean / Pipeline Run
-                  ↓
-            AI Extraction
-                  ↓
-            KnowledgeItem
-             ↙       ↘
-     Text / FTS       Embedding
-             ↘       ↙
-          Hybrid Search
-                  ↓
-       Desktop / CLI / SiYuan
-```
+本服务化分支 S1 新增独立 `apps/aiks-service` 及桌面 HTTP 链路；原有个人模式保留。目录职责：
 
-当前主实现位于：
+- `crates/aiks-core`：唯一业务实现，包含 Provider、模型、状态、Pipeline、知识、索引、搜索和内容适配。
+- `apps/aiks-cli`：原 CLI。
+- `apps/aiks-desktop`：React/Vite/Tauri；采集、client outbox、平台动作与 owned Service supervisor。
+- `apps/aiks-service`：独立 HTTP/Worker 入口，不依赖 Tauri，不枚举员工电脑目录。
+- `crates/aiks-core/migrations`：唯一正式业务 SQLite migration 链。
 
-- `crates/aiks-core`：Provider、状态库、Pipeline、知识、搜索、SiYuan 同步等核心逻辑。
-- `apps/aiks-cli`：命令行入口。
-- `apps/aiks-desktop`：React/Vite 前端与 Tauri 桌面端。
-- `crates/aiks-core/migrations`：唯一正式 SQLite migration 链。
+根目录不存在第二套可编译 `src/` 或业务 migrations；不得复制另一套 Pipeline/Knowledge/Search。客户端 outbox 使用独立 SQLite/schema，不得把业务 StateDb 当队列文件。
 
-根目录不存在第二套 `src/` 或 `migrations/` 实现；不得重新建立与 workspace 重复的实现树。
+## 2. Provider 只读边界
 
-## 2. 核心边界
+Provider 只负责发现/读取并输出 Canonical Session，不得直接写思源或创建 KnowledgeItem，不得把上游专有结构泄漏到业务层。
 
-### Provider
+Claude/Codex/Gemini 源文件只读；OpenCode、WorkBuddy、Cursor、Kilo SQLite 使用只读/WAL-aware 方式，不修改上游 schema、WAL 或数据。WorkBuddy 只允许会话元数据及 `projects/**/*.jsonl`，不得读取或发布 connectors、memory profile、MCP secrets、`.neodata_token`、file-history。
 
-Provider 只负责发现和读取上游 Session，并输出 AIKS Canonical Model。
+原五种稳定来源身份保留。新增 Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider 共用 catalog 和 Canonical Model。新来源经 ScopedReader 读取允许文件与必要元数据，加载时复查身份、路径边界、读取预算和完整性，拒绝越界 symlink/reparse。不得枚举与会话无关的编辑器凭据。
 
-- Provider 不得直接写 SiYuan。
-- Provider 不得直接创建 KnowledgeItem。
-- Provider 不得把第三方内部数据结构泄漏到下游业务层。
-- Claude/Codex/Gemini 的源文件必须只读。
-- OpenCode SQLite 与 WorkBuddy SQLite 必须按只读/WAL-aware 边界访问，不得修改其 schema、WAL 或数据。
-- WorkBuddy Provider 只可读取 `workbuddy.db` 会话元数据与 `projects/**/*.jsonl` transcript；不得读取或发布 `connectors/`、memory profile、MCP secrets、`.neodata_token` 或 `file-history/` 内容。
+Antigravity IDE token/usage 不是对话，禁止伪造用户/助手消息。Aider 不默认扫描主目录/整盘。部分扫描、单会话损坏、禁用或取消配置根，不能据此将未扫描的旧记录标为缺失。
 
-### 新增本地来源（PR #46）
+格式问题先查匿名 fixtures、当前 parser 与 reference-analysis，再核对官方格式/参考实现；加对应 fixture，兼容语义改变时提升 parser_version。实际安装环境版本兼容与合成 fixture 测试分开记录。复制第三方代码必须遵守 License 并更新 THIRD_PARTY_NOTICES。
 
-Antigravity、Cursor、Cursor Agent、Cline、Roo Code、Kilo Code、GitHub Copilot、Kimi Code、Qwen Code、Continue、Aider 通过 `providers/native.rs` 与各格式模块接入。旧五个来源身份保持不变，来源显示和筛选统一消费 Core catalog；Share URL 缓存来源仍与本地目录来源区分。
+## 3. Service 与桌面运行方式
 
-- 新来源只经 `ScopedReader` 读取允许的 transcript 和必要元数据；加载时复查来源身份及路径边界，拒绝逃逸链接/reparse points，并保留读取预算和完整性诊断。
-- Cursor 与 Kilo 索引 SQLite 只读且读取 WAL；不得枚举与会话无关的配置值或凭据。
-- 部分扫描保留有效会话，但不能据此将未扫描/损坏/禁用来源的旧记录标为缺失。
-- Antigravity IDE 的 usage/token 缓存不是对话，不得用它伪造消息。Aider 不默认扫描用户主目录或整个磁盘。
-- Provider tests 必须显式配置 AI/Embedding 或使用回环测试服务；不得依赖部署模型默认值，也不得为了测试通过修改部署配置。
-- `multi_provider_acceptance` 对 11 个适配器分别运行实际同步、去重、提炼、发布与混合搜索；真实安装环境和版本兼容范围仍单独验收。参见 `docs/reference-analysis/multi-provider-support.md`。
+配置 backend.mode 仅 legacy/service_local，默认 legacy；Windows dev.ps1 显式选择 service_local，-Legacy 保留旧流程。未知值报错；Service 启动失败不能自动改回旧模式或创建第二套 Worker。
 
-### State / Pipeline
+S1 只允许认证的 numeric-loopback personal Service，不得为了测试/部署方便放开 team 或公网监听。团队 ACL、远程多用户和思源受控写入属于 S2，必须先完成授权边界。
 
-SQLite 是本地状态和持久任务的事实源。`pipeline_job` 是持久队列，内存 channel 只能承担有界唤醒等辅助职责，不得恢复成无界 payload backlog。
+客户端上传完整标准化快照，Service 原子保存快照、版本、回执和任务。后台仅从已保存输入处理，不通过员工本机路径重新读取。source/project path 不是服务下载目标；正文 URL 不授权抓取。
 
-Pipeline 状态必须真实反映执行结果：
+监督器只允许原生代码选定的开发/资源二进制路径；IPC 不接受任意可执行文件/命令/URL/PID。启动令牌通过 stdin 传递，stdout 握手校验协议、实例、nonce、数字回环地址，并进行认证 capabilities 检查。凭据不进 Webview、队列、日志、URL 或 capability DTO。
 
-- 配置为必需的阶段失败后，不得继续写成功状态。
-- Embedding 已启用并配置时，分块、Embedding、索引失败不得进入 `READY`。
-- Embedding 明确关闭/未配置时可以记录 `SKIPPED`。
-- Job 必须具备可恢复 lease、持久 attempt/retry 和终态失败语义。
-- 重启恢复不得依赖只存在于内存中的任务信息。
+窗口关闭入托盘保留进程；正常退出有界停止采集、drain 自有 Service 并停止自有思源。只有明确 opt-in 的 managed sidecar 具有父管道 EOF 生命周期；独立实例不因客户端 stdin EOF 停止。永不按陌生 PID 或远程 URL 执行 shutdown/kill。启动和退出串行化，错误/取消不得遗留第二个 Writer。
 
-### Knowledge
+Service 默认新空间位于 data-root/service-local，普通启动不得迁移、清空、扫描或更改旧业务库/旧思源工作区。运行资源定位必须无修改副作用；legacy bridge 安装不得偷偷用于新模式。新 profile/config/identity 路径拒绝不符合边界的链接和 reparse points。
 
-`KnowledgeItem` 是 V3 的核心业务实体。
+## 4. 持久状态与版本
 
-- 重新提炼时，只有安全、唯一的逻辑匹配才能复用已有 knowledge ID。
-- 当前稳定身份策略以规范化后的 `(category, title)` 唯一匹配为准；不要根据 category 等弱条件猜测 rename。
-- 被移除的已同步知识必须保留可追踪的 `REMOVED` sink tombstone，不能静默丢失远端映射。
-- Knowledge 内容变化时，应使旧 chunk / embedding / FTS 派生数据失效并重建。
+SQLite 是本地业务状态与持久任务事实源。pipeline_job 保存 lease、heartbeat、attempt、retry 与失败终态；内存 channel 只作有界唤醒，禁止恢复为无界 payload backlog。任务重启恢复不依赖仅在内存中的输入。
 
-### Search / Embedding
+Desktop/CLI/Service 写同一个业务库前统一获取跨进程所有权锁。不得通过共享目录让客户端直接打开服务端数据库；不得用已打开数据库副本绕过 ownership。
 
-AIKS 已实现自己的可选 Embedding Pipeline 和混合搜索，这些能力不是禁止项。
+接收快照的身份至少区分可信主体/空间、来源注册、上游会话和版本。重复请求返回可核对回执；不能用外部 session ID 猜测属于哪个来源。每个客户端会话最多一个未完成 generation，重传不改变目标实例、空间、submission ID、payload hash 或 expected_revision。切换连接不能重定向旧队列。
 
-- AI 与 Embedding 对公开/新安装默认应保持 opt-in；不得恢复私网服务作为默认配置。
-- 搜索错误不得用 `unwrap_or_default()` 等方式伪装成“0 条结果”。
-- FTS 不可用或执行失败时应显式 degraded，并安全回退到参数化文本搜索。
-- Vector 服务不可用时应保留文本搜索结果并报告 degradation。
-- 普通查询不得无界加载整库向量；当前向量 rerank 必须保持有界候选集，除非引入经过验证的 ANN/vector index 方案。
+所有派生写入（正文投影、chunks、FTS、向量、knowledge、成功状态）必须在同一事务中检查接受版本；晚返回的旧模型/向量不能覆盖新结果。真正 superseded 用明确错误类型，不把数据库错误归为正常替代。查询未知/旧版本派生数据不能拼接为当前状态。保留用户/已发布知识按条目保持源版本，不能继承另一个新提炼条目的版本。
 
-### SiYuan
+配置为必需的阶段失败不能写成功。Embedding 已启用时分块/模型/索引失败不得 READY；明确关闭可以 SKIPPED。普通错误不能用 unwrap_or_default 伪装成功或零结果。故障隔离至合理最小范围。
 
-SiYuan 是支持的 Knowledge Sink / Session Archive 目标。
+## 5. Knowledge、搜索与思源
 
-- 只通过公开 HTTP API 集成，不得直接修改 SiYuan SQLite 或 `.sy` 文件。
-- 用户在 SiYuan 中的修改不得被默认静默覆盖；保持 conflict/baseline 语义。
-- 并发 Knowledge→SiYuan 写入必须避免为同一个 knowledge item 创建重复远端文档。
-- 慢 SiYuan 网络 I/O 不得占用 raw/session sync 的全局锁。
+KnowledgeItem 稳定身份只在安全、唯一匹配时复用，目前以规范化 (category,title) 唯一匹配为准；不要按弱 category 猜 rename。被移除的已同步知识保留可追踪 REMOVED tombstone 与远端映射，不能静默抹掉。更新后使旧 chunk/embedding/FTS 失效并重建。
 
-## 3. Provider 格式变化的排查顺序
+统一搜索复用 Core，不在 Tauri 再做一套算法。可信空间/主体过滤必须在候选 LIMIT 前执行，正文和引用还需再校验。文本查询参数化且安全处理 FTS grammar；FTS 不可用回退文本并报告 degraded；向量不可用保留文本结果并明确降级。普通查询不能无界加载整库向量；保持有界候选或实现经过验证的 ANN。
 
-上游格式无法解析时，不得凭感觉猜 schema。优先：
+已发布正文、文档结构和编辑内容通过思源公开 HTTP API 读取；不得直接修改思源 SQLite 或 .sy 文件。SQLite 的已发布内容投影不是可伪装返回的规范正文，思源不可用报告 content_unavailable。未发布草稿需要明确标识。
 
-1. 查看已有匿名 fixture 和 parser tests。
-2. 查看 AIKS 当前 Provider 实现与 `docs/reference-analysis/`。
-3. 核对对应官方上游项目当前格式/代码。
-4. 必要时参考 AICoder Session Viewer、CC Switch、ccusage 等既有实现。
-5. 添加匿名 fixture 覆盖新格式。
-6. 更新 Parser，并在兼容语义变化时提升 `parser_version`。
-7. 跑相关 parser/golden tests 和完整 core 回归。
+保留用户编辑的 conflict/baseline 语义，不默认静默覆盖；并发知识发布不得为同一条目创建重复远端文档。慢思源网络 I/O 不占 raw/session sync 的粗粒度全局锁。异步网络等待期间不持有 SQLite 锁。
 
-复制或修改第三方代码时必须遵守对应 License，并同步 `THIRD_PARTY_NOTICES.md`。
+服务端思源不直接开放普通用户。严禁增加通用 proxy/SQL/file/URL 透传来绕过授权；内部内容适配固定 origin 和端点，拒绝重定向转发令牌。后续受控文档/块/附件读写需验证资源空间，不可只在页面隐藏入口。
 
-## 4. 并发与可靠性约束
+## 6. 配置、日志与公开仓库
 
-- 不要在网络 I/O 周围持有与无关流程共享的粗粒度全局锁。
-- 同一 durable queue 活跃周期内可以缓存 Provider discovery snapshot，但队列真正 idle 后必须允许刷新，避免永久陈旧。
-- Extraction candidate 必须携带 canonical `source_session.id`，并保留 source/external ID 用于一致性校验；不得仅凭 `external_session_id` 二次猜测 Session。
-- 同一逻辑任务的重复提交必须去重，过期 generation 不得形成无界积压。
-- 单 Session 的损坏应尽可能隔离；不要因为一个坏样本让整个 Provider 扫描崩溃。
+新 Service/公开新配置 AI 与 Embedding 必须 opt-in，部分 [ai] 表不能继承旧部署地址/自动启用。不要为使测试通过而改变用户部署配置。保留的 legacy 默认值不代表新的安全策略；不要重新复制内部地址到示例/新模块。
 
-## 5. 数据库与 migration
+禁止提交真实 API Key、Bearer Token、AccessKey、密码和 `.workbuddy/` 本地记忆。测试用临时源、合成值和回环 fixture，必须显式配置模型；不消费真实账户。日志不得输出完整秘密/正文；服务错误返回固定安全码，不回显上游原始异常中的凭据。
 
-正式 migration 只放在 `crates/aiks-core/migrations/`。
+规则脱敏不是绝对保证。数据本地保存不意味着发往可配置远程模型的内容不出本机；界面和文档不得混淆。开发 mock 必须显式 opt-in，生产/无 Tauri 环境不自动回退模拟结果。
 
-- 已发布/已使用的 migration 不应为了方便而原地改写；schema 变化优先追加新 migration。
-- 数据迁移必须考虑已有用户数据库，不只验证空库。
-- 新状态字段要明确默认值、回填和索引策略。
-- destructive reset 与普通 rebuild 必须保持清晰区分。
+## 7. Migration 与修改原则
 
-## 6. 安全与公开仓库卫生
+正式业务 schema 变更只追加 crates/aiks-core/migrations，不原地改写已使用 migration；验证旧库而非只空库。默认值、回填、索引、事务和回滚边界明确，无法证明的历史源版本保持未知。
 
-- 不得提交真实 API Key、Bearer Token、密码、AccessKey/SecretKey 等凭据。
-- 不得把公司/家庭私网地址、内部模型服务地址作为默认值或示例值重新提交到公开仓库。
-- `.workbuddy/` 等本地工作记忆不得纳入版本控制。
-- 日志不得输出完整 Secret。
-- 示例配置使用 loopback、空值或明确的占位符。
+显式内部 adoption 与用户默认启动分开；不得宣称内部迁移自动提供备份。破坏性 reset 与普通 rebuild 区分；真实用户资料迁移/清空需要单独授权及备份。
 
-## 7. 修改原则
+优先修改已有 canonical 实现，不无关重构或全仓格式化。行为修复先加可复现测试，再实现最小改动。保留 CLI/Desktop 调用兼容；必须改变接口时同提交更新所有调用方与测试。
 
-- 优先修改 canonical implementation，而不是复制一份新实现。
-- 不要为了修一个局部问题顺带进行全仓格式化或无关重构。
-- 对行为修复先写能复现问题的回归测试，再做最小实现修改。
-- 新 API 优先保持现有调用方兼容；必须破坏兼容时，在同一变更里更新 CLI/Desktop/测试。
-- Desktop 搜索等公共能力应复用 Core，不要在 Tauri command 中再维护另一套业务实现。
-- 历史文档可以保留历史结论，但 README、AGENTS、TODO 必须描述当前状态。
+## 8. 验证与完成声明
 
-## 8. 验证要求
-
-按改动范围选择最小但充分的验证；重大 Core 变更至少应运行：
+重大 Core 变更运行 Core 测试与 CLI 检查；涉及工作区/Tauri 跑完整工作区，前端跑测试与构建：
 
 ```bash
-cargo test -p aiks-core
-cargo check -p aiks-cli
-```
-
-涉及整个 workspace/Tauri 时应运行：
-
-```bash
-cargo test --workspace
-```
-
-涉及前端时：
-
-```bash
+cargo fmt --all --check
+cargo test --locked -p aiks-core
+cargo test --locked -p aiks-service
+cargo check --locked -p aiks-cli
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 cd apps/aiks-desktop
 npm ci
+npm test
 npm run build
 ```
 
-Tauri 在 Linux CI 中还需要 WebKit/AppIndicator 等系统依赖；`tauri.conf.json` 当前引用 `resources/siyuan/**/*`，纯 CI checkout 若未提供运行时资源，需要在验证环境创建占位目录，而不是为通过 CI 随意修改产品配置。
+Linux Tauri 需要 WebKit/AppIndicator 等系统依赖。CI 的思源占位目录仅编译验证，不是实际 runtime/安装包。Windows 执行真实 storage/worker/HTTP/lifecycle 测试，不只 check。S1 离线测试需要隔离外部网络并启用回环模型，不能仅关闭 AI 后声称完整离线 AI 验证。
 
-不得在未看到实际测试/构建结果时宣称修复完成。
+CI 不自动提交生成的补丁或移动开发分支；最终验证 workflow 保持只读。每个完成声明绑定已执行的具体提交和结果；不能用之前绿色 SHA 或准备工作流成功代替当前正式测试。功能测试不等于供应链安全审计，既有 npm audit 告警必须记录/跟踪。
 
-## 9. 当前范围与路线图
+## 9. 范围与进度
 
-当前代码已经包含 Provider、Canonical Model、SQLite 状态、增量同步、持久 Pipeline、AI Knowledge Extraction、Embedding、混合搜索、CLI、Tauri/React Desktop 和 SiYuan 同步。
+S1 当前实现本地 Service 业务链路、原生监督器和开发入口。S2 团队身份/空间/共享与思源受控写入、S3 完整部署/安装包、S4 引用式知识库问答仍为后续阶段。
 
-当前工程化与后续工作以 GitHub Issues 和 `TODO.md` 为准。不要再按照旧 V1 Phase 清单重复实现已经存在的功能。
+当前实施看 docs/implementation/aiks-service-s1-progress.md，使用与回滚看 aiks-service-s1.md。此前 task ledger 和未勾选的原始计划保留历史，不应触发重复开发已经完成的代码。不得把内部 publisher 测试当成对外写 API，也不得把首条 ServiceStatusPage 当成全部旧工作台功能已服务化。
