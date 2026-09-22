@@ -1,0 +1,74 @@
+name: Prepare service generated files
+
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+    paths:
+      - '**/Cargo.toml'
+      - '**/*.rs'
+      - '.github/workflows/service-generated-files.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-generated-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    if: github.repository == 'Sunan869/aiks' && github.ref == 'refs/heads/feature/aiks-service-extraction'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Resolve workspace lock and formatting
+        run: |
+          cargo metadata --format-version 1 --no-deps > /tmp/service-metadata.json
+          cargo check -p aiks-core --lib > /tmp/service-check.log 2>&1 || tail -n 50 /tmp/service-check.log
+          cargo fmt --all
+          git diff --check
+          git diff --stat
+          git diff -- Cargo.lock
+      - name: Publish only generated Git blobs for explicit review
+        env:
+          GH_BLOB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'Sunan869/aiks'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/feature/aiks-service-extraction'
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert head == os.environ['GITHUB_SHA']
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '-z']).split(b'\0')
+          result = {'source_head': head, 'files': []}
+          for value in paths:
+              if not value:
+                  continue
+              path = value.decode('utf-8')
+              assert path == 'Cargo.lock' or path.endswith('.rs'), path
+              old = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
+              content = pathlib.Path(path).read_bytes()
+              assert len(content) <= 512 * 1024, path
+              if path != 'Cargo.lock':
+                  print(subprocess.check_output(['git', 'diff', '--', path], text=True))
+              payload = json.dumps({'encoding': 'base64', 'content': base64.b64encode(content).decode('ascii')}).encode()
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/Sunan869/aiks/git/blobs',
+                  data=payload, method='POST',
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_BLOB_TOKEN'],
+                           'Accept': 'application/vnd.github+json',
+                           'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  created = json.load(response)
+              result['files'].append({'path': path, 'old_sha': old,
+                                      'sha': created['sha'], 'bytes': len(content)})
+          print('GENERATED_BLOBS=' + json.dumps(result, sort_keys=True))
+          PY
