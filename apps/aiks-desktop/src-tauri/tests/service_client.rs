@@ -33,16 +33,28 @@ fn service_client_native_outbox_replays_without_retargeting_or_rebasing() {
         outbox.enqueue(&pending).unwrap(),
         EnqueueOutcome::Queued(_)
     ));
-    assert!(outbox.next_for("instance-b", "space-a", 0).unwrap().is_none());
-    let claim = outbox.next_for("instance-a", "space-a", 0).unwrap().unwrap();
+    assert!(outbox
+        .next_for("instance-b", "space-a", 0)
+        .unwrap()
+        .is_none());
+    let claim = outbox
+        .next_for("instance-a", "space-a", 0)
+        .unwrap()
+        .unwrap();
     let payload = serde_json::to_value(claim.pending().submission()).unwrap();
     drop(claim);
     drop(outbox);
 
     let outbox = CollectorOutbox::open(&path).unwrap();
-    let claim = outbox.next_for("instance-a", "space-a", 1).unwrap().unwrap();
+    let claim = outbox
+        .next_for("instance-a", "space-a", 1)
+        .unwrap()
+        .unwrap();
     assert_eq!(claim.pending().payload_hash(), pending.payload_hash());
-    assert_eq!(serde_json::to_value(claim.pending().submission()).unwrap(), payload);
+    assert_eq!(
+        serde_json::to_value(claim.pending().submission()).unwrap(),
+        payload
+    );
     let receipt = SnapshotReceipt {
         receipt_id: "receipt-1".into(),
         session_id: "12".into(),
@@ -55,10 +67,15 @@ fn service_client_native_outbox_replays_without_retargeting_or_rebasing() {
     outbox.record_receipt(&claim, &receipt).unwrap();
     let unchanged = fixture::submission("space-a", "instance-a", "reg-a", "two", 1, "NATIVE_QUEUE");
     assert_eq!(
-        outbox.enqueue(&PendingSubmission::new(unchanged).unwrap()).unwrap(),
+        outbox
+            .enqueue(&PendingSubmission::new(unchanged).unwrap())
+            .unwrap(),
         EnqueueOutcome::Unchanged
     );
-    assert_eq!(outbox.statuses("instance-a", "space-a").unwrap()[0].state, "acknowledged");
+    assert_eq!(
+        outbox.statuses("instance-a", "space-a").unwrap()[0].state,
+        "acknowledged"
+    );
 }
 
 #[test]
@@ -66,7 +83,10 @@ fn service_client_native_outbox_refuses_business_storage_and_unsafe_origins() {
     let root = TestRoot::new();
     let path = root.0.join("business.db");
     drop(StateDb::open(&path).unwrap());
-    assert!(matches!(CollectorOutbox::open(&path), Err(ClientError::Storage)));
+    assert!(matches!(
+        CollectorOutbox::open(&path),
+        Err(ClientError::Storage)
+    ));
     let credential = "ab".repeat(32);
     for origin in [
         "http://localhost:1234",
@@ -81,6 +101,10 @@ fn service_client_native_outbox_refuses_business_storage_and_unsafe_origins() {
         ));
     }
     assert!(ServiceConnection::local(
-        "http://127.0.0.1:1234", "instance-a", "space-a", &credential
-    ).is_ok());
+        "http://127.0.0.1:1234",
+        "instance-a",
+        "space-a",
+        &credential
+    )
+    .is_ok());
 }

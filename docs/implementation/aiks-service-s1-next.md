@@ -1,14 +1,21 @@
-# S1 Task 5 checkpoint and Task 6 execution
+# S1 continuation — Task 8 native checkpoint, Task 9 next
 
-Work remains on feature/aiks-service-extraction. No main changes, merge, release or real user model/SiYuan access.
+Current authoritative status: `docs/implementation/aiks-service-s1-progress.md`. Earlier Task 5/6 continuation text is historical and retained in Git; do not reapply its patches or reimplement already committed service code.
 
-Task 5 runtime RED: bb54844 / Actions 35687815540 reproduced late AI results incorrectly becoming DONE, both changed-content and title-only cases. c310ca1 added missing guarded-write API tests.
-Task 5 implementation: 069d92c / Actions 35688888258 passed Core tests (347 reported executions including the subprocess lease probe), Core/CLI Clippy, rustfmt and unchanged locked Cargo.lock. Tests cover guarded knowledge/chunk writes, initial/shortcut/final index writes, delayed embeddings, safe error typing, transactional rollback and valid current completion.
-Additional retry/expired lease restart and stable status tests passed Core tests and Clippy at a44816c / Actions 35689142829; that run only failed formatting. This commit applies exactly the generated rustfmt blob. Desktop existing-page SSR status contracts, all frontend tests and production build passed Actions 35689142788 at a44816c.
+Continue only from the current remote `feature/aiks-service-extraction` HEAD. No main changes, merge or installer publication are authorized by this checkpoint.
 
-Ruling: source revisions and derived revisions are separate; migration 013 records indexed/knowledge/completed revisions, NULL means unknown, and accepting a newer revision makes older provenance stale by comparison. Do not delete already published or user-owned knowledge. Task 6 must not expose old snippets combined with new titles as current.
-Ruling: HTTP new receipt versus replay cannot use the existing accept bool, which means newly queued work. Expose receipt-creation classification from the same transaction; never infer it with a racy pre-read.
-Ruling: authenticated S1 search must apply the trusted personal-space predicate before candidate limits in all existing lexical/substring/metadata/semantic paths. Reuse existing algorithms; do not call unrestricted search then hide unauthorized rows in the browser.
-Ruling: source code was obtained through a read-only Actions git-archive artifact into an isolated local Git working copy after ordinary clone failed DNS. Compilation remains on GitHub Actions; no claim of a local Rust run is made.
+## Verified work
 
-Task 6 is in RED setup: apps/aiks-service is only a failing scaffold until the real router/runtime/auth/ingestion/query and lifecycle tests pass. The existence of its manifest or health endpoint alone is not completion. Tasks 7–10 remain pending; Windows, full desktop service cutover, adoption and installer acceptance are not inferred from Linux Core tests.
+Tasks 1–7 have implemented contracts and real automated tests. Task 8 now contains canonical Desktop `service_client/{mod,transport,outbox,collector}.rs`, exported through the actual Tauri library. `c389d7d` passed native client tests on Linux and Windows, Linux full-workspace Clippy/tests, and frontend regression tests/build. Workspace result summaries report 424 passing executions / 0 failed / 0 ignored, including the subprocess ownership probe. The subsequent closing commit changes only native-test formatting and these status records; verify its own CI rather than inferring a result.
+
+The real collector tests prove sanitized Continue capture, immutable retry/acknowledgement, source deletion before processing, cached-registration offline collection, exclusions and rejection of malformed legacy JSONL. No private user source or real model/content service is used.
+
+## Next implementation: Task 9
+
+1. Add strict backend.mode parsing: legacy by default, service_local as explicit opt-in, unknown values rejected. Branch before any legacy AiksEngine/Provider Worker or SiYuan startup; do not silently fall back if the Service cannot start.
+2. Native supervisor starts only a fixed native-selected binary path. Pass the random bootstrap credential through stdin; validate the bounded stdout protocol/instance/nonce/address, then authenticated capabilities. Secrets and arbitrary executable paths/URLs never go to the webview.
+3. Close-to-tray keeps the owned Service; full application exit stops collection and bounded-drains the owned child. Never kill an independent or foreign service. Acquire Task 2 ownership in legacy Desktop/CLI before business writes and require the Service to stop before returning to legacy.
+4. Wire controlled service_status/service_collect_selected/service_get_receipt/service_get_job/service_search actions, DesktopPlatformApi vs ServiceApi and ServiceStatusPage. Show accepted vs queued/processed/failed correctly; empty search differs from transport failure; no legacy-write or production-mock fallback. Include explicit conflict/receipt/version handling without blind revision rebasing.
+5. Add behavioral RED tests before the native supervisor and frontend changes, verify GREEN on the exact branch HEAD, then proceed to Task 10.
+
+Task 10 still needs the full complete-workflow offline/model/content integration and final branch review. Current GUI startup remains legacy; merely compiling the native client module is not a service-mode GUI or installer delivery.
