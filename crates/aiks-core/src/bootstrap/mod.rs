@@ -17,6 +17,8 @@ use tracing::info;
 
 use crate::runtime::{SiyuanRuntime, SiyuanRuntimeConfig};
 
+mod process_paths;
+
 /// Result from ensuring the AI Knowledge notebook exists.
 #[derive(Debug, Clone)]
 pub struct NotebookInfo {
@@ -53,9 +55,11 @@ impl BootstrapConfig {
 
     /// Build a SiyuanRuntimeConfig from this bootstrap config.
     pub fn runtime_config(&self) -> SiyuanRuntimeConfig {
+        // These two paths cross a process boundary into the Go/SQLite runtime.
+        // Keep the canonical Rust data root for locks, configuration and logs.
         let mut cfg = SiyuanRuntimeConfig::new(
-            self.runtime_root.clone(),
-            self.workspace.clone(),
+            process_paths::for_kernel(&self.runtime_root),
+            process_paths::for_kernel(&self.workspace),
             &self.data_dir,
         );
         cfg.expected_version = self.expected_version.clone();
