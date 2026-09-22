@@ -197,10 +197,10 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     let root = tempfile::tempdir().unwrap();
     let path = "workspaceStorage/ws/chatSessions/s1.jsonl";
     let events = [
-        json!({"kind":0,"v":{"sessionId":"s1","requests":[{"message":{"text":"VS_CODE"},"response":[{"value":"old"},{"value":"remove"}]}]}}),
+        json!({"kind":0,"v":{"sessionId":"s1","requests":[{"message":{"text":"VS_CODE"},"response":[{"value":"old"},{"value":"remove"},{"value":"stale"}]}]}}),
         json!({"kind":1,"k":["requests",0,"response",0,"value"],"v":"new"}),
+        json!({"kind":2,"k":["requests",0,"response"],"i":1}),
         json!({"kind":2,"k":["requests",0,"response"],"v":[{"value":"tail"}]}),
-        json!({"kind":3,"k":["requests",0,"response",1]}),
     ];
     let content = events
         .iter()
@@ -220,6 +220,41 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     );
     assert!(p.discover_sessions().await.is_err());
 }
+#[tokio::test]
+async fn copilot_discovery_tolerates_only_an_active_partial_tail() {
+    let root = tempfile::tempdir().unwrap();
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":"
+        ),
+    );
+    let p = provider(SourceKind::GithubCopilot, root.path());
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert_eq!(report.sessions.len(), 1);
+    assert!(p.load_session(&report.sessions[0]).await.is_err());
+
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{broken}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n"
+        ),
+    );
+    let report = p.discover_report().await.unwrap();
+    assert!(!report.complete);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "partial_store"));
+}
+
 fn kimi(root: &Path, events: &[Value]) -> NativeProvider {
     put(
         root,
@@ -335,5 +370,17 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
     ws.execute_batch("CREATE TABLE ItemTable(key TEXT PRIMARY KEY,value TEXT);")
         .unwrap();
     ws.execute("INSERT INTO ItemTable VALUES('composer.composerData',?1)", [json!({"allComposers":[{"composerId":"s2","conversation":[{"type":1,"text":"legacy"},{"type":2,"text":"answer"}]}]}).to_string()]).unwrap();
-    assert_eq!(p.discover_sessions().await.unwrap().len(), 2);
+
+    std::fs::create_dir_all(root.path().join("workspaceStorage/without-chat")).unwrap();
+    let unrelated =
+        rusqlite::Connection::open(root.path().join("workspaceStorage/without-chat/state.vscdb"))
+            .unwrap();
+    unrelated
+        .execute_batch("CREATE TABLE unrelated(key TEXT PRIMARY KEY,value TEXT);")
+        .unwrap();
+    drop(unrelated);
+
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert_eq!(report.sessions.len(), 2);
 }
