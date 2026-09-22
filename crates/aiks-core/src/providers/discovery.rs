@@ -13,6 +13,9 @@ pub struct DiscoveryDiagnostic {
 pub struct DiscoveryReport {
     pub sessions: Vec<SessionSummary>,
     pub complete: bool,
+    /// False when discovery can still return usable sessions but skipped an
+    /// isolated unreadable candidate, so missing-session detection must not run.
+    pub missing_detection_safe: bool,
     pub diagnostics: Vec<DiscoveryDiagnostic>,
     /// Canonical roots actually covered, never paths inferred from transcript cwd.
     /// Empty preserves the legacy complete-provider discovery contract.
@@ -23,12 +26,17 @@ impl Default for DiscoveryReport {
         Self {
             sessions: Vec::new(),
             complete: true,
+            missing_detection_safe: true,
             diagnostics: Vec::new(),
             covered_paths: Vec::new(),
         }
     }
 }
 impl DiscoveryReport {
+    pub fn suppress_missing_detection(&mut self) {
+        self.missing_detection_safe = false;
+    }
+
     pub fn incomplete(&mut self, code: &str, store_index: usize) {
         self.complete = false;
         if let Some(d) = self

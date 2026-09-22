@@ -781,7 +781,7 @@ impl SyncEngine {
         for (source, result) in per_source {
             match result {
                 Ok(report) => {
-                    if !report.complete {
+                    if !report.complete || !report.missing_detection_safe {
                         continue;
                     }
                     covered_scopes.insert(source.as_str().to_string(), report.covered_paths);

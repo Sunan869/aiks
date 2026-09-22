@@ -259,6 +259,30 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     assert!(p.discover_sessions().await.is_err());
 }
 #[tokio::test]
+async fn copilot_corrupt_flat_neighbor_does_not_poison_valid_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    put(
+        root.path(),
+        "session-state/s1/events.jsonl",
+        concat!(
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"question\"}}\n",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"answer\"}}\n"
+        ),
+    );
+    put(
+        root.path(),
+        "workspaceStorage/ws/chatSessions/broken.json",
+        "{\"sessionId\":\"broken\",\"requests\":[",
+    );
+    let p = provider(SourceKind::GithubCopilot, root.path());
+    let report = p.discover_report().await.unwrap();
+    assert!(report.complete);
+    assert!(!report.missing_detection_safe);
+    assert_eq!(report.sessions.len(), 1);
+    assert!(p.discover_sessions().await.is_ok());
+}
+
+#[tokio::test]
 async fn copilot_discovery_tolerates_only_an_active_partial_tail() {
     let root = tempfile::tempdir().unwrap();
     put(
@@ -391,6 +415,11 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
         )
         .unwrap();
     }
+    conn.execute(
+        "INSERT INTO cursorDiskKV(key, value) VALUES('composerData:null-record', NULL)",
+        [],
+    )
+    .unwrap();
     let p = provider(SourceKind::Cursor, root.path());
     let a = one(&p).await;
     assert_eq!(texts(&a), "cursor question\ncursor answer");
