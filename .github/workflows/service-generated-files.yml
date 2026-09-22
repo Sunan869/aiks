@@ -6,6 +6,7 @@ on:
     paths:
       - '**/Cargo.toml'
       - '**/*.rs'
+      - 'scripts/service-s1-transform.py'
       - '.github/workflows/service-generated-files.yml'
 
 permissions:
@@ -29,10 +30,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply reviewed candidate transform
+        if: hashFiles('scripts/service-s1-transform.py') != ''
+        run: python3 scripts/service-s1-transform.py
       - name: Resolve workspace lock and formatting
         run: |
           cargo metadata --format-version 1 --no-deps > /tmp/service-metadata.json
-          cargo check -p aiks-core --lib > /tmp/service-check.log 2>&1 || tail -n 50 /tmp/service-check.log
+          cargo check -p aiks-core --all-targets > /tmp/service-check.log 2>&1 || tail -n 70 /tmp/service-check.log
           cargo fmt --all
           git diff --check
           git diff --stat

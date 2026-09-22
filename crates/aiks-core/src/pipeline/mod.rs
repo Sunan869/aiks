@@ -2,6 +2,7 @@ pub mod ai_stage;
 pub mod cleaner;
 pub mod embedding_client;
 pub mod embedding_stage;
+pub mod input;
 pub mod job_repo;
 pub mod knowledge_repo;
 /// V3 Processing Pipeline
