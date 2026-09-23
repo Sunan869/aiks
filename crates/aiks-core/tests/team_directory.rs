@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use aiks_core::{storage::StateDb, team::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, TeamError, TeamStore}};
+use aiks_core::{
+    storage::StateDb,
+    team::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, TeamError, TeamStore},
+};
 
 fn snapshot(time: u64) -> DirectorySnapshot {
     DirectorySnapshot {
@@ -8,20 +11,59 @@ fn snapshot(time: u64) -> DirectorySnapshot {
         scope: vec!["root".into()],
         observed_at: time,
         orgs: vec![
-            OrgRecord { id: "root".into(), parent_id: None, name: "Company".into() },
-            OrgRecord { id: "research".into(), parent_id: Some("root".into()), name: "Research".into() },
-            OrgRecord { id: "backend".into(), parent_id: Some("research".into()), name: "Backend".into() },
+            OrgRecord {
+                id: "root".into(),
+                parent_id: None,
+                name: "Company".into(),
+            },
+            OrgRecord {
+                id: "research".into(),
+                parent_id: Some("root".into()),
+                name: "Research".into(),
+            },
+            OrgRecord {
+                id: "backend".into(),
+                parent_id: Some("research".into()),
+                name: "Backend".into(),
+            },
         ],
         users: vec![
-            DirectoryUser { external_user_id: "a".into(), union_id: "ua".into(), display_name: "Same name".into(), active: true },
-            DirectoryUser { external_user_id: "b".into(), union_id: "ub".into(), display_name: "Same name".into(), active: true },
-            DirectoryUser { external_user_id: "c".into(), union_id: "uc".into(), display_name: "C".into(), active: true },
+            DirectoryUser {
+                external_user_id: "a".into(),
+                union_id: "ua".into(),
+                display_name: "Same name".into(),
+                active: true,
+            },
+            DirectoryUser {
+                external_user_id: "b".into(),
+                union_id: "ub".into(),
+                display_name: "Same name".into(),
+                active: true,
+            },
+            DirectoryUser {
+                external_user_id: "c".into(),
+                union_id: "uc".into(),
+                display_name: "C".into(),
+                active: true,
+            },
         ],
         memberships: vec![
-            Membership { user_id: "a".into(), org_id: "research".into() },
-            Membership { user_id: "b".into(), org_id: "backend".into() },
-            Membership { user_id: "c".into(), org_id: "research".into() },
-            Membership { user_id: "c".into(), org_id: "backend".into() },
+            Membership {
+                user_id: "a".into(),
+                org_id: "research".into(),
+            },
+            Membership {
+                user_id: "b".into(),
+                org_id: "backend".into(),
+            },
+            Membership {
+                user_id: "c".into(),
+                org_id: "research".into(),
+            },
+            Membership {
+                user_id: "c".into(),
+                org_id: "backend".into(),
+            },
         ],
     }
 }
@@ -72,21 +114,40 @@ fn incomplete_cyclic_or_inconsistent_snapshots_cannot_replace_current_directory(
     store.publish_directory(snapshot(1000), 1000).unwrap();
     let b = store.user_by_union("ub").unwrap().unwrap();
     let mut cases = Vec::new();
-    let mut s = snapshot(1010); s.complete = false; cases.push(s);
-    let mut s = snapshot(1010); s.orgs[1].parent_id = Some("backend".into()); cases.push(s);
-    let mut s = snapshot(1010); s.orgs[1].parent_id = Some("research".into()); cases.push(s);
-    let mut s = snapshot(1010); s.orgs[1].parent_id = Some("missing".into()); cases.push(s);
-    let mut s = snapshot(1010); s.users[1].union_id = "ua".into(); cases.push(s);
-    let mut s = snapshot(1010); s.memberships[0].org_id = "missing".into(); cases.push(s);
-    let mut s = snapshot(1010); s.memberships[0].user_id = "missing".into(); cases.push(s);
-    let mut s = snapshot(1010); s.scope = vec!["missing".into()]; cases.push(s);
+    let mut s = snapshot(1010);
+    s.complete = false;
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.orgs[1].parent_id = Some("backend".into());
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.orgs[1].parent_id = Some("research".into());
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.orgs[1].parent_id = Some("missing".into());
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.users[1].union_id = "ua".into();
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.memberships[0].org_id = "missing".into();
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.memberships[0].user_id = "missing".into();
+    cases.push(s);
+    let mut s = snapshot(1010);
+    s.scope = vec!["missing".into()];
+    cases.push(s);
     for invalid in cases {
         assert!(store.publish_directory(invalid, 1010).is_err());
         assert_eq!(store.directory_generation().unwrap(), 1);
         assert!(store.user_by_union("ub").unwrap().unwrap().active);
         assert_eq!(store.user_by_union("ub").unwrap().unwrap().id, b.id);
     }
-    assert!(matches!(store.publish_directory(snapshot(999), 999), Err(TeamError::Conflict)));
+    assert!(matches!(
+        store.publish_directory(snapshot(999), 999),
+        Err(TeamError::Conflict)
+    ));
 }
 
 #[test]
@@ -114,7 +175,10 @@ fn deactivation_advances_auth_generation_and_reactivation_does_not_undo_it() {
     store.publish_directory(snapshot(1010), 1010).unwrap();
     let restored = store.user_by_union("ub").unwrap().unwrap();
     assert!(restored.active);
-    assert_eq!(restored.auth_version, inactive.auth_version, "old tokens cannot revive");
+    assert_eq!(
+        restored.auth_version, inactive.auth_version,
+        "old tokens cannot revive"
+    );
     let mut removed = snapshot(1020);
     removed.users.retain(|u| u.external_user_id != "b");
     removed.memberships.retain(|m| m.user_id != "b");
@@ -127,8 +191,12 @@ fn sql_failure_rolls_back_member_changes_and_directory_generation() {
     let (_root, store) = setup();
     store.publish_directory(snapshot(1000), 1000).unwrap();
     store.db().conn().execute_batch("CREATE TRIGGER reject_generation BEFORE UPDATE OF directory_generation ON team_company BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END;").unwrap();
-    let mut update = snapshot(1010); update.users[1].active = false;
-    assert!(matches!(store.publish_directory(update, 1010), Err(TeamError::Storage)));
+    let mut update = snapshot(1010);
+    update.users[1].active = false;
+    assert!(matches!(
+        store.publish_directory(update, 1010),
+        Err(TeamError::Storage)
+    ));
     assert_eq!(store.directory_generation().unwrap(), 1);
     assert!(store.user_by_union("ub").unwrap().unwrap().active);
 }

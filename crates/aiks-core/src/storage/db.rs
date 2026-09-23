@@ -283,6 +283,8 @@ impl StateDb {
         .context("run V17 standalone knowledge ownership migration")?;
         tx.execute_batch(include_str!("../../migrations/017_team_identity_acl.sql"))
             .context("run V18 single-company identity migration")?;
+        tx.execute_batch(include_str!("../../migrations/018_team_directory.sql"))
+            .context("run V19 atomic team directory migration")?;
         tx.commit()?;
         Ok(())
     }

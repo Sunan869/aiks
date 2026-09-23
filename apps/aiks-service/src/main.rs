@@ -5,6 +5,9 @@ async fn main() {
             error.downcast_ref::<aiks_service::model_credentials::ModelCredentialIssue>()
         {
             eprintln!("AIKS model configuration error: {issue}");
+        } else if let Some(issue) = error.downcast_ref::<aiks_service::team::config::ConfigIssue>()
+        {
+            eprintln!("AIKS team configuration error: {issue}");
         } else {
             // Never include raw config, credentials, dependency URLs or payloads.
             eprintln!("AIKS service startup or shutdown failed");

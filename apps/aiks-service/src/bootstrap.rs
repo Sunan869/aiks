@@ -25,6 +25,7 @@ pub async fn run() -> anyhow::Result<()> {
     let mut path = None;
     let mut listen = None;
     let mut bootstrap = false;
+    let mut check_only = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" if path.is_none() => {
@@ -40,10 +41,10 @@ pub async fn run() -> anyhow::Result<()> {
                 )
             }
             "--bootstrap-stdin" if !bootstrap => bootstrap = true,
+            "--check-config" if !check_only => check_only = true,
             _ => anyhow::bail!("Unsupported argument"),
         }
     }
-    anyhow::ensure!(bootstrap, "Bootstrap stdin is required");
     let path = path.ok_or_else(|| anyhow::anyhow!("Explicit config is required"))?;
     let mut file = tokio::fs::File::open(path).await?.take(1024 * 1024 + 1);
     let mut bytes = Vec::new();
@@ -53,6 +54,12 @@ pub async fn run() -> anyhow::Result<()> {
     if let Some(listen) = listen {
         config.listen = listen.parse()?;
     }
+    if check_only {
+        config.check_configuration_with(|name| std::env::var(name).ok())?;
+        println!("configuration_valid");
+        return Ok(());
+    }
+    anyhow::ensure!(bootstrap, "Bootstrap stdin is required");
     config.validate()?;
     config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
     // Two bounded frames, bootstrap plus an explicitly opted-in owner command.

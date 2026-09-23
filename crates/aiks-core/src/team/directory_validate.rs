@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use super::{DirectorySnapshot, TeamError};
 
 pub(super) fn identifier(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 512 && value.trim() == value
+    !value.is_empty()
+        && value.len() <= 512
+        && value.trim() == value
         && !value.chars().any(char::is_control)
 }
 fn display_text(value: &str) -> bool {
@@ -16,10 +18,15 @@ pub(super) fn validate(
     input: &DirectorySnapshot,
     now: u64,
 ) -> Result<Vec<(String, String)>, TeamError> {
-    if !input.complete || input.scope.is_empty() || input.scope.len() > 100
-        || input.orgs.is_empty() || input.orgs.len() > 10_000
-        || input.users.len() > 100_000 || input.memberships.len() > 1_000_000
-        || input.observed_at > now || now > i64::MAX as u64
+    if !input.complete
+        || input.scope.is_empty()
+        || input.scope.len() > 100
+        || input.orgs.is_empty()
+        || input.orgs.len() > 10_000
+        || input.users.len() > 100_000
+        || input.memberships.len() > 1_000_000
+        || input.observed_at > now
+        || now > i64::MAX as u64
         || now - input.observed_at > 3600
     {
         return Err(TeamError::InvalidInput);
@@ -32,7 +39,8 @@ pub(super) fn validate(
     }
     let mut orgs = HashMap::new();
     for org in &input.orgs {
-        if !identifier(&org.id) || !display_text(&org.name)
+        if !identifier(&org.id)
+            || !display_text(&org.name)
             || orgs.insert(org.id.as_str(), org).is_some()
         {
             return Err(TeamError::InvalidInput);
@@ -63,7 +71,8 @@ pub(super) fn validate(
     let mut users = HashMap::new();
     let mut unions = HashSet::new();
     for user in &input.users {
-        if !identifier(&user.external_user_id) || !identifier(&user.union_id)
+        if !identifier(&user.external_user_id)
+            || !identifier(&user.union_id)
             || !display_text(&user.display_name)
             || users.insert(user.external_user_id.as_str(), user).is_some()
             || !unions.insert(user.union_id.as_str())
@@ -82,7 +91,11 @@ pub(super) fn validate(
         }
         assigned.insert(membership.user_id.as_str());
     }
-    if input.users.iter().any(|user| user.active && !assigned.contains(user.external_user_id.as_str())) {
+    if input
+        .users
+        .iter()
+        .any(|user| user.active && !assigned.contains(user.external_user_id.as_str()))
+    {
         return Err(TeamError::InvalidInput);
     }
     Ok(closure)
