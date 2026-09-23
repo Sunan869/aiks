@@ -209,17 +209,23 @@ export default function App() {
         <div className="flex h-7 flex-shrink-0 items-center gap-3 border-t border-gray-200 bg-white px-4 text-xs text-gray-400 dark:border-gray-700 dark:bg-gray-800">
           {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
           {isMock && <span className="text-yellow-500">Mock 模式 — 仅用于开发</span>}
-          <button
-            type="button"
-            onClick={() => setAskOpen(true)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium text-blue-600 transition hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
-            title="基于 AIKS 知识库提问"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            问 AIKS
-          </button>
+
         </div>
       </div>
+      {!askOpen && (
+        <button
+          type="button"
+          onClick={() => setAskOpen(true)}
+          className="fixed bottom-11 right-5 z-40 inline-flex items-center gap-2.5 rounded-full border border-blue-100 bg-white px-4 py-2.5 text-sm font-semibold text-blue-600 shadow-[0_10px_30px_rgba(37,99,235,0.20)] ring-1 ring-blue-50 transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-[0_14px_34px_rgba(37,99,235,0.26)] active:translate-y-0 dark:border-blue-900/70 dark:bg-gray-800 dark:text-blue-300 dark:ring-blue-950/40 dark:hover:bg-blue-950/30"
+          title="基于 AIKS 知识库和 AI 对话记录提问"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm">
+            <Sparkles className="h-3.5 w-3.5" />
+          </span>
+          <span>问 AIKS</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${aiStatus?.healthy ? "bg-green-500" : "bg-amber-400"}`} aria-hidden="true" />
+        </button>
+      )}
       <AskAiksPanel
         open={askOpen}
         aiHealthy={aiStatus?.healthy ?? false}
