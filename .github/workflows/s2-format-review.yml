@@ -2,7 +2,7 @@ name: S2 formatting review candidate
 on:
   push:
     branches: [feature/aiks-service-extraction]
-    paths: ['**/*.rs', '.github/workflows/s2-format-review.yml']
+    paths: ['**/*.rs', 'scripts/s2-wire-candidate.py', '.github/workflows/s2-format-review.yml']
 permissions:
   contents: read
 concurrency:
@@ -22,6 +22,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Apply exact reviewed wiring when present
+        if: hashFiles('scripts/s2-wire-candidate.py') != ''
+        run: python3 scripts/s2-wire-candidate.py
       - name: Prepare rustfmt-only candidate
         run: |
           cargo fmt --all
