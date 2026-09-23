@@ -273,6 +273,201 @@ export default function AskAiksPanel({
   );
 }
 
+
+function renderInline(
+  text: string,
+  citations: RagCitation[] | undefined,
+  onOpenCitation: (citation: RagCitation) => void,
+): ReactNode[] {
+  const pattern = /(\\*\\*[^*]+\\*\\*|\\x60[^\\x60]+\\x60|\\[\\d+\\])/g;
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) parts.push(text.slice(cursor, index));
+
+    const token = match[0];
+    const citationMatch = /^\\[(\\d+)\\]$/.exec(token);
+    if (citationMatch) {
+      const citation = citations?.find(item => item.index === Number(citationMatch[1]));
+      parts.push(citation ? (
+        <button
+          key={"citation-" + index}
+          type="button"
+          onClick={() => onOpenCitation(citation)}
+          className="mx-0.5 inline-flex min-w-5 items-center justify-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-blue-600 transition hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/50"
+          title={citation.title}
+        >
+          {citation.index}
+        </button>
+      ) : token);
+    } else if (token.startsWith("**")) {
+      parts.push(
+        <strong key={"strong-" + index} className="font-semibold text-gray-950 dark:text-white">
+          {token.slice(2, -2)}
+        </strong>,
+      );
+    } else {
+      parts.push(
+        <code
+          key={"code-" + index}
+          className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[0.9em] text-pink-600 dark:bg-gray-800 dark:text-pink-300"
+        >
+          {token.slice(1, -1)}
+        </code>,
+      );
+    }
+    cursor = index + token.length;
+  }
+
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
+
+function MarkdownAnswer({
+  content,
+  citations,
+  onOpenCitation,
+  streaming,
+}: {
+  content: string;
+  citations?: RagCitation[];
+  onOpenCitation: (citation: RagCitation) => void;
+  streaming: boolean;
+}) {
+  const fence = String.fromCharCode(96, 96, 96);
+  const lines = content.split("\\n");
+  const nodes: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith(fence)) {
+      const language = trimmed.slice(3).trim();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith(fence)) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      nodes.push(
+        <div
+          key={"code-block-" + index}
+          className="my-4 overflow-hidden rounded-xl border border-gray-200 bg-gray-950 dark:border-gray-700"
+        >
+          {language && (
+            <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+              {language}
+            </div>
+          )}
+          <pre className="overflow-x-auto p-3 text-xs leading-5 text-gray-100">
+            <code>{codeLines.join("\\n")}</code>
+          </pre>
+        </div>,
+      );
+      continue;
+    }
+
+    const heading = /^(#{1,4})\\s+(.*)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1].length;
+      nodes.push(
+        <div
+          key={"heading-" + index}
+          className={level <= 2
+            ? "mb-2 mt-5 text-[15px] font-semibold leading-6 text-gray-950 dark:text-white"
+            : "mb-1.5 mt-4 text-sm font-semibold leading-6 text-gray-900 dark:text-gray-100"}
+        >
+          {renderInline(heading[2], citations, onOpenCitation)}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\\s*[-*]\\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\\s*[-*]\\s+/, ""));
+        index += 1;
+      }
+      nodes.push(
+        <ul key={"ul-" + index} className="my-2.5 space-y-1.5 pl-5 text-sm leading-6 text-gray-700 dark:text-gray-200">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex} className="list-disc pl-1 marker:text-gray-400">
+              {renderInline(item, citations, onOpenCitation)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\\d+\\.\\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\\s*\\d+\\.\\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\\s*\\d+\\.\\s+/, ""));
+        index += 1;
+      }
+      nodes.push(
+        <ol key={"ol-" + index} className="my-2.5 list-decimal space-y-1.5 pl-5 text-sm leading-6 text-gray-700 dark:text-gray-200">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex} className="pl-1 marker:font-medium marker:text-gray-500">
+              {renderInline(item, citations, onOpenCitation)}
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    if (trimmed === "---") {
+      nodes.push(<hr key={"hr-" + index} className="my-4 border-gray-200 dark:border-gray-700" />);
+      index += 1;
+      continue;
+    }
+
+    const paragraph: string[] = [trimmed];
+    index += 1;
+    while (
+      index < lines.length
+      && lines[index].trim()
+      && !/^(#{1,4})\\s+/.test(lines[index].trim())
+      && !/^\\s*[-*]\\s+/.test(lines[index])
+      && !/^\\s*\\d+\\.\\s+/.test(lines[index])
+      && !lines[index].trim().startsWith(fence)
+      && lines[index].trim() !== "---"
+    ) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    nodes.push(
+      <p key={"p-" + index} className="my-2 text-sm leading-6 text-gray-700 dark:text-gray-200">
+        {renderInline(paragraph.join(" "), citations, onOpenCitation)}
+      </p>,
+    );
+  }
+
+  return (
+    <div>
+      {nodes}
+      {streaming && (
+        <span
+          className="ml-0.5 inline-block h-4 w-1 animate-pulse rounded-full bg-blue-500 align-[-2px]"
+          aria-label="正在生成"
+        />
+      )}
+    </div>
+  );
+}
+
 function Message({
   message,
   streaming,
