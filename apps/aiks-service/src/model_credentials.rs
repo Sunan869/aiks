@@ -112,7 +112,8 @@ fn resolve_key(
         field,
         code: "secret_missing",
     })?;
-    if value.is_empty() || value.len() > 8192 || !value.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+    if value.is_empty() || value.len() > 8192 || !value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+    {
         return Err(ModelCredentialIssue {
             field,
             code: "secret_invalid",

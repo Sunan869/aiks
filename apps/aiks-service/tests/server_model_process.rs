@@ -32,9 +32,7 @@ async fn model_keys_are_resolved_in_the_service_and_never_returned_in_capabiliti
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
     stdin
-        .write_all(
-            format!("{}\n", json!({"token":token,"owner_control":true})).as_bytes(),
-        )
+        .write_all(format!("{}\n", json!({"token":token,"owner_control":true})).as_bytes())
         .await
         .unwrap();
     let mut line = String::new();
