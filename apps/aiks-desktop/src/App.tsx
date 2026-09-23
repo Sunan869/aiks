@@ -223,7 +223,7 @@ export default function App() {
             <Sparkles className="h-3.5 w-3.5" />
           </span>
           <span>问 AIKS</span>
-          <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden="true" />
+          <span className={`h-1.5 w-1.5 rounded-full ${aiStatus?.healthy ? "bg-green-500" : "bg-amber-400"}`} aria-hidden="true" />
         </button>
       )}
       <AskAiksPanel
