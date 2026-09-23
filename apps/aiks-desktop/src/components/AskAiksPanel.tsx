@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
+  BookOpen,
+  Copy,
   FileText,
   Loader2,
   MessageSquareText,
@@ -27,6 +29,12 @@ type UiMessage = {
   model?: string;
   warnings?: string[];
 };
+
+const QUICK_PROMPTS = [
+  "总结一下最近讨论的向量模型部署方案",
+  "我们之前遇到过哪些数据库迁移问题？",
+  "帮我从知识库里找一下最近的关键技术结论",
+];
 
 function messageId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -135,17 +143,20 @@ export default function AskAiksPanel({
   return (
     <div className="fixed inset-0 z-[80] bg-black/15 backdrop-blur-[1px]" onMouseDown={onClose}>
       <aside
-        className="absolute bottom-7 right-0 top-12 flex w-[min(440px,calc(100vw-24px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+        className="absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
         onMouseDown={event => event.stopPropagation()}
         aria-label="问 AIKS"
       >
-        <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-gray-200 px-4 dark:border-gray-700">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
-            <Sparkles className="h-4 w-4" />
+        <header className="flex h-16 flex-shrink-0 items-center gap-3 border-b border-gray-200 px-5 dark:border-gray-700">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200 dark:shadow-none">
+            <Sparkles className="h-4.5 w-4.5" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">问 AIKS</div>
-            <div className="truncate text-[11px] text-gray-400">基于知识与 AI 对话记录回答 · 带引用</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">问 AIKS</div>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">知识库问答</span>
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-gray-400">基于知识与 AI 对话记录检索回答，并提供可追溯引用</div>
           </div>
           <button
             type="button"
@@ -166,21 +177,37 @@ export default function AskAiksPanel({
           </button>
         </header>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-5 py-5 dark:bg-gray-950/20">
           {messages.length === 0 ? (
-            <div className="flex h-full min-h-[260px] flex-col items-center justify-center text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
-                <Bot className="h-6 w-6" />
+            <div className="mx-auto flex h-full min-h-[320px] max-w-[560px] flex-col justify-center">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-200 dark:shadow-none">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100">有什么想从 AIKS 里找的？</div>
+                  <div className="mt-1 text-xs text-gray-400">我会先检索知识与历史 AI 对话，再基于证据回答。</div>
+                </div>
               </div>
-              <div className="mt-4 text-sm font-medium text-gray-700 dark:text-gray-200">
-                直接问你的 AIKS 知识库
-              </div>
-              <div className="mt-2 max-w-xs text-xs leading-5 text-gray-400">
-                例如：“我们之前 KingBase 迁移遇到过哪些问题？”、“总结一下最近讨论的向量模型部署方案。”
+              <div className="mt-6 grid gap-2">
+                {QUICK_PROMPTS.map(prompt => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => {
+                      setInput(prompt);
+                      window.setTimeout(() => textareaRef.current?.focus(), 0);
+                    }}
+                    className="group flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
+                  >
+                    <BookOpen className="h-4 w-4 flex-shrink-0 text-gray-400 transition group-hover:text-blue-500" />
+                    <span>{prompt}</span>
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="mx-auto max-w-[590px] space-y-7">
               {messages.map(message => (
                 <Message
                   key={message.id}
@@ -205,8 +232,8 @@ export default function AskAiksPanel({
           </div>
         )}
 
-        <div className="flex-shrink-0 border-t border-gray-200 p-3 dark:border-gray-700">
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-2 focus-within:border-blue-300 focus-within:bg-white dark:border-gray-700 dark:bg-gray-800 dark:focus-within:border-blue-700 dark:focus-within:bg-gray-850">
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-5 pb-4 pt-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mx-auto max-w-[590px] rounded-2xl border border-gray-200 bg-white p-2.5 shadow-[0_6px_24px_rgba(15,23,42,0.06)] transition focus-within:border-blue-300 focus-within:shadow-[0_8px_28px_rgba(37,99,235,0.10)] dark:border-gray-700 dark:bg-gray-800">
             <textarea
               ref={textareaRef}
               value={input}
@@ -218,12 +245,12 @@ export default function AskAiksPanel({
                 }
               }}
               disabled={loading}
-              rows={3}
-              placeholder="问问 AIKS…"
-              className="w-full resize-none bg-transparent px-1 text-sm leading-5 text-gray-900 outline-none placeholder:text-gray-400 disabled:opacity-60 dark:text-gray-100"
+              rows={2}
+              placeholder="向 AIKS 提问…"
+              className="w-full resize-none bg-transparent px-1.5 py-1 text-sm leading-6 text-gray-900 outline-none placeholder:text-gray-400 disabled:opacity-60 dark:text-gray-100"
             />
-            <div className="mt-1 flex items-center justify-between px-1">
-              <span className="text-[10px] text-gray-400">Enter 发送 · Shift+Enter 换行</span>
+            <div className="mt-1.5 flex items-center justify-between px-1">
+              <span className="text-[10px] text-gray-400">Enter 发送 · Shift+Enter 换行 · 基于检索证据回答</span>
               <button
                 type="button"
                 onClick={() => void submit()}
@@ -235,8 +262,8 @@ export default function AskAiksPanel({
               </button>
             </div>
           </div>
-          <div className="mt-2 text-center text-[10px] text-gray-400">
-            AI 仅根据检索到的 AIKS 内容回答，重要结论请查看引用来源
+          <div className="mx-auto mt-2 max-w-[590px] text-center text-[10px] text-gray-400">
+            AIKS 可能生成不准确内容，重要结论请结合引用来源核验
           </div>
         </div>
       </aside>
