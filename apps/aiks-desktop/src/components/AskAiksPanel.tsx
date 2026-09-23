@@ -279,7 +279,7 @@ function renderInline(
   citations: RagCitation[] | undefined,
   onOpenCitation: (citation: RagCitation) => void,
 ): ReactNode[] {
-  const pattern = /(\\*\\*[^*]+\\*\\*|\\x60[^\\x60]+\\x60|\\[\\d+\\])/g;
+  const pattern = /(\*\*[^*]+\*\*|\x60[^\x60]+\x60|\[\d+\])/g;
   const parts: ReactNode[] = [];
   let cursor = 0;
 
@@ -288,7 +288,7 @@ function renderInline(
     if (index > cursor) parts.push(text.slice(cursor, index));
 
     const token = match[0];
-    const citationMatch = /^\\[(\\d+)\\]$/.exec(token);
+    const citationMatch = /^\[(\d+)\]$/.exec(token);
     if (citationMatch) {
       const citation = citations?.find(item => item.index === Number(citationMatch[1]));
       parts.push(citation ? (
@@ -337,7 +337,7 @@ function MarkdownAnswer({
   streaming: boolean;
 }) {
   const fence = String.fromCharCode(96, 96, 96);
-  const lines = content.split("\\n");
+  const lines = content.split("\n");
   const nodes: ReactNode[] = [];
   let index = 0;
 
@@ -368,14 +368,14 @@ function MarkdownAnswer({
             </div>
           )}
           <pre className="overflow-x-auto p-3 text-xs leading-5 text-gray-100">
-            <code>{codeLines.join("\\n")}</code>
+            <code>{codeLines.join("\n")}</code>
           </pre>
         </div>,
       );
       continue;
     }
 
-    const heading = /^(#{1,4})\\s+(.*)$/.exec(trimmed);
+    const heading = /^(#{1,4})\s+(.*)$/.exec(trimmed);
     if (heading) {
       const level = heading[1].length;
       nodes.push(
@@ -392,10 +392,10 @@ function MarkdownAnswer({
       continue;
     }
 
-    if (/^[-*]\\s+/.test(trimmed)) {
+    if (/^[-*]\s+/.test(trimmed)) {
       const items: string[] = [];
-      while (index < lines.length && /^\\s*[-*]\\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\\s*[-*]\\s+/, ""));
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*]\s+/, ""));
         index += 1;
       }
       nodes.push(
@@ -410,10 +410,10 @@ function MarkdownAnswer({
       continue;
     }
 
-    if (/^\\d+\\.\\s+/.test(trimmed)) {
+    if (/^\d+\.\s+/.test(trimmed)) {
       const items: string[] = [];
-      while (index < lines.length && /^\\s*\\d+\\.\\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\\s*\\d+\\.\\s+/, ""));
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+\.\s+/, ""));
         index += 1;
       }
       nodes.push(
@@ -439,9 +439,9 @@ function MarkdownAnswer({
     while (
       index < lines.length
       && lines[index].trim()
-      && !/^(#{1,4})\\s+/.test(lines[index].trim())
-      && !/^\\s*[-*]\\s+/.test(lines[index])
-      && !/^\\s*\\d+\\.\\s+/.test(lines[index])
+      && !/^(#{1,4})\s+/.test(lines[index].trim())
+      && !/^\s*[-*]\s+/.test(lines[index])
+      && !/^\s*\d+\.\s+/.test(lines[index])
       && !lines[index].trim().startsWith(fence)
       && lines[index].trim() !== "---"
     ) {
