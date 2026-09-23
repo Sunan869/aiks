@@ -325,6 +325,20 @@ function renderInline(
   return parts;
 }
 
+function splitTableRow(value: string): string[] {
+  return value
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map(cell => cell.trim());
+}
+
+function isTableSeparator(value: string): boolean {
+  const cells = splitTableRow(value);
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
 function MarkdownAnswer({
   content,
   citations,
@@ -370,6 +384,50 @@ function MarkdownAnswer({
           <pre className="overflow-x-auto p-3 text-xs leading-5 text-gray-100">
             <code>{codeLines.join("\n")}</code>
           </pre>
+        </div>,
+      );
+      continue;
+    }
+
+    if (
+      index + 1 < lines.length
+      && trimmed.includes("|")
+      && isTableSeparator(lines[index + 1])
+    ) {
+      const headers = splitTableRow(lines[index]);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      nodes.push(
+        <div key={"table-" + index} className="my-4 overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+          <table className="min-w-full border-collapse bg-white text-left text-xs dark:bg-gray-900">
+            <thead className="bg-gray-50 dark:bg-gray-800">
+              <tr>
+                {headers.map((header, cellIndex) => (
+                  <th
+                    key={cellIndex}
+                    className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200"
+                  >
+                    {renderInline(header, citations, onOpenCitation)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b border-gray-100 last:border-0 dark:border-gray-800">
+                  {headers.map((_, cellIndex) => (
+                    <td key={cellIndex} className="px-3 py-2 align-top leading-5 text-gray-600 dark:text-gray-300">
+                      {renderInline(row[cellIndex] ?? "", citations, onOpenCitation)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>,
       );
       continue;
