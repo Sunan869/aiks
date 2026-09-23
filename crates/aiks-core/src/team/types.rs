@@ -1,5 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TeamError {
+    #[error("login_pending")]
+    LoginPending,
     #[error("unauthorized")]
     Unauthorized,
     #[error("not_found")]
