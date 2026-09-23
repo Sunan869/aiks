@@ -304,7 +304,7 @@ fn format_history(history: &[RagTurn]) -> String {
             content.to_string()
         };
         out.push_str(role);
-        out.push_str("：");
+        out.push('：');
         out.push_str(&content);
         out.push('\n');
     }
