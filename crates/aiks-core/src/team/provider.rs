@@ -1,6 +1,6 @@
 //! Trusted identity-provider boundary. These inputs are not authenticated wire DTOs.
-use std::{future::Future, pin::Pin};
 use super::{DirectorySnapshot, TeamError};
+use std::{future::Future, pin::Pin};
 
 #[derive(Clone)]
 pub struct ExternalLogin {
