@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import appSource from "../App.tsx?raw";
 import workbenchHostSource from "../components/WorkbenchHost.tsx?raw";
 import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
 import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
@@ -64,6 +65,14 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(workbenchHostSource).toContain("suspended?: boolean");
     expect(workbenchHostSource).toContain("if (suspended)");
     expect(workbenchHostSource).toContain("getApi().hideWorkbench()");
+  });
+
+  it("keeps Ask AIKS reachable outside the native child-webview bounds", () => {
+    expect(knowledgeWorkspaceSource).toContain("onAskAiks?: () => void");
+    expect(knowledgeWorkspaceSource).toContain("onClick={onAskAiks}");
+    expect(knowledgeWorkspaceSource).toContain("<span>问 AIKS</span>");
+    expect(appSource).toContain('nav.page !== "knowledge"');
+    expect(appSource).toContain("onAskAiks={() => setAskOpen(true)}");
   });
 
   it("records the real lifecycle trigger for automatic sync runs", () => {

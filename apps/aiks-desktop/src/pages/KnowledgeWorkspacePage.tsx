@@ -105,6 +105,7 @@ export default function KnowledgeWorkspacePage({
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
         </button>
+
       </div>
 
       {error && (
@@ -119,7 +120,7 @@ export default function KnowledgeWorkspacePage({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 p-3">
+      <div className="flex min-h-0 flex-1">
         <WorkbenchHost
           surface={workspaceMode}
           docId={boundDocId}
