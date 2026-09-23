@@ -23,7 +23,10 @@ fn team_configuration_requires_explicit_enablement() {
     let settings = TeamSettings::default();
     assert!(!settings.enabled);
     assert!(!settings.dingtalk.enabled);
-    assert_eq!(validate_static(&settings).unwrap_err()[0].code, "team_disabled");
+    assert_eq!(
+        validate_static(&settings).unwrap_err()[0].code,
+        "team_disabled"
+    );
     assert!(validate_static(&configured()).is_ok());
 }
 
@@ -51,7 +54,10 @@ fn identity_scope_callback_and_origin_must_be_explicit_and_consistent() {
     ] {
         let mut settings = configured();
         settings.dingtalk.redirect_uri = callback.into();
-        assert!(validate_static(&settings).unwrap_err().iter().any(|e| e.code == "callback_mismatch"));
+        assert!(validate_static(&settings)
+            .unwrap_err()
+            .iter()
+            .any(|e| e.code == "callback_mismatch"));
     }
     let mut settings = configured();
     settings.dingtalk.corp_id.clear();
@@ -66,10 +72,16 @@ fn identity_scope_callback_and_origin_must_be_explicit_and_consistent() {
 fn configuration_does_not_silently_choose_between_secret_sources() {
     let mut settings = configured();
     settings.dingtalk.client_secret_file = "/run/secrets/dingtalk".into();
-    assert!(validate_static(&settings).unwrap_err().iter().any(|e| e.code == "ambiguous_secret_source"));
+    assert!(validate_static(&settings)
+        .unwrap_err()
+        .iter()
+        .any(|e| e.code == "ambiguous_secret_source"));
     settings.dingtalk.client_secret_file.clear();
     settings.dingtalk.client_secret_env.clear();
-    assert!(validate_static(&settings).unwrap_err().iter().any(|e| e.code == "secret_source_missing"));
+    assert!(validate_static(&settings)
+        .unwrap_err()
+        .iter()
+        .any(|e| e.code == "secret_source_missing"));
 }
 
 #[test]

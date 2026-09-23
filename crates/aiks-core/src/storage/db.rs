@@ -23,7 +23,7 @@ const SCHEMA_V13_SQL: &str = include_str!("../../migrations/012_service_snapshot
 /// AIKS state database.
 ///
 /// Thread-safe: wraps rusqlite::Connection in a Mutex so concurrent access
-/// from Tauri commands, PipelineWorker, and Sync tasks is safe.
+/// from Tauri commands, PipelineWorker, and Sync tasks are safe.
 ///
 /// Rule: never hold the Mutex lock while awaiting HTTP, AI, or SiYuan calls.
 /// Always acquire the lock, do the DB work, release, then do the async I/O.
@@ -281,6 +281,8 @@ impl StateDb {
             "../../migrations/016_service_knowledge_binding.sql"
         ))
         .context("run V17 standalone knowledge ownership migration")?;
+        tx.execute_batch(include_str!("../../migrations/017_team_identity_acl.sql"))
+            .context("run V18 single-company identity migration")?;
         tx.commit()?;
         Ok(())
     }

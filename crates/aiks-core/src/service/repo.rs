@@ -45,6 +45,10 @@ impl ServiceStore {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(|_| ServiceError::Internal)?;
+            let company: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM team_company)", [], |row| row.get(0),
+            ).map_err(|_| ServiceError::Internal)?;
+            if company { return Err(ServiceError::Unavailable); }
             let existing = tx
                 .query_row(
                     "SELECT instance_id, principal_id, personal_space_id

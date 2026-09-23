@@ -112,19 +112,27 @@ impl std::error::Error for ConfigIssue {}
 
 pub fn valid_environment_name(name: &str) -> bool {
     name.len() <= 128
-        && name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 fn identity(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 256
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
 pub fn validate_static(settings: &TeamSettings) -> Result<ValidatedTeamSettings, Vec<ConfigIssue>> {
     if !settings.enabled {
-        return Err(vec![ConfigIssue { field: "team.enabled", code: "team_disabled" }]);
+        return Err(vec![ConfigIssue {
+            field: "team.enabled",
+            code: "team_disabled",
+        }]);
     }
     let mut issues = Vec::new();
     let mut issue = |field, code| issues.push(ConfigIssue { field, code });
@@ -172,13 +180,20 @@ pub fn validate_static(settings: &TeamSettings) -> Result<ValidatedTeamSettings,
         }
         (false, true) => {
             if !valid_environment_name(environment) {
-                issue("team.dingtalk.client_secret_env", "invalid_environment_reference");
+                issue(
+                    "team.dingtalk.client_secret_env",
+                    "invalid_environment_reference",
+                );
             }
             Some(SecretSource::Environment(environment.clone()))
         }
         (true, false) => {
             let path = PathBuf::from(file);
-            if file.len() > 4096 || file.trim() != file || file.chars().any(char::is_control) || !path.is_absolute() {
+            if file.len() > 4096
+                || file.trim() != file
+                || file.chars().any(char::is_control)
+                || !path.is_absolute()
+            {
                 issue("team.dingtalk.client_secret_file", "invalid_secret_path");
             }
             Some(SecretSource::File(path))
@@ -186,34 +201,65 @@ pub fn validate_static(settings: &TeamSettings) -> Result<ValidatedTeamSettings,
     };
     let directory = &settings.directory;
     if directory.root_department_ids.is_empty() {
-        issue("team.directory.root_department_ids", "directory_scope_required");
+        issue(
+            "team.directory.root_department_ids",
+            "directory_scope_required",
+        );
     } else {
         let mut seen = HashSet::new();
         if directory.root_department_ids.len() > 100
             || directory.root_department_ids.iter().any(|id| {
-                !id.parse::<i64>().is_ok_and(|n| n > 0 && n.to_string() == *id)
+                !id.parse::<i64>()
+                    .is_ok_and(|n| n > 0 && n.to_string() == *id)
                     || !seen.insert(id)
             })
         {
-            issue("team.directory.root_department_ids", "directory_scope_invalid");
+            issue(
+                "team.directory.root_department_ids",
+                "directory_scope_invalid",
+            );
         }
     }
     if !(60..=900).contains(&directory.refresh_interval_seconds) {
-        issue("team.directory.refresh_interval_seconds", "invalid_duration");
+        issue(
+            "team.directory.refresh_interval_seconds",
+            "invalid_duration",
+        );
     }
-    if directory.max_stale_seconds < directory.refresh_interval_seconds || directory.max_stale_seconds > 3600 {
+    if directory.max_stale_seconds < directory.refresh_interval_seconds
+        || directory.max_stale_seconds > 3600
+    {
         issue("team.directory.max_stale_seconds", "invalid_duration");
     }
     for (field, valid) in [
-        ("team.sessions.login_attempt_ttl_seconds", (60..=600).contains(&settings.sessions.login_attempt_ttl_seconds)),
-        ("team.sessions.access_token_ttl_seconds", (60..=3600).contains(&settings.sessions.access_token_ttl_seconds)),
-        ("team.sessions.refresh_token_ttl_seconds", (3600..=2592000).contains(&settings.sessions.refresh_token_ttl_seconds)),
+        (
+            "team.sessions.login_attempt_ttl_seconds",
+            (60..=600).contains(&settings.sessions.login_attempt_ttl_seconds),
+        ),
+        (
+            "team.sessions.access_token_ttl_seconds",
+            (60..=3600).contains(&settings.sessions.access_token_ttl_seconds),
+        ),
+        (
+            "team.sessions.refresh_token_ttl_seconds",
+            (3600..=2592000).contains(&settings.sessions.refresh_token_ttl_seconds),
+        ),
     ] {
-        if !valid { issue(field, "invalid_duration"); }
+        if !valid {
+            issue(field, "invalid_duration");
+        }
     }
-    if !issues.is_empty() { return Err(issues); }
+    if !issues.is_empty() {
+        return Err(issues);
+    }
     let Some(secret_source) = source else {
-        return Err(vec![ConfigIssue { field: "team.dingtalk.client_secret", code: "secret_source_missing" }]);
+        return Err(vec![ConfigIssue {
+            field: "team.dingtalk.client_secret",
+            code: "secret_source_missing",
+        }]);
     };
-    Ok(ValidatedTeamSettings { settings: settings.clone(), secret_source })
+    Ok(ValidatedTeamSettings {
+        settings: settings.clone(),
+        secret_source,
+    })
 }
