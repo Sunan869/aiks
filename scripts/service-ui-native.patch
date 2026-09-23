@@ -1,0 +1,316 @@
+diff --git a/apps/aiks-desktop/src-tauri/src/lib.rs b/apps/aiks-desktop/src-tauri/src/lib.rs
+index 61db23ecbfc92b101f3ae39568799d2ee0877ef4..865667a3446bcd562c5a80e161beb73b11c2f341 100644
+--- a/apps/aiks-desktop/src-tauri/src/lib.rs
++++ b/apps/aiks-desktop/src-tauri/src/lib.rs
+@@ -110,6 +110,13 @@ pub fn run() {
+         })
+         .invoke_handler(tauri::generate_handler![
+             service_commands::service_status,
++            service_commands::service_ui_preferences,
++            service_commands::service_finish_onboarding,
++            service_commands::service_save_sources,
++            service_commands::service_scan_sessions,
++            service_commands::service_browse_sessions,
++            service_commands::service_preview_session,
++            service_commands::service_exclude_sessions,
+             service_commands::service_collect_selected,
+             service_commands::service_uploads,
+             service_commands::service_get_receipt,
+diff --git a/apps/aiks-desktop/src-tauri/src/service_client/collector.rs b/apps/aiks-desktop/src-tauri/src/service_client/collector.rs
+index 50328f7dd33cd47ea1d2c74fa23107e9a6d0ce86..d785b378af240c3ddfd89a65606d91f76f567f27 100644
+--- a/apps/aiks-desktop/src-tauri/src/service_client/collector.rs
++++ b/apps/aiks-desktop/src-tauri/src/service_client/collector.rs
+@@ -80,10 +80,13 @@ pub async fn collect_provider(
+         policy.source_key.clone(),
+     ))
+     .map_err(|_| ClientError::InvalidInput)?;
++    let scope = super::preferences::SourceScope::new(&instance, &space, source, &policy.source_key)?;
++    let store = outbox.clone();
++    let saved_exclusions = blocking(move || store.excluded(&scope)).await?;
+     let scan_key = format!(
+         "{:x}",
+         Sha256::digest(
+-            serde_json::to_vec(&(&key, &policy.include_ids, &policy.exclude_ids))
++            serde_json::to_vec(&(&key, &policy.include_ids, &policy.exclude_ids, &saved_exclusions))
+                 .map_err(|_| ClientError::InvalidInput)?
+         )
+     );
+@@ -122,7 +125,7 @@ pub async fn collect_provider(
+     let mut sessions = Vec::new();
+     for summary in discovery.sessions {
+         let id = &summary.external_session_id;
+-        if policy.exclude_ids.contains(id)
++        if saved_exclusions.contains(id) || policy.exclude_ids.contains(id)
+             || policy.include_ids.as_ref().is_some_and(|v| !v.contains(id))
+         {
+             report.excluded += 1;
+@@ -151,32 +154,14 @@ pub async fn collect_provider(
+     };
+     for summary in sessions.into_iter().skip(start).take(policy.max_sessions) {
+         let upstream = &summary.external_session_id;
+-        let path = summary.source_path.clone();
+-        let before = match blocking(move || jsonl_guard(path.as_deref())).await {
+-            Ok(stamp) => stamp,
++        let mut session = match load_complete(provider, &summary).await {
++            Ok(session) => session,
+             Err(_) => {
+                 report.failed += 1;
+                 report.complete = false;
+                 continue;
+             }
+         };
+-        let mut session = match provider.load_session(&summary).await {
+-            Ok(session) if session.source == source && session.external_session_id == *upstream => {
+-                session
+-            }
+-            _ => {
+-                report.failed += 1;
+-                report.complete = false;
+-                continue;
+-            }
+-        };
+-        if let Some((path, stamp)) = before {
+-            if blocking(move || Ok(stamp_for(&path)? == stamp)).await != Ok(true) {
+-                report.failed += 1;
+-                report.complete = false;
+-                continue;
+-            }
+-        }
+         let db = outbox.clone();
+         let (i, s, r, u) = (
+             instance.clone(),
+@@ -255,6 +240,25 @@ pub async fn deliver_one(
+         }
+     }
+ }
++/// Shared with read-only preview so neither path trusts partial JSONL or a stale identity.
++pub(super) async fn load_complete(
++    provider: &dyn SessionProvider,
++    summary: &aiks_core::providers::SessionSummary,
++) -> ClientResult<NormalizedSession> {
++    let path = summary.source_path.clone();
++    let before = blocking(move || jsonl_guard(path.as_deref())).await?;
++    let session = provider.load_session(summary).await.map_err(|_| ClientError::InvalidInput)?;
++    if session.source != provider.source() || session.external_session_id != summary.external_session_id {
++        return Err(ClientError::InvalidInput);
++    }
++    if let Some((path, stamp)) = before {
++        if !blocking(move || Ok(stamp_for(&path)? == stamp)).await? {
++            return Err(ClientError::InvalidInput);
++        }
++    }
++    Ok(session)
++}
++
+ async fn blocking<T: Send + 'static>(
+     work: impl FnOnce() -> ClientResult<T> + Send + 'static,
+ ) -> ClientResult<T> {
+@@ -308,7 +312,7 @@ fn jsonl_guard(path: Option<&Path>) -> ClientResult<Option<(PathBuf, Stamp)>> {
+     }
+     Ok(Some((checked, before)))
+ }
+-fn sanitize(session: &mut NormalizedSession) -> ClientResult<()> {
++pub(super) fn sanitize(session: &mut NormalizedSession) -> ClientResult<()> {
+     let sanitizer = default_sanitizer();
+     for value in [
+         &mut session.title,
+diff --git a/apps/aiks-desktop/src-tauri/src/service_client/mod.rs b/apps/aiks-desktop/src-tauri/src/service_client/mod.rs
+index b5206d7ac0d12cbc19476e45e0a60cd5ae9742d1..38873c61355d3d65d03c60532447e9d66c27141b 100644
+--- a/apps/aiks-desktop/src-tauri/src/service_client/mod.rs
++++ b/apps/aiks-desktop/src-tauri/src/service_client/mod.rs
+@@ -1,5 +1,7 @@
+ //! Client-only transport and upload state. Never opens a business StateDb.
+ pub mod collector;
++pub mod browse;
++pub mod preferences;
+ mod outbox;
+ pub mod supervisor;
+ mod transport;
+diff --git a/apps/aiks-desktop/src-tauri/src/service_client/outbox.rs b/apps/aiks-desktop/src-tauri/src/service_client/outbox.rs
+index 53bfa24797c7edb800244491361b3ee80f9e7a63..f43dbe9464148314dc1eba67da21727a5377bcce 100644
+--- a/apps/aiks-desktop/src-tauri/src/service_client/outbox.rs
++++ b/apps/aiks-desktop/src-tauri/src/service_client/outbox.rs
+@@ -99,7 +99,7 @@ impl CollectorOutbox {
+             _lease: lease,
+         })
+     }
+-    fn conn(&self) -> ClientResult<MutexGuard<'_, Connection>> {
++    pub(super) fn conn(&self) -> ClientResult<MutexGuard<'_, Connection>> {
+         self.conn.lock().map_err(|_| ClientError::Storage)
+     }
+     pub fn device_id(&self) -> ClientResult<String> {
+diff --git a/apps/aiks-desktop/src-tauri/src/service_client/transport.rs b/apps/aiks-desktop/src-tauri/src/service_client/transport.rs
+index 03684a8beb098fc1324b23122e70d819abc1ed24..cb2bfcbf216d40c29fb08d7e9588e72c39f2bf1d 100644
+--- a/apps/aiks-desktop/src-tauri/src/service_client/transport.rs
++++ b/apps/aiks-desktop/src-tauri/src/service_client/transport.rs
+@@ -127,24 +127,32 @@ impl ServiceClient {
+     pub async fn get_job(&self, id: &str) -> ClientResult<Value> {
+         self.read(&["jobs", id]).await
+     }
+-    pub async fn sessions(&self) -> ClientResult<Value> {
+-        self.read(&["sessions"]).await
++    pub async fn sessions(&self) -> ClientResult<Value> { self.sessions_page(0).await }
++    pub async fn sessions_page(&self, offset: usize) -> ClientResult<Value> {
++        self.read_page("sessions", offset).await
+     }
+     pub async fn session(&self, id: &str) -> ClientResult<Value> {
+         self.read(&["sessions", id]).await
+     }
+-    pub async fn knowledge_list(&self) -> ClientResult<Value> {
+-        self.read(&["knowledge"]).await
++    pub async fn knowledge_list(&self) -> ClientResult<Value> { self.knowledge_page(0).await }
++    pub async fn knowledge_page(&self, offset: usize) -> ClientResult<Value> {
++        self.read_page("knowledge", offset).await
++    }
++    async fn read_page(&self, resource: &str, offset: usize) -> ClientResult<Value> {
++        if offset > 1_000_000 { return Err(ClientError::InvalidInput); }
++        self.capabilities().await?;
++        self.request_page(Method::GET, &[resource], None, Some(offset)).await
+     }
+     pub async fn knowledge(&self, id: &str) -> ClientResult<Value> {
+         self.read(&["knowledge", id]).await
+     }
+-    pub async fn search(&self, query: &str) -> ClientResult<Value> {
++    pub async fn search(&self, query: &str) -> ClientResult<Value> { self.search_corpus(query, None).await }
++    pub async fn search_corpus(&self, query: &str, corpus: Option<aiks_core::search::SearchCorpus>) -> ClientResult<Value> {
+         if query.trim().is_empty() || query.len() > 16_384 {
+             return Err(ClientError::InvalidInput);
+         }
+         self.capabilities().await?;
+-        let body = self.json_body(&json!({"query":query,"limit":30}))?;
++        let body = self.json_body(&json!({"query":query,"limit":30,"corpora":corpus.into_iter().collect::<Vec<_>>()}))?;
+         self.request(Method::POST, &["search"], Some(&body)).await
+     }
+     async fn read<T: DeserializeOwned>(&self, segments: &[&str]) -> ClientResult<T> {
+@@ -162,6 +170,11 @@ impl ServiceClient {
+         method: Method,
+         segments: &[&str],
+         body: Option<&[u8]>,
++    ) -> ClientResult<T> {
++        self.request_page(method, segments, body, None).await
++    }
++    async fn request_page<T: DeserializeOwned>(
++        &self, method: Method, segments: &[&str], body: Option<&[u8]>, offset: Option<usize>,
+     ) -> ClientResult<T> {
+         let mut url = self.connection.base.clone();
+         {
+@@ -173,6 +186,9 @@ impl ServiceClient {
+                 path.push(segment);
+             }
+         }
++        if let Some(offset) = offset {
++            url.query_pairs_mut().append_pair("limit", "30").append_pair("offset", &offset.to_string());
++        }
+         let mut request = self
+             .client
+             .request(method, url)
+diff --git a/apps/aiks-desktop/src-tauri/src/service_desktop.rs b/apps/aiks-desktop/src-tauri/src/service_desktop.rs
+index d3ff831ef4dde178f125f499457064078d932a03..202574ae02763bdf3707a7aa455ca1fe9ff37ba8 100644
+--- a/apps/aiks-desktop/src-tauri/src/service_desktop.rs
++++ b/apps/aiks-desktop/src-tauri/src/service_desktop.rs
+@@ -1,4 +1,5 @@
+ //! The service-mode desktop owns collection and child lifetimes, not business DBs.
++mod ui;
+ use crate::service_client::{
+     collector::{collect_provider, deliver_one, CollectionPolicy},
+     supervisor::{binary_path, OwnedService},
+@@ -32,6 +33,7 @@ pub struct ServiceDesktop {
+     owner: Mutex<Option<OwnedService>>,
+     content: Mutex<Option<Arc<SiyuanRuntime>>>,
+     profile_lease: std::sync::Mutex<Option<BusinessDbLease>>,
++    browsers: Mutex<std::collections::HashMap<aiks_core::SourceKind, Arc<crate::service_client::browse::LocalSessionBrowser>>>,
+     provider_config: Config,
+     providers: Arc<ProviderRegistry>,
+     gate: Semaphore,
+@@ -54,6 +56,7 @@ impl ServiceDesktop {
+             owner: Mutex::new(None),
+             content: Mutex::new(None),
+             profile_lease: std::sync::Mutex::new(None),
++            browsers: Mutex::new(std::collections::HashMap::new()),
+             provider_config: config,
+             providers,
+             gate: Semaphore::new(1),
+@@ -103,6 +106,7 @@ impl ServiceDesktop {
+             std::fs::create_dir_all(path)?;
+         }
+         let root = root.canonicalize()?;
++        let outbox = self.local_store().await.map_err(anyhow::Error::msg)?;
+         let resource = app.path().resource_dir()?;
+         let binary = binary_path(&resource)?;
+         let runtime_root = crate::bootstrap::locate_runtime_root(app)?;
+@@ -144,7 +148,6 @@ impl ServiceDesktop {
+         } else {
+             write_private(&identity_path, instance.as_bytes(), true)?;
+         }
+-        let outbox = Arc::new(CollectorOutbox::open(&root.join("collector.db"))?);
+         *self.owner.lock().await = Some(owner);
+         *self.client.write().await = Some(client);
+         *self.outbox.write().await = Some(outbox);
+@@ -221,9 +224,8 @@ impl ServiceDesktop {
+     pub async fn collect(
+         &self,
+         sources: Vec<String>,
+-        exclude_ids: Vec<String>,
+     ) -> Result<Value, String> {
+-        if sources.is_empty() || sources.len() > 16 || exclude_ids.len() > 1000 {
++        if sources.is_empty() || sources.len() > 16 {
+             return Err("invalid_selection".into());
+         }
+         let _permit = self.gate.try_acquire().map_err(|_| "collector_busy")?;
+@@ -246,17 +248,8 @@ impl ServiceDesktop {
+                 .providers
+                 .get(source)
+                 .ok_or("source_disabled_or_unavailable")?;
+-            let source_paths = descriptors(&self.provider_config, &[])
+-                .into_iter()
+-                .find(|d| d.key == source.as_str())
+-                .map(|d| d.paths)
+-                .unwrap_or_default();
+-            let path_key = serde_json::to_vec(&(source.as_str(), source_paths))
+-                .map_err(|_| "invalid_source")?;
+-            let source_key = format!("{:x}", Sha256::digest(path_key));
+             let policy = CollectionPolicy {
+-                source_key,
+-                exclude_ids: exclude_ids.clone(),
++                source_key: self.source_key(source)?,
+                 ..Default::default()
+             };
+             let report = tokio::select! {
+@@ -273,6 +266,8 @@ impl ServiceDesktop {
+         let _lifecycle_guard = self.lifecycle_gate.lock().await;
+         *self.phase.write().await = "stopping";
+         self.stop_owned().await;
++        *self.outbox.write().await = None;
++        self.browsers.lock().await.clear();
+     }
+     async fn stop_owned(&self) {
+         let delivery = self.delivery.lock().await.take();
+@@ -295,7 +290,7 @@ impl ServiceDesktop {
+             runtime.stop().await;
+         }
+         *self.client.write().await = None;
+-        *self.outbox.write().await = None;
++        // Keep client-only preferences available after a failed service startup.
+         if let Ok(mut lease) = self.profile_lease.lock() {
+             lease.take();
+         }
+diff --git a/apps/aiks-desktop/src-tauri/src/storage_commands.rs b/apps/aiks-desktop/src-tauri/src/storage_commands.rs
+index 25b6b4290ead49205b1d67bf7da9b8ba03a31235..8ccd0f11db814994be86b7c2999cbd44f6d1f3b6 100644
+--- a/apps/aiks-desktop/src-tauri/src/storage_commands.rs
++++ b/apps/aiks-desktop/src-tauri/src/storage_commands.rs
+@@ -67,6 +67,15 @@ pub async fn prepare_storage_before_startup(app: &AppHandle) -> anyhow::Result<b
+         }
+     }
+ 
++    // Service-local uses the personal default until the user changes it in
++    // Settings. Do not make storage/model/source configuration a reading gate.
++    if requires_initial_setup()
++        && crate::lifecycle::selected_config()?.backend.mode == aiks_core::config::BackendMode::ServiceLocal
++    {
++        write_pointer(&default_root)?;
++        return Ok(true);
++    }
++
+     if requires_initial_setup() {
+         let state = AppState {
+             engine: None,

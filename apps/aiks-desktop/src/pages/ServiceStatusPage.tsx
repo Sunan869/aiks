@@ -1,85 +1,42 @@
-import {DataStorageSetupGate} from "../components/DataStorage";
-const storageRequired=()=>{};
-import {useEffect,useRef,useState} from "react";
-import {serviceApi,statusText,type Job,type SearchResult,type ServiceStatus,type Upload} from "../api/service";
+// Personal service workspace: 模型配置 and sync are optional settings, not a gate.
+import {useEffect,useState,useSyncExternalStore} from "react";
+import {BookOpen,MessageSquare,SlidersHorizontal,Activity,Settings} from "lucide-react";
+import {serviceApi,type ServiceStatus} from "../api/service";
+import {DataStorageSettingsSection} from "../components/DataStorage";
+import {WorkspaceController,type WorkspacePage} from "./service/onboarding";
+import Reading from "./service/Reading";
+import SourceSettings from "./service/SourceSettings";
+import Tasks from "./service/Tasks";
+import {button} from "./service/shared";
 
 export default function ServiceStatusPage(){
-  const [status,setStatus]=useState<ServiceStatus|null>(null);
-  const [uploads,setUploads]=useState<Upload[]>([]);
-  const [selected,setSelected]=useState<string[]>([]);
-  const [exclusions,setExclusions]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [query,setQuery]=useState("");
-  const [searching,setSearching]=useState(false);
-  const [result,setResult]=useState<SearchResult|null>(null);
-  const [detail,setDetail]=useState<Record<string,unknown>|null>(null);
-  const [rows,setRows]=useState<Record<string,unknown>[]>([]);
-  const [rowType,setRowType]=useState<"session"|"knowledge">("session");
-  const [job,setJob]=useState<Job|null>(null);
-  const [error,setError]=useState<string|null>(null);
-  const [report,setReport]=useState<Record<string,unknown>|null>(null);
-  const searchSequence=useRef(0);
-  const mounted=useRef(true);
-  const jobId=job?.job_id;
-  useEffect(()=>{
-    mounted.current=true;let inFlight=false;
-    const refresh=async()=>{
-      if(inFlight)return;inFlight=true;
-      try{
-        const next=await serviceApi.status();if(!mounted.current)return;setStatus(next);
-        if(next.phase==="ready"){
-          const pending=await serviceApi.uploads();if(mounted.current)setUploads(pending);
-        }
-      }catch(e){if(mounted.current)setError(String(e));}finally{inFlight=false;}
-    };
-    void refresh();const timer=setInterval(refresh,3000);
-    return()=>{mounted.current=false;searchSequence.current++;clearInterval(timer);};
-  },[]);
-  useEffect(()=>{
-    if(!jobId)return;let cancelled=false;let inFlight=false;
-    const refresh=async()=>{if(inFlight)return;inFlight=true;try{const next=await serviceApi.job(jobId);if(!cancelled)setJob(next);}catch(e){if(!cancelled)setError(String(e));}finally{inFlight=false;}};
-    const timer=setInterval(refresh,3000);return()=>{cancelled=true;clearInterval(timer);};
-  },[jobId]);
+  const [controller]=useState(()=>new WorkspaceController(serviceApi));
+  const state=useSyncExternalStore(controller.subscribe,controller.getSnapshot,controller.getSnapshot);
+  const [status,setStatus]=useState<ServiceStatus|null>(null);const [refresh,setRefresh]=useState(0);
+  useEffect(()=>{void controller.initialize();},[controller,refresh]);
+  useEffect(()=>{let active=true,inflight=false;const load=async()=>{if(inflight)return;inflight=true;
+    try{const status=await serviceApi.status();if(active)setStatus(status);}catch{if(active)setStatus(s=>({...s,mode:"service_local",phase:"unavailable"}));}finally{inflight=false;}};
+    void load();const timer=setInterval(load,3000);return()=>{active=false;clearInterval(timer);};
+  },[refresh]);
+  // Retry just preferences while native state is starting; never scan on mount.
+  useEffect(()=>{if(state.preferences)return;const timer=setInterval(()=>{void controller.initialize();},2000);return()=>clearInterval(timer);},[controller,state.preferences]);
+  const nav:{key:WorkspacePage;label:string;icon:typeof BookOpen}[]=[{key:"knowledge",label:"知识库",icon:BookOpen},{key:"sessions",label:"会话记录",icon:MessageSquare},{key:"sync",label:"采集与同步",icon:SlidersHorizontal},{key:"tasks",label:"任务记录",icon:Activity},{key:"models",label:"模型与服务设置",icon:Settings}];
   const ready=status?.phase==="ready";
-  async function collect(){
-    setBusy(true);setError(null);setReport(null);
-    try{setReport(await serviceApi.collect(selected,exclusions.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)));setUploads(await serviceApi.uploads());}
-    catch(e){setError(String(e));}finally{setBusy(false);}
-  }
-  async function search(){
-    const sequence=++searchSequence.current;setSearching(true);setResult(null);setError(null);
-    try{const value=await serviceApi.search(query);if(sequence===searchSequence.current)setResult(value);}
-    catch(e){if(sequence===searchSequence.current)setError(String(e));}
-    finally{if(sequence===searchSequence.current)setSearching(false);}
-  }
-  async function list(type:"session"|"knowledge"){
-    setError(null);try{const data=type==="session"?await serviceApi.sessions():await serviceApi.knowledgeList();setRowType(type);setRows(data);}catch(e){setError(String(e));}
-  }
-  async function open(type:"session"|"knowledge",id:string){
-    setError(null);setDetail(null);try{setDetail(await serviceApi.detail(type,id));}catch(e){setError(String(e));}
-  }
-  const button="rounded border px-3 py-2 text-sm disabled:opacity-40 hover:bg-gray-50";
-  const card="rounded-xl border bg-white p-5";
-  return <main className="min-h-screen bg-gray-50 p-6 text-gray-800 space-y-5">
-    <DataStorageSetupGate onRequired={storageRequired}/><header className="flex items-center justify-between"><div><h1 className="text-2xl font-semibold">AIKS · 本地知识服务</h1><p className="text-sm text-gray-500 mt-1">独立服务模式 · 业务数据本机存储 · 思源通过内部适配器访问</p></div><span className="rounded-full border bg-white px-4 py-2 text-sm">{ready?"服务已连接":status?.phase??"正在启动"}</span></header>
-    <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6">这是独立的本地空间，旧个人知识库不会自动迁移或上传。模型配置位于数据目录的 <code>service-local/config/models.toml</code>，修改后重启。AI 提炼：{status?.capabilities?.ai_assist?"已启用":"未启用"}；语义搜索：{status?.capabilities?.semantic_search?"已启用":"未启用"}。AI 请求发送到你配置的模型服务；完全离线时请配置本机模型。未启用 AI 时仍可采集和检索会话。此页面不开放思源全库接口。</div>
-    {(error||status?.error_code)&&<div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4">{error||status?.error_code}<p className="text-sm mt-1">服务未启动时检查终端与模型配置；请使用 scripts/dev.ps1 启动，不会自动回退到旧引擎。</p></div>}
-    <section className={card}><h2 className="font-semibold">选择本地来源采集</h2><p className="mt-1 text-sm text-gray-500">只读取勾选来源，每个来源每批最多 100 条，再次采集继续下一批；只提交完整会话。上传前执行规则脱敏，但不能保证识别所有敏感内容。来源目录沿用原有配置。</p>
-      <div className="my-4 flex flex-wrap gap-x-5 gap-y-3">{status?.providers?.map(p=><label key={p.key} className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!p.enabled||busy} checked={selected.includes(p.key)} onChange={e=>setSelected(values=>e.target.checked?[...values,p.key]:values.filter(v=>v!==p.key))}/>{p.display_name}{!p.enabled&&"（已禁用）"}</label>)}</div>
-      <details className="mb-3 text-sm"><summary>排除指定会话</summary><textarea aria-label="排除会话 ID" className="mt-2 w-full rounded border p-2" rows={2} placeholder="每行填写一个来源会话 ID" value={exclusions} onChange={e=>setExclusions(e.target.value)}/></details>
-      <button className={button} disabled={!ready||busy||selected.length===0} onClick={()=>void collect()}>{busy?"正在采集并写入队列…":"采集所选来源"}</button>
-      {report&&<pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(report,null,2)}</pre>}
-    </section>
-    <section className={card}><h2 className="font-semibold">搜索与阅读</h2><form className="mt-3 flex gap-2" onSubmit={e=>{e.preventDefault();void search();}}><input aria-label="搜索知识与会话" value={query} onChange={e=>setQuery(e.target.value)} className="flex-1 rounded border px-3 py-2" placeholder="搜索本机服务已接收的知识和会话"/><button className={button} disabled={!ready||!query.trim()||searching}>{searching?"搜索中…":"搜索"}</button></form>
-      {result&&<div className="mt-3"><p className="text-sm text-gray-500">{result.hits.length===0?"未找到相关结果":`找到 ${result.hits.length} 条结果`}{result.degraded&&" · 部分检索能力暂不可用"}</p>{result.hits.map(hit=><button key={`${hit.corpus}:${hit.entity_id}`} className="mt-3 block w-full rounded border p-3 text-left" onClick={()=>void open(hit.corpus,hit.entity_id)}><strong>{hit.title||"未命名会话"}</strong><span className="ml-3 text-xs text-gray-500">{hit.corpus} · v{hit.revision}</span><p className="mt-1 line-clamp-3 text-sm">{hit.snippet}</p></button>)}</div>}
-      <div className="mt-4 flex gap-2"><button className={button} disabled={!ready} onClick={()=>void list("session")}>已接收会话</button><button className={button} disabled={!ready} onClick={()=>void list("knowledge")}>已提炼知识</button></div>
-      <div className="mt-3 space-y-2">{rows.map(row=><button key={String(row.id??row.session_id)} className="block text-sm text-blue-700" onClick={()=>void open(rowType,String(row.id??row.session_id))}>{String(row.title||"未命名")} · v{String(row.revision??"未知")}{row.stale===true?"（来源版本已过期）":""}</button>)}</div>
-      {detail&&<div className="mt-4 rounded border bg-gray-50 p-4"><button className="float-right text-sm" onClick={()=>setDetail(null)}>关闭</button><h3 className="font-semibold">{String(detail.title??"会话详情")}</h3><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm">{typeof detail.content==="string"?detail.content:JSON.stringify(detail,null,2)}</pre></div>}
-    </section>
-    <section className={card}><h2 className="font-semibold">上传回执与处理任务</h2><p className="text-sm text-gray-500 mt-1">已接收不代表已提炼。版本冲突会保留原快照并停止重传，不自动覆盖服务端内容。</p>
-      {uploads.length===0&&<p className="mt-3 text-sm">当前没有上传记录。</p>}
-      {uploads.map(upload=><div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3 text-sm" key={upload.id}><span>{upload.source}</span><span>{upload.state==="acknowledged"?"已接收":upload.state==="blocked"?"已暂停，需核对版本或授权":upload.state==="inflight"?"发送中":"待发送／等待重试"}</span><span>尝试 {upload.attempt} 次</span>{upload.error_code&&<span className="text-red-700">{upload.error_code}</span>}{upload.receipt&&<><span>v{upload.receipt.revision}</span><button className={button} onClick={()=>void serviceApi.job(upload.receipt!.job_id).then(setJob).catch(e=>setError(String(e)))}>查询处理状态</button><button className={button} onClick={()=>void serviceApi.receipt(upload.receipt!.receipt_id).then(v=>setDetail({...v})).catch(e=>setError(String(e)))}>核对服务端回执</button></>}</div>)}
-      {job&&<div role="status" className="mt-4 rounded border p-3"><strong>{statusText({receiptState:"accepted",jobState:job.status})}</strong><p className="text-sm">任务版本 {job.revision} · 当前来源版本 {job.current_revision}{job.error_code&&` · ${job.error_code}`}</p></div>}
-    </section>
-  </main>;
+  const sources=state.preferences?.selected_sources??[];
+  return <div className="flex h-screen min-h-0 flex-col bg-slate-50 text-slate-800">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-white px-5"><div className="flex items-center gap-3"><strong className="text-lg text-blue-600">AIKS</strong><span className="text-xs text-slate-500">本地知识服务 · 个人独立部署版</span></div><span className={`rounded-full px-3 py-1 text-xs ${ready?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700"}`}>{ready?"服务已连接":status?.phase==="starting"||!status?"服务正在启动":"服务暂不可用"}</span></header>
+    <div className="flex min-h-0 flex-1"><nav aria-label="主导航" className="flex w-48 shrink-0 flex-col border-r bg-white p-3"><div className="mb-4 px-3 py-3"><p className="text-sm font-semibold">我的个人空间</p><p className="mt-1 text-xs text-slate-400">本机存储 · 不自动迁移旧库</p></div>{nav.map(item=><button key={item.key} aria-current={state.page===item.key?"page":undefined} onClick={()=>controller.navigate(item.key)} className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${state.page===item.key?"bg-blue-50 font-medium text-blue-700":"text-slate-600 hover:bg-slate-50"}`}><item.icon size={17}/>{item.label}</button>)}<div className="mt-auto border-t px-3 pt-4 text-xs leading-6 text-slate-400"><p>AI 提炼：{status?.capabilities?.ai_assist?"已启用":"未启用"}</p><p>语义检索：{status?.capabilities?.semantic_search?"已启用":"未启用"}</p><p className="mt-2">未配置模型也可以阅读和关键词检索。</p></div></nav>
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {!ready&&status?.phase!=="starting"&&status&&<div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>知识服务暂不可用，内容将在恢复连接后加载。仍可查看设置，不会回退到旧引擎或显示虚假空库。</span><button className={button} onClick={()=>setRefresh(v=>v+1)}>刷新状态</button></div>}
+        {state.error&&<div role="alert" className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-2 text-sm text-amber-800">{state.error}</div>}
+        {state.page==="knowledge"||state.page==="sessions"?<Reading key={state.page} corpus={state.page==="knowledge"?"knowledge":"session"} ready={ready} onSettings={()=>controller.navigate("sync")}/>:
+        <div className="flex-1 overflow-auto">
+          {state.page==="setup"&&<section className="mx-auto mt-6 flex max-w-6xl flex-wrap items-center justify-between gap-4 rounded-xl border border-blue-100 bg-blue-50 p-6"><div><h1 className="text-xl font-semibold">欢迎使用 AIKS</h1><p className="mt-2 text-sm text-slate-600">可以先选择采集来源，也可以跳过。以后从“采集与同步”回来设置。</p><p className="mt-1 text-xs text-slate-500">跳过不会启动采集、上传历史会话或调用模型。</p></div><button className={button} onClick={()=>void controller.finish(true)}>跳过，进入知识库</button></section>}
+          {(state.page==="sync"||state.page==="setup")&&<SourceSettings status={status} sources={sources} onSave={s=>controller.saveSources(s)} onComplete={state.page==="setup"?()=>controller.finish(false):undefined}/>}
+          {state.page==="tasks"&&<Tasks ready={ready}/>}
+          {state.page==="models"&&<><div className="mx-auto max-w-6xl space-y-5 p-6"><h1 className="text-2xl font-semibold">模型与服务设置</h1><section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">模型配置（可选）</h2><p className="mt-3 text-sm leading-7 text-slate-600">AI 提炼和语义检索分别按配置启用，不影响阅读已有知识。当前配置文件位于数据目录的 <code>service-local/config/models.toml</code>，修改后正常退出并重启程序。</p><p className="mt-3 text-sm leading-7 text-slate-600">AI 请求会发送到你配置的模型服务。完全离线使用需提前准备本机模型和运行资源；本机存储不等于远程模型调用不出网。</p></section><section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">个人独立部署</h2><p className="mt-3 text-sm leading-7 text-slate-600">当前仅连接本机 AIKS Service。思源通过内部内容接口访问，不提供全库代理。本次不包含部门、公司或多人共享模式。</p><button className={`${button} mt-4`} onClick={()=>controller.navigate("setup")}>重新查看使用引导</button></section></div><DataStorageSettingsSection/></>}
+        </div>}
+      </main>
+    </div>
+  </div>;
 }
