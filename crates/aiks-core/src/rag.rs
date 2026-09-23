@@ -5,7 +5,9 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::ai::ModelService;
-use crate::search::{SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchService};
+use crate::search::{
+    analyze_query, SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchService,
+};
 use crate::storage::StateDb;
 use crate::util::truncate_chars;
 
@@ -221,6 +223,7 @@ impl RagAnswerService {
         // Lexical hits intentionally do not carry chunk IDs. Recover a bounded
         // match-centered excerpt from canonical indexed text instead of feeding
         // the model only the short search-result snippet.
+        let anchor = evidence_anchor(question);
         match hit.corpus {
             SearchCorpus::Knowledge => conn
                 .query_row(
@@ -231,7 +234,7 @@ impl RagAnswerService {
                      END
                      FROM knowledge_item
                      WHERE id = ?1 AND status = 'active'",
-                    params![hit.entity_id, question],
+                    params![hit.entity_id, anchor],
                     |row| row.get(0),
                 )
                 .optional()
@@ -249,7 +252,7 @@ impl RagAnswerService {
                      FROM session_search_fts
                      WHERE session_id = ?1
                      LIMIT 1",
-                    params![session_id, question],
+                    params![session_id, anchor],
                     |row| row.get(0),
                 )
                 .optional()
@@ -257,6 +260,16 @@ impl RagAnswerService {
             }
         }
     }
+}
+
+fn evidence_anchor(question: &str) -> String {
+    let normalized = question.trim();
+    let mut terms = analyze_query(normalized);
+    terms.sort_by_key(|term| std::cmp::Reverse(term.chars().count()));
+    terms
+        .into_iter()
+        .find(|term| term.chars().count() >= 2)
+        .unwrap_or_else(|| normalized.to_string())
 }
 
 fn format_evidence(evidence: &[Evidence]) -> String {
@@ -319,6 +332,15 @@ fn format_history(history: &[RagTurn]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_anchor_prefers_longer_query_terms() {
+        assert_eq!(
+            evidence_anchor("我们之前 KingBase 迁移遇到过哪些问题？"),
+            "kingbase"
+        );
+        assert_eq!(evidence_anchor("磁盘空间不足"), "磁盘");
+    }
 
     #[test]
     fn history_is_bounded_and_role_labeled() {
