@@ -71,7 +71,14 @@ impl DirectoryWorker {
         let refresh = Arc::new(Notify::new());
         let (stop, stopped) = watch::channel(false);
         let (state, _) = watch::channel(DirectoryStatus::default());
-        let task = runtime.spawn(run(store, provider, policy, refresh.clone(), stopped, state.clone()));
+        let task = runtime.spawn(run(
+            store,
+            provider,
+            policy,
+            refresh.clone(),
+            stopped,
+            state.clone(),
+        ));
         Ok(Self {
             refresh,
             stop,
@@ -168,7 +175,8 @@ async fn run(
                 expected.sort();
                 observed.sort();
                 if expected != observed
-                    || !timestamp.checked_sub(snapshot.observed_at)
+                    || !timestamp
+                        .checked_sub(snapshot.observed_at)
                         .is_some_and(|age| age <= refresh_policy.max_stale_seconds)
                 {
                     return Err(TeamError::InvalidInput);
