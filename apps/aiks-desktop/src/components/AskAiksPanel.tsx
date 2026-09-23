@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Bot,
   BookOpen,
@@ -63,7 +64,7 @@ export default function AskAiksPanel({
     if (!open) return;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
+      behavior: loading ? "auto" : "smooth",
     });
   }, [open, messages, loading]);
 
@@ -149,7 +150,7 @@ export default function AskAiksPanel({
       >
         <header className="flex h-16 flex-shrink-0 items-center gap-3 border-b border-gray-200 px-5 dark:border-gray-700">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200 dark:shadow-none">
-            <Sparkles className="h-4.5 w-4.5" />
+            <Sparkles className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -208,10 +209,11 @@ export default function AskAiksPanel({
             </div>
           ) : (
             <div className="mx-auto max-w-[590px] space-y-7">
-              {messages.map(message => (
+              {messages.map((message, index) => (
                 <Message
                   key={message.id}
                   message={message}
+                  streaming={loading && message.role === "assistant" && index === messages.length - 1}
                   onOpenCitation={onOpenCitation}
                 />
               ))}
@@ -273,15 +275,17 @@ export default function AskAiksPanel({
 
 function Message({
   message,
+  streaming,
   onOpenCitation,
 }: {
   message: UiMessage;
+  streaming: boolean;
   onOpenCitation: (citation: RagCitation) => void;
 }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[86%] rounded-2xl rounded-br-md bg-blue-600 px-3.5 py-2.5 text-sm leading-6 text-white">
+        <div className="max-w-[78%] rounded-2xl rounded-br-md bg-blue-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
           {message.content}
         </div>
       </div>
