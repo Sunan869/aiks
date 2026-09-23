@@ -19,12 +19,9 @@
         "minWidth": 900,
         "minHeight": 600,
         "center": true,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
-        "visible": false,
-        "skipTaskbar": true,
-        "resizable": false,
-        "shadow": false
+        "visible": false
       },
       {
         "label": "control",
@@ -65,10 +62,7 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
       "nsis": {
-        "languages": [
-          "SimpChinese",
-          "English"
-        ],
+        "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": false,
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
