@@ -1,0 +1,48 @@
+# AIKS S2 配置契约样例，不是当前 S1 程序可加载的配置。
+# 配置加载器交付后，复制为 deploy/team/service.toml；不要覆盖个人 models.toml。
+# 留空是为了手动填写，不会启用测试账号或绕过认证。
+mode = "team"
+listen = "127.0.0.1:28081"
+database = "/var/lib/aiks-team/business/state.db"
+
+[team]
+enabled = false
+# 填 AIKS 的 HTTPS 对外 origin，不带路径、查询串和末尾斜杠。
+public_base_url = ""
+
+[team.dingtalk]
+enabled = false
+corp_id = ""
+client_id = ""
+# 填完整回调，例如 https://aiks.example.com/api/v1/auth/dingtalk/callback
+redirect_uri = ""
+# 这里是环境变量名，不是密钥值。密钥由服务端进程环境提供。
+client_secret_env = "AIKS_DINGTALK_CLIENT_SECRET"
+# 或改用仅服务账户可读的密钥文件；此时将 client_secret_env 改为 ""。
+client_secret_file = ""
+
+[team.directory]
+# 初期填写已获授权的测试部门 ID（字符串）。为空不视为授权全公司。
+root_department_ids = []
+refresh_interval_seconds = 300
+max_stale_seconds = 900
+
+[team.sessions]
+login_attempt_ttl_seconds = 300
+access_token_ttl_seconds = 900
+refresh_token_ttl_seconds = 604800
+
+[ai]
+enabled = false
+base_url = ""
+model = ""
+
+[embedding]
+enabled = false
+
+[siyuan]
+# 同机部署示例。容器部署由部署模板设置为内部服务名，不开放思源端口。
+base_url = "http://127.0.0.1:6806"
+notebook_name = "AIKS"
+# S2 计划新增的秘密引用，解析后只在服务内部注入，不传给桌面端。
+token_env = "AIKS_SIYUAN_TOKEN"
