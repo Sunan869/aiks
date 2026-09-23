@@ -419,8 +419,7 @@ fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
         return Ok(None);
     }
 
-    let body: ChatStreamResponse =
-        serde_json::from_str(data).context("parse AI stream event")?;
+    let body: ChatStreamResponse = serde_json::from_str(data).context("parse AI stream event")?;
     let delta = body
         .choices
         .into_iter()
@@ -435,10 +434,8 @@ mod stream_tests {
 
     #[test]
     fn parses_openai_stream_delta_and_ignores_done() {
-        let delta = parse_stream_line(
-            br#"data: {"choices":[{"delta":{"content":"hello"}}]}"#,
-        )
-        .unwrap();
+        let delta =
+            parse_stream_line(br#"data: {"choices":[{"delta":{"content":"hello"}}]}"#).unwrap();
         assert_eq!(delta.as_deref(), Some("hello"));
         assert_eq!(parse_stream_line(b"data: [DONE]").unwrap(), None);
         assert_eq!(parse_stream_line(b"event: message").unwrap(), None);
