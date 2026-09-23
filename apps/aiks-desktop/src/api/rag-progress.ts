@@ -1,4 +1,3 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
 import { getApi, shouldUseMock } from "./client";
 import type { RagAnswer, RagAskRequest } from "./rag";
 
@@ -26,6 +25,7 @@ export async function askAiksProgressively(
     return result;
   }
 
+  const { Channel, invoke } = await import("@tauri-apps/api/core");
   const channel = new Channel<RagStreamEvent>();
   channel.onmessage = event => {
     if (event.type === "delta" && event.text) {
