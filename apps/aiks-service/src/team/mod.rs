@@ -2,4 +2,5 @@
 mod check;
 pub mod config;
 pub mod dingtalk;
+pub mod directory_worker;
 pub mod secrets;
