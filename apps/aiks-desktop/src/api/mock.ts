@@ -2,6 +2,7 @@ import type { SyncAndExtractResult } from "./types";
 // Mock API — provides realistic data for browser dev mode
 import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
+import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
@@ -298,6 +299,29 @@ export class MockAiksApi implements AiksApi {
       case "structure": return { ...base, text: `# ${input.title}\n\n## 背景\n\n${input.content}` };
       case "rewrite": return { ...base, text: input.content };
     }
+  }
+
+  async askAiks(request: RagAskRequest): Promise<RagAnswer> {
+    await delay(420);
+    const hits = (await this.searchAll(request.question, { limit: 4 })).hits;
+    return {
+      answer: hits.length
+        ? `根据当前 Mock 知识库，可以从 ${hits.length} 条相关记录中找到依据。[1]`
+        : "知识库中没有检索到足够依据，暂时无法基于现有知识回答这个问题。",
+      citations: hits.map((hit, index) => ({
+        index: index + 1,
+        corpus: hit.corpus,
+        entityId: hit.entity_id,
+        chunkId: hit.chunk_id,
+        title: hit.title,
+        snippet: hit.snippet,
+        siyuanDocId: hit.siyuan_doc_id,
+        matchTypes: hit.match_types,
+      })),
+      degraded: false,
+      warnings: [],
+      model: "qwen3",
+    };
   }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {
