@@ -23,6 +23,7 @@ import type {
   ShareImportResult,
 } from "./types";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
+import type { RagAnswer, RagAskRequest } from "./rag";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
@@ -44,6 +45,7 @@ export interface AiksApi {
   searchKnowledge(query: string, limit?: number): Promise<SearchResponse>;
   searchAll(query: string, options?: UnifiedSearchOptions): Promise<UnifiedSearchOutcome>;
   assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion>;
+  askAiks(request: RagAskRequest): Promise<RagAnswer>;
 
   // Embedded SiYuan Workbench — cross-system coordination only
   getWorkbenchStatus(): Promise<WorkbenchStatus>;
