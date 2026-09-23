@@ -12,6 +12,7 @@ interface Props {
   workbenchDocId?: string | null;
   onOpenKnowledge?: (knowledgeId: string) => void;
   onOpenSession?: (sessionId: number, siyuanDocId: string | null) => void;
+  externalOverlayOpen?: boolean;
 }
 
 export default function KnowledgeWorkspacePage({
@@ -20,6 +21,7 @@ export default function KnowledgeWorkspacePage({
   workbenchDocId = null,
   onOpenKnowledge,
   onOpenSession,
+  externalOverlayOpen = false,
 }: Props) {
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export default function KnowledgeWorkspacePage({
         <WorkbenchHost
           surface={workspaceMode}
           docId={boundDocId}
-          suspended={searchOpen}
+          suspended={searchOpen || externalOverlayOpen}
         />
       </div>
 
