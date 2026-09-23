@@ -75,10 +75,33 @@ def current_platform() -> str:
 
 
 def download(url: str, destination: Path) -> None:
+    import time
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "AIKS-Runtime-Setup/4.2"})
-    with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as output:
-        shutil.copyfileobj(response, output)
+    last_error: Exception | None = None
+    for attempt in range(1, 5):
+        destination.unlink(missing_ok=True)
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "AIKS-Runtime-Setup/4.2"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=300) as response, destination.open("wb") as output:
+                shutil.copyfileobj(response, output)
+            return
+        except Exception as exc:
+            last_error = exc
+            destination.unlink(missing_ok=True)
+            if attempt >= 4:
+                break
+            delay = attempt * 5
+            print(
+                f"Download attempt {attempt}/4 failed: {exc}; retrying in {delay}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(f"Failed to download {url} after 4 attempts: {last_error}")
 
 
 def sha256(path: Path) -> str:
