@@ -17,9 +17,9 @@ subtle = "2"
 uuid.workspace = true
 anyhow.workspace = true
 toml.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
-reqwest.workspace = true
 rusqlite.workspace = true
 rand.workspace = true
 sha2.workspace = true

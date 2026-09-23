@@ -16,6 +16,7 @@ pub mod share_import;
 pub mod sink;
 pub mod storage;
 pub mod sync;
+pub mod team;
 pub mod util;
 pub mod watcher;
 
