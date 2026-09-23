@@ -60,7 +60,7 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
   });
 
   it("suspends the native child workbench while unified search is open", () => {
-    expect(knowledgeWorkspaceSource).toContain("suspended={searchOpen}");
+    expect(knowledgeWorkspaceSource).toContain("suspended={searchOpen || externalOverlayOpen}");
     expect(workbenchHostSource).toContain("suspended?: boolean");
     expect(workbenchHostSource).toContain("if (suspended)");
     expect(workbenchHostSource).toContain("getApi().hideWorkbench()");
