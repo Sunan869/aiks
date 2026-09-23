@@ -180,7 +180,7 @@ export default function AskAiksPanel({
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-5 py-5 dark:bg-gray-950/20">
           {messages.length === 0 ? (
-            <div className="mx-auto flex h-full min-h-[320px] max-w-[560px] flex-col justify-center">
+            <div className="flex h-full min-h-[320px] w-full flex-col justify-center">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-200 dark:shadow-none">
                   <Sparkles className="h-5 w-5" />
@@ -208,7 +208,7 @@ export default function AskAiksPanel({
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-[590px] space-y-7">
+            <div className="w-full space-y-7">
               {messages.map((message, index) => (
                 <Message
                   key={message.id}
@@ -235,7 +235,7 @@ export default function AskAiksPanel({
         )}
 
         <div className="flex-shrink-0 border-t border-gray-200 bg-white px-5 pb-4 pt-3 dark:border-gray-700 dark:bg-gray-900">
-          <div className="mx-auto max-w-[590px] rounded-2xl border border-gray-200 bg-white p-2.5 shadow-[0_6px_24px_rgba(15,23,42,0.06)] transition focus-within:border-blue-300 focus-within:shadow-[0_8px_28px_rgba(37,99,235,0.10)] dark:border-gray-700 dark:bg-gray-800">
+          <div className="w-full rounded-2xl border border-gray-200 bg-white p-2.5 shadow-[0_6px_24px_rgba(15,23,42,0.06)] transition focus-within:border-blue-300 focus-within:shadow-[0_8px_28px_rgba(37,99,235,0.10)] dark:border-gray-700 dark:bg-gray-800">
             <textarea
               ref={textareaRef}
               value={input}
@@ -264,7 +264,7 @@ export default function AskAiksPanel({
               </button>
             </div>
           </div>
-          <div className="mx-auto mt-2 max-w-[590px] text-center text-[10px] text-gray-400">
+          <div className="mt-2 w-full text-center text-[10px] text-gray-400">
             AIKS 可能生成不准确内容，重要结论请结合引用来源核验
           </div>
         </div>
