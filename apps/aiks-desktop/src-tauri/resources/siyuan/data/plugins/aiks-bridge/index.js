@@ -12,6 +12,7 @@ const ACTIONS = new Set([
   "setWorkspaceMode",
   "refreshDocument",
   "aiAssistResult",
+  "localFileOpenResult",
 ]);
 
 const EDIT_KEYS = new Set(["Backspace", "Delete", "Enter", "Tab"]);
@@ -33,6 +34,72 @@ function createdDocumentId(data) {
   if (typeof data?.path !== "string") return null;
   const filename = data.path.split("/").filter(Boolean).pop() || "";
   return safeId(filename.endsWith(".sy") ? filename.slice(0, -3) : filename);
+}
+
+function trimLocalPathCandidate(value) {
+  if (typeof value !== "string") return null;
+  let path = value.trim();
+  path = path.replace(/^[`'"“”‘’]+/, "");
+  path = path.replace(/[`'"“”‘’，。；;、）)\]}]+$/, "");
+  path = path.replace(/:(\d+)(?::\d+)?$/, "");
+  return path || null;
+}
+
+function fileUrlToLocalPath(value) {
+  if (typeof value !== "string" || !value.toLowerCase().startsWith("file:")) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    let path = decodeURIComponent(url.pathname || "");
+    if (url.host) {
+      path = `\\\\${url.host}${path.replace(/\//g, "\\")}`;
+    } else if (/^\/[A-Za-z]:\//.test(path)) {
+      path = path.slice(1).replace(/\//g, "\\");
+    }
+    return trimLocalPathCandidate(path);
+  } catch {
+    return null;
+  }
+}
+
+function localPathInText(text, offset) {
+  if (typeof text !== "string" || !text) return null;
+  const patterns = [
+    /[A-Za-z]:[\\/][^<>\r\n"']+/g,
+    /\\\\[^\\/:*?"<>|\r\n]+\\[^:*?"<>|\r\n]+/g,
+    /\/(?:Users|home|opt|var|tmp|etc|srv|data|mnt|Volumes)\/[^<>\r\n"']+/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      const raw = match[0];
+      const trimmed = trimLocalPathCandidate(raw);
+      if (!trimmed) continue;
+      const end = start + raw.length;
+      if (offset >= start && offset <= end) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
+
+function caretTextPosition(x, y) {
+  if (typeof document.caretRangeFromPoint === "function") {
+    const range = document.caretRangeFromPoint(x, y);
+    if (range?.startContainer) {
+      return { node: range.startContainer, offset: range.startOffset };
+    }
+  }
+  if (typeof document.caretPositionFromPoint === "function") {
+    const position = document.caretPositionFromPoint(x, y);
+    if (position?.offsetNode) {
+      return { node: position.offsetNode, offset: position.offset };
+    }
+  }
+  return null;
 }
 
 class SiyuanAdapter {
@@ -182,7 +249,11 @@ class AIKSBridgePlugin extends Plugin {
     this.askAiksButton = null;
     this.askAiksStyle = null;
     this.askAiksHealthTimer = null;
+    this.localPathHint = null;
+    this.localPathToast = null;
+    this.localPathToastTimer = null;
     this.mountAskAiksLauncher();
+    this.mountLocalPathUi();
     this.refreshAskAiksHealth();
     this.askAiksHealthTimer = window.setInterval(() => this.refreshAskAiksHealth(), 10_000);
 
@@ -193,6 +264,8 @@ class AIKSBridgePlugin extends Plugin {
     this.onKeyDown = (event) => this.blockKeyDown(event);
     this.onEditorInput = (event) => this.handleEditorInput(event);
     this.onKernelMessage = (event) => this.handleKernelMessage(event);
+    this.onLocalPathClick = (event) => this.handleLocalPathClick(event);
+    this.onLocalPathPointerMove = (event) => this.handleLocalPathPointerMove(event);
 
     window.addEventListener("message", this.onMessage);
     document.addEventListener("beforeinput", this.onBeforeInput, true);
@@ -200,6 +273,8 @@ class AIKSBridgePlugin extends Plugin {
     document.addEventListener("drop", this.onDrop, true);
     document.addEventListener("keydown", this.onKeyDown, true);
     document.addEventListener("input", this.onEditorInput, true);
+    document.addEventListener("click", this.onLocalPathClick, true);
+    document.addEventListener("pointermove", this.onLocalPathPointerMove, true);
     this.eventBus.on("ws-main", this.onKernelMessage);
 
     this.readOnlyObserver = new MutationObserver(() => {
@@ -229,6 +304,8 @@ class AIKSBridgePlugin extends Plugin {
     document.removeEventListener("drop", this.onDrop, true);
     document.removeEventListener("keydown", this.onKeyDown, true);
     document.removeEventListener("input", this.onEditorInput, true);
+    document.removeEventListener("click", this.onLocalPathClick, true);
+    document.removeEventListener("pointermove", this.onLocalPathPointerMove, true);
     this.eventBus.off("ws-main", this.onKernelMessage);
     this.readOnlyObserver?.disconnect?.();
     if (this.bridgeReadyRetryTimer !== null) {
@@ -249,6 +326,7 @@ class AIKSBridgePlugin extends Plugin {
       this.askAiksHealthTimer = null;
     }
     this.unmountAskAiksLauncher();
+    this.unmountLocalPathUi();
     this.adapter?.clearAiksLayout();
     delete window.__AIKS_BRIDGE__;
   }
@@ -417,6 +495,119 @@ class AIKSBridgePlugin extends Plugin {
     this.askAiksStyle = null;
   }
 
+  mountLocalPathUi() {
+    const hint = document.createElement("div");
+    hint.id = "aiks-local-path-hint";
+    hint.style.cssText = [
+      "position:fixed",
+      "z-index:2147483647",
+      "display:none",
+      "pointer-events:none",
+      "max-width:420px",
+      "padding:5px 8px",
+      "border:1px solid rgba(148,163,184,.28)",
+      "border-radius:7px",
+      "background:rgba(15,23,42,.92)",
+      "color:white",
+      "font:12px/18px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+      "box-shadow:0 6px 18px rgba(15,23,42,.18)",
+      "white-space:nowrap",
+      "overflow:hidden",
+      "text-overflow:ellipsis",
+    ].join(";");
+    document.body.appendChild(hint);
+
+    const toast = document.createElement("div");
+    toast.id = "aiks-local-path-toast";
+    toast.style.cssText = [
+      "position:fixed",
+      "right:20px",
+      "bottom:84px",
+      "z-index:2147483647",
+      "display:none",
+      "max-width:520px",
+      "padding:9px 12px",
+      "border-radius:9px",
+      "background:rgba(15,23,42,.94)",
+      "color:white",
+      "font:12px/18px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+      "box-shadow:0 10px 28px rgba(15,23,42,.22)",
+    ].join(";");
+    document.body.appendChild(toast);
+
+    this.localPathHint = hint;
+    this.localPathToast = toast;
+  }
+
+  unmountLocalPathUi() {
+    if (this.localPathToastTimer !== null) {
+      window.clearTimeout(this.localPathToastTimer);
+      this.localPathToastTimer = null;
+    }
+    this.localPathHint?.remove?.();
+    this.localPathToast?.remove?.();
+    this.localPathHint = null;
+    this.localPathToast = null;
+  }
+
+  showLocalPathToast(message, ok = true) {
+    if (!this.localPathToast) return;
+    this.localPathToast.textContent = message;
+    this.localPathToast.style.background = ok
+      ? "rgba(15,23,42,.94)"
+      : "rgba(127,29,29,.96)";
+    this.localPathToast.style.display = "block";
+    if (this.localPathToastTimer !== null) {
+      window.clearTimeout(this.localPathToastTimer);
+    }
+    this.localPathToastTimer = window.setTimeout(() => {
+      this.localPathToastTimer = null;
+      if (this.localPathToast) this.localPathToast.style.display = "none";
+    }, ok ? 1800 : 4200);
+  }
+
+  localPathFromEvent(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const link = target?.closest?.('a[href^="file:"], [data-href^="file:"]');
+    if (link) {
+      const href = link.getAttribute("href") || link.getAttribute("data-href");
+      const fromUrl = fileUrlToLocalPath(href);
+      if (fromUrl) return fromUrl;
+    }
+
+    const caret = caretTextPosition(event.clientX, event.clientY);
+    if (!caret?.node) return null;
+    const node = caret.node.nodeType === Node.TEXT_NODE
+      ? caret.node
+      : caret.node.childNodes?.[caret.offset] || caret.node;
+    if (node?.nodeType !== Node.TEXT_NODE) return null;
+    const text = node.nodeValue || "";
+    return localPathInText(text, Math.min(caret.offset, text.length));
+  }
+
+  handleLocalPathPointerMove(event) {
+    if (!this.localPathHint || !(event instanceof PointerEvent)) return;
+    const path = this.localPathFromEvent(event);
+    if (!path) {
+      this.localPathHint.style.display = "none";
+      return;
+    }
+    this.localPathHint.textContent = `点击打开本地文件 · ${path}`;
+    this.localPathHint.style.left = `${Math.min(event.clientX + 12, window.innerWidth - 440)}px`;
+    this.localPathHint.style.top = `${Math.min(event.clientY + 18, window.innerHeight - 40)}px`;
+    this.localPathHint.style.display = "block";
+  }
+
+  handleLocalPathClick(event) {
+    if (!(event instanceof MouseEvent) || event.button !== 0) return;
+    const path = this.localPathFromEvent(event);
+    if (!path) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (this.localPathHint) this.localPathHint.style.display = "none";
+    this.emit("requestOpenLocalFile", { path });
+  }
+
   handleMessage(event) {
     if (event.source !== window || event.origin !== window.location.origin) return;
     const message = event.data;
@@ -490,6 +681,16 @@ class AIKSBridgePlugin extends Plugin {
         break;
       case "aiAssistResult":
         this.resolveAiAssist(payload);
+        break;
+      case "localFileOpenResult":
+        if (payload?.ok === true) {
+          this.showLocalPathToast("已使用系统默认应用打开本地文件");
+        } else {
+          this.showLocalPathToast(
+            safeId(payload?.error) || "本地文件打开失败",
+            false,
+          );
+        }
         break;
       case "refreshDocument":
         this.adapter.refreshDocument(payload.docId);

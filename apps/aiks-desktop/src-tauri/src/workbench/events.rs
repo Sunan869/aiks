@@ -1,9 +1,12 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Listener, Manager};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 use aiks_core::ai::ModelService;
@@ -38,6 +41,7 @@ const ALLOWED_EVENTS: &[&str] = &[
     "requestShowPipeline",
     "requestAiAssist",
     "requestAskAiks",
+    "requestOpenLocalFile",
     "workspaceModeChanged",
 ];
 
@@ -127,6 +131,38 @@ pub fn register(app: &AppHandle) {
             "requestAskAiks" => {
                 let _ = app_handle.emit("ask-aiks-open", ());
             }
+            "requestOpenLocalFile" => {
+                let raw_path = envelope
+                    .payload
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let result = open_local_path(&app_handle, raw_path);
+                let (ok, error) = match result {
+                    Ok(()) => (true, None),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            path = %raw_path,
+                            "[WORKBENCH] local file open failed"
+                        );
+                        (false, Some(error))
+                    }
+                };
+                let action = WorkbenchAction::LocalFileOpenResult {
+                    path: raw_path.to_string(),
+                    ok,
+                    error,
+                };
+                if let Err(error) =
+                    super::commands::dispatch_action(&app_handle, controller.inner(), action)
+                {
+                    tracing::warn!(
+                        error = %error,
+                        "[WORKBENCH] failed to deliver local file open result"
+                    );
+                }
+            }
             "documentCreated" => {
                 let Some(doc_id) = validated_doc_id(&envelope.payload, "created") else {
                     return;
@@ -174,6 +210,74 @@ pub fn register(app: &AppHandle) {
             }
         }
     });
+}
+
+fn is_blocked_executable(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "exe"
+            | "msi"
+            | "bat"
+            | "cmd"
+            | "com"
+            | "ps1"
+            | "psm1"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "command"
+            | "app"
+            | "desktop"
+            | "jar"
+            | "js"
+            | "vbs"
+            | "vbe"
+            | "ws"
+            | "wsf"
+            | "wsh"
+            | "reg"
+            | "scr"
+            | "cpl"
+            | "msc"
+    )
+}
+
+fn validated_local_path(raw_path: &str) -> Result<PathBuf, String> {
+    let raw_path = raw_path.trim();
+    if raw_path.is_empty() {
+        return Err("本地文件路径为空".to_string());
+    }
+
+    let path = PathBuf::from(raw_path);
+    if !path.is_absolute() {
+        return Err("只允许打开绝对本地路径".to_string());
+    }
+
+    let metadata = fs::metadata(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!("本地文件不存在：{}", path.display())
+        } else {
+            format!("无法访问本地路径：{} ({error})", path.display())
+        }
+    })?;
+
+    if metadata.is_file() && is_blocked_executable(&path) {
+        return Err("出于安全考虑，不允许直接打开可执行或脚本文件".to_string());
+    }
+
+    Ok(path)
+}
+
+fn open_local_path(app: &AppHandle, raw_path: &str) -> Result<(), String> {
+    let path = validated_local_path(raw_path)?;
+    let path_string = path.to_string_lossy().into_owned();
+    app.opener()
+        .open_path(path_string, None::<&str>)
+        .map_err(|error| format!("打开本地文件失败：{error}"))
 }
 
 fn parse_ai_assist_request(payload: &Value) -> anyhow::Result<AiAssistBridgeRequest> {
@@ -610,6 +714,32 @@ mod tests {
             validate_inbound(&event("requestAskAiks", Some("nonce-1")), "nonce-1").unwrap(),
             "requestAskAiks"
         );
+    }
+
+    #[test]
+    fn accepts_local_file_open_event() {
+        assert_eq!(
+            validate_inbound(
+                &event("requestOpenLocalFile", Some("nonce-1")),
+                "nonce-1"
+            )
+            .unwrap(),
+            "requestOpenLocalFile"
+        );
+    }
+
+    #[test]
+    fn blocks_executable_local_file_extensions() {
+        assert!(is_blocked_executable(Path::new("setup.exe")));
+        assert!(is_blocked_executable(Path::new("install.ps1")));
+        assert!(is_blocked_executable(Path::new("tool.sh")));
+        assert!(!is_blocked_executable(Path::new("README.md")));
+        assert!(!is_blocked_executable(Path::new("normalizer.py")));
+    }
+
+    #[test]
+    fn rejects_relative_local_paths() {
+        assert!(validated_local_path("README.md").is_err());
     }
 
     #[test]
