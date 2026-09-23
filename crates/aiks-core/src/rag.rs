@@ -163,7 +163,7 @@ impl RagAnswerService {
             let remaining = MAX_EVIDENCE_CHARS.saturating_sub(total_chars);
             let limit = remaining.min(MAX_SINGLE_EVIDENCE_CHARS);
             if text.chars().count() > limit {
-                text = truncate_chars(&text, limit);
+                text = truncate_chars(&text, limit).to_string();
             }
             total_chars += text.chars().count();
 
@@ -175,7 +175,7 @@ impl RagAnswerService {
                     entity_id: hit.entity_id,
                     chunk_id: hit.chunk_id,
                     title: hit.title,
-                    snippet: truncate_chars(&text, 260),
+                    snippet: truncate_chars(&text, 260).to_string(),
                     siyuan_doc_id: hit.siyuan_doc_id,
                     match_types: hit.match_types,
                 },
@@ -299,7 +299,7 @@ fn format_history(history: &[RagTurn]) -> String {
         }
         let remaining = MAX_HISTORY_CHARS.saturating_sub(out.chars().count());
         let content = if content.chars().count() > remaining {
-            truncate_chars(content, remaining)
+            truncate_chars(content, remaining).to_string()
         } else {
             content.to_string()
         };
