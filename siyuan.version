@@ -9,3 +9,4 @@ bridge_protocol=1
 # runtime_asset_revision=embedded-profile-1
 # desktop_revision=linux-gtk-fixed-1
 # desktop_revision=linux-gtk-fixed-2
+# desktop_revision=linux-gtk-fixed-final
