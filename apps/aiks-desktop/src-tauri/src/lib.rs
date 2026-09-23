@@ -7,6 +7,7 @@ mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
 mod provider_commands;
+mod rag_commands;
 mod search_commands;
 pub mod session_workbench;
 mod share_import_commands;
@@ -161,6 +162,8 @@ pub fn run() {
             // V4.2 Unified Search + AI Assist
             search_commands::search_all_v42,
             ai_assist_commands::assist_knowledge_v42,
+            // RAG knowledge question answering
+            rag_commands::ask_aiks_rag,
             // Public AI web conversation import
             share_import_commands::fetch_chatgpt_share_html,
             share_import_commands::persist_share_conversation,

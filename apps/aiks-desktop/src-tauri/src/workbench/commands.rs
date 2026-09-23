@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl};
 use uuid::Uuid;
 
 use crate::app_state::AppState;
@@ -199,10 +199,10 @@ pub async fn mount_workbench(
             webview.navigate(origin).map_err(|e| e.to_string())?;
         }
         webview
-            .set_position(LogicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
-        webview
-            .set_size(LogicalSize::new(width, height))
+            .set_bounds(Rect {
+                position: LogicalPosition::new(x, y).into(),
+                size: LogicalSize::new(width, height).into(),
+            })
             .map_err(|e| e.to_string())?;
         webview.show().map_err(|e| e.to_string())?;
         controller.set_mounted(true);

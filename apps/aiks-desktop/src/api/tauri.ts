@@ -3,6 +3,7 @@ import type { SyncAndExtractResult } from "./types";
 import { invoke } from "@tauri-apps/api/core";
 import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
+import type { RagAnswer, RagAskRequest } from "./rag";
 import { getChatGptShareId, parseChatGptShareHtml } from "../share-import/chatgpt-share-parser";
 import type {
   Overview,
@@ -133,6 +134,10 @@ export class TauriAiksApi implements AiksApi {
   }
   async assistKnowledge(input: AiAssistInput): Promise<AiAssistSuggestion> {
     return invoke("assist_knowledge_v42", { request: input });
+  }
+
+  async askAiks(request: RagAskRequest): Promise<RagAnswer> {
+    return invoke("ask_aiks_rag", { request });
   }
 
   async getWorkbenchStatus(): Promise<WorkbenchStatus> {

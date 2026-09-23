@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { Sparkles } from "lucide-react";
 import Sidebar from "./components/Sidebar";
+import AskAiksPanel from "./components/AskAiksPanel";
 import OverviewPage from "./pages/OverviewPage";
 import SessionsPage from "./pages/SessionsPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
@@ -15,6 +17,7 @@ import { DataStorageSettingsSection, DataStorageSetupGate } from "./components/D
 import { getApi, shouldUseMock } from "./api/client";
 import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
+import type { RagCitation } from "./api/rag";
 import {
   rawConversationNavState,
   type NavState,
@@ -30,6 +33,7 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
 
   const isMock = shouldUseMock();
   const revealStorageSetup = useCallback(() => setIsReady(true), []);
@@ -124,6 +128,18 @@ export default function App() {
     }
   };
 
+  const openRagCitation = (citation: RagCitation) => {
+    setAskOpen(false);
+    if (citation.corpus === "knowledge") {
+      viewKnowledgeDetail(citation.entityId);
+      return;
+    }
+    const sessionId = Number(citation.entityId);
+    if (Number.isFinite(sessionId)) {
+      viewUnifiedSessionResult(sessionId, citation.siyuanDocId);
+    }
+  };
+
   const renderMain = () => {
     if (nav.page === "sessions" && nav.sessionDetailId != null) {
       return (
@@ -142,6 +158,7 @@ export default function App() {
           knowledgeId={nav.knowledgeDetailId}
           onOpenKnowledge={viewKnowledgeDetail}
           onOpenSession={viewUnifiedSessionResult}
+          externalOverlayOpen={askOpen}
         />
       );
     }
@@ -158,6 +175,7 @@ export default function App() {
           workbenchDocId={nav.workbenchDocId}
           onOpenKnowledge={viewKnowledgeDetail}
           onOpenSession={viewUnifiedSessionResult}
+          externalOverlayOpen={askOpen}
         />
       );
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
@@ -190,9 +208,24 @@ export default function App() {
 
         <div className="flex h-7 flex-shrink-0 items-center gap-3 border-t border-gray-200 bg-white px-4 text-xs text-gray-400 dark:border-gray-700 dark:bg-gray-800">
           {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
-          {isMock && <span className="ml-auto text-yellow-500">Mock 模式 — 仅用于开发</span>}
+          {isMock && <span className="text-yellow-500">Mock 模式 — 仅用于开发</span>}
+          <button
+            type="button"
+            onClick={() => setAskOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium text-blue-600 transition hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
+            title="基于 AIKS 知识库提问"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            问 AIKS
+          </button>
         </div>
       </div>
+      <AskAiksPanel
+        open={askOpen}
+        aiHealthy={aiStatus?.healthy ?? false}
+        onClose={() => setAskOpen(false)}
+        onOpenCitation={openRagCitation}
+      />
       <DataStorageSetupGate onRequired={revealStorageSetup} />
     </>
   );

@@ -140,7 +140,10 @@ async fn qwen_and_antigravity_discovery_tolerate_only_active_tails() {
     let qwen_report = qwen_provider.discover_report().await.unwrap();
     assert!(qwen_report.complete);
     assert_eq!(qwen_report.sessions.len(), 1);
-    assert!(qwen_provider.load_session(&qwen_report.sessions[0]).await.is_err());
+    assert!(qwen_provider
+        .load_session(&qwen_report.sessions[0])
+        .await
+        .is_err());
 
     let antigravity = tempfile::tempdir().unwrap();
     put(

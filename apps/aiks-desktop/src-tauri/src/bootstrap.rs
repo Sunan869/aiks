@@ -65,7 +65,8 @@ pub fn find_runtime_root(app_handle: &tauri::AppHandle) -> anyhow::Result<PathBu
     }
 
     anyhow::bail!(
-        "SiYuan runtime not found. Run: powershell -File scripts\\setup-siyuan.ps1\n\
+        "SiYuan runtime not found. Prepare it with scripts/setup-siyuan.ps1 on Windows \
+         or scripts/setup-siyuan.sh on macOS/Linux.\n\
          Checked:\n  \
          - Tauri resource_dir/resources/siyuan\n  \
          - {}/resources/siyuan\n  \

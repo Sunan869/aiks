@@ -24,6 +24,8 @@ use crate::providers::{ProviderHealth, SessionSummary};
 
 const PARSER_VERSION: &str = "claude-v1";
 
+type ClaudeSessionSummary = (Option<String>, usize, Option<String>, Option<DateTime<Utc>>);
+
 pub struct ClaudeProvider {
     base_dir: PathBuf,
 }
@@ -111,9 +113,7 @@ impl ClaudeProvider {
     }
 
     /// Extract session summary from JSONL content in a single pass.
-    fn scan_summary(
-        content: &str,
-    ) -> anyhow::Result<(Option<String>, usize, Option<String>, Option<DateTime<Utc>>)> {
+    fn scan_summary(content: &str) -> anyhow::Result<ClaudeSessionSummary> {
         let mut title: Option<String> = None;
         let mut cwd: Option<String> = None;
         let mut started_at: Option<DateTime<Utc>> = None;
@@ -130,7 +130,9 @@ impl ClaudeProvider {
             let entry = match parsed {
                 Ok(entry) => entry,
                 Err(error) => {
-                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    let is_last_nonempty = lines[index + 1..]
+                        .iter()
+                        .all(|value| value.trim().is_empty());
                     if is_last_nonempty && !content.ends_with('\n') {
                         break;
                     }
@@ -227,7 +229,9 @@ impl ClaudeProvider {
             let entry = match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(entry) => entry,
                 Err(error) => {
-                    let is_last_nonempty = lines[index + 1..].iter().all(|value| value.trim().is_empty());
+                    let is_last_nonempty = lines[index + 1..]
+                        .iter()
+                        .all(|value| value.trim().is_empty());
                     if is_last_nonempty && !content.ends_with('\n') {
                         anyhow::bail!("Claude transcript is still being written; retry later");
                     }

@@ -80,9 +80,6 @@ function Read-VersionFile {
         "workbench_version",
         "release_repo",
         "release_tag",
-        "asset",
-        "platform",
-        "sha256",
         "upstream_commit",
         "fork_commit",
         "profile",
@@ -174,7 +171,7 @@ function Assert-RuntimeManifestIdentity {
         forkRepository = [string]$Config["release_repo"]
         forkCommit = [string]$Config["fork_commit"]
         profile = [string]$Config["profile"]
-        platform = [string]$Config["platform"]
+        platform = "windows-x64"
         bridgeProtocol = [int]$Config["bridge_protocol"]
     }
 
@@ -244,8 +241,8 @@ $cfg = Read-VersionFile -Path $VersionFile
 
 $SiyuanVersion = [string]$cfg["version"]
 $ReleaseTag     = [string]$cfg["release_tag"]
-$AssetName      = [string]$cfg["asset"]
-$Platform       = [string]$cfg["platform"]
+$AssetName      = "aiks-siyuan-runtime-windows-x64.zip"
+$Platform       = "windows-x64"
 
 Write-Host "Version lock:"
 Write-Host "  SiYuan version : $SiyuanVersion"
