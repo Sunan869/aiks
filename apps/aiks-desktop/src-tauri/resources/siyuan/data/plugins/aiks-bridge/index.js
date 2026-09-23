@@ -179,6 +179,9 @@ class AIKSBridgePlugin extends Plugin {
     this.bridgeReadyRetryTimer = null;
     this.adapter = new SiyuanAdapter(this.app);
     this.adapter.applyAiksLayout();
+    this.askAiksButton = null;
+    this.askAiksStyle = null;
+    this.mountAskAiksLauncher();
 
     this.onMessage = (event) => this.handleMessage(event);
     this.onBeforeInput = (event) => this.blockEdit(event);
@@ -238,8 +241,103 @@ class AIKSBridgePlugin extends Plugin {
       pending.reject(new Error("AIKS AI Assist bridge unloaded"));
     }
     this.aiAssistRequests?.clear?.();
+    this.unmountAskAiksLauncher();
     this.adapter?.clearAiksLayout();
     delete window.__AIKS_BRIDGE__;
+  }
+
+  mountAskAiksLauncher() {
+    if (this.askAiksButton?.isConnected) return;
+
+    const style = document.createElement("style");
+    style.id = "aiks-ask-launcher-style";
+    style.textContent = `
+      #aiks-ask-launcher {
+        position: fixed;
+        right: 20px;
+        bottom: 16px;
+        z-index: 2147483647;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid rgba(59, 130, 246, 0.16);
+        border-radius: 9999px;
+        padding: 10px 16px;
+        background: var(--b3-theme-background, #fff);
+        color: #2563eb;
+        box-shadow: 0 10px 30px rgba(37, 99, 235, 0.20);
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+        cursor: pointer;
+        user-select: none;
+        transition: transform 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+      }
+      #aiks-ask-launcher:hover {
+        transform: translateY(-2px);
+        border-color: rgba(59, 130, 246, 0.28);
+        background: color-mix(in srgb, var(--b3-theme-primary-lightest, #eff6ff) 72%, var(--b3-theme-background, #fff));
+        box-shadow: 0 14px 34px rgba(37, 99, 235, 0.26);
+      }
+      #aiks-ask-launcher:active {
+        transform: translateY(0);
+      }
+      #aiks-ask-launcher:focus-visible {
+        outline: 2px solid rgba(37, 99, 235, 0.45);
+        outline-offset: 2px;
+      }
+      #aiks-ask-launcher .aiks-ask-icon {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        background: #2563eb;
+        color: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10);
+      }
+      #aiks-ask-launcher .aiks-ask-icon svg {
+        width: 14px;
+        height: 14px;
+        display: block;
+      }
+    `;
+    document.head.appendChild(style);
+
+    const button = document.createElement("button");
+    button.id = "aiks-ask-launcher";
+    button.type = "button";
+    button.title = "基于 AIKS 知识库和 AI 对话记录提问";
+    button.setAttribute("aria-label", "问 AIKS");
+    button.innerHTML = `
+      <span class="aiks-ask-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3z"></path>
+          <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"></path>
+          <path d="M5 13l.9 2.6L8.5 16.5l-2.6.9L5 20l-.9-2.6-2.6-.9 2.6-.9L5 13z"></path>
+        </svg>
+      </span>
+      <span>问 AIKS</span>
+    `;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.emit("requestAskAiks");
+    });
+
+    document.body.appendChild(button);
+    this.askAiksStyle = style;
+    this.askAiksButton = button;
+  }
+
+  unmountAskAiksLauncher() {
+    this.askAiksButton?.remove?.();
+    this.askAiksStyle?.remove?.();
+    this.askAiksButton = null;
+    this.askAiksStyle = null;
   }
 
   handleMessage(event) {
