@@ -719,11 +719,7 @@ mod tests {
     #[test]
     fn accepts_local_file_open_event() {
         assert_eq!(
-            validate_inbound(
-                &event("requestOpenLocalFile", Some("nonce-1")),
-                "nonce-1"
-            )
-            .unwrap(),
+            validate_inbound(&event("requestOpenLocalFile", Some("nonce-1")), "nonce-1").unwrap(),
             "requestOpenLocalFile"
         );
     }
