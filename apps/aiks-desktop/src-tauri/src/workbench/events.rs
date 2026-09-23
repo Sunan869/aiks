@@ -37,6 +37,7 @@ const ALLOWED_EVENTS: &[&str] = &[
     "requestOpenKnowledge",
     "requestShowPipeline",
     "requestAiAssist",
+    "requestAskAiks",
     "workspaceModeChanged",
 ];
 
@@ -122,6 +123,9 @@ pub fn register(app: &AppHandle) {
                         "[WORKBENCH] rejected invalid AI Assist request"
                     ),
                 }
+            }
+            "requestAskAiks" => {
+                let _ = app_handle.emit("ask-aiks-open", ());
             }
             "documentCreated" => {
                 let Some(doc_id) = validated_doc_id(&envelope.payload, "created") else {
@@ -597,6 +601,14 @@ mod tests {
         assert_eq!(
             validate_inbound(&event("requestAiAssist", Some("nonce-1")), "nonce-1").unwrap(),
             "requestAiAssist"
+        );
+    }
+
+    #[test]
+    fn accepts_ask_aiks_launcher_event() {
+        assert_eq!(
+            validate_inbound(&event("requestAskAiks", Some("nonce-1")), "nonce-1").unwrap(),
+            "requestAskAiks"
         );
     }
 
