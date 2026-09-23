@@ -178,7 +178,7 @@ export default function AskAiksPanel({
           </button>
         </header>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-5 py-5 dark:bg-gray-950/20">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 dark:bg-gray-950/20">
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[320px] w-full flex-col justify-center">
               <div className="flex items-center gap-3">
