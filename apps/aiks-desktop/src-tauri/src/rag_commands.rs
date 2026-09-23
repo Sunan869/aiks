@@ -32,7 +32,6 @@ pub async fn ask_aiks_rag(
     serde_json::to_value(answer).map_err(|error| error.to_string())
 }
 
-
 #[tauri::command]
 pub async fn ask_aiks_rag_stream(
     request: RagAskRequest,
