@@ -5,9 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::ai::ModelService;
-use crate::search::{
-    SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchService,
-};
+use crate::search::{SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchService};
 use crate::storage::StateDb;
 use crate::util::truncate_chars;
 
@@ -92,7 +90,8 @@ impl RagAnswerService {
         let evidence = self.collect_evidence(outcome.hits)?;
         if evidence.is_empty() {
             return Ok(RagAnswer {
-                answer: "知识库中没有检索到足够依据，暂时无法基于现有知识回答这个问题。".to_string(),
+                answer: "知识库中没有检索到足够依据，暂时无法基于现有知识回答这个问题。"
+                    .to_string(),
                 citations: Vec::new(),
                 degraded: outcome.degraded,
                 warnings: outcome.warnings,
@@ -149,7 +148,9 @@ impl RagAnswerService {
                 continue;
             }
 
-            let mut text = self.resolve_hit_text(&hit)?.unwrap_or_else(|| hit.snippet.clone());
+            let mut text = self
+                .resolve_hit_text(&hit)?
+                .unwrap_or_else(|| hit.snippet.clone());
             text = text.trim().to_string();
             if text.is_empty() {
                 continue;
