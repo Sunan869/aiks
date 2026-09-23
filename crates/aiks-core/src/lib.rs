@@ -7,6 +7,7 @@ pub mod knowledge;
 pub mod model;
 pub mod pipeline;
 pub mod providers;
+pub mod rag;
 pub mod renderer;
 pub mod runtime;
 pub mod search;
@@ -40,6 +41,7 @@ pub use pipeline::{
     EmbeddingConfig, KnowledgeRepo, PipelineJob, PipelineOrchestrator, PipelineWorker,
 };
 pub use providers::SessionSummary;
+pub use rag::{RagAnswer, RagAnswerService, RagAskRequest, RagCitation, RagTurn};
 pub use search::{
     SearchCorpus, UnifiedSearchFilter, UnifiedSearchHit, UnifiedSearchOutcome, UnifiedSearchService,
 };
