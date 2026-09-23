@@ -77,20 +77,7 @@ impl DingTalkClient {
     }
 
     pub fn authorize_url(&self, state: &str) -> Result<String, TeamError> {
-        if state.len() != 64 || !state.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(TeamError::InvalidInput);
-        }
-        let config = &self.settings.settings().dingtalk;
-        let mut url = reqwest::Url::parse("https://login.dingtalk.com/oauth2/auth")
-            .map_err(|_| TeamError::ConfigInvalid)?;
-        url.query_pairs_mut()
-            .append_pair("client_id", &config.client_id)
-            .append_pair("redirect_uri", &config.redirect_uri)
-            .append_pair("response_type", "code")
-            .append_pair("scope", "openid corpid")
-            .append_pair("prompt", "consent")
-            .append_pair("state", state);
-        Ok(url.into())
+        authorize_url(&self.settings, state)
     }
 
     pub async fn exchange_code(&self, code: &str) -> Result<ExternalLogin, TeamError> {
@@ -221,4 +208,24 @@ fn member(value: &Value) -> Result<DirectoryUser, TeamError> {
             .and_then(Value::as_bool)
             .ok_or(TeamError::Unavailable)?,
     })
+}
+
+pub(crate) fn authorize_url(
+    settings: &ValidatedTeamSettings,
+    state: &str,
+) -> Result<String, TeamError> {
+    if state.len() != 64 || !state.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(TeamError::InvalidInput);
+    }
+    let config = &settings.settings().dingtalk;
+    let mut url = reqwest::Url::parse("https://login.dingtalk.com/oauth2/auth")
+        .map_err(|_| TeamError::ConfigInvalid)?;
+    url.query_pairs_mut()
+        .append_pair("client_id", &config.client_id)
+        .append_pair("redirect_uri", &config.redirect_uri)
+        .append_pair("response_type", "code")
+        .append_pair("scope", "openid corpid")
+        .append_pair("prompt", "consent")
+        .append_pair("state", state);
+    Ok(url.into())
 }

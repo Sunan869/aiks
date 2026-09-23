@@ -285,6 +285,8 @@ impl StateDb {
             .context("run V18 single-company identity migration")?;
         tx.execute_batch(include_str!("../../migrations/018_team_directory.sql"))
             .context("run V19 atomic team directory migration")?;
+        tx.execute_batch(include_str!("../../migrations/019_team_auth_sessions.sql"))
+            .context("run team authentication migration")?;
         tx.commit()?;
         Ok(())
     }
