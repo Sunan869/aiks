@@ -177,6 +177,62 @@ pub async fn get_workbench_status(
     Ok(controller.status())
 }
 
+#[cfg(target_os = "linux")]
+fn mount_linux_workbench_window(
+    app: &AppHandle,
+    controller: &WorkbenchController,
+    origin: &Url,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let control = app
+        .get_webview_window("control")
+        .ok_or_else(|| "control window is unavailable".to_string())?;
+    let workbench = app
+        .get_webview_window("knowledge")
+        .ok_or_else(|| "knowledge fallback workbench is unavailable".to_string())?;
+
+    let current_url = workbench.url().map_err(|e| e.to_string())?;
+    if !same_origin(&current_url, origin) {
+        controller.set_ready(false);
+        workbench.navigate(origin.clone()).map_err(|e| e.to_string())?;
+    }
+
+    let scale = control.scale_factor().map_err(|e| e.to_string())?;
+    let inner_origin = control.inner_position().map_err(|e| e.to_string())?;
+
+    let screen_x = inner_origin.x + (x * scale).round() as i32;
+    let screen_y = inner_origin.y + (y * scale).round() as i32;
+    let physical_width = (width * scale).round().max(1.0) as u32;
+    let physical_height = (height * scale).round().max(1.0) as u32;
+
+    workbench
+        .set_position(PhysicalPosition::new(screen_x, screen_y))
+        .map_err(|e| e.to_string())?;
+    workbench
+        .set_size(PhysicalSize::new(physical_width, physical_height))
+        .map_err(|e| e.to_string())?;
+    workbench.show().map_err(|e| e.to_string())?;
+
+    tracing::debug!(
+        x,
+        y,
+        width,
+        height,
+        scale,
+        screen_x,
+        screen_y,
+        physical_width,
+        physical_height,
+        "Mounted Linux X11 workbench overlay"
+    );
+
+    controller.set_mounted(true);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn mount_workbench(
     app: AppHandle,
@@ -191,6 +247,19 @@ pub async fn mount_workbench(
     let origin = sync_origin(app_state.inner(), controller.inner())
         .await?
         .ok_or_else(|| "SiYuan workbench is unavailable".to_string())?;
+
+    #[cfg(target_os = "linux")]
+    {
+        return mount_linux_workbench_window(
+            &app,
+            controller.inner(),
+            &origin,
+            x,
+            y,
+            width,
+            height,
+        );
+    }
 
     if let Some(webview) = app.get_webview(WORKBENCH_WEBVIEW_LABEL) {
         let current_url = webview.url().map_err(|e| e.to_string())?;
