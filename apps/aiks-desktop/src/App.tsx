@@ -158,6 +158,8 @@ export default function App() {
           knowledgeId={nav.knowledgeDetailId}
           onOpenKnowledge={viewKnowledgeDetail}
           onOpenSession={viewUnifiedSessionResult}
+          onAskAiks={() => setAskOpen(true)}
+          aiHealthy={aiStatus?.healthy ?? false}
           externalOverlayOpen={askOpen}
         />
       );
@@ -175,6 +177,8 @@ export default function App() {
           workbenchDocId={nav.workbenchDocId}
           onOpenKnowledge={viewKnowledgeDetail}
           onOpenSession={viewUnifiedSessionResult}
+          onAskAiks={() => setAskOpen(true)}
+          aiHealthy={aiStatus?.healthy ?? false}
           externalOverlayOpen={askOpen}
         />
       );
@@ -212,7 +216,7 @@ export default function App() {
 
         </div>
       </div>
-      {!askOpen && (
+      {!askOpen && nav.page !== "knowledge" && (
         <button
           type="button"
           onClick={() => setAskOpen(true)}
