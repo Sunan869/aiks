@@ -139,7 +139,7 @@ export default function KnowledgeWorkspacePage({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 p-3">
+      <div className="flex min-h-0 flex-1">
         <WorkbenchHost
           surface={workspaceMode}
           docId={boundDocId}
