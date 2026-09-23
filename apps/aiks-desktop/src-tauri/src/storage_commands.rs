@@ -73,7 +73,7 @@ pub async fn prepare_storage_before_startup(app: &AppHandle) -> anyhow::Result<b
         && crate::lifecycle::selected_config()?.backend.mode
             == aiks_core::config::BackendMode::ServiceLocal
     {
-        write_pointer(&default_root)?;
+        write_pointer(&default_root).map_err(anyhow::Error::msg)?;
         return Ok(true);
     }
 
