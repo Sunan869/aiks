@@ -30,10 +30,40 @@ impl ModelService {
     }
 
     pub async fn complete_text(&self, system: &str, user: &str) -> anyhow::Result<String> {
+        self.complete_text_with_max_tokens(system, user, self.llm.max_tokens)
+            .await
+    }
+
+    pub async fn complete_text_with_max_tokens(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+    ) -> anyhow::Result<String> {
         if !self.llm.enabled {
             anyhow::bail!("AI model is disabled");
         }
-        AiClient::new(self.llm.clone())?.chat(system, user).await
+        AiClient::new(self.llm.clone())?
+            .chat_with_max_tokens(system, user, max_tokens)
+            .await
+    }
+
+    pub async fn complete_text_stream_with_max_tokens<F>(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        on_delta: F,
+    ) -> anyhow::Result<String>
+    where
+        F: FnMut(&str) -> anyhow::Result<()> + Send,
+    {
+        if !self.llm.enabled {
+            anyhow::bail!("AI model is disabled");
+        }
+        AiClient::new(self.llm.clone())?
+            .chat_stream_with_max_tokens(system, user, max_tokens, on_delta)
+            .await
     }
 
     pub async fn complete_json<T: DeserializeOwned>(

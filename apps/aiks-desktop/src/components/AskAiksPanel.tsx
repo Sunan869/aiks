@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { getApi } from "../api/client";
+import { askAiksProgressively } from "../api/rag-progress";
 import type { RagCitation, RagTurn } from "../api/rag";
 
 interface Props {
@@ -84,29 +84,45 @@ export default function AskAiksPanel({
       role: message.role,
       content: message.content,
     }));
+    const assistantId = messageId();
 
     setMessages(current => [
       ...current,
       { id: messageId(), role: "user", content: question },
+      { id: assistantId, role: "assistant", content: "" },
     ]);
     setInput("");
     setError(null);
     setLoading(true);
 
     try {
-      const result = await getApi().askAiks({ question, history });
-      setMessages(current => [
-        ...current,
+      const result = await askAiksProgressively(
+        { question, history },
         {
-          id: messageId(),
-          role: "assistant",
-          content: result.answer,
-          citations: result.citations,
-          model: result.model,
-          warnings: result.warnings,
+          onDelta: delta => {
+            setMessages(current => current.map(message => (
+              message.id === assistantId
+                ? { ...message, content: message.content + delta }
+                : message
+            )));
+          },
         },
-      ]);
+      );
+      setMessages(current => current.map(message => (
+        message.id === assistantId
+          ? {
+              ...message,
+              content: result.answer || message.content,
+              citations: result.citations,
+              model: result.model,
+              warnings: result.warnings,
+            }
+          : message
+      )));
     } catch (reason) {
+      setMessages(current => current.filter(
+        message => message.id !== assistantId || message.content.trim().length > 0,
+      ));
       setError(String(reason));
     } finally {
       setLoading(false);
@@ -172,19 +188,7 @@ export default function AskAiksPanel({
                   onOpenCitation={onOpenCitation}
                 />
               ))}
-              {loading && (
-                <div className="flex items-start gap-2.5">
-                  <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
-                    <Bot className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="rounded-xl bg-gray-50 px-3 py-2.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-300">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span>正在检索知识并组织回答…</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
           )}
         </div>
@@ -263,9 +267,18 @@ function Message({
         <Bot className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="whitespace-pre-wrap text-sm leading-6 text-gray-800 dark:text-gray-100">
-          {message.content}
-        </div>
+        {message.content ? (
+          <div className="whitespace-pre-wrap text-sm leading-6 text-gray-800 dark:text-gray-100">
+            {message.content}
+          </div>
+        ) : (
+          <div className="rounded-xl bg-gray-50 px-3 py-2.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-300">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>正在检索知识并组织回答…</span>
+            </div>
+          </div>
+        )}
 
         {message.warnings && message.warnings.length > 0 && (
           <div className="mt-2 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
