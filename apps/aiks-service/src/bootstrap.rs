@@ -54,6 +54,7 @@ pub async fn run() -> anyhow::Result<()> {
         config.listen = listen.parse()?;
     }
     config.validate()?;
+    config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
     // Two bounded frames, bootstrap plus an explicitly opted-in owner command.
     let mut stdin = BufReader::new(tokio::io::stdin().take(8194));
     let mut frame = String::new();

@@ -3,6 +3,7 @@ mod auth;
 pub mod bootstrap;
 mod config;
 mod error;
+pub mod model_credentials;
 mod routes;
 pub use aiks_core::service::ServiceRuntime;
 pub use auth::LocalAuth;

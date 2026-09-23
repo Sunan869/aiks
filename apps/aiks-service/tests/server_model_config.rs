@@ -32,7 +32,10 @@ fn ai_and_embedding_resolve_independent_server_credentials() {
         .unwrap();
     let runtime = config.runtime_config();
     assert_eq!(runtime.ai.api_key.as_deref(), Some("synthetic-text-secret"));
-    assert_eq!(runtime.embedding.api_key.as_deref(), Some("synthetic-vector-secret"));
+    assert_eq!(
+        runtime.embedding.api_key.as_deref(),
+        Some("synthetic-vector-secret")
+    );
     assert_eq!(runtime.ai.model, "synthetic-text-model");
     assert_eq!(runtime.embedding.dimensions, Some(3));
 }
@@ -165,4 +168,6 @@ fn missing_server_key_prevents_business_database_creation() {
     assert!(!output.status.success());
     assert!(!db.exists());
     assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("model_credentials.ai_api_key_env: secret_missing"));
 }

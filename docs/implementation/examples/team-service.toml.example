@@ -1,5 +1,5 @@
-# AIKS S2 配置契约样例，不是当前 S1 程序可加载的配置。
-# 配置加载器交付后，复制为 deploy/team/service.toml；不要覆盖个人 models.toml。
+# AIKS S2 团队配置契约样例，完整 team 加载器仍未交付。
+# 不要覆盖个人 service-local/config/models.toml。
 # 留空是为了手动填写，不会启用测试账号或绕过认证。
 mode = "team"
 listen = "127.0.0.1:28081"
@@ -18,7 +18,7 @@ client_id = ""
 redirect_uri = ""
 # 这里是环境变量名，不是密钥值。密钥由服务端进程环境提供。
 client_secret_env = "AIKS_DINGTALK_CLIENT_SECRET"
-# 或改用仅服务账户可读的密钥文件；此时将 client_secret_env 改为 ""。
+# 或使用仅服务账户可读的密钥文件；此时将 client_secret_env 改为 ""。
 client_secret_file = ""
 
 [team.directory]
@@ -32,17 +32,34 @@ login_attempt_ttl_seconds = 300
 access_token_ttl_seconds = 900
 refresh_token_ttl_seconds = 604800
 
+# AI 提炼与向量计算均由 Service 处理，普通客户端不携带公司模型密钥。
 [ai]
 enabled = false
 base_url = ""
 model = ""
+timeout_seconds = 120
+max_concurrent = 1
 
 [embedding]
 enabled = false
+base_url = ""
+model = ""
+# 启用前明确填写实际模型的输出维度；下列仅是格式示例。
+# dimensions = 1024
+batch_size = 16
+chunk_target_tokens = 800
+chunk_max_tokens = 1200
+chunk_overlap_tokens = 120
+
+[model_credentials]
+# 只填环境变量名。真实值只注入服务器进程环境。
+# 模型不需要鉴权时，将对应引用设为 ""，无需虚构 API Key。
+ai_api_key_env = "AIKS_AI_API_KEY"
+embedding_api_key_env = "AIKS_EMBEDDING_API_KEY"
 
 [siyuan]
-# 同机部署示例。容器部署由部署模板设置为内部服务名，不开放思源端口。
+# 同机部署示例。容器部署改为内部服务名，不开放思源端口。
 base_url = "http://127.0.0.1:6806"
 notebook_name = "AIKS"
-# S2 计划新增的秘密引用，解析后只在服务内部注入，不传给桌面端。
+# S2 计划中的秘密引用，解析后只在服务内部注入，不传给桌面端。
 token_env = "AIKS_SIYUAN_TOKEN"

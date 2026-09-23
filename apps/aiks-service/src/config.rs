@@ -9,6 +9,8 @@ use aiks_core::{
 };
 use serde::Deserialize;
 
+use crate::model_credentials::ModelCredentials;
+
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServiceConfig {
@@ -19,6 +21,7 @@ pub struct ServiceConfig {
     pub ai: AiModelConfig,
     pub embedding: EmbeddingConfig,
     pub siyuan: SiYuanConfig,
+    pub model_credentials: ModelCredentials,
 }
 
 impl Default for ServiceConfig {
@@ -33,6 +36,7 @@ impl Default for ServiceConfig {
                 ..Default::default()
             },
             siyuan: SiYuanConfig::default(),
+            model_credentials: ModelCredentials::default(),
         }
     }
 }
