@@ -110,6 +110,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             service_commands::service_status,
+            service_commands::service_ui_preferences,
+            service_commands::service_finish_onboarding,
+            service_commands::service_save_sources,
+            service_commands::service_scan_sessions,
+            service_commands::service_browse_sessions,
+            service_commands::service_preview_session,
+            service_commands::service_exclude_sessions,
             service_commands::service_collect_selected,
             service_commands::service_uploads,
             service_commands::service_get_receipt,

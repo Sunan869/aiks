@@ -1,6 +1,8 @@
 //! Client-only transport and upload state. Never opens a business StateDb.
+pub mod browse;
 pub mod collector;
 mod outbox;
+pub mod preferences;
 pub mod supervisor;
 mod transport;
 

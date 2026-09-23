@@ -99,7 +99,7 @@ impl CollectorOutbox {
             _lease: lease,
         })
     }
-    fn conn(&self) -> ClientResult<MutexGuard<'_, Connection>> {
+    pub(super) fn conn(&self) -> ClientResult<MutexGuard<'_, Connection>> {
         self.conn.lock().map_err(|_| ClientError::Storage)
     }
     pub fn device_id(&self) -> ClientResult<String> {

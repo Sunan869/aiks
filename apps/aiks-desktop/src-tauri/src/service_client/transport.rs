@@ -128,23 +128,46 @@ impl ServiceClient {
         self.read(&["jobs", id]).await
     }
     pub async fn sessions(&self) -> ClientResult<Value> {
-        self.read(&["sessions"]).await
+        self.sessions_page(0).await
+    }
+    pub async fn sessions_page(&self, offset: usize) -> ClientResult<Value> {
+        self.read_page("sessions", offset).await
     }
     pub async fn session(&self, id: &str) -> ClientResult<Value> {
         self.read(&["sessions", id]).await
     }
     pub async fn knowledge_list(&self) -> ClientResult<Value> {
-        self.read(&["knowledge"]).await
+        self.knowledge_page(0).await
+    }
+    pub async fn knowledge_page(&self, offset: usize) -> ClientResult<Value> {
+        self.read_page("knowledge", offset).await
+    }
+    async fn read_page(&self, resource: &str, offset: usize) -> ClientResult<Value> {
+        if offset > 1_000_000 {
+            return Err(ClientError::InvalidInput);
+        }
+        self.capabilities().await?;
+        self.request_page(Method::GET, &[resource], None, Some(offset))
+            .await
     }
     pub async fn knowledge(&self, id: &str) -> ClientResult<Value> {
         self.read(&["knowledge", id]).await
     }
     pub async fn search(&self, query: &str) -> ClientResult<Value> {
+        self.search_corpus(query, None).await
+    }
+    pub async fn search_corpus(
+        &self,
+        query: &str,
+        corpus: Option<aiks_core::search::SearchCorpus>,
+    ) -> ClientResult<Value> {
         if query.trim().is_empty() || query.len() > 16_384 {
             return Err(ClientError::InvalidInput);
         }
         self.capabilities().await?;
-        let body = self.json_body(&json!({"query":query,"limit":30}))?;
+        let body = self.json_body(
+            &json!({"query":query,"limit":30,"corpora":corpus.into_iter().collect::<Vec<_>>()}),
+        )?;
         self.request(Method::POST, &["search"], Some(&body)).await
     }
     async fn read<T: DeserializeOwned>(&self, segments: &[&str]) -> ClientResult<T> {
@@ -163,6 +186,15 @@ impl ServiceClient {
         segments: &[&str],
         body: Option<&[u8]>,
     ) -> ClientResult<T> {
+        self.request_page(method, segments, body, None).await
+    }
+    async fn request_page<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        segments: &[&str],
+        body: Option<&[u8]>,
+        offset: Option<usize>,
+    ) -> ClientResult<T> {
         let mut url = self.connection.base.clone();
         {
             let mut path = url
@@ -172,6 +204,11 @@ impl ServiceClient {
             for segment in segments {
                 path.push(segment);
             }
+        }
+        if let Some(offset) = offset {
+            url.query_pairs_mut()
+                .append_pair("limit", "30")
+                .append_pair("offset", &offset.to_string());
         }
         let mut request = self
             .client

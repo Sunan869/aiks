@@ -1,4 +1,5 @@
 //! The service-mode desktop owns collection and child lifetimes, not business DBs.
+mod ui;
 use crate::service_client::{
     collector::{collect_provider, deliver_one, CollectionPolicy},
     supervisor::{binary_path, OwnedService},
@@ -32,6 +33,12 @@ pub struct ServiceDesktop {
     owner: Mutex<Option<OwnedService>>,
     content: Mutex<Option<Arc<SiyuanRuntime>>>,
     profile_lease: std::sync::Mutex<Option<BusinessDbLease>>,
+    browsers: Mutex<
+        std::collections::HashMap<
+            aiks_core::SourceKind,
+            Arc<crate::service_client::browse::LocalSessionBrowser>,
+        >,
+    >,
     provider_config: Config,
     providers: Arc<ProviderRegistry>,
     gate: Semaphore,
@@ -54,6 +61,7 @@ impl ServiceDesktop {
             owner: Mutex::new(None),
             content: Mutex::new(None),
             profile_lease: std::sync::Mutex::new(None),
+            browsers: Mutex::new(std::collections::HashMap::new()),
             provider_config: config,
             providers,
             gate: Semaphore::new(1),
@@ -103,6 +111,7 @@ impl ServiceDesktop {
             std::fs::create_dir_all(path)?;
         }
         let root = root.canonicalize()?;
+        let outbox = self.local_store().await.map_err(anyhow::Error::msg)?;
         let resource = app.path().resource_dir()?;
         let binary = binary_path(&resource)?;
         let runtime_root = crate::bootstrap::locate_runtime_root(app)?;
@@ -144,7 +153,6 @@ impl ServiceDesktop {
         } else {
             write_private(&identity_path, instance.as_bytes(), true)?;
         }
-        let outbox = Arc::new(CollectorOutbox::open(&root.join("collector.db"))?);
         *self.owner.lock().await = Some(owner);
         *self.client.write().await = Some(client);
         *self.outbox.write().await = Some(outbox);
@@ -218,12 +226,8 @@ impl ServiceDesktop {
         json!({"mode":"service_local","phase":if connection_error.is_some(){"unavailable"}else{phase},
             "error_code":connection_error.or(*self.error.read().await),"capabilities":capabilities,"providers":providers})
     }
-    pub async fn collect(
-        &self,
-        sources: Vec<String>,
-        exclude_ids: Vec<String>,
-    ) -> Result<Value, String> {
-        if sources.is_empty() || sources.len() > 16 || exclude_ids.len() > 1000 {
+    pub async fn collect(&self, sources: Vec<String>) -> Result<Value, String> {
+        if sources.is_empty() || sources.len() > 16 {
             return Err("invalid_selection".into());
         }
         let _permit = self.gate.try_acquire().map_err(|_| "collector_busy")?;
@@ -246,17 +250,8 @@ impl ServiceDesktop {
                 .providers
                 .get(source)
                 .ok_or("source_disabled_or_unavailable")?;
-            let source_paths = descriptors(&self.provider_config, &[])
-                .into_iter()
-                .find(|d| d.key == source.as_str())
-                .map(|d| d.paths)
-                .unwrap_or_default();
-            let path_key = serde_json::to_vec(&(source.as_str(), source_paths))
-                .map_err(|_| "invalid_source")?;
-            let source_key = format!("{:x}", Sha256::digest(path_key));
             let policy = CollectionPolicy {
-                source_key,
-                exclude_ids: exclude_ids.clone(),
+                source_key: self.source_key(source)?,
                 ..Default::default()
             };
             let report = tokio::select! {
@@ -273,6 +268,8 @@ impl ServiceDesktop {
         let _lifecycle_guard = self.lifecycle_gate.lock().await;
         *self.phase.write().await = "stopping";
         self.stop_owned().await;
+        *self.outbox.write().await = None;
+        self.browsers.lock().await.clear();
     }
     async fn stop_owned(&self) {
         let delivery = self.delivery.lock().await.take();
@@ -295,7 +292,7 @@ impl ServiceDesktop {
             runtime.stop().await;
         }
         *self.client.write().await = None;
-        *self.outbox.write().await = None;
+        // Keep client-only preferences available after a failed service startup.
         if let Ok(mut lease) = self.profile_lease.lock() {
             lease.take();
         }

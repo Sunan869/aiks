@@ -80,11 +80,20 @@ pub async fn collect_provider(
         policy.source_key.clone(),
     ))
     .map_err(|_| ClientError::InvalidInput)?;
+    let scope =
+        super::preferences::SourceScope::new(&instance, &space, source, &policy.source_key)?;
+    let store = outbox.clone();
+    let saved_exclusions = blocking(move || store.excluded(&scope)).await?;
     let scan_key = format!(
         "{:x}",
         Sha256::digest(
-            serde_json::to_vec(&(&key, &policy.include_ids, &policy.exclude_ids))
-                .map_err(|_| ClientError::InvalidInput)?
+            serde_json::to_vec(&(
+                &key,
+                &policy.include_ids,
+                &policy.exclude_ids,
+                &saved_exclusions
+            ))
+            .map_err(|_| ClientError::InvalidInput)?
         )
     );
     let db = outbox.clone();
@@ -122,7 +131,8 @@ pub async fn collect_provider(
     let mut sessions = Vec::new();
     for summary in discovery.sessions {
         let id = &summary.external_session_id;
-        if policy.exclude_ids.contains(id)
+        if saved_exclusions.contains(id)
+            || policy.exclude_ids.contains(id)
             || policy.include_ids.as_ref().is_some_and(|v| !v.contains(id))
         {
             report.excluded += 1;
@@ -151,32 +161,14 @@ pub async fn collect_provider(
     };
     for summary in sessions.into_iter().skip(start).take(policy.max_sessions) {
         let upstream = &summary.external_session_id;
-        let path = summary.source_path.clone();
-        let before = match blocking(move || jsonl_guard(path.as_deref())).await {
-            Ok(stamp) => stamp,
+        let mut session = match load_complete(provider, &summary).await {
+            Ok(session) => session,
             Err(_) => {
                 report.failed += 1;
                 report.complete = false;
                 continue;
             }
         };
-        let mut session = match provider.load_session(&summary).await {
-            Ok(session) if session.source == source && session.external_session_id == *upstream => {
-                session
-            }
-            _ => {
-                report.failed += 1;
-                report.complete = false;
-                continue;
-            }
-        };
-        if let Some((path, stamp)) = before {
-            if blocking(move || Ok(stamp_for(&path)? == stamp)).await != Ok(true) {
-                report.failed += 1;
-                report.complete = false;
-                continue;
-            }
-        }
         let db = outbox.clone();
         let (i, s, r, u) = (
             instance.clone(),
@@ -255,6 +247,30 @@ pub async fn deliver_one(
         }
     }
 }
+/// Shared with read-only preview so neither path trusts partial JSONL or a stale identity.
+pub(super) async fn load_complete(
+    provider: &dyn SessionProvider,
+    summary: &aiks_core::providers::SessionSummary,
+) -> ClientResult<NormalizedSession> {
+    let path = summary.source_path.clone();
+    let before = blocking(move || jsonl_guard(path.as_deref())).await?;
+    let session = provider
+        .load_session(summary)
+        .await
+        .map_err(|_| ClientError::InvalidInput)?;
+    if session.source != provider.source()
+        || session.external_session_id != summary.external_session_id
+    {
+        return Err(ClientError::InvalidInput);
+    }
+    if let Some((path, stamp)) = before {
+        if !blocking(move || Ok(stamp_for(&path)? == stamp)).await? {
+            return Err(ClientError::InvalidInput);
+        }
+    }
+    Ok(session)
+}
+
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> ClientResult<T> + Send + 'static,
 ) -> ClientResult<T> {
@@ -308,7 +324,7 @@ fn jsonl_guard(path: Option<&Path>) -> ClientResult<Option<(PathBuf, Stamp)>> {
     }
     Ok(Some((checked, before)))
 }
-fn sanitize(session: &mut NormalizedSession) -> ClientResult<()> {
+pub(super) fn sanitize(session: &mut NormalizedSession) -> ClientResult<()> {
     let sanitizer = default_sanitizer();
     for value in [
         &mut session.title,

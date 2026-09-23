@@ -67,6 +67,16 @@ pub async fn prepare_storage_before_startup(app: &AppHandle) -> anyhow::Result<b
         }
     }
 
+    // Service-local uses the personal default until the user changes it in
+    // Settings. Do not make storage/model/source configuration a reading gate.
+    if requires_initial_setup()
+        && crate::lifecycle::selected_config()?.backend.mode
+            == aiks_core::config::BackendMode::ServiceLocal
+    {
+        write_pointer(&default_root)?;
+        return Ok(true);
+    }
+
     if requires_initial_setup() {
         let state = AppState {
             engine: None,
