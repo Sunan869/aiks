@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, UnifiedSearchHit } from "../api/types";
 import type { WorkspaceMode } from "../api/workbench";
@@ -12,8 +12,6 @@ interface Props {
   workbenchDocId?: string | null;
   onOpenKnowledge?: (knowledgeId: string) => void;
   onOpenSession?: (sessionId: number, siyuanDocId: string | null) => void;
-  onAskAiks?: () => void;
-  aiHealthy?: boolean;
   externalOverlayOpen?: boolean;
 }
 
@@ -23,8 +21,6 @@ export default function KnowledgeWorkspacePage({
   workbenchDocId = null,
   onOpenKnowledge,
   onOpenSession,
-  onAskAiks,
-  aiHealthy = false,
   externalOverlayOpen = false,
 }: Props) {
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
@@ -110,21 +106,6 @@ export default function KnowledgeWorkspacePage({
           <span className="truncate">搜索知识和 AI 对话记录...</span>
         </button>
 
-        {onAskAiks && (
-          <button
-            type="button"
-            onClick={onAskAiks}
-            className="ml-auto inline-flex flex-shrink-0 items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:border-blue-200 hover:bg-blue-100 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
-            title="基于 AIKS 知识库和 AI 对话记录提问"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>问 AIKS</span>
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${aiHealthy ? "bg-green-500" : "bg-amber-400"}`}
-              aria-hidden="true"
-            />
-          </button>
-        )}
       </div>
 
       {error && (
@@ -139,7 +120,7 @@ export default function KnowledgeWorkspacePage({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 p-3">
+      <div className="flex min-h-0 flex-1">
         <WorkbenchHost
           surface={workspaceMode}
           docId={boundDocId}
