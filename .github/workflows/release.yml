@@ -120,6 +120,50 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             libwebkit2gtk-4.1-dev             build-essential             curl             wget             file             libxdo-dev             libssl-dev             libayatana-appindicator3-dev             librsvg2-dev             patchelf             libfuse2
 
+      - name: Resolve Linux GTK fixed webview patches
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo update \
+            -p tauri \
+            -p tauri-runtime-wry \
+            -p tao \
+            -p wry
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          lock = Path("Cargo.lock").read_text(encoding="utf-8")
+          expected = {
+              "tauri": "git+https://github.com/ds1/tauri.git",
+              "tauri-runtime-wry": "git+https://github.com/ds1/tauri.git",
+              "tao": "git+https://github.com/ds1/tao.git",
+              "wry": "git+https://github.com/ds1/wry.git",
+          }
+
+          packages = {}
+          for block in lock.split("[[package]]"):
+              name_match = re.search(r'^name = "([^"]+)"', block, re.M)
+              source_match = re.search(r'^source = "([^"]+)"', block, re.M)
+              if name_match and source_match:
+                  packages.setdefault(name_match.group(1), []).append(source_match.group(1))
+
+          failures = []
+          for name, prefix in expected.items():
+              sources = packages.get(name, [])
+              if not any(source.startswith(prefix) for source in sources):
+                  failures.append(f"{name}: {sources or ['missing']}")
+              else:
+                  print(f"{name}: {sources}")
+
+          if failures:
+              raise SystemExit(
+                  "Linux GTK fixed patch resolution failed:\n" + "\n".join(failures)
+              )
+          PY
+
       - name: Fetch locked SiYuan runtime
         shell: bash
         if: runner.os != 'Windows'
