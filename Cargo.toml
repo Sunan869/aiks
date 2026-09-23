@@ -74,5 +74,6 @@ strip = true
 # Remove after the gtk::Fixed container + Wry set_bounds fixes ship upstream.
 [patch.crates-io]
 tauri = { git = "https://github.com/ds1/tauri.git", rev = "4e9d9e7b0a919462b266de7a4224021f6f640b7c" }
+tauri-runtime-wry = { git = "https://github.com/ds1/tauri.git", rev = "4e9d9e7b0a919462b266de7a4224021f6f640b7c" }
 tao = { git = "https://github.com/ds1/tao.git", rev = "03ccb7b2ec95654bf955b5812da6cd9501177d6d" }
 wry = { git = "https://github.com/ds1/wry.git", rev = "e117e1e670f2f86ee6ad99af1541de694c34cfe0" }
