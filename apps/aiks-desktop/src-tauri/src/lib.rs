@@ -164,6 +164,7 @@ pub fn run() {
             ai_assist_commands::assist_knowledge_v42,
             // RAG knowledge question answering
             rag_commands::ask_aiks_rag,
+            rag_commands::ask_aiks_rag_stream,
             // Public AI web conversation import
             share_import_commands::fetch_chatgpt_share_html,
             share_import_commands::persist_share_conversation,
