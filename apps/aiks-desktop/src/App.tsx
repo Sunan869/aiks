@@ -89,6 +89,14 @@ export default function App() {
   }, [refreshStatus, isMock]);
 
   useEffect(() => {
+    if (isMock) return;
+    const unlisten = listen("ask-aiks-open", () => setAskOpen(true));
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, [isMock]);
+
+  useEffect(() => {
     const keepMounted = shouldKeepWorkbenchMounted(
       nav.page,
       nav.page === "sessions" && nav.sessionDetailId != null,
@@ -195,18 +203,6 @@ export default function App() {
             {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-400">
-            {nav.page === "knowledge" && !askOpen && (
-              <button
-                type="button"
-                onClick={() => setAskOpen(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
-                title="基于 AIKS 知识库和 AI 对话记录提问"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>问 AIKS</span>
-                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus?.healthy ? "bg-green-500" : "bg-amber-400"}`} aria-hidden="true" />
-              </button>
-            )}
             {aiStatus && <div className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} /><span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span></div>}
             {syncInProgress && <span className="text-blue-500">扫描中...</span>}
             {fullStatus && !syncInProgress && <span>{fullStatus.scan_total} 条工作记录</span>}
