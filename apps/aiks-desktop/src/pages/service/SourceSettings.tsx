@@ -37,7 +37,7 @@ export default function SourceSettings({status,sources,onSave,onComplete}:{statu
   async function exclude(keys:string[],excluded:boolean){
     setRuleBusy(true);setError(null);setNotice(null);
     try{const result=await serviceApi.excludeSessions(source,keys,excluded);
-      if(mounted.current){setNotice(`${excluded?"排除规则":"恢复同步规则"}已保存。${result.paused>0?`已暂停 ${result.paused} 条尚未发送的会话。`:""}${result.already_received>0?`其中 ${result.already_received} 条已被接收，已入库内容不会删除。`:""}`);await browse(page?.offset??0);}}
+      if(mounted.current){setNotice(`${excluded?"排除规则":"恢复同步规则"}已保存。${result.paused>0?`已暂停 ${result.paused} 条待发送／重试记录。`:""}${result.already_received>0?`其中 ${result.already_received} 条已有接收记录，已入库内容不会删除。`:""}`);await browse(page?.offset??0);}}
     catch(e){if(mounted.current)setError(errorText(e));}finally{if(mounted.current)setRuleBusy(false);}
   }
   const providers=status?.providers??[];
@@ -51,7 +51,7 @@ export default function SourceSettings({status,sources,onSave,onComplete}:{statu
       <div className="flex flex-wrap gap-3"><button className={button} disabled={busy} onClick={()=>void save()}>保存来源选择</button><button className={primary} disabled={status?.phase!=="ready"||busy||!selected.length} onClick={()=>void save(true)}>{busy?"正在处理…":"采集所选来源"}</button>{onComplete&&<button className={button} disabled={busy} onClick={()=>void save(false,true)}>保存并进入知识库</button>}</div>
       {reports.length>0&&<div className="mt-5 overflow-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b text-slate-500">{["来源","发现","待发送","未变化","已排除","稍后处理","失败"].map(h=><th key={h} className="py-2 pr-3 font-medium">{h}</th>)}</tr></thead><tbody>{reports.map(r=><tr key={r.source} className="border-b"><td className="py-3">{providers.find(p=>p.key===r.source)?.display_name??r.source}</td>{["discovered","queued","unchanged","excluded","deferred","failed"].map(k=><td key={k}>{String(r.report[k]??"—")}</td>)}</tr>)}</tbody></table></div>}
     </section>
-    <section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">管理同步会话 <span className="ml-2 text-xs font-normal text-slate-400">可选</span></h2><p className="my-2 text-sm leading-6 text-slate-500">先扫描列表，再按标题、项目和时间识别会话。勾选“排除同步”立即保存，重启后仍有效；取消勾选恢复后续同步。已入库内容不会因此删除。</p>
+    <section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">管理同步会话 <span className="ml-2 text-xs font-normal text-slate-400">可选</span></h2><p className="my-2 text-sm leading-6 text-slate-500">先扫描列表，再按标题、项目和时间识别会话。勾选“排除同步”立即保存，重启后仍有效；取消勾选恢复后续同步。已入库内容不会因此删除。曾尝试发送的记录即使回执未返回，也可能已被接收；排除只停止后续同步，不撤回已有内容。</p>
       <div className="my-4 flex flex-wrap gap-3"><select aria-label="扫描来源" className="rounded-lg border px-3 py-2 text-sm" value={source} disabled={scanning||ruleBusy} onChange={e=>changeSource(e.target.value)}><option value="">选择要查看的来源</option>{providers.filter(p=>p.enabled).map(p=><option key={p.key} value={p.key}>{p.display_name}</option>)}</select><button className={button} disabled={!source||scanning||ruleBusy||busy} onClick={()=>void scan()}>{scanning?"正在读取列表…":"扫描本地会话"}</button></div>
       {!page&&!scanning&&<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">尚未扫描。扫描只读取本机会话，不会加入发送队列。</p>}
       {page&&<>

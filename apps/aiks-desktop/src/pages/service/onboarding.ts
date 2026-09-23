@@ -14,11 +14,14 @@ export class WorkspaceController {
   private update(change:Partial<WorkspaceState>){this.state={...this.state,...change};this.listeners.forEach(fn=>fn());}
   initialize(){
     if(this.loading)return this.loading;
+    if(this.state.preferences)return Promise.resolve();
     const revision=this.revision;
     this.loading=this.api.preferences().then(preferences=>{
       if(revision!==this.revision)return;
       this.update({preferences,page:!this.touched&&preferences.onboarding==="unseen"?"setup":this.state.page,error:null});
-    }).catch(()=>{this.update({error:"暂时无法读取首次设置记录，仍可进入知识库。"});this.loading=null;});
+    }).catch(()=>{
+      if(revision===this.revision)this.update({error:"暂时无法读取首次设置记录，仍可进入知识库。"});
+    }).finally(()=>{this.loading=null;});
     return this.loading;
   }
   navigate(page:WorkspacePage){
