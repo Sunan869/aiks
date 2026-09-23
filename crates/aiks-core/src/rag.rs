@@ -87,7 +87,7 @@ impl RagAnswerService {
             )
             .await?;
 
-        let evidence = self.collect_evidence(outcome.hits)?;
+        let evidence = self.collect_evidence(question, outcome.hits)?;
         if evidence.is_empty() {
             return Ok(RagAnswer {
                 answer: "知识库中没有检索到足够依据，暂时无法基于现有知识回答这个问题。"
@@ -128,7 +128,11 @@ impl RagAnswerService {
         })
     }
 
-    fn collect_evidence(&self, hits: Vec<UnifiedSearchHit>) -> anyhow::Result<Vec<Evidence>> {
+    fn collect_evidence(
+        &self,
+        question: &str,
+        hits: Vec<UnifiedSearchHit>,
+    ) -> anyhow::Result<Vec<Evidence>> {
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
         let mut total_chars = 0usize;
@@ -149,7 +153,7 @@ impl RagAnswerService {
             }
 
             let mut text = self
-                .resolve_hit_text(&hit)?
+                .resolve_hit_text(question, &hit)?
                 .unwrap_or_else(|| hit.snippet.clone());
             text = text.trim().to_string();
             if text.is_empty() {
@@ -182,17 +186,52 @@ impl RagAnswerService {
         Ok(evidence)
     }
 
-    fn resolve_hit_text(&self, hit: &UnifiedSearchHit) -> anyhow::Result<Option<String>> {
-        let Some(chunk_id) = hit.chunk_id.as_deref() else {
-            return Ok(None);
-        };
+    fn resolve_hit_text(
+        &self,
+        question: &str,
+        hit: &UnifiedSearchHit,
+    ) -> anyhow::Result<Option<String>> {
         let conn = self.db.conn();
 
+        if let Some(chunk_id) = hit.chunk_id.as_deref() {
+            return match hit.corpus {
+                SearchCorpus::Knowledge => conn
+                    .query_row(
+                        "SELECT text FROM knowledge_chunk WHERE id = ?1 AND knowledge_id = ?2",
+                        params![chunk_id, hit.entity_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(Into::into),
+                SearchCorpus::Session => {
+                    let Ok(session_id) = hit.entity_id.parse::<i64>() else {
+                        return Ok(None);
+                    };
+                    conn.query_row(
+                        "SELECT text FROM session_search_chunk WHERE id = ?1 AND session_id = ?2",
+                        params![chunk_id, session_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(Into::into)
+                }
+            };
+        }
+
+        // Lexical hits intentionally do not carry chunk IDs. Recover a bounded
+        // match-centered excerpt from canonical indexed text instead of feeding
+        // the model only the short search-result snippet.
         match hit.corpus {
             SearchCorpus::Knowledge => conn
                 .query_row(
-                    "SELECT text FROM knowledge_chunk WHERE id = ?1 AND knowledge_id = ?2",
-                    params![chunk_id, hit.entity_id],
+                    "SELECT CASE
+                        WHEN instr(lower(content), lower(?2)) > 0
+                        THEN substr(content, MAX(1, instr(lower(content), lower(?2)) - 700), 3800)
+                        ELSE substr(content, 1, 3800)
+                     END
+                     FROM knowledge_item
+                     WHERE id = ?1 AND status = 'active'",
+                    params![hit.entity_id, question],
                     |row| row.get(0),
                 )
                 .optional()
@@ -202,8 +241,15 @@ impl RagAnswerService {
                     return Ok(None);
                 };
                 conn.query_row(
-                    "SELECT text FROM session_search_chunk WHERE id = ?1 AND session_id = ?2",
-                    params![chunk_id, session_id],
+                    "SELECT CASE
+                        WHEN instr(lower(content), lower(?2)) > 0
+                        THEN substr(content, MAX(1, instr(lower(content), lower(?2)) - 700), 3800)
+                        ELSE substr(content, 1, 3800)
+                     END
+                     FROM session_search_fts
+                     WHERE session_id = ?1
+                     LIMIT 1",
+                    params![session_id, question],
                     |row| row.get(0),
                 )
                 .optional()
