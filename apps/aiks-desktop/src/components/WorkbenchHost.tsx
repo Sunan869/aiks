@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getApi } from "../api/client";
 import type { WorkbenchBounds, WorkbenchStatus } from "../api/types";
 import { boundWorkbenchMode, type WorkspaceMode } from "../api/workbench";
@@ -115,19 +114,6 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
     const observer = new ResizeObserver(scheduleSync);
     observer.observe(host);
     window.addEventListener("resize", scheduleSync);
-
-    let unlistenMoved: (() => void) | undefined;
-    void getCurrentWindow()
-      .onMoved(() => scheduleSync())
-      .then(unlisten => {
-        if (cancelled) {
-          unlisten();
-        } else {
-          unlistenMoved = unlisten;
-        }
-      })
-      .catch(() => {});
-
     scheduleSync();
 
     return () => {
@@ -135,7 +121,6 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
       cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", scheduleSync);
-      unlistenMoved?.();
       void getApi().hideWorkbench().catch(() => {});
     };
   }, [suspended]);
