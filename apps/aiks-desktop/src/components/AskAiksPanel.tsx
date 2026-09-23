@@ -488,17 +488,20 @@ function Message({
   }
 
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
-        <Bot className="h-3.5 w-3.5" />
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300">
+        <Bot className="h-4 w-4" />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pt-0.5">
         {message.content ? (
-          <div className="whitespace-pre-wrap text-sm leading-6 text-gray-800 dark:text-gray-100">
-            {message.content}
-          </div>
+          <MarkdownAnswer
+            content={message.content}
+            citations={message.citations}
+            onOpenCitation={onOpenCitation}
+            streaming={streaming}
+          />
         ) : (
-          <div className="rounded-xl bg-gray-50 px-3 py-2.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-300">
+          <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
             <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>正在检索知识并组织回答…</span>
@@ -513,39 +516,60 @@ function Message({
         )}
 
         {message.citations && message.citations.length > 0 && (
-          <div className="mt-3 space-y-1.5">
-            <div className="text-[11px] font-medium text-gray-400">引用来源</div>
-            {message.citations.map(citation => (
-              <button
-                key={`${citation.corpus}:${citation.entityId}:${citation.chunkId ?? citation.index}`}
-                type="button"
-                onClick={() => onOpenCitation(citation)}
-                className="block w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-left transition hover:border-blue-200 hover:bg-blue-50/50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded bg-gray-200 px-1 text-[10px] font-semibold text-gray-600 dark:bg-gray-700 dark:text-gray-200">
-                    {citation.index}
-                  </span>
-                  {citation.corpus === "knowledge"
-                    ? <FileText className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
-                    : <MessageSquareText className="h-3.5 w-3.5 flex-shrink-0 text-violet-500" />}
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-700 dark:text-gray-200">
-                    {citation.title}
-                  </span>
-                </div>
-                {citation.snippet && (
-                  <div className="mt-1.5 line-clamp-2 pl-7 text-[11px] leading-4 text-gray-400">
-                    {citation.snippet}
+          <details className="group mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800">
+              <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+              <span>参考来源</span>
+              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                {message.citations.length}
+              </span>
+              <span className="ml-auto text-[10px] font-normal text-gray-400 group-open:hidden">展开</span>
+              <span className="ml-auto hidden text-[10px] font-normal text-gray-400 group-open:inline">收起</span>
+            </summary>
+            <div className="space-y-1.5 border-t border-gray-100 p-2 dark:border-gray-800">
+              {message.citations.map(citation => (
+                <button
+                  key={citation.corpus + ":" + citation.entityId + ":" + (citation.chunkId ?? citation.index)}
+                  type="button"
+                  onClick={() => onOpenCitation(citation)}
+                  className="block w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-blue-50/60 dark:hover:bg-blue-950/20"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-md bg-blue-50 px-1 text-[10px] font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-300">
+                      {citation.index}
+                    </span>
+                    {citation.corpus === "knowledge"
+                      ? <FileText className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                      : <MessageSquareText className="h-3.5 w-3.5 flex-shrink-0 text-violet-500" />}
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-700 dark:text-gray-200">
+                      {citation.title}
+                    </span>
                   </div>
-                )}
-              </button>
-            ))}
-          </div>
+                  {citation.snippet && (
+                    <div className="mt-1 line-clamp-2 pl-7 text-[11px] leading-4 text-gray-400">
+                      {citation.snippet}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </details>
         )}
 
-        {message.model && (
-          <div className="mt-2 text-[10px] text-gray-300 dark:text-gray-600">
-            {message.model}
+        {message.content && (
+          <div className="mt-2.5 flex items-center gap-1 text-[10px] text-gray-400">
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(message.content)}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+              title="复制回答"
+            >
+              <Copy className="h-3 w-3" />
+              复制
+            </button>
+            {message.model && (
+              <span className="ml-auto text-gray-300 dark:text-gray-600">{message.model}</span>
+            )}
           </div>
         )}
       </div>
