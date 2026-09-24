@@ -103,4 +103,3 @@ fn secure_file(_: &std::path::Path) -> Result<String, ConfigIssue> {
         code: "secret_file_not_supported",
     })
 }
-}
