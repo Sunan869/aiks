@@ -58,6 +58,11 @@ apps/aiks-desktop/src-tauri/resources/siyuan/
 .env.*
 !.env.example
 
+/deploy/team/.env
+/deploy/team/service.toml
+/deploy/team/secrets/
+/deploy/team/data/
+
 # ──────────────────────────────────────────────
 # Build artifacts
 # ──────────────────────────────────────────────

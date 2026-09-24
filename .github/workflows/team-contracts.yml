@@ -1,0 +1,41 @@
+name: Team S2 contracts
+on:
+  push:
+    branches: [feature/aiks-service-extraction]
+permissions:
+  contents: read
+concurrency:
+  group: team-s2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  team-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Deployment templates
+        run: python3 scripts/check-team-deployment.py deploy/team
+      - name: Team configuration and HTTP contracts
+        run: |
+          cargo test --locked -p aiks-service --test team_config_check -- --test-threads=1
+          cargo test --locked -p aiks-service --test team_deployment -- --test-threads=1
+          cargo test --locked -p aiks-service --test team_login --test team_sharing --test team_content --test team_import --test team_directory_search -- --test-threads=1
+      - name: Service lint and formatting
+        run: |
+          cargo clippy --locked -p aiks-service --all-targets -- -D warnings
+          cargo fmt --all --check
+      - name: Desktop team UI
+        working-directory: apps/aiks-desktop
+        run: |
+          npm ci
+          npm test -- src/pages/service/team-sharing.test.tsx
+          npm run build

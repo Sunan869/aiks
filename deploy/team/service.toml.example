@@ -1,0 +1,56 @@
+# Copy to /etc/aiks/service.toml and fill real values there.
+# This template is intentionally disabled; copying it must not expose team mode.
+mode = "team"
+listen = "127.0.0.1:28081"
+database = "/var/lib/aiks-team/business/state.db"
+
+[team]
+enabled = false
+public_base_url = "https://aiks.example.com"
+
+[team.dingtalk]
+enabled = false
+corp_id = ""
+client_id = ""
+redirect_uri = "https://aiks.example.com/api/v1/auth/dingtalk/callback"
+client_secret_env = "AIKS_DINGTALK_CLIENT_SECRET"
+client_secret_file = ""
+
+[team.directory]
+root_department_ids = []
+refresh_interval_seconds = 300
+max_stale_seconds = 900
+
+[team.sessions]
+login_attempt_ttl_seconds = 300
+access_token_ttl_seconds = 900
+refresh_token_ttl_seconds = 604800
+
+[ai]
+enabled = false
+base_url = ""
+model = ""
+timeout_seconds = 120
+max_concurrent = 1
+
+[embedding]
+enabled = false
+base_url = ""
+model = ""
+batch_size = 16
+chunk_target_tokens = 800
+chunk_max_tokens = 1200
+chunk_overlap_tokens = 120
+
+[model_credentials]
+ai_api_key_env = "AIKS_AI_API_KEY"
+embedding_api_key_env = "AIKS_EMBEDDING_API_KEY"
+
+[siyuan]
+base_url = "http://127.0.0.1:6806"
+token = ""
+token_env = "AIKS_SIYUAN_TOKEN"
+notebook_name = "AIKS"
+session_notebook_name = "AIKS"
+session_root = "/10 AI Sessions"
+knowledge_root = "/20 Knowledge"
