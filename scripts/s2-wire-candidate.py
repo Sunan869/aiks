@@ -1,12 +1,11 @@
 """Apply exact SHA-guarded Task 9 Rust candidate; CI formats and emits blobs only."""
 from pathlib import Path
-import base64,gzip,hashlib,json,subprocess
+import base64,gzip,hashlib,json
 
 def git_blob_sha(data):
     return hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
 
 HEAD="86ebbbd10b230ed83c4dfd2d1a6234a4b71dd4ee"
-subprocess.check_call(["git","merge-base","--is-ancestor",HEAD,"HEAD"])
 parts=[]
 for p in sorted(Path("scripts/task9-candidate").glob("part-*.txt")):
     parts.append(p.read_text())
