@@ -10,6 +10,7 @@ pub mod provider;
 mod repo;
 mod shares;
 mod types;
+mod workspace_sso;
 
 pub use content::{
     ContentOperation, ContentWorker, ManagedAsset, MAX_MANAGED_ASSET_BYTES, MAX_TEAM_CONTENT_BYTES,
@@ -22,6 +23,7 @@ pub use repo::TeamStore;
 pub(crate) use shares::knowledge_access_in_conn;
 pub use shares::{GrantInput, GrantTarget, ShareGrant, ShareState};
 pub use types::TeamError;
+pub use workspace_sso::{WorkspacePrincipal, WorkspaceTicket};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
