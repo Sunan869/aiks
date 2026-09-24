@@ -7,7 +7,7 @@ pub mod supervisor;
 mod transport;
 
 use aiks_core::service::{validate_submission, SnapshotSubmission};
-pub use outbox::{ClaimedUpload, CollectorOutbox, EnqueueOutcome, UploadStatus};
+pub use outbox::{ClaimedUpload, CollectorOutbox, EnqueueOutcome, TargetIdentity, UploadStatus};
 use std::fmt;
 pub use transport::{ServiceClient, ServiceConnection};
 
@@ -16,6 +16,7 @@ pub enum ClientError {
     InvalidInput,
     WrongInstance,
     Unauthorized,
+    Forbidden,
     NotFound,
     Conflict,
     Retryable,
@@ -23,6 +24,7 @@ pub enum ClientError {
     TooLarge,
     Storage,
     InvalidResponse,
+    LoginPending,
 }
 impl ClientError {
     pub fn code(self) -> &'static str {
@@ -30,6 +32,7 @@ impl ClientError {
             Self::InvalidInput => "invalid_input",
             Self::WrongInstance => "wrong_instance",
             Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
             Self::NotFound => "not_found",
             Self::Conflict => "conflict",
             Self::Retryable => "retryable",
@@ -37,6 +40,7 @@ impl ClientError {
             Self::TooLarge => "too_large",
             Self::Storage => "collector_storage_unavailable",
             Self::InvalidResponse => "invalid_service_response",
+            Self::LoginPending => "login_pending",
         }
     }
 }

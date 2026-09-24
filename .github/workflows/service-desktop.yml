@@ -53,6 +53,11 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked -p aiks-desktop --lib service_desktop_tests -- --test-threads=1 2>&1 | tee native-service-lifecycle.log
+      - name: Team Client contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked -p aiks-desktop --test team_client -- --test-threads=1 2>&1 | tee team-client-tests.log
       - name: Full workspace Clippy
         if: always() && runner.os == 'Linux'
         shell: bash
@@ -77,6 +82,7 @@ jobs:
           path: |
             native-desktop-tests.log
             native-service-lifecycle.log
+            team-client-tests.log
             workspace-clippy.log
             workspace-tests.log
           retention-days: 3

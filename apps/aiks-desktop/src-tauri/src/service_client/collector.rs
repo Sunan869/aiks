@@ -70,18 +70,21 @@ pub async fn collect_provider(
         return Err(ClientError::InvalidInput);
     }
     let identity = client.connection();
+    let target = identity.target_identity().clone();
     let instance = identity.instance_id().to_owned();
     let space = identity.space_id().to_owned();
     let source = provider.source();
     let key = serde_json::to_string(&(
         instance.clone(),
+        target.company_id().to_owned(),
+        target.user_id().to_owned(),
         space.clone(),
         source,
         policy.source_key.clone(),
     ))
     .map_err(|_| ClientError::InvalidInput)?;
     let scope =
-        super::preferences::SourceScope::new(&instance, &space, source, &policy.source_key)?;
+        super::preferences::SourceScope::for_target(target.clone(), source, &policy.source_key)?;
     let store = outbox.clone();
     let saved_exclusions = blocking(move || store.excluded(&scope)).await?;
     let scan_key = format!(
@@ -170,13 +173,9 @@ pub async fn collect_provider(
             }
         };
         let db = outbox.clone();
-        let (i, s, r, u) = (
-            instance.clone(),
-            space.clone(),
-            registration.clone(),
-            upstream.clone(),
-        );
-        let revision = blocking(move || db.revision_for(&i, &s, &r, &u)).await?;
+        let (target_for_revision, r, u) = (target.clone(), registration.clone(), upstream.clone());
+        let revision =
+            blocking(move || db.revision_for_target(&target_for_revision, &r, &u)).await?;
         let mut input = SnapshotSubmission {
             api_version: 1,
             submission_id: uuid::Uuid::new_v4().to_string(),
@@ -207,7 +206,8 @@ pub async fn collect_provider(
         input.session = session;
         let pending = PendingSubmission::new(input)?;
         let db = outbox.clone();
-        match blocking(move || db.enqueue(&pending)).await {
+        let target_for_enqueue = target.clone();
+        match blocking(move || db.enqueue_for(&target_for_enqueue, &pending)).await {
             Ok(EnqueueOutcome::Queued(_)) => report.queued += 1,
             Ok(EnqueueOutcome::Existing(_) | EnqueueOutcome::Unchanged) => report.unchanged += 1,
             Err(ClientError::Busy) => {
@@ -227,12 +227,9 @@ pub async fn deliver_one(
     outbox: Arc<CollectorOutbox>,
     now: u64,
 ) -> ClientResult<Option<SnapshotReceipt>> {
-    let (instance, space) = (
-        client.connection().instance_id().to_owned(),
-        client.connection().space_id().to_owned(),
-    );
+    let target = client.connection().target_identity().clone();
     let db = outbox.clone();
-    let Some(claim) = blocking(move || db.next_for(&instance, &space, now)).await? else {
+    let Some(claim) = blocking(move || db.next_for_target(&target, now)).await? else {
         return Ok(None);
     };
     match client.submit_snapshot(claim.pending()).await {

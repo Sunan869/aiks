@@ -13,6 +13,61 @@ const MAX_PENDING_BYTES: i64 = 256 * 1024 * 1024;
 const MAX_PENDING_ROWS: i64 = 1024;
 const LEASE_MS: u64 = 60_000;
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TargetIdentity {
+    instance_id: String,
+    company_id: String,
+    user_id: String,
+    space_id: String,
+}
+impl TargetIdentity {
+    pub fn personal(instance_id: &str, space_id: &str) -> ClientResult<Self> {
+        if !super::valid_id(instance_id) || !super::valid_id(space_id) {
+            return Err(ClientError::InvalidInput);
+        }
+        Ok(Self {
+            instance_id: instance_id.into(),
+            company_id: String::new(),
+            user_id: String::new(),
+            space_id: space_id.into(),
+        })
+    }
+    pub fn team(
+        instance_id: &str,
+        company_id: &str,
+        user_id: &str,
+        space_id: &str,
+    ) -> ClientResult<Self> {
+        if [instance_id, company_id, user_id, space_id]
+            .iter()
+            .any(|v| !super::valid_id(v))
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        Ok(Self {
+            instance_id: instance_id.into(),
+            company_id: company_id.into(),
+            user_id: user_id.into(),
+            space_id: space_id.into(),
+        })
+    }
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+    pub fn company_id(&self) -> &str {
+        &self.company_id
+    }
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+    pub fn space_id(&self) -> &str {
+        &self.space_id
+    }
+    pub fn is_team(&self) -> bool {
+        !self.company_id.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnqueueOutcome {
     Queued(String),
@@ -68,28 +123,20 @@ impl CollectorOutbox {
             [],
             |r| r.get(0),
         )?;
-        if !(app == APP_ID && version == 1) && !(app == 0 && version == 0 && tables == 0) {
+        if !(app == APP_ID && matches!(version, 1 | 2))
+            && !(app == 0 && version == 0 && tables == 0)
+        {
             return Err(ClientError::Storage);
         }
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if app == 0 {
-            tx.execute_batch("CREATE TABLE collector_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-             CREATE TABLE collector_upload(id TEXT PRIMARY KEY,instance_id TEXT NOT NULL,space_id TEXT NOT NULL,
-             registration_id TEXT NOT NULL,upstream_id TEXT NOT NULL,submission_id TEXT NOT NULL,source TEXT NOT NULL,
-             expected_revision INTEGER NOT NULL,body BLOB,request_hash TEXT NOT NULL,content_hash TEXT NOT NULL,
-             state TEXT NOT NULL CHECK(state IN ('pending','inflight','blocked','acknowledged')),
-             attempt INTEGER NOT NULL DEFAULT 0,due_ms INTEGER NOT NULL DEFAULT 0,lease_id TEXT,lease_until INTEGER,
-             error_code TEXT,receipt_json TEXT,
-             UNIQUE(instance_id,space_id,registration_id,upstream_id,submission_id));
-             CREATE INDEX collector_pending ON collector_upload(instance_id,space_id,state,due_ms);
-             CREATE UNIQUE INDEX collector_one_generation ON collector_upload(instance_id,space_id,registration_id,upstream_id)
-             WHERE state IN ('pending','inflight','blocked');
-             CREATE TABLE collector_cursor(instance_id TEXT NOT NULL,space_id TEXT NOT NULL,registration_id TEXT NOT NULL,
-             upstream_id TEXT NOT NULL,revision INTEGER NOT NULL,content_hash TEXT NOT NULL,
-             PRIMARY KEY(instance_id,space_id,registration_id,upstream_id));")?;
+            create_v2_schema(&tx)?;
             tx.pragma_update(None, "application_id", APP_ID)?;
-            tx.pragma_update(None, "user_version", 1)?;
+            tx.pragma_update(None, "user_version", 2)?;
+        } else if version == 1 {
+            migrate_v1_to_v2(&tx)?;
+            tx.pragma_update(None, "user_version", 2)?;
         }
         tx.execute("UPDATE collector_upload SET state='pending',lease_id=NULL,lease_until=NULL,due_ms=0 WHERE state='inflight'",[])?;
         tx.execute("INSERT INTO collector_meta(key,value) VALUES ('device_id',?1) ON CONFLICT(key) DO NOTHING",[Uuid::new_v4().to_string()])?;
@@ -182,10 +229,22 @@ impl CollectorOutbox {
     }
     pub fn enqueue(&self, pending: &PendingSubmission) -> ClientResult<EnqueueOutcome> {
         let s = pending.submission();
+        let target = TargetIdentity::personal(&s.service_instance_id, &s.space_id)?;
+        self.enqueue_for(&target, pending)
+    }
+    pub fn enqueue_for(
+        &self,
+        target: &TargetIdentity,
+        pending: &PendingSubmission,
+    ) -> ClientResult<EnqueueOutcome> {
+        let s = pending.submission();
+        if s.service_instance_id != target.instance_id || s.space_id != target.space_id {
+            return Err(ClientError::WrongInstance);
+        }
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let exact:Option<(String,String)>=tx.query_row("SELECT id,request_hash FROM collector_upload WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4 AND submission_id=?5",
-            params![s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id,s.submission_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let exact:Option<(String,String)>=tx.query_row("SELECT id,request_hash FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6 AND submission_id=?7",
+            params![target.instance_id,target.company_id,target.user_id,target.space_id,s.source_registration_id,s.session.external_session_id,s.submission_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((id, hash)) = exact {
             return if hash == pending.request_hash {
                 Ok(EnqueueOutcome::Existing(id))
@@ -193,8 +252,8 @@ impl CollectorOutbox {
                 Err(ClientError::Conflict)
             };
         }
-        let active:Option<(String,String,u32)>=tx.query_row("SELECT id,content_hash,expected_revision FROM collector_upload WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4 AND state IN ('pending','inflight','blocked')",
-            params![s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+        let active:Option<(String,String,u32)>=tx.query_row("SELECT id,content_hash,expected_revision FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6 AND state IN ('pending','inflight','blocked')",
+            params![target.instance_id,target.company_id,target.user_id,target.space_id,s.source_registration_id,s.session.external_session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
         if let Some((id, hash, revision)) = active {
             return if hash == pending.content_hash && revision == s.expected_revision {
                 Ok(EnqueueOutcome::Existing(id))
@@ -202,8 +261,8 @@ impl CollectorOutbox {
                 Err(ClientError::Busy)
             };
         }
-        let cursor:Option<(u32,String)>=tx.query_row("SELECT revision,content_hash FROM collector_cursor WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",
-            params![s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let cursor:Option<(u32,String)>=tx.query_row("SELECT revision,content_hash FROM collector_cursor WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6",
+            params![target.instance_id,target.company_id,target.user_id,target.space_id,s.source_registration_id,s.session.external_session_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let expected = cursor.as_ref().map_or(0, |(r, _)| *r);
         if expected != s.expected_revision {
             return Err(ClientError::Conflict);
@@ -218,9 +277,9 @@ impl CollectorOutbox {
             return Err(ClientError::TooLarge);
         }
         let id = Uuid::new_v4().to_string();
-        tx.execute("INSERT INTO collector_upload(id,instance_id,space_id,registration_id,upstream_id,submission_id,source,expected_revision,body,request_hash,content_hash,state)
-            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'pending')",
-            params![id,s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id,s.submission_id,s.session.source.as_str(),s.expected_revision,pending.body,pending.request_hash,pending.content_hash])?;
+        tx.execute("INSERT INTO collector_upload(id,instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id,submission_id,source,expected_revision,body,request_hash,content_hash,state)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'pending')",
+            params![id,target.instance_id,target.company_id,target.user_id,target.space_id,s.source_registration_id,s.session.external_session_id,s.submission_id,s.session.source.as_str(),s.expected_revision,pending.body,pending.request_hash,pending.content_hash])?;
         tx.commit()?;
         Ok(EnqueueOutcome::Queued(id))
     }
@@ -230,10 +289,18 @@ impl CollectorOutbox {
         space: &str,
         now: u64,
     ) -> ClientResult<Option<ClaimedUpload>> {
+        let target = TargetIdentity::personal(instance, space)?;
+        self.next_for_target(&target, now)
+    }
+    pub fn next_for_target(
+        &self,
+        target: &TargetIdentity,
+        now: u64,
+    ) -> ClientResult<Option<ClaimedUpload>> {
         let now = bounded_time(now);
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute("UPDATE collector_upload SET state='pending',lease_id=NULL,lease_until=NULL WHERE instance_id=?1 AND space_id=?2 AND state='inflight' AND lease_until<=?3",params![instance,space,now])?;
+        tx.execute("UPDATE collector_upload SET state='pending',lease_id=NULL,lease_until=NULL WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND state='inflight' AND lease_until<=?5",params![target.instance_id,target.company_id,target.user_id,target.space_id,now])?;
         type Row = (
             String,
             Vec<u8>,
@@ -246,8 +313,8 @@ impl CollectorOutbox {
             u32,
         );
         let row:Option<Row>=tx.query_row("SELECT id,body,request_hash,content_hash,registration_id,upstream_id,submission_id,expected_revision,attempt
-             FROM collector_upload WHERE instance_id=?1 AND space_id=?2 AND state='pending' AND due_ms<=?3 ORDER BY rowid LIMIT 1",
-            params![instance,space,now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).optional()?;
+             FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND state='pending' AND due_ms<=?5 ORDER BY rowid LIMIT 1",
+            params![target.instance_id,target.company_id,target.user_id,target.space_id,now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).optional()?;
         let Some((
             id,
             body,
@@ -269,8 +336,8 @@ impl CollectorOutbox {
         let input = serde_json::from_slice(&body).map_err(|_| ClientError::Storage)?;
         let mut pending = PendingSubmission::new(input).map_err(|_| ClientError::Storage)?;
         let s = pending.submission();
-        if s.service_instance_id != instance
-            || s.space_id != space
+        if s.service_instance_id != target.instance_id
+            || s.space_id != target.space_id
             || s.source_registration_id != registration
             || s.session.external_session_id != upstream
             || s.submission_id != submission
@@ -302,13 +369,14 @@ impl CollectorOutbox {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         require_claim(&tx, claim)?;
         let s = claim.pending.submission();
-        let current:Option<u32>=tx.query_row("SELECT revision FROM collector_cursor WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",params![s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id],|r|r.get(0)).optional()?;
+        let target:(String,String,String,String)=tx.query_row("SELECT instance_id,target_company_id,target_user_id,space_id FROM collector_upload WHERE id=?1",[&claim.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        let current:Option<u32>=tx.query_row("SELECT revision FROM collector_cursor WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6",params![target.0,target.1,target.2,target.3,s.source_registration_id,s.session.external_session_id],|r|r.get(0)).optional()?;
         if current.unwrap_or(0) != s.expected_revision {
             return Err(ClientError::Conflict);
         }
-        tx.execute("INSERT INTO collector_cursor(instance_id,space_id,registration_id,upstream_id,revision,content_hash) VALUES (?1,?2,?3,?4,?5,?6)
-            ON CONFLICT(instance_id,space_id,registration_id,upstream_id) DO UPDATE SET revision=excluded.revision,content_hash=excluded.content_hash",
-            params![s.service_instance_id,s.space_id,s.source_registration_id,s.session.external_session_id,receipt.revision,claim.pending.content_hash])?;
+        tx.execute("INSERT INTO collector_cursor(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id,revision,content_hash) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+            ON CONFLICT(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id) DO UPDATE SET revision=excluded.revision,content_hash=excluded.content_hash",
+            params![target.0,target.1,target.2,target.3,s.source_registration_id,s.session.external_session_id,receipt.revision,claim.pending.content_hash])?;
         let json = serde_json::to_string(receipt).map_err(|_| ClientError::InvalidResponse)?;
         tx.execute("UPDATE collector_upload SET state='acknowledged',receipt_json=?2,body=NULL,lease_id=NULL,lease_until=NULL,error_code=NULL WHERE id=?1",params![claim.id,json])?;
         tx.execute("DELETE FROM collector_upload WHERE state='acknowledged' AND id NOT IN (SELECT id FROM collector_upload WHERE state='acknowledged' ORDER BY rowid DESC LIMIT 1000)",[])?;
@@ -338,26 +406,47 @@ impl CollectorOutbox {
         registration: &str,
         upstream: &str,
     ) -> ClientResult<u32> {
-        Ok(self.conn()?.query_row("SELECT revision FROM collector_cursor WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",params![instance,space,registration,upstream],|r|r.get(0)).optional()?.unwrap_or(0))
+        let target = TargetIdentity::personal(instance, space)?;
+        self.revision_for_target(&target, registration, upstream)
+    }
+    pub fn revision_for_target(
+        &self,
+        target: &TargetIdentity,
+        registration: &str,
+        upstream: &str,
+    ) -> ClientResult<u32> {
+        Ok(self.conn()?.query_row("SELECT revision FROM collector_cursor WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6",params![target.instance_id,target.company_id,target.user_id,target.space_id,registration,upstream],|r|r.get(0)).optional()?.unwrap_or(0))
     }
     pub fn statuses(&self, instance: &str, space: &str) -> ClientResult<Vec<UploadStatus>> {
+        let target = TargetIdentity::personal(instance, space)?;
+        self.statuses_for_target(&target)
+    }
+    pub fn statuses_for_target(&self, target: &TargetIdentity) -> ClientResult<Vec<UploadStatus>> {
         let conn = self.conn()?;
-        let mut statement=conn.prepare("SELECT id,state,source,attempt,error_code,receipt_json FROM collector_upload WHERE instance_id=?1 AND space_id=?2 ORDER BY rowid DESC LIMIT 100")?;
-        let rows = statement.query_map(params![instance, space], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, u32>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<String>>(5)?,
-            ))
-        })?;
+        let mut statement=conn.prepare("SELECT id,state,source,attempt,error_code,receipt_json FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 ORDER BY rowid DESC LIMIT 100")?;
+        let rows = statement.query_map(
+            params![
+                target.instance_id,
+                target.company_id,
+                target.user_id,
+                target.space_id
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, u32>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            },
+        )?;
         let mut result = Vec::new();
         for row in rows {
             let (id, state, source, attempt, error_code, json) = row?;
             let receipt = json
-                .map(|s| serde_json::from_str(&s))
+                .map(|v| serde_json::from_str(&v))
                 .transpose()
                 .map_err(|_| ClientError::Storage)?;
             result.push(UploadStatus {
@@ -371,6 +460,47 @@ impl CollectorOutbox {
         }
         Ok(result)
     }
+}
+fn create_v2_schema(tx: &rusqlite::Transaction<'_>) -> ClientResult<()> {
+    tx.execute_batch("CREATE TABLE collector_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+     CREATE TABLE collector_upload(id TEXT PRIMARY KEY,instance_id TEXT NOT NULL,target_company_id TEXT NOT NULL DEFAULT '',target_user_id TEXT NOT NULL DEFAULT '',space_id TEXT NOT NULL,
+     registration_id TEXT NOT NULL,upstream_id TEXT NOT NULL,submission_id TEXT NOT NULL,source TEXT NOT NULL,
+     expected_revision INTEGER NOT NULL,body BLOB,request_hash TEXT NOT NULL,content_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK(state IN ('pending','inflight','blocked','acknowledged')),
+     attempt INTEGER NOT NULL DEFAULT 0,due_ms INTEGER NOT NULL DEFAULT 0,lease_id TEXT,lease_until INTEGER,
+     error_code TEXT,receipt_json TEXT,CHECK((target_company_id='' AND target_user_id='') OR (target_company_id<>'' AND target_user_id<>'')));
+     CREATE UNIQUE INDEX collector_upload_identity ON collector_upload(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id,submission_id);
+     CREATE INDEX collector_pending ON collector_upload(instance_id,target_company_id,target_user_id,space_id,state,due_ms);
+     CREATE UNIQUE INDEX collector_one_generation ON collector_upload(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id) WHERE state IN ('pending','inflight','blocked');
+     CREATE TABLE collector_cursor(instance_id TEXT NOT NULL,target_company_id TEXT NOT NULL DEFAULT '',target_user_id TEXT NOT NULL DEFAULT '',space_id TEXT NOT NULL,registration_id TEXT NOT NULL,
+     upstream_id TEXT NOT NULL,revision INTEGER NOT NULL,content_hash TEXT NOT NULL,
+     CHECK((target_company_id='' AND target_user_id='') OR (target_company_id<>'' AND target_user_id<>'')),
+     PRIMARY KEY(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id));")?;
+    Ok(())
+}
+fn migrate_v1_to_v2(tx: &rusqlite::Transaction<'_>) -> ClientResult<()> {
+    tx.execute_batch(
+        "ALTER TABLE collector_upload RENAME TO collector_upload_v1;
+     ALTER TABLE collector_cursor RENAME TO collector_cursor_v1;",
+    )?;
+    tx.execute_batch("CREATE TABLE collector_upload(id TEXT PRIMARY KEY,instance_id TEXT NOT NULL,target_company_id TEXT NOT NULL DEFAULT '',target_user_id TEXT NOT NULL DEFAULT '',space_id TEXT NOT NULL,
+     registration_id TEXT NOT NULL,upstream_id TEXT NOT NULL,submission_id TEXT NOT NULL,source TEXT NOT NULL,
+     expected_revision INTEGER NOT NULL,body BLOB,request_hash TEXT NOT NULL,content_hash TEXT NOT NULL,
+     state TEXT NOT NULL CHECK(state IN ('pending','inflight','blocked','acknowledged')),
+     attempt INTEGER NOT NULL DEFAULT 0,due_ms INTEGER NOT NULL DEFAULT 0,lease_id TEXT,lease_until INTEGER,error_code TEXT,receipt_json TEXT,
+     CHECK((target_company_id='' AND target_user_id='') OR (target_company_id<>'' AND target_user_id<>'')));
+     INSERT INTO collector_upload(id,instance_id,space_id,registration_id,upstream_id,submission_id,source,expected_revision,body,request_hash,content_hash,state,attempt,due_ms,lease_id,lease_until,error_code,receipt_json)
+       SELECT id,instance_id,space_id,registration_id,upstream_id,submission_id,source,expected_revision,body,request_hash,content_hash,state,attempt,due_ms,lease_id,lease_until,error_code,receipt_json FROM collector_upload_v1;
+     DROP TABLE collector_upload_v1;
+     CREATE UNIQUE INDEX collector_upload_identity ON collector_upload(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id,submission_id);
+     CREATE INDEX collector_pending ON collector_upload(instance_id,target_company_id,target_user_id,space_id,state,due_ms);
+     CREATE UNIQUE INDEX collector_one_generation ON collector_upload(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id) WHERE state IN ('pending','inflight','blocked');
+     CREATE TABLE collector_cursor(instance_id TEXT NOT NULL,target_company_id TEXT NOT NULL DEFAULT '',target_user_id TEXT NOT NULL DEFAULT '',space_id TEXT NOT NULL,registration_id TEXT NOT NULL,upstream_id TEXT NOT NULL,revision INTEGER NOT NULL,content_hash TEXT NOT NULL,
+       CHECK((target_company_id='' AND target_user_id='') OR (target_company_id<>'' AND target_user_id<>'')),PRIMARY KEY(instance_id,target_company_id,target_user_id,space_id,registration_id,upstream_id));
+     INSERT INTO collector_cursor(instance_id,space_id,registration_id,upstream_id,revision,content_hash)
+       SELECT instance_id,space_id,registration_id,upstream_id,revision,content_hash FROM collector_cursor_v1;
+     DROP TABLE collector_cursor_v1;")?;
+    Ok(())
 }
 fn bounded_time(now: u64) -> i64 {
     now.min((i64::MAX as u64) - LEASE_MS - 1) as i64

@@ -1,5 +1,5 @@
 //! Client-only preferences. They never authorize a server resource or open StateDb.
-use super::{valid_id, ClientError, ClientResult, CollectorOutbox};
+use super::{valid_id, ClientError, ClientResult, CollectorOutbox, TargetIdentity};
 use aiks_core::SourceKind;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -18,11 +18,10 @@ pub struct UiPreferences {
     pub onboarding: Onboarding,
     pub selected_sources: Vec<String>,
 }
-/// Bound to the verified service identity, destination space and configured roots.
+/// Bound to the verified service identity, account and destination space.
 #[derive(Clone)]
 pub struct SourceScope {
-    pub instance: String,
-    pub space: String,
+    pub target: TargetIdentity,
     pub source: SourceKind,
     pub source_key: String,
 }
@@ -33,23 +32,48 @@ impl SourceScope {
         source: SourceKind,
         source_key: &str,
     ) -> ClientResult<Self> {
-        if !valid_id(instance)
-            || !valid_id(space)
-            || !valid_id(source_key)
-            || source_key.len() > 128
-        {
+        Self::for_target(
+            TargetIdentity::personal(instance, space)?,
+            source,
+            source_key,
+        )
+    }
+    pub fn for_target(
+        target: TargetIdentity,
+        source: SourceKind,
+        source_key: &str,
+    ) -> ClientResult<Self> {
+        if !valid_id(source_key) || source_key.len() > 128 {
             return Err(ClientError::InvalidInput);
         }
         Ok(Self {
-            instance: instance.into(),
-            space: space.into(),
+            target,
             source,
             source_key: source_key.into(),
         })
     }
     pub fn key(&self) -> ClientResult<String> {
-        serde_json::to_string(&(&self.instance, &self.space, self.source, &self.source_key))
+        if self.target.is_team() {
+            serde_json::to_string(&(
+                self.target.instance_id(),
+                self.target.company_id(),
+                self.target.user_id(),
+                self.target.space_id(),
+                self.source,
+                &self.source_key,
+            ))
             .map_err(|_| ClientError::InvalidInput)
+        } else {
+            // Preserve the v1 personal key so existing registration, cursor and
+            // exclusion preferences continue to apply after the outbox upgrade.
+            serde_json::to_string(&(
+                self.target.instance_id(),
+                self.target.space_id(),
+                self.source,
+                &self.source_key,
+            ))
+            .map_err(|_| ClientError::InvalidInput)
+        }
     }
 }
 #[derive(Debug, Serialize)]
@@ -176,26 +200,26 @@ impl CollectorOutbox {
             }
             if let Some(registration) = &registration {
                 let inflight: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM collector_upload
-                    WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4 AND state='inflight')",
-                    params![scope.instance, scope.space, registration, id], |r| r.get(0))?;
+                    WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6 AND state='inflight')",
+                    params![scope.target.instance_id(), scope.target.company_id(), scope.target.user_id(), scope.target.space_id(), registration, id], |r| r.get(0))?;
                 if inflight {
                     return Err(ClientError::Busy);
                 }
                 let received: i64 = tx.query_row(
                     "SELECT COUNT(*) FROM collector_cursor
-                    WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4",
-                    params![scope.instance, scope.space, registration, id],
+                    WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6",
+                    params![scope.target.instance_id(), scope.target.company_id(), scope.target.user_id(), scope.target.space_id(), registration, id],
                     |r| r.get(0),
                 )?;
                 result.already_received += received as usize;
                 if excluded {
                     result.paused += tx.execute("UPDATE collector_upload SET state='blocked',error_code='excluded',due_ms=0
-                        WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4 AND state='pending'",
-                        params![scope.instance, scope.space, registration, id])?;
+                        WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6 AND state='pending'",
+                        params![scope.target.instance_id(), scope.target.company_id(), scope.target.user_id(), scope.target.space_id(), registration, id])?;
                 } else {
                     tx.execute("UPDATE collector_upload SET state='pending',error_code=NULL,due_ms=0
-                        WHERE instance_id=?1 AND space_id=?2 AND registration_id=?3 AND upstream_id=?4 AND state='blocked' AND error_code='excluded'",
-                        params![scope.instance, scope.space, registration, id])?;
+                        WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 AND registration_id=?5 AND upstream_id=?6 AND state='blocked' AND error_code='excluded'",
+                        params![scope.target.instance_id(), scope.target.company_id(), scope.target.user_id(), scope.target.space_id(), registration, id])?;
                 }
             }
         }
