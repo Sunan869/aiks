@@ -1,0 +1,174 @@
+//! One-time handoff from an authenticated AIKS session to the team SiYuan workspace.
+
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
+use serde::Serialize;
+
+use super::{
+    auth_types::{deadline, digest, valid_secret, AuthSecret},
+    SessionStore, TeamContext, TeamError,
+};
+
+const WORKSPACE_TICKET_TTL_SECONDS: u64 = 60;
+const MAX_ACTIVE_TICKETS_PER_SESSION: i64 = 8;
+
+#[derive(Debug)]
+pub struct WorkspaceTicket {
+    pub ticket: AuthSecret,
+    pub expires_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct WorkspacePrincipal {
+    pub instance_id: String,
+    pub company_id: String,
+    pub user_id: String,
+    pub space_id: String,
+    pub session_id: String,
+    pub auth_version: u64,
+}
+
+impl SessionStore {
+    pub fn issue_workspace_ticket(
+        &self,
+        access_token: &str,
+        now: u64,
+    ) -> Result<WorkspaceTicket, TeamError> {
+        if !valid_secret(access_token) || now > i64::MAX as u64 {
+            return Err(TeamError::Unauthorized);
+        }
+
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        cleanup_workspace_tickets(&tx, now)?;
+
+        let access_hash = digest(access_token);
+        let row: Option<(String, String, String, u64)> = tx
+            .query_row(
+                "SELECT id,user_id,space_id,auth_version
+                 FROM team_auth_session
+                 WHERE company_id=?1 AND access_hash=?2",
+                params![self.store.company_id(), access_hash],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        let (session_id, user_id, space_id, auth_version) =
+            row.ok_or(TeamError::Unauthorized)?;
+
+        let ctx = TeamContext {
+            instance_id: self.store.instance_id().into(),
+            company_id: self.store.company_id().into(),
+            user_id: user_id.clone(),
+            space_id,
+            session_id: session_id.clone(),
+            access_hash,
+            directory_max_age: self.policy.directory_max_age,
+        };
+        self.identity_in_tx(&tx, &ctx, now)?;
+
+        let active: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM team_workspace_ticket
+             WHERE company_id=?1 AND session_id=?2 AND consumed_at IS NULL AND expires_at>?3",
+            params![self.store.company_id(), session_id, now],
+            |r| r.get(0),
+        )?;
+        if active >= MAX_ACTIVE_TICKETS_PER_SESSION {
+            return Err(TeamError::Unavailable);
+        }
+
+        let ticket = AuthSecret::random()?;
+        let expires_at = deadline(now, WORKSPACE_TICKET_TTL_SECONDS)?;
+        tx.execute(
+            "INSERT INTO team_workspace_ticket(
+                token_hash,company_id,session_id,user_id,auth_version,created_at,expires_at
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                ticket.hash(),
+                self.store.company_id(),
+                session_id,
+                user_id,
+                auth_version,
+                now,
+                expires_at
+            ],
+        )?;
+        tx.commit()?;
+
+        Ok(WorkspaceTicket { ticket, expires_at })
+    }
+
+    pub fn consume_workspace_ticket(
+        &self,
+        ticket: &str,
+        now: u64,
+    ) -> Result<WorkspacePrincipal, TeamError> {
+        if !valid_secret(ticket) || now > i64::MAX as u64 {
+            return Err(TeamError::Unauthorized);
+        }
+
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        cleanup_workspace_tickets(&tx, now)?;
+
+        type TicketRow = (String, String, String, u64, String);
+        let row: Option<TicketRow> = tx
+            .query_row(
+                "SELECT t.session_id,t.user_id,s.space_id,t.auth_version,s.access_hash
+                 FROM team_workspace_ticket t
+                 JOIN team_auth_session s ON s.id=t.session_id AND s.company_id=t.company_id
+                 WHERE t.token_hash=?1 AND t.company_id=?2
+                   AND t.consumed_at IS NULL AND t.created_at<=?3 AND t.expires_at>?3
+                   AND s.user_id=t.user_id AND s.auth_version=t.auth_version",
+                params![digest(ticket), self.store.company_id(), now],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()?;
+        let (session_id, user_id, space_id, auth_version, access_hash) =
+            row.ok_or(TeamError::Unauthorized)?;
+
+        let ctx = TeamContext {
+            instance_id: self.store.instance_id().into(),
+            company_id: self.store.company_id().into(),
+            user_id: user_id.clone(),
+            space_id: space_id.clone(),
+            session_id: session_id.clone(),
+            access_hash,
+            directory_max_age: self.policy.directory_max_age,
+        };
+        self.identity_in_tx(&tx, &ctx, now)?;
+
+        let changed = tx.execute(
+            "UPDATE team_workspace_ticket SET consumed_at=?2
+             WHERE token_hash=?1 AND consumed_at IS NULL",
+            params![digest(ticket), now],
+        )?;
+        if changed != 1 {
+            return Err(TeamError::Unauthorized);
+        }
+        tx.commit()?;
+
+        Ok(WorkspacePrincipal {
+            instance_id: self.store.instance_id().into(),
+            company_id: self.store.company_id().into(),
+            user_id,
+            space_id,
+            session_id,
+            auth_version,
+        })
+    }
+}
+
+fn cleanup_workspace_tickets(
+    tx: &rusqlite::Transaction<'_>,
+    now: u64,
+) -> Result<(), TeamError> {
+    tx.execute(
+        "DELETE FROM team_workspace_ticket
+         WHERE token_hash IN (
+            SELECT token_hash FROM team_workspace_ticket
+            WHERE expires_at<=?1 OR consumed_at IS NOT NULL
+            LIMIT 128
+         )",
+        [now],
+    )?;
+    Ok(())
+}
