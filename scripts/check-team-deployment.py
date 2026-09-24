@@ -209,8 +209,8 @@ def main() -> None:
     ]:
         if required not in entrypoint:
             fail(f"docker entrypoint missing required contract: {required}")
-    if "0.0.0.0" in entrypoint or "source " in entrypoint:
-        fail("docker entrypoint weakens listener or executes the env file")
+    if "0.0.0.0" in entrypoint or "source " in entrypoint or "set -- $roots" in entrypoint:
+        fail("docker entrypoint weakens listener, executes env content, or clobbers service args")
 
     deploy = (root / "deploy.sh").read_text()
     if 'docker compose --env-file "$ENV_FILE"' not in deploy:
