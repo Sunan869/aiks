@@ -414,10 +414,8 @@ async fn validate_workspace_principal(
     input: Result<Json<WorkspacePrincipal>, JsonRejection>,
 ) -> Result<StatusCode, TeamHttpError> {
     let principal = body(input)?;
-    auth.blocking(move |_, sessions, at| {
-        sessions.validate_workspace_principal(&principal, at)
-    })
-    .await?;
+    auth.blocking(move |_, sessions, at| sessions.validate_workspace_principal(&principal, at))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) fn now() -> Result<u64, TeamError> {
