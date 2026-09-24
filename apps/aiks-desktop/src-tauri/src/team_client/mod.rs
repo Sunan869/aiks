@@ -131,13 +131,17 @@ impl TeamClientManager {
             .await
             .map_err(|_| ClientError::Storage)??;
         let mut records = self.records.write().await;
-        let target = records
-            .get_mut(connection_id)
-            .ok_or(ClientError::NotFound)?;
-        target.active_identity = Some(tokens.identity);
+        let result = {
+            let target = records
+                .get_mut(connection_id)
+                .ok_or(ClientError::NotFound)?;
+            target.active_identity = Some(tokens.identity);
+            status(target)
+        };
         persist_records(&self.metadata_path, &records)?;
+        drop(records);
         self.pending.lock().await.remove(connection_id);
-        Ok(status(target))
+        Ok(result)
     }
 
     pub async fn logout(&self, connection_id: &str) -> ClientResult<()> {
@@ -387,6 +391,7 @@ pub async fn team_add_connection(
         .map_err(|e| e.to_string())
 }
 
+#[allow(deprecated)] // tauri-plugin-shell 2.x keeps the audited system-browser handoff; migrate separately.
 #[tauri::command]
 pub async fn team_begin_login(
     app: tauri::AppHandle,
