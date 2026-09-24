@@ -1,7 +1,7 @@
 use super::{valid_id, ClientError, ClientResult, PendingSubmission, TargetIdentity};
 use aiks_core::{model::SourceKind, service::SnapshotReceipt};
 use reqwest::{Client, Method, StatusCode, Url};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -81,6 +81,28 @@ impl ServiceConnection {
         self.base.origin().ascii_serialization()
     }
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TeamShareGrantInput {
+    pub target_type: String,
+    pub target_id: String,
+    #[serde(default)]
+    pub include_descendants: bool,
+    pub permission: String,
+}
+impl TeamShareGrantInput {
+    fn validate(&self) -> ClientResult<()> {
+        if !valid_id(&self.target_id)
+            || self.permission != "read"
+            || !matches!(self.target_type.as_str(), "user" | "org")
+            || (self.target_type == "user" && self.include_descendants)
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        Ok(())
+    }
+}
+
 fn clean_origin(base: &Url) -> bool {
     base.port_or_known_default().is_some_and(|v| v != 0)
         && base.username().is_empty()
@@ -201,6 +223,95 @@ impl ServiceClient {
     pub async fn search(&self, query: &str) -> ClientResult<Value> {
         self.search_corpus(query, None).await
     }
+    pub async fn directory_search(&self, query: &str, limit: usize) -> ClientResult<Value> {
+        if !self.connection.is_team()
+            || query.trim().is_empty()
+            || query.len() > 256
+            || query.chars().any(char::is_control)
+            || limit == 0
+            || limit > 50
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        self.capabilities().await?;
+        let mut url = self.connection.base.clone();
+        {
+            let mut path = url
+                .path_segments_mut()
+                .map_err(|_| ClientError::InvalidInput)?;
+            path.clear()
+                .push("api")
+                .push("v1")
+                .push("directory")
+                .push("search");
+        }
+        url.query_pairs_mut()
+            .append_pair("q", query.trim())
+            .append_pair("limit", &limit.to_string());
+        self.send(Method::GET, url, None).await
+    }
+    pub async fn shares(&self, knowledge_id: &str) -> ClientResult<Value> {
+        if !self.connection.is_team() {
+            return Err(ClientError::InvalidInput);
+        }
+        self.read(&["knowledge", knowledge_id, "shares"]).await
+    }
+    pub async fn replace_shares(
+        &self,
+        knowledge_id: &str,
+        expected_grant_version: u64,
+        grants: &[TeamShareGrantInput],
+    ) -> ClientResult<Value> {
+        if !self.connection.is_team()
+            || !valid_id(knowledge_id)
+            || grants.len() > 512
+            || grants.iter().any(|grant| grant.validate().is_err())
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        self.capabilities().await?;
+        let body = self.json_body(&json!({
+            "expected_grant_version": expected_grant_version,
+            "grants": grants
+        }))?;
+        self.request(
+            Method::PUT,
+            &["knowledge", knowledge_id, "shares"],
+            Some(&body),
+        )
+        .await
+    }
+    pub async fn import_knowledge(
+        &self,
+        operation_id: &str,
+        title: &str,
+        markdown: &str,
+        source_fingerprint: &str,
+    ) -> ClientResult<Value> {
+        if !self.connection.is_team()
+            || !valid_id(operation_id)
+            || title.trim().is_empty()
+            || title.len() > 4096
+            || title.contains('\0')
+            || markdown.len() > 1024 * 1024
+            || markdown.contains('\0')
+            || source_fingerprint.is_empty()
+            || source_fingerprint.len() > 512
+            || source_fingerprint.trim() != source_fingerprint
+            || source_fingerprint.chars().any(char::is_control)
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        self.capabilities().await?;
+        let body = self.json_body(&json!({
+            "operation_id": operation_id,
+            "title": title,
+            "markdown": markdown,
+            "source_fingerprint": source_fingerprint
+        }))?;
+        self.request(Method::POST, &["knowledge", "import"], Some(&body))
+            .await
+    }
     pub async fn search_corpus(
         &self,
         query: &str,
@@ -255,6 +366,14 @@ impl ServiceClient {
                 .append_pair("limit", "30")
                 .append_pair("offset", &offset.to_string());
         }
+        self.send(method, url, body).await
+    }
+    async fn send<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        url: Url,
+        body: Option<&[u8]>,
+    ) -> ClientResult<T> {
         let mut request = self
             .client
             .request(method, url)

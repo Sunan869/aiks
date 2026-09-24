@@ -9,7 +9,7 @@ mod transport;
 use aiks_core::service::{validate_submission, SnapshotSubmission};
 pub use outbox::{ClaimedUpload, CollectorOutbox, EnqueueOutcome, TargetIdentity, UploadStatus};
 use std::fmt;
-pub use transport::{ServiceClient, ServiceConnection};
+pub use transport::{ServiceClient, ServiceConnection, TeamShareGrantInput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientError {

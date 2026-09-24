@@ -444,3 +444,110 @@ pub async fn team_connection_status(
     trusted(&webview)?;
     Ok(managed(&app)?.statuses().await)
 }
+
+#[tauri::command]
+pub async fn team_knowledge_list(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    offset: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .knowledge_page(offset.unwrap_or(0))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn team_knowledge(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .knowledge(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn team_directory_search(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    query: String,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .directory_search(&query, 30)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn team_get_shares(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    knowledge_id: String,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .shares(&knowledge_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn team_replace_shares(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    knowledge_id: String,
+    expected_grant_version: u64,
+    grants: Vec<crate::service_client::TeamShareGrantInput>,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .replace_shares(&knowledge_id, expected_grant_version, &grants)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn team_import_knowledge(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    connection_id: String,
+    operation_id: String,
+    title: String,
+    markdown: String,
+    source_fingerprint: String,
+) -> Result<serde_json::Value, String> {
+    trusted(&webview)?;
+    managed(&app)?
+        .client(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .import_knowledge(&operation_id, &title, &markdown, &source_fingerprint)
+        .await
+        .map_err(|e| e.to_string())
+}
