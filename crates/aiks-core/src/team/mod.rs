@@ -15,6 +15,7 @@ pub use content::{
     ContentOperation, ContentWorker, ManagedAsset, MAX_MANAGED_ASSET_BYTES, MAX_TEAM_CONTENT_BYTES,
 };
 pub use directory_types::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, UserRecord};
+pub use directory::DirectoryEntry;
 pub use imports::ImportReceipt;
 pub use provider::{ExternalLogin, IdentityProvider};
 pub use repo::TeamStore;

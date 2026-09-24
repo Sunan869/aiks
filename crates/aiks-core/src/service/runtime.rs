@@ -15,8 +15,8 @@ use crate::{
     sink::SiYuanSink,
     storage::StateDb,
     team::{
-        ContentOperation, ContentWorker, GrantInput, ImportReceipt, ManagedAsset, ShareState,
-        TeamStore,
+        ContentOperation, ContentWorker, DirectoryEntry, GrantInput, ImportReceipt, ManagedAsset,
+        ShareState, TeamStore,
     },
 };
 use serde_json::{json, Value};
@@ -474,6 +474,24 @@ impl ServiceRuntime {
                 &source_fingerprint,
                 at,
             )?)
+        })
+        .await
+    }
+
+    pub async fn directory_search_for(
+        &self,
+        ctx: &RequestContext,
+        query: String,
+        limit: usize,
+    ) -> Result<Vec<DirectoryEntry>, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        self.blocking_for(request, move |_db, ctx, at| {
+            let RuntimeMode::Team(store) = mode else {
+                return Err(ServiceError::NotFound);
+            };
+            let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+            Ok(store.search_directory(team, &query, limit, at)?)
         })
         .await
     }

@@ -5,7 +5,7 @@ use aiks_core::{
     team::{GrantInput, GrantTarget, TeamContext},
 };
 use axum::{
-    extract::{rejection::JsonRejection, Path, State},
+    extract::{rejection::JsonRejection, rejection::QueryRejection, Path, Query, State},
     routing::get,
     Extension, Json, Router,
 };
@@ -31,7 +31,36 @@ struct ShareInput {
 }
 
 pub(super) fn routes() -> Router<Arc<TeamBusinessState>> {
-    Router::new().route("/api/v1/knowledge/{id}/shares", get(list).put(replace))
+    Router::new()
+        .route("/api/v1/knowledge/{id}/shares", get(list).put(replace))
+        .route("/api/v1/directory/search", get(directory_search))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectorySearch {
+    q: String,
+    #[serde(default = "default_directory_limit")]
+    limit: usize,
+}
+
+fn default_directory_limit() -> usize {
+    30
+}
+
+async fn directory_search(
+    State(state): State<Arc<TeamBusinessState>>,
+    Extension(team): Extension<TeamContext>,
+    input: Result<Query<DirectorySearch>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Query(input) = input.map_err(|_| ApiError(ServiceError::InvalidInput))?;
+    let ctx = RequestContext::Team(team);
+    Ok(Json(json!({
+        "items": state
+            .runtime
+            .directory_search_for(&ctx, input.q, input.limit)
+            .await?
+    })))
 }
 
 async fn list(

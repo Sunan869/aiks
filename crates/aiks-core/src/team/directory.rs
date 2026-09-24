@@ -2,11 +2,77 @@
 use std::collections::HashMap;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use serde::Serialize;
 use uuid::Uuid;
 
 use super::{directory_validate, DirectorySnapshot, TeamError, TeamStore, UserRecord};
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DirectoryEntry {
+    pub target_type: &'static str,
+    pub target_id: String,
+    pub display_name: String,
+}
+
 impl TeamStore {
+    pub fn search_directory(
+        &self,
+        ctx: &super::TeamContext,
+        query: &str,
+        limit: usize,
+        now: u64,
+    ) -> Result<Vec<DirectoryEntry>, TeamError> {
+        let query = query.trim();
+        if query.is_empty()
+            || query.len() > 256
+            || query.chars().any(char::is_control)
+            || limit == 0
+            || limit > 50
+            || now > i64::MAX as u64
+        {
+            return Err(TeamError::InvalidInput);
+        }
+        let mut conn = self.db.conn();
+        let tx = conn.transaction()?;
+        ctx.authorize_in_conn(&tx, now)?;
+        if ctx.company_id() != self.company_id() {
+            return Err(TeamError::Unauthorized);
+        }
+        let generation: u64 = tx.query_row(
+            "SELECT directory_generation FROM team_company WHERE id=?1",
+            [self.company_id()],
+            |row| row.get(0),
+        )?;
+        let mut stmt = tx.prepare(
+            "SELECT 'user' AS target_type,u.id AS target_id,substr(u.display_name,1,512) AS display_name
+             FROM team_user u
+             JOIN team_user_state s ON s.company_id=u.company_id AND s.user_id=u.id
+             WHERE u.company_id=?1 AND u.active=1 AND s.last_generation=?2
+               AND instr(lower(u.display_name),lower(?3))>0
+             UNION ALL
+             SELECT 'org' AS target_type,o.org_id AS target_id,substr(o.name,1,512) AS display_name
+             FROM team_org_unit o
+             WHERE o.company_id=?1 AND o.generation=?2
+               AND instr(lower(o.name),lower(?3))>0
+             ORDER BY display_name COLLATE NOCASE,target_type,target_id
+             LIMIT ?4",
+        )?;
+        let entries = stmt
+            .query_map(
+                params![self.company_id(), generation, query, limit as i64],
+                |row| {
+                    let target_type: String = row.get(0)?;
+                    Ok(DirectoryEntry {
+                        target_type: if target_type == "user" { "user" } else { "org" },
+                        target_id: row.get(1)?,
+                        display_name: row.get(2)?,
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entries)
+    }
+
     pub fn publish_directory(&self, input: DirectorySnapshot, now: u64) -> Result<u64, TeamError> {
         let closure = directory_validate::validate(&input, now)?;
         let company = self.company_id();
