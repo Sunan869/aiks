@@ -343,22 +343,25 @@ class AIKSBridgePlugin extends Plugin {
         bottom: 16px;
         z-index: 2147483647;
         box-sizing: border-box;
+        width: 120px;
+        height: 44px;
         display: inline-flex;
         align-items: center;
-        gap: 10px;
+        justify-content: center;
+        gap: 8px;
         appearance: none;
         border: 1px solid #dbeafe;
         border-radius: 9999px;
-        padding: 10px 16px;
+        padding: 0 12px;
         background: #ffffff;
         color: #2563eb;
         box-shadow:
           0 10px 30px rgba(37, 99, 235, 0.20),
           0 0 0 1px #eff6ff;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
-        line-height: 20px;
+        line-height: 18px;
         cursor: pointer;
         user-select: none;
         transition-property: color, background-color, border-color, transform, box-shadow;
@@ -382,9 +385,9 @@ class AIKSBridgePlugin extends Plugin {
       }
       #aiks-ask-launcher .aiks-ask-icon {
         box-sizing: border-box;
-        width: 28px;
-        height: 28px;
-        flex: 0 0 28px;
+        width: 24px;
+        height: 24px;
+        flex: 0 0 24px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -394,8 +397,8 @@ class AIKSBridgePlugin extends Plugin {
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
       }
       #aiks-ask-launcher .aiks-ask-icon svg {
-        width: 14px;
-        height: 14px;
+        width: 13px;
+        height: 13px;
         display: block;
       }
       #aiks-ask-launcher .aiks-ask-status {
