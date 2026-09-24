@@ -63,6 +63,10 @@ impl AuthService {
             inflight: Semaphore::new(16),
         })
     }
+    pub fn session_store(&self) -> Arc<SessionStore> {
+        self.sessions.clone()
+    }
+
     async fn blocking<T, F>(&self, action: F) -> Result<T, TeamHttpError>
     where
         T: Send + 'static,
