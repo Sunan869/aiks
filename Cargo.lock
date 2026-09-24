@@ -109,6 +109,7 @@ dependencies = [
  "anyhow",
  "axum",
  "hex",
+ "libc",
  "rand",
  "reqwest 0.12.28",
  "rusqlite",

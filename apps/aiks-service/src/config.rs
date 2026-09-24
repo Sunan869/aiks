@@ -68,6 +68,45 @@ impl ServiceConfig {
         Ok(())
     }
 
+    pub fn resolve_siyuan_credentials_with(
+        &mut self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<(), crate::team::config::ConfigIssue> {
+        use crate::team::config::{valid_environment_name, ConfigIssue};
+        let issue = |code| ConfigIssue {
+            field: "siyuan.token_env",
+            code,
+        };
+        let name = self.siyuan.token_env.trim();
+        if name != self.siyuan.token_env {
+            return Err(issue("invalid_environment_reference"));
+        }
+        if self.mode == "team" && !self.siyuan.token.is_empty() {
+            return Err(ConfigIssue {
+                field: "siyuan.token",
+                code: "inline_secret_forbidden",
+            });
+        }
+        if name.is_empty() {
+            return Ok(());
+        }
+        if !valid_environment_name(name) {
+            return Err(issue("invalid_environment_reference"));
+        }
+        if !self.siyuan.token.is_empty() {
+            return Err(issue("ambiguous_secret_source"));
+        }
+        let value = lookup(name).ok_or_else(|| issue("secret_missing"))?;
+        if value.is_empty()
+            || value.len() > 8192
+            || !value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        {
+            return Err(issue("secret_invalid"));
+        }
+        self.siyuan.token = value;
+        Ok(())
+    }
+
     pub fn runtime_config(&self) -> ServiceRuntimeConfig {
         ServiceRuntimeConfig {
             database: self.database.clone(),

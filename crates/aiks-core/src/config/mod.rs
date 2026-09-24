@@ -187,6 +187,9 @@ impl Default for SecurityConfig {
 pub struct SiYuanConfig {
     pub base_url: String,
     pub token: String,
+    /// Optional environment-variable reference used by aiks-service. The Core
+    /// sink never resolves it and never exposes it as a credential.
+    pub token_env: String,
     /// Knowledge notebook — only distilled knowledge docs live here (clean tree).
     pub notebook_name: String,
     /// Session archive notebook — raw session markdown is archived here.
@@ -200,6 +203,7 @@ impl Default for SiYuanConfig {
         Self {
             base_url: "http://127.0.0.1:6806".to_string(),
             token: String::new(),
+            token_env: String::new(),
             notebook_name: "AI Knowledge".to_string(),
             session_notebook_name: "AI Session Archive".to_string(),
             session_root: "/10 AI Sessions".to_string(),

@@ -27,16 +27,22 @@ pub fn resolve_secret_with(
     lookup: impl Fn(&str) -> Option<String>,
 ) -> Result<SecretValue, ConfigIssue> {
     let issue = |code| ConfigIssue { field: FIELD, code };
-    let name = match source {
-        SecretSource::Environment(name) => name,
-        // Fail closed until OS-specific descriptor/ACL validation is available.
-        // Never implement the promised file policy as a bare read_to_string.
-        SecretSource::File(_) => return Err(issue("secret_file_not_supported")),
+    let value = match source {
+        SecretSource::Environment(name) => {
+            if !valid_environment_name(name) {
+                return Err(issue("invalid_environment_reference"));
+            }
+            lookup(name).ok_or_else(|| issue("secret_missing"))?
+        }
+        SecretSource::File(path) => secure_file(path)?,
     };
-    if !valid_environment_name(name) {
-        return Err(issue("invalid_environment_reference"));
-    }
-    let value = lookup(name).ok_or_else(|| issue("secret_missing"))?;
+    validate_value(value, issue)
+}
+
+fn validate_value(
+    value: String,
+    issue: impl Fn(&'static str) -> ConfigIssue,
+) -> Result<SecretValue, ConfigIssue> {
     if value.is_empty()
         || value.len() > 8192
         || value.trim() != value
@@ -45,4 +51,56 @@ pub fn resolve_secret_with(
         return Err(issue("secret_invalid"));
     }
     Ok(SecretValue(value))
+}
+
+#[cfg(unix)]
+fn secure_file(path: &std::path::Path) -> Result<String, ConfigIssue> {
+    use std::{
+        io::Read,
+        os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    };
+    let issue = |code| ConfigIssue { field: FIELD, code };
+    let before = std::fs::symlink_metadata(path).map_err(|_| issue("secret_missing"))?;
+    if !before.file_type().is_file() || before.file_type().is_symlink() {
+        return Err(issue("secret_file_unsafe"));
+    }
+    if before.permissions().mode() & 0o077 != 0 {
+        return Err(issue("secret_file_permissions"));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let owner = std::fs::metadata("/proc/self").map_err(|_| issue("secret_file_unsafe"))?;
+        if before.uid() != owner.uid() {
+            return Err(issue("secret_file_owner"));
+        }
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let mut file = options.open(path).map_err(|_| issue("secret_file_unsafe"))?;
+    let after = file.metadata().map_err(|_| issue("secret_file_unsafe"))?;
+    if !after.is_file()
+        || after.dev() != before.dev()
+        || after.ino() != before.ino()
+        || after.len() > 8192
+    {
+        return Err(issue("secret_file_unsafe"));
+    }
+    let mut value = String::new();
+    file.take(8193)
+        .read_to_string(&mut value)
+        .map_err(|_| issue("secret_invalid"))?;
+    if value.len() > 8192 {
+        return Err(issue("secret_invalid"));
+    }
+    Ok(value)
+}
+
+#[cfg(not(unix))]
+fn secure_file(_: &std::path::Path) -> Result<String, ConfigIssue> {
+    Err(ConfigIssue {
+        field: FIELD,
+        code: "secret_file_not_supported",
+    })
+}
 }
