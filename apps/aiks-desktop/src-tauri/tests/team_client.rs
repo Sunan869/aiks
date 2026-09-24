@@ -9,7 +9,7 @@ use aiks_desktop_lib::{
 };
 use rusqlite::Connection;
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -148,6 +148,7 @@ async fn account_switch_never_retargets_pending_team_uploads() {
         "A_BODY",
     ))
     .unwrap();
+    let upstream_a = pending_a.submission().session.external_session_id.clone();
     assert!(matches!(
         outbox.enqueue_for(&target_a, &pending_a).unwrap(),
         EnqueueOutcome::Queued(_)
@@ -182,19 +183,47 @@ async fn account_switch_never_retargets_pending_team_uploads() {
     outbox.record_receipt(&claim, &receipt).unwrap();
     assert_eq!(
         outbox
-            .revision_for_target(&target_a, "reg-a", "same")
+            .revision_for_target(&target_a, "reg-a", &upstream_a)
             .unwrap(),
         1
     );
     assert_eq!(
         outbox
-            .revision_for_target(&target_b, "reg-a", "same")
+            .revision_for_target(&target_b, "reg-a", &upstream_a)
             .unwrap(),
         0
     );
 
     manager.logout(&connection.connection_id).await.unwrap();
     assert_eq!(manager.statuses().await[0].state, "signed_out");
+}
+
+#[test]
+fn same_company_different_service_instance_never_claims_pending_upload() {
+    let root = TestRoot::new();
+    let outbox = CollectorOutbox::open(&root.0.join("collector-instance.db")).unwrap();
+    let target_a =
+        TargetIdentity::team("instance-1", "company-1", "user-a", "space-a").unwrap();
+    let other_instance =
+        TargetIdentity::team("instance-2", "company-1", "user-a", "space-a").unwrap();
+    let pending = PendingSubmission::new(fixture::submission(
+        "space-a",
+        "instance-1",
+        "reg-a",
+        "same-instance-test",
+        0,
+        "INSTANCE_A_BODY",
+    ))
+    .unwrap();
+    assert!(matches!(
+        outbox.enqueue_for(&target_a, &pending).unwrap(),
+        EnqueueOutcome::Queued(_)
+    ));
+    assert!(outbox
+        .next_for_target(&other_instance, 1)
+        .unwrap()
+        .is_none());
+    assert!(outbox.next_for_target(&target_a, 1).unwrap().is_some());
 }
 
 #[test]
@@ -227,11 +256,21 @@ fn legacy_v1_rows_migrate_as_personal_and_cannot_be_claimed_as_team() {
         "LOCAL",
     ))
     .unwrap();
-    let body = serde_json::to_vec(pending.submission()).unwrap();
+    let submission = pending.submission();
+    let body = serde_json::to_vec(submission).unwrap();
     db.execute(
         "INSERT INTO collector_upload(id,instance_id,space_id,registration_id,upstream_id,submission_id,source,expected_revision,body,request_hash,content_hash,state)
-         VALUES ('legacy','instance-local','space-local','reg','same','sub','continue',0,?1,?2,?3,'pending')",
-        rusqlite::params![body,pending.payload_hash(),pending.content_hash()],
+         VALUES ('legacy',?1,?2,?3,?4,?5,'continue',0,?6,?7,?8,'pending')",
+        rusqlite::params![
+            submission.service_instance_id,
+            submission.space_id,
+            submission.source_registration_id,
+            submission.session.external_session_id,
+            submission.submission_id,
+            body,
+            pending.payload_hash(),
+            pending.content_hash()
+        ],
     )
     .unwrap();
     drop(db);

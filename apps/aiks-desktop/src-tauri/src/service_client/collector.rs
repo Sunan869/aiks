@@ -74,17 +74,11 @@ pub async fn collect_provider(
     let instance = identity.instance_id().to_owned();
     let space = identity.space_id().to_owned();
     let source = provider.source();
-    let key = serde_json::to_string(&(
-        instance.clone(),
-        target.company_id().to_owned(),
-        target.user_id().to_owned(),
-        space.clone(),
-        source,
-        policy.source_key.clone(),
-    ))
-    .map_err(|_| ClientError::InvalidInput)?;
     let scope =
         super::preferences::SourceScope::for_target(target.clone(), source, &policy.source_key)?;
+    // Personal mode keeps the v1 key exactly; team mode adds company/user.
+    // Registration, exclusion and scan keys must share the same identity boundary.
+    let key = scope.key()?;
     let store = outbox.clone();
     let saved_exclusions = blocking(move || store.excluded(&scope)).await?;
     let scan_key = format!(

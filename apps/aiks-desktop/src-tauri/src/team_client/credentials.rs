@@ -206,7 +206,7 @@ fn platform_delete(_: &Path, connection: &str, user: &str) -> ClientResult<()> {
 #[cfg(target_os = "windows")]
 fn platform_store(root: &Path, connection: &str, user: &str, bytes: &[u8]) -> ClientResult<bool> {
     let path = root.join(file_name(connection, user));
-    let script = r#"$d=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($d);$e=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[IO.File]::WriteAllBytes($args[0],$e)"#;
+    let script = r#"Add-Type -AssemblyName System.Security;$d=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($d);$e=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[IO.File]::WriteAllBytes($args[0],$e)"#;
     let mut child = match Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .arg(&path)
@@ -230,7 +230,7 @@ fn platform_load(root: &Path, connection: &str, user: &str) -> ClientResult<Opti
     if !path.exists() {
         return Ok(None);
     }
-    let script = r#"$e=[IO.File]::ReadAllBytes($args[0]);$b=[Security.Cryptography.ProtectedData]::Unprotect($e,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Convert]::ToBase64String($b))"#;
+    let script = r#"Add-Type -AssemblyName System.Security;$e=[IO.File]::ReadAllBytes($args[0]);$b=[Security.Cryptography.ProtectedData]::Unprotect($e,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Convert]::ToBase64String($b))"#;
     let output = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .arg(&path)
