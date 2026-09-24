@@ -23,7 +23,13 @@ jobs:
         with:
           cache-on-failure: true
       - name: Deployment templates
-        run: python3 scripts/check-team-deployment.py deploy/team
+        run: |
+          python3 scripts/check-team-deployment.py deploy/team
+          bash -n deploy/team/deploy.sh
+          sh -n deploy/team/docker-entrypoint.sh
+          cp deploy/team/.env.example deploy/team/.env
+          docker compose --env-file deploy/team/.env -f deploy/team/docker-compose.yml config --quiet
+          rm -f deploy/team/.env
       - name: Team configuration and HTTP contracts
         run: |
           cargo test --locked -p aiks-service --test team_config_check -- --test-threads=1
