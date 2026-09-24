@@ -54,7 +54,10 @@ pub async fn run() -> anyhow::Result<()> {
     anyhow::ensure!(bytes.len() <= 1024 * 1024, "Config exceeds budget");
     let mut config: ServiceConfig = toml::from_str(std::str::from_utf8(&bytes)?)?;
     if config.mode == "team" {
-        anyhow::ensure!(config_path.is_absolute(), "Team config path must be absolute");
+        anyhow::ensure!(
+            config_path.is_absolute(),
+            "Team config path must be absolute"
+        );
         anyhow::ensure!(listen.is_none(), "Team listen override is not supported");
     } else if let Some(listen) = listen {
         config.listen = listen.parse()?;
@@ -120,9 +123,7 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
 
 async fn run_team(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Result<()> {
     use crate::team::{
-        config::validate_static,
-        dingtalk::DingTalkClient,
-        secrets::resolve_secret,
+        config::validate_static, dingtalk::DingTalkClient, secrets::resolve_secret,
         server::TeamServer,
     };
     anyhow::ensure!(!bootstrap, "Team mode does not use bootstrap stdin");
@@ -132,7 +133,8 @@ async fn run_team(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Result<
     config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
     config.resolve_siyuan_credentials_with(|name| std::env::var(name).ok())?;
     crate::team::server::validate_team_content_origin(&config)?;
-    let provider: Arc<dyn IdentityProvider> = Arc::new(DingTalkClient::new(settings.clone(), secret)?);
+    let provider: Arc<dyn IdentityProvider> =
+        Arc::new(DingTalkClient::new(settings.clone(), secret)?);
     // Config and every secret are validated before opening the database or socket.
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let server = TeamServer::build(&config, settings, provider)?;

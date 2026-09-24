@@ -155,7 +155,10 @@ fn perimeter_inner(state: &Perimeter, request: &Request) -> Result<(), TeamError
         return Err(TeamError::Unauthorized);
     }
     if request.uri().path().len() > 4096
-        || request.uri().query().is_some_and(|query| query.len() > 8192)
+        || request
+            .uri()
+            .query()
+            .is_some_and(|query| query.len() > 8192)
     {
         return Err(TeamError::InvalidInput);
     }

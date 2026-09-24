@@ -77,7 +77,9 @@ fn secure_file(path: &std::path::Path) -> Result<String, ConfigIssue> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    let mut file = options.open(path).map_err(|_| issue("secret_file_unsafe"))?;
+    let mut file = options
+        .open(path)
+        .map_err(|_| issue("secret_file_unsafe"))?;
     let after = file.metadata().map_err(|_| issue("secret_file_unsafe"))?;
     if !after.is_file()
         || after.dev() != before.dev()
