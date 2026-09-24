@@ -1,4 +1,4 @@
-# AIKS S2 团队配置契约样例，完整 team 加载器仍未交付。
+# AIKS S2 设计阶段配置参考；正式部署模板见 deploy/team/service.toml.example。
 # 不要覆盖个人 service-local/config/models.toml。
 # 留空是为了手动填写，不会启用测试账号或绕过认证。
 mode = "team"
@@ -61,5 +61,6 @@ embedding_api_key_env = "AIKS_EMBEDDING_API_KEY"
 # 同机部署示例。容器部署改为内部服务名，不开放思源端口。
 base_url = "http://127.0.0.1:6806"
 notebook_name = "AIKS"
-# S2 计划中的秘密引用，解析后只在服务内部注入，不传给桌面端。
+# 服务端秘密引用，解析后只在服务内部注入，不传给桌面端。
+token = ""
 token_env = "AIKS_SIYUAN_TOKEN"

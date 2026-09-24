@@ -32,7 +32,7 @@ Antigravity IDE token/usage 不是对话，禁止伪造用户/助手消息。Aid
 
 配置 backend.mode 仅 legacy/service_local，默认 legacy；Windows dev.ps1 显式选择 service_local，-Legacy 保留旧流程。未知值报错；Service 启动失败不能自动改回旧模式或创建第二套 Worker。
 
-S1 只允许认证的 numeric-loopback personal Service，不得为了测试/部署方便放开 team 或公网监听。团队 ACL、远程多用户和思源受控写入属于 S2，必须先完成授权边界。
+S1 的 personal Service 仍只允许认证的 numeric-loopback。S2 已新增显式 single-company team 模式：团队 Service 本身仍只监听固定 numeric-loopback，由受控 TLS 反向代理暴露明确 AIKS 路由；不得直接公网监听、不得把 forwarded headers 当身份。团队 ACL、目录、登录、分享、私有导入和受控思源写入均以服务端认证上下文为准。
 
 客户端上传完整标准化快照，Service 原子保存快照、版本、回执和任务。后台仅从已保存输入处理，不通过员工本机路径重新读取。source/project path 不是服务下载目标；正文 URL 不授权抓取。
 
@@ -105,6 +105,6 @@ CI 不自动提交生成的补丁或移动开发分支；最终验证 workflow �
 
 ## 9. 范围与进度
 
-S1 当前实现本地 Service 业务链路、原生监督器和开发入口。S2 团队身份/空间/共享与思源受控写入、S3 完整部署/安装包、S4 引用式知识库问答仍为后续阶段。
+S1 已实现本地 Service 业务链路、原生监督器和开发入口。S2 当前已实现团队身份/空间、只读分享、owner-only 内容写入、个人知识显式私有导入、桌面团队连接，以及 single-company 回环 Service + TLS 反代部署契约；真实钉钉/模型/思源环境参数仍需部署者手工填写并联调。S3 安装包级完整部署与 S4 引用式知识库问答仍为后续阶段。
 
 当前实施看 docs/implementation/aiks-service-s1-progress.md，使用与回滚看 aiks-service-s1.md。此前 task ledger 和未勾选的原始计划保留历史，不应触发重复开发已经完成的代码。不得把内部 publisher 测试当成对外写 API，也不得把首条 ServiceStatusPage 当成全部旧工作台功能已服务化。
