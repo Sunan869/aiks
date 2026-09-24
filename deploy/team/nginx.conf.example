@@ -18,7 +18,7 @@ server {
         proxy_set_header X-Original-Host "";
     }
 
-    location ~ ^/api/v1/(auth/dingtalk/(start|browser|callback|exchange)|auth/(refresh|logout)|me|capabilities|source-registrations|session-snapshots|sessions(?:/[^/]+)?|receipts/[^/]+|jobs/[^/]+|search|knowledge(?:/.*)?|content-operations/[^/]+|directory/search)$ {
+    location ~ ^/api/v1/(auth/dingtalk/(start|browser|callback|exchange)|auth/(refresh|logout)|me|capabilities|source-registrations|session-snapshots|sessions(?:/[^/]+)?|receipts/[^/]+|jobs/[^/]+|search|knowledge(?:/.*)?|content-operations/[^/]+|directory/search|workspace/tickets)$ {
         proxy_pass http://127.0.0.1:28081;
         proxy_set_header Host aiks.example.com;
         proxy_set_header Forwarded "";
