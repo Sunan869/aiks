@@ -275,7 +275,7 @@ async fn owner_can_replace_read_grants_without_exposing_the_private_source_sessi
         .find(|item| item["id"] == "shared-k")
         .unwrap();
     assert_eq!(shared["can_manage"], false);
-    assert_eq!(shared["share_source"], "shared_to_me");
+    assert_eq!(shared["share_source"], "department");
 
     let private = service
         .auth(
