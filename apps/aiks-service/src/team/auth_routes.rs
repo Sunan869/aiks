@@ -89,6 +89,11 @@ pub fn auth_router(auth: Arc<AuthService>) -> Router {
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/me", get(me))
+        .route("/api/v1/workspace/tickets", post(workspace_ticket))
+        .route(
+            "/api/v1/internal/workspace/tickets/consume",
+            post(consume_workspace_ticket),
+        )
         .method_not_allowed_fallback(|| async { TeamHttpError::from(TeamError::InvalidInput) })
         .layer(DefaultBodyLimit::max(8192))
         .layer(middleware::from_fn_with_state(auth.clone(), guard))
@@ -217,6 +222,11 @@ struct ExchangeInput {
 #[serde(deny_unknown_fields)]
 struct RefreshInput {
     refresh_token: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceTicketInput {
+    ticket: String,
 }
 
 async fn start(
@@ -368,6 +378,33 @@ async fn me(
         })
         .await?;
     Ok(Json(json!(identity)))
+}
+
+async fn workspace_ticket(
+    State(auth): State<Arc<AuthService>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, TeamHttpError> {
+    let token = bearer(&headers)?;
+    let ticket = auth
+        .blocking(move |_, sessions, at| sessions.issue_workspace_ticket(&token, at))
+        .await?;
+    Ok(Json(json!({
+        "ticket": ticket.ticket.expose(),
+        "expires_at": ticket.expires_at
+    })))
+}
+
+async fn consume_workspace_ticket(
+    State(auth): State<Arc<AuthService>>,
+    input: Result<Json<WorkspaceTicketInput>, JsonRejection>,
+) -> Result<Json<Value>, TeamHttpError> {
+    let input = body(input)?;
+    let principal = auth
+        .blocking(move |_, sessions, at| {
+            sessions.consume_workspace_ticket(&input.ticket, at)
+        })
+        .await?;
+    Ok(Json(json!(principal)))
 }
 pub(crate) fn now() -> Result<u64, TeamError> {
     SystemTime::now()
