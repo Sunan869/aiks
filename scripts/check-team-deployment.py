@@ -66,7 +66,7 @@ def main() -> None:
         "siyuan:",
         "aiks-service:",
         "image:",
-        "network_mode: host",
+        "host network",
         "env_file:",
         "- .env",
         "read_only: true",
