@@ -96,7 +96,7 @@ fn team_siyuan_secret_is_server_owned_and_internal_origin_is_loopback_only() {
         r#"
 mode = "team"
 database = {}
-listen = "127.0.0.1:0"
+listen = "127.0.0.1:28081"
 [team]
 enabled = true
 public_base_url = "https://aiks.example.com"
