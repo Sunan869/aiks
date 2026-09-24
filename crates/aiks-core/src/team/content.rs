@@ -73,6 +73,7 @@ struct ClaimedOperation {
 }
 
 impl TeamStore {
+    #[allow(clippy::too_many_arguments)]
     pub fn enqueue_content_update(
         &self,
         ctx: &TeamContext,
@@ -146,6 +147,7 @@ impl TeamStore {
         Ok(operation)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn enqueue_operation(
         &self,
         ctx: &TeamContext,
@@ -531,6 +533,7 @@ impl TeamStore {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn enqueue_operation_in_tx(
     tx: &Transaction<'_>,
     company_id: &str,
@@ -784,8 +787,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn markdown_matches(left: &str, right: &str) -> bool {
-    left.trim_end_matches(|ch| matches!(ch, '\r' | '\n'))
-        == right.trim_end_matches(|ch| matches!(ch, '\r' | '\n'))
+    left.trim_end_matches(['\r', '\n']) == right.trim_end_matches(['\r', '\n'])
 }
 
 fn unix_now() -> u64 {

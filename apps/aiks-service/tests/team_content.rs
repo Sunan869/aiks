@@ -19,13 +19,24 @@ use std::{
 use team_support::TeamTestService;
 use tokio::sync::Semaphore;
 
-#[derive(Default)]
 struct SiYuanState {
     documents: Mutex<HashMap<String, String>>,
     hpaths: Mutex<HashMap<String, String>>,
     update_seen: Semaphore,
     update_release: Semaphore,
     fail_create_response_once: Mutex<bool>,
+}
+
+impl Default for SiYuanState {
+    fn default() -> Self {
+        Self {
+            documents: Mutex::new(HashMap::new()),
+            hpaths: Mutex::new(HashMap::new()),
+            update_seen: Semaphore::new(0),
+            update_release: Semaphore::new(0),
+            fail_create_response_once: Mutex::new(false),
+        }
+    }
 }
 
 async fn siyuan_fixture(State(state): State<Arc<SiYuanState>>, request: Request<Body>) -> Response {
