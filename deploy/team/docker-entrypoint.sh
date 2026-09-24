@@ -121,25 +121,18 @@ if [ "$AIKS_EMBEDDING_ENABLED" = true ]; then
 fi
 
 roots="$AIKS_DINGTALK_ROOT_DEPARTMENT_IDS"
-case "$roots" in
-  ,*|*,|*,,*) fail "AIKS_DINGTALK_ROOT_DEPARTMENT_IDS must be comma-separated positive integers" ;;
-esac
-old_ifs=$IFS
-IFS=','
-set -- $roots
-IFS=$old_ifs
-root_toml=''
-for id in "$@"; do
-  case "$id" in
-    ''|0|*[!0-9]*) fail "AIKS_DINGTALK_ROOT_DEPARTMENT_IDS contains an invalid department id" ;;
-    0*) fail "department ids must not contain leading zeros" ;;
-  esac
-  [ ${#id} -le 18 ] || fail "department id is too large"
-  if [ -n "$root_toml" ]; then
-    root_toml="$root_toml, "
-  fi
-  root_toml="${root_toml}\"${id}\""
-done
+if ! root_toml="$(printf '%s\n' "$roots" | awk -F, '
+  NF < 1 || NF > 100 { exit 1 }
+  {
+    for (i = 1; i <= NF; i++) {
+      if ($i !~ /^[1-9][0-9]*$/ || length($i) > 18) exit 1
+      if (i > 1) printf ", "
+      printf "\\\"%s\\\"", $i
+    }
+  }
+')"; then
+  fail "AIKS_DINGTALK_ROOT_DEPARTMENT_IDS must be 1-100 comma-separated positive integers"
+fi
 
 ai_key_env=''
 [ -z "${AIKS_AI_API_KEY:-}" ] || ai_key_env='AIKS_AI_API_KEY'
