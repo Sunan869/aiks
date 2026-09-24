@@ -14,4 +14,6 @@ encoded=''.join(Path(f'scripts/s2-task67-core-patch-{i}.txt').read_text() for i 
 patch=gzip.decompress(base64.b64decode(encoded))
 assert hashlib.sha256(patch).hexdigest()==PATCH_SHA256
 subprocess.run(['git','apply','--whitespace=nowarn','-'],input=patch,check=True)
+new_files=[path for path, expected in EXPECTED.items() if expected is None]
+subprocess.run(['git','add','-N',*new_files],check=True)
 print('Applied SHA-guarded Task 6/7 core candidate; branch still requires explicit reviewed commit.')
