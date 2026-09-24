@@ -53,7 +53,7 @@ def main() -> None:
     if team.get("enabled") is not False or ding.get("enabled") is not False:
         fail("checked-in template must remain disabled")
 
-    public = config.get("public_base_url", "")
+    public = team.get("public_base_url", "")
     if not public.startswith("https://"):
         fail("public origin must use https")
 
