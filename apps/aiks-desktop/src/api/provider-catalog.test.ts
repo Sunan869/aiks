@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { sourceStateLabel, sourceFilterOptions, syncCatalogSource, type SourceDescriptor } from "./provider-catalog-model";
+import { sourceStateLabel, sourceStatusPresentation, sourceFilterOptions, syncCatalogSource, type SourceDescriptor } from "./provider-catalog-model";
 import { mockSourceDescriptors } from "./provider-catalog.mock";
 import modelSource from "../../../../crates/aiks-core/src/model/mod.rs?raw";
 import sourcesSource from "../pages/SourcesPage.tsx?raw";
@@ -23,13 +23,27 @@ describe("provider catalog", () => {
     await expect(syncCatalogSource({ syncAndExtract }, { ...roo, restart_required: true })).rejects.toThrow();
     expect(syncAndExtract).not.toHaveBeenCalled();
   });
-  it("keeps healthy empty stores distinct from missing, unsupported and failed stores", () => {
+  it("keeps healthy, missing, unconfigured and failed stores in a consistent user-facing state model", () => {
     expect(sourceStateLabel(roo)).toBe("可读取");
     expect(sourceStateLabel({ ...roo, status: "not_found" })).toBe("未检测到");
-    expect(sourceStateLabel({ ...roo, status: "unsupported" })).toBe("格式不支持");
+    expect(sourceStateLabel({ ...roo, status: "not_configured" })).toBe("未配置");
+    expect(sourceStateLabel({ ...roo, status: "unsupported" })).toBe("读取异常");
     expect(sourceStateLabel({ ...roo, status: "error" })).toBe("读取异常");
     expect(sourceStateLabel({ ...roo, enabled: false })).toBe("已禁用");
     expect(sourceStateLabel({ ...roo, restart_required: true })).toBe("待重启生效");
+
+    expect(sourceStatusPresentation({ ...roo, status: "not_found" })).toMatchObject({
+      title: "未检测到本地会话数据",
+      tone: "warning",
+    });
+    expect(sourceStatusPresentation({ ...roo, status: "not_configured" })).toMatchObject({
+      title: "尚未配置数据目录",
+      tone: "warning",
+    });
+    expect(sourceStatusPresentation({ ...roo, status: "error" })).toMatchObject({
+      title: "本地会话数据读取失败",
+      tone: "danger",
+    });
   });
   it("mock fixture includes all nineteen Core keys, including the three managed share sources and labels", () => {
     const fixture = mockSourceDescriptors();
@@ -44,6 +58,8 @@ describe("provider catalog", () => {
   it("both source cards and session filters consume the shared catalog", () => {
     expect(sourcesSource).toContain("useSourceCatalog");
     expect(sourcesSource).toContain("syncCatalogSource");
+    expect(sourcesSource).toContain("查看详情");
+    expect(sourcesSource).toContain("sourceStatusPresentation");
     expect(sessionsSource).toContain("sourceFilterOptions");
     expect(sessionsSource).toContain("useSourceCatalog");
   });
