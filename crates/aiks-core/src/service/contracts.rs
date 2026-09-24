@@ -52,6 +52,8 @@ pub enum ServiceError {
     Unauthorized,
     #[error("Resource not found")]
     NotFound,
+    #[error("Operation is not permitted")]
+    Forbidden,
     #[error("Request conflicts with a previously accepted revision")]
     Conflict,
     #[error("Dependency temporarily unavailable")]
@@ -75,6 +77,7 @@ impl ServiceError {
             Self::TooLarge => "too_large",
             Self::Unauthorized => "unauthorized",
             Self::NotFound => "not_found",
+            Self::Forbidden => "forbidden",
             Self::Conflict => "conflict",
             Self::Unavailable => "unavailable",
             Self::AiDisabled => "ai_disabled",
@@ -99,5 +102,22 @@ impl fmt::Debug for ValidatedSnapshot {
             .field("message_count", &self.submission.session.messages.len())
             .field("serialized_bytes", &self.canonical_json.len())
             .finish_non_exhaustive()
+    }
+}
+
+impl From<crate::team::TeamError> for ServiceError {
+    fn from(error: crate::team::TeamError) -> Self {
+        use crate::team::TeamError;
+        match error {
+            TeamError::Unauthorized | TeamError::LoginPending => Self::Unauthorized,
+            TeamError::NotFound => Self::NotFound,
+            TeamError::Forbidden => Self::Forbidden,
+            TeamError::Conflict => Self::Conflict,
+            TeamError::InvalidInput => Self::InvalidInput,
+            TeamError::DirectoryUnavailable | TeamError::Unavailable | TeamError::ConfigInvalid => {
+                Self::Unavailable
+            }
+            TeamError::Storage => Self::Internal,
+        }
     }
 }

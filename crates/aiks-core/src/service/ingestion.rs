@@ -10,7 +10,7 @@ use crate::pipeline::PipelineJob;
 
 use super::validation::validate_identifier;
 use super::{
-    validate_submission, LocalContext, ServiceError, ServiceStore, SnapshotReceipt,
+    validate_submission, LocalContext, RequestContext, ServiceError, ServiceStore, SnapshotReceipt,
     ValidatedSnapshot,
 };
 
@@ -40,36 +40,13 @@ impl ServiceStore {
         if *context != self.local_context() {
             return Err(ServiceError::Unauthorized);
         }
-        validate_identifier(registration_key)?;
-        let mut conn = self.db().conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let candidate = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO service_source_registration
-             (id, principal_id, space_id, source, registration_key)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(principal_id, space_id, source, registration_key) DO NOTHING",
-            params![
-                candidate,
-                context.principal_id(),
-                context.space_id(),
-                source.as_str(),
-                registration_key
-            ],
-        )?;
-        let id = tx.query_row(
-            "SELECT id FROM service_source_registration
-             WHERE principal_id=?1 AND space_id=?2 AND source=?3 AND registration_key=?4",
-            params![
-                context.principal_id(),
-                context.space_id(),
-                source.as_str(),
-                registration_key
-            ],
-            |row| row.get(0),
-        )?;
-        tx.commit()?;
-        Ok(id)
+        register_source_for(
+            self.db(),
+            &RequestContext::Personal(context.clone()),
+            source,
+            registration_key,
+            0,
+        )
     }
 
     /// The boolean indicates newly queued work, not extraction success.
@@ -92,28 +69,78 @@ impl ServiceStore {
         if *context != self.local_context() {
             return Err(ServiceError::Unauthorized);
         }
-        let input = &snapshot.submission;
-        if input.service_instance_id != context.instance_id()
-            || input.space_id != context.space_id()
-        {
-            return Err(ServiceError::NotFound);
-        }
-        // A public Rust caller can mutate ValidatedSnapshot. Do not persist
-        // bytes or digests that no longer describe its validated submission.
-        let checked = validate_submission(input)?;
-        if checked.canonical_json != snapshot.canonical_json
-            || checked.request_hash != snapshot.request_hash
-            || checked.content_hash != snapshot.content_hash
-        {
-            return Err(ServiceError::InvalidInput);
-        }
-
-        let mut conn = self.db().conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = accept_in_tx(&tx, context, snapshot)?;
-        tx.commit()?;
-        Ok(result)
+        accept_with_flags_for(
+            self.db(),
+            &RequestContext::Personal(context.clone()),
+            snapshot,
+            0,
+        )
     }
+}
+
+pub(crate) fn register_source_for(
+    db: &crate::storage::StateDb,
+    context: &RequestContext,
+    source: SourceKind,
+    registration_key: &str,
+    auth_now: u64,
+) -> Result<String, ServiceError> {
+    validate_identifier(registration_key)?;
+    let mut conn = db.conn();
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    context.authorize_in_conn(&tx, auth_now)?;
+    let candidate = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO service_source_registration
+         (id, principal_id, space_id, source, registration_key)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(principal_id, space_id, source, registration_key) DO NOTHING",
+        params![
+            candidate,
+            context.principal_id(),
+            context.space_id(),
+            source.as_str(),
+            registration_key
+        ],
+    )?;
+    let id = tx.query_row(
+        "SELECT id FROM service_source_registration
+         WHERE principal_id=?1 AND space_id=?2 AND source=?3 AND registration_key=?4",
+        params![
+            context.principal_id(),
+            context.space_id(),
+            source.as_str(),
+            registration_key
+        ],
+        |row| row.get(0),
+    )?;
+    tx.commit()?;
+    Ok(id)
+}
+
+pub(crate) fn accept_with_flags_for(
+    db: &crate::storage::StateDb,
+    context: &RequestContext,
+    snapshot: &ValidatedSnapshot,
+    auth_now: u64,
+) -> Result<(SnapshotReceipt, bool, bool), ServiceError> {
+    let input = &snapshot.submission;
+    if input.service_instance_id != context.instance_id() || input.space_id != context.space_id() {
+        return Err(ServiceError::NotFound);
+    }
+    let checked = validate_submission(input)?;
+    if checked.canonical_json != snapshot.canonical_json
+        || checked.request_hash != snapshot.request_hash
+        || checked.content_hash != snapshot.content_hash
+    {
+        return Err(ServiceError::InvalidInput);
+    }
+
+    let mut conn = db.conn();
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let result = accept_request_in_tx(&tx, context, snapshot, auth_now)?;
+    tx.commit()?;
+    Ok(result)
 }
 
 pub(crate) fn accept_in_tx(
@@ -121,6 +148,16 @@ pub(crate) fn accept_in_tx(
     context: &LocalContext,
     snapshot: &ValidatedSnapshot,
 ) -> Result<(SnapshotReceipt, bool, bool), ServiceError> {
+    accept_request_in_tx(tx, &RequestContext::Personal(context.clone()), snapshot, 0)
+}
+
+pub(crate) fn accept_request_in_tx(
+    tx: &Transaction<'_>,
+    context: &RequestContext,
+    snapshot: &ValidatedSnapshot,
+    auth_now: u64,
+) -> Result<(SnapshotReceipt, bool, bool), ServiceError> {
+    context.authorize_in_conn(tx, auth_now)?;
     let input = &snapshot.submission;
     let registered: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM service_source_registration
@@ -263,7 +300,7 @@ pub(crate) fn accept_in_tx(
 
 fn find_receipt(
     tx: &Transaction<'_>,
-    context: &LocalContext,
+    context: &RequestContext,
     snapshot: &ValidatedSnapshot,
 ) -> Result<Option<(String, SnapshotReceipt)>, ServiceError> {
     let input = &snapshot.submission;
@@ -330,7 +367,7 @@ fn reuse_current(
 
 fn create_binding(
     tx: &Transaction<'_>,
-    context: &LocalContext,
+    context: &RequestContext,
     snapshot: &ValidatedSnapshot,
     now: &str,
 ) -> Result<i64, ServiceError> {
@@ -362,7 +399,7 @@ fn create_binding(
 
 fn save_receipt(
     tx: &Transaction<'_>,
-    context: &LocalContext,
+    context: &RequestContext,
     snapshot: &ValidatedSnapshot,
     receipt: &SnapshotReceipt,
     now: &str,

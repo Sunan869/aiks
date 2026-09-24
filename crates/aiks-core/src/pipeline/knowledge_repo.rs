@@ -3,7 +3,7 @@
 
 /// Knowledge Item Repository — pipeline reconciliation plus derived chunks/embeddings.
 use chrono::Utc;
-use rusqlite::{params, params_from_iter};
+use rusqlite::{params, params_from_iter, OptionalExtension};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -70,7 +70,7 @@ impl<'a> KnowledgeRepo<'a> {
         }
         let now = Utc::now().to_rfc3339();
 
-        let result_res: anyhow::Result<Vec<String>> = (|| {
+        let result_res: anyhow::Result<(Vec<String>, std::collections::HashSet<String>)> = (|| {
             let existing: Vec<ExistingIdentity> = {
                 let mut stmt = conn.prepare(
                     "SELECT id, title, category, managed_by
@@ -159,6 +159,7 @@ impl<'a> KnowledgeRepo<'a> {
             }
 
             let mut item_ids = Vec::with_capacity(result.items.len());
+            let mut created_ids = std::collections::HashSet::new();
             for (new_idx, item) in result.items.iter().enumerate() {
                 let tags_json =
                     serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
@@ -225,15 +226,50 @@ impl<'a> KnowledgeRepo<'a> {
                         ],
                     )?;
                     insert_fts(&conn, &id, &item.title, &item.summary, &content, &tags_json)?;
+                    created_ids.insert(id.clone());
                     id
                 };
                 item_ids.push(id);
             }
 
-            Ok(item_ids)
-        })();
+            Ok((item_ids, created_ids))
+        })(
+        );
 
-        let ids = result_res?;
+        let (ids, created_ids) = result_res?;
+        let team_owner: Option<(String, String)> = conn
+            .query_row(
+                "SELECT c.id,b.principal_id FROM team_company c
+                 JOIN service_session_binding b ON b.session_id=?1
+                 WHERE c.singleton=1",
+                [session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((company_id, owner_user_id)) = team_owner {
+            for id in &ids {
+                if created_ids.contains(id) {
+                    conn.execute(
+                        "INSERT INTO team_knowledge_owner(company_id,knowledge_id,owner_user_id)
+                         VALUES (?1,?2,?3)",
+                        params![company_id, id, owner_user_id],
+                    )?;
+                } else {
+                    let stored: Option<String> = conn
+                        .query_row(
+                            "SELECT owner_user_id FROM team_knowledge_owner
+                             WHERE company_id=?1 AND knowledge_id=?2",
+                            params![company_id, id],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    anyhow::ensure!(
+                        stored.as_deref() == Some(owner_user_id.as_str()),
+                        "team knowledge owner mismatch"
+                    );
+                }
+            }
+        }
         if let Some(fence) = fence {
             // Only regenerated drafts advance; preserved user/published items
             // must not inherit the new extraction's source revision.

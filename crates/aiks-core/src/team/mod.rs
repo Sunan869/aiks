@@ -6,11 +6,14 @@ mod directory_validate;
 pub mod policy;
 pub mod provider;
 mod repo;
+mod shares;
 mod types;
 
 pub use directory_types::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, UserRecord};
 pub use provider::{ExternalLogin, IdentityProvider};
 pub use repo::TeamStore;
+pub(crate) use shares::knowledge_access_in_conn;
+pub use shares::{GrantInput, GrantTarget, ShareGrant, ShareState};
 pub use types::TeamError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

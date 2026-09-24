@@ -37,6 +37,7 @@ impl SessionStore {
             space_id: space,
             session_id: id,
             access_hash: hash,
+            directory_max_age: self.policy.directory_max_age,
         };
         self.identity_in_tx(&tx, &ctx, now)?;
         Ok(ctx)
@@ -53,33 +54,10 @@ impl SessionStore {
         ctx: &TeamContext,
         now: u64,
     ) -> Result<TeamIdentity, TeamError> {
-        if now > i64::MAX as u64
-            || ctx.instance_id() != self.store.instance_id()
-            || ctx.company_id() != self.store.company_id()
-        {
+        if ctx.directory_max_age() != self.policy.directory_max_age {
             return Err(TeamError::Unauthorized);
         }
-        let valid: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM team_auth_session WHERE id=?1 AND company_id=?2 AND user_id=?3
-             AND space_id=?4 AND access_hash=?5 AND revoked_at IS NULL AND issued_at<=?6 AND access_expires_at>?6)",
-            params![ctx.session_id(),ctx.company_id(),ctx.user_id(),ctx.space_id(),ctx.access_hash,now], |r| r.get(0),
-        )?;
-        if !valid {
-            return Err(TeamError::Unauthorized);
-        }
-        let version: u64 = tx.query_row(
-            "SELECT auth_version FROM team_auth_session WHERE id=?1",
-            [ctx.session_id()],
-            |r| r.get(0),
-        )?;
-        member(
-            &self.store,
-            tx,
-            ctx.user_id(),
-            version,
-            now,
-            self.policy.directory_max_age,
-        )
+        ctx.authorize_in_conn(tx, now)
     }
     pub fn refresh(&self, token: &str, now: u64) -> Result<SessionTokens, TeamError> {
         if !valid_secret(token) || now > i64::MAX as u64 {

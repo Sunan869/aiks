@@ -17,6 +17,7 @@ impl IntoResponse for ApiError {
         let status = match self.0 {
             ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
             ServiceError::NotFound => StatusCode::NOT_FOUND,
+            ServiceError::Forbidden => StatusCode::FORBIDDEN,
             ServiceError::Conflict | ServiceError::RevisionExhausted => StatusCode::CONFLICT,
             ServiceError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             ServiceError::IncompleteSnapshot => StatusCode::UNPROCESSABLE_ENTITY,

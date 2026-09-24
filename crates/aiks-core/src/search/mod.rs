@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rusqlite::params;
+use rusqlite::{params_from_iter, types::Value};
 use serde::{Deserialize, Serialize};
 
 use crate::indexing::EmbeddingProvider;
@@ -73,7 +73,8 @@ impl std::ops::Deref for SearchDb<'_> {
 pub struct UnifiedSearchService<'a> {
     db: SearchDb<'a>,
     embeddings: Arc<dyn EmbeddingProvider>,
-    context: Option<crate::service::LocalContext>,
+    context: Option<crate::service::RequestContext>,
+    auth_now: u64,
 }
 
 impl UnifiedSearchService<'static> {
@@ -82,10 +83,20 @@ impl UnifiedSearchService<'static> {
         embeddings: Arc<dyn EmbeddingProvider>,
         context: crate::service::LocalContext,
     ) -> Self {
+        Self::scoped_for(db, embeddings, context.into(), 0)
+    }
+
+    pub(crate) fn scoped_for(
+        db: Arc<StateDb>,
+        embeddings: Arc<dyn EmbeddingProvider>,
+        context: crate::service::RequestContext,
+        auth_now: u64,
+    ) -> Self {
         Self {
             db: SearchDb::Owned(db),
             embeddings,
             context: Some(context),
+            auth_now,
         }
     }
 
@@ -94,6 +105,7 @@ impl UnifiedSearchService<'static> {
             db: SearchDb::Owned(db),
             embeddings,
             context: None,
+            auth_now: 0,
         }
     }
 }
@@ -104,6 +116,7 @@ impl<'a> UnifiedSearchService<'a> {
             db: SearchDb::Borrowed(db),
             embeddings,
             context: None,
+            auth_now: 0,
         }
     }
 
@@ -132,6 +145,7 @@ impl<'a> UnifiedSearchService<'a> {
         let filter = ScopedFilter {
             filter,
             context: self.context.clone(),
+            auth_now: self.auth_now,
         };
         let started = Instant::now();
         let query = query.trim();
@@ -292,6 +306,7 @@ impl<'a> UnifiedSearchService<'a> {
         filter: &ScopedFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let conn = self.db.conn();
+        let scope = filter.predicate(SearchCorpus::Knowledge, 5)?;
         let sql = format!(
             "SELECT ki.id, ki.title, ki.summary, ki.project_name, ki.siyuan_doc_id,
                     ss.source, kc.id, kc.text, er.vector
@@ -303,29 +318,28 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?3 = '' OR ki.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
              AND {} LIMIT ?2",
-            filter.predicate(SearchCorpus::Knowledge),
+            scope.clause,
         );
+        let mut values = vec![
+            Value::Text(model.to_owned()),
+            Value::Integer(SEMANTIC_CANDIDATE_CAP as i64),
+            Value::Text(filter.project.as_deref().unwrap_or("").trim().to_owned()),
+            Value::Text(filter.source.as_deref().unwrap_or("").trim().to_owned()),
+        ];
+        values.extend(scope.values);
         let mut stmt = conn.prepare(&sql)?;
         let db_started = Instant::now();
-        let rows = stmt.query_map(
-            params![
-                model,
-                SEMANTIC_CANDIDATE_CAP as i64,
-                filter.project.as_deref().unwrap_or("").trim(),
-                filter.source.as_deref().unwrap_or("").trim()
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, Vec<u8>>(8)?,
-                ))
-            },
-        )?;
+        let rows = stmt.query_map(params_from_iter(values.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Vec<u8>>(8)?,
+            ))
+        })?;
         let rows = rows.collect::<Result<Vec<_>, _>>()?;
         let vector_bytes: usize = rows.iter().map(|row| row.6.len()).sum();
         let vector_db_ms = db_started.elapsed().as_millis() as u64;
@@ -375,6 +389,7 @@ impl<'a> UnifiedSearchService<'a> {
         filter: &ScopedFilter,
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let conn = self.db.conn();
+        let scope = filter.predicate(SearchCorpus::Session, 5)?;
         let sql = format!(
             "SELECT ss.id, COALESCE(ss.title, ''), ss.siyuan_doc_id,
                     sc.id, sc.text, er.vector
@@ -386,28 +401,27 @@ impl<'a> UnifiedSearchService<'a> {
                AND (?3 = '' OR ss.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
              AND {} LIMIT ?2",
-            filter.predicate(SearchCorpus::Session),
+            scope.clause,
         );
+        let mut values = vec![
+            Value::Text(model.to_owned()),
+            Value::Integer(SEMANTIC_CANDIDATE_CAP as i64),
+            Value::Text(filter.project.as_deref().unwrap_or("").trim().to_owned()),
+            Value::Text(filter.source.as_deref().unwrap_or("").trim().to_owned()),
+        ];
+        values.extend(scope.values);
         let mut stmt = conn.prepare(&sql)?;
         let db_started = Instant::now();
-        let rows = stmt.query_map(
-            params![
-                model,
-                SEMANTIC_CANDIDATE_CAP as i64,
-                filter.project.as_deref().unwrap_or("").trim(),
-                filter.source.as_deref().unwrap_or("").trim()
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Vec<u8>>(5)?,
-                ))
-            },
-        )?;
+        let rows = stmt.query_map(params_from_iter(values.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Vec<u8>>(5)?,
+            ))
+        })?;
         let rows = rows.collect::<Result<Vec<_>, _>>()?;
         let vector_bytes: usize = rows.iter().map(|row| row.5.len()).sum();
         let vector_db_ms = db_started.elapsed().as_millis() as u64;

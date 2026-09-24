@@ -6,6 +6,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::TeamError;
+use rusqlite::{Connection, OptionalExtension};
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthPolicy {
@@ -68,6 +69,7 @@ pub struct TeamContext {
     pub(super) space_id: String,
     pub(super) session_id: String,
     pub(super) access_hash: String,
+    pub(super) directory_max_age: u64,
 }
 impl TeamContext {
     pub fn instance_id(&self) -> &str {
@@ -84,6 +86,74 @@ impl TeamContext {
     }
     pub fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    pub(crate) fn access_hash(&self) -> &str {
+        &self.access_hash
+    }
+
+    pub(crate) fn directory_max_age(&self) -> u64 {
+        self.directory_max_age
+    }
+
+    /// Revalidate a trusted context in the same SQLite transaction as the
+    /// business operation. This deliberately does not trust a previously
+    /// successful bearer-token check across an await boundary.
+    pub(crate) fn authorize_in_conn(
+        &self,
+        conn: &Connection,
+        now: u64,
+    ) -> Result<TeamIdentity, TeamError> {
+        if now > i64::MAX as u64 || self.directory_max_age == 0 || self.directory_max_age > 3600 {
+            return Err(TeamError::Unauthorized);
+        }
+        let display_name: Option<String> = conn
+            .query_row(
+                "SELECT u.display_name
+                 FROM team_company c
+                 JOIN team_auth_session s ON s.company_id=c.id
+                 JOIN team_user u ON u.company_id=c.id AND u.id=s.user_id
+                 JOIN team_user_state us ON us.company_id=c.id AND us.user_id=u.id
+                 WHERE c.singleton=1 AND c.id=?1 AND c.instance_id=?2
+                   AND s.id=?3 AND s.user_id=?4 AND s.space_id=?5 AND s.access_hash=?6
+                   AND s.revoked_at IS NULL AND s.issued_at<=?7 AND s.access_expires_at>?7
+                   AND u.active=1 AND u.private_space_id=s.space_id
+                   AND us.auth_version=s.auth_version AND us.last_generation=c.directory_generation",
+                rusqlite::params![
+                    self.company_id,
+                    self.instance_id,
+                    self.session_id,
+                    self.user_id,
+                    self.space_id,
+                    self.access_hash,
+                    now
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let display_name = display_name.ok_or(TeamError::Unauthorized)?;
+        let observed: Option<u64> = conn
+            .query_row(
+                "SELECT os.observed_at FROM team_company c JOIN team_org_snapshot os
+                 ON os.company_id=c.id AND os.generation=c.directory_generation
+                 WHERE c.id=?1",
+                [self.company_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if !observed.is_some_and(|value| {
+            now.checked_sub(value)
+                .is_some_and(|age| age <= self.directory_max_age)
+        }) {
+            return Err(TeamError::DirectoryUnavailable);
+        }
+        Ok(TeamIdentity {
+            instance_id: self.instance_id.clone(),
+            company_id: self.company_id.clone(),
+            user_id: self.user_id.clone(),
+            space_id: self.space_id.clone(),
+            display_name,
+        })
     }
 }
 impl fmt::Debug for TeamContext {

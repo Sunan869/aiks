@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params_from_iter, types::Value, Connection};
 
 use super::{lexical_score, RankedCandidate, ScopedFilter, SearchCorpus, UnifiedSearchHit};
 use crate::storage::StateDb;
@@ -191,24 +191,29 @@ fn indexed(
         }
     };
     let (project, source) = filter_values(filter);
+    let scope = filter.predicate(corpus, 5)?;
     let sql = sql.replace(
         "ORDER BY rank",
-        &format!("AND {} ORDER BY rank", filter.predicate(corpus)),
+        &format!("AND {} ORDER BY rank", scope.clause),
     );
+    let mut values = vec![
+        Value::Text(expression.to_owned()),
+        Value::Text(project.to_owned()),
+        Value::Text(source.to_owned()),
+        Value::Integer(CANDIDATE_CAP as i64),
+    ];
+    values.extend(scope.values);
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(
-        params![expression, project, source, CANDIDATE_CAP as i64],
-        |row| {
-            Ok(candidate(
-                corpus,
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                -row.get::<_, f64>(4)? as f32,
-            ))
-        },
-    )?;
+    let rows = stmt.query_map(params_from_iter(values.iter()), |row| {
+        Ok(candidate(
+            corpus,
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            -row.get::<_, f64>(4)? as f32,
+        ))
+    })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
@@ -279,22 +284,24 @@ fn text_rows(
 ) -> anyhow::Result<Vec<RankedCandidate>> {
     let (project, source) = filter_values(filter);
     let mut values = vec![
-        project.to_string(),
-        source.to_string(),
-        query.to_lowercase(),
+        Value::Text(project.to_string()),
+        Value::Text(source.to_string()),
+        Value::Text(query.to_lowercase()),
     ];
-    values.extend(terms.iter().cloned());
+    values.extend(terms.iter().cloned().map(Value::Text));
     let predicates = (3..=values.len())
         .map(|index| format!("instr({haystack}, ?{index}) > 0"))
         .collect::<Vec<_>>()
         .join(" OR ");
     // LIMIT is a compile-time bound; every user-controlled value is bound.
+    let scope = filter.predicate(corpus, values.len() + 1)?;
     let sql = format!(
         "{select} AND ({predicates}) AND {} LIMIT {CANDIDATE_CAP}",
-        filter.predicate(corpus)
+        scope.clause
     );
+    values.extend(scope.values);
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(values), |row| {
+    let rows = stmt.query_map(params_from_iter(values.iter()), |row| {
         let id: String = row.get(0)?;
         let title: String = row.get(1)?;
         let secondary: String = row.get(2)?;

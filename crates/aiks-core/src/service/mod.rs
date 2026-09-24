@@ -9,7 +9,7 @@ mod validation;
 
 pub use adoption::{adopt_local_state, AdoptionManifest, AdoptionReport, SessionAdoption};
 pub use contracts::{ServiceError, SnapshotReceipt, SnapshotSubmission, ValidatedSnapshot};
-pub use repo::{LocalContext, ServiceStore};
+pub use repo::{LocalContext, RequestContext, ServiceStore};
 pub use revision::{RevisionFence, SupersededRevision};
 pub(crate) use validation::snapshot_content_hash;
 pub use validation::validate_submission;
