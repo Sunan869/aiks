@@ -406,3 +406,92 @@ fn cancelled_attempt_and_reused_authorization_code_cannot_issue_tokens() {
         assert_eq!(result.is_ok(), n == 0);
     }
 }
+
+
+#[test]
+fn workspace_ticket_is_short_lived_one_time_and_contains_only_server_identity() {
+    let f = Fixture::new();
+    let verifier = "aa".repeat(32);
+    let id = f.authorize(&verifier, 1001);
+    let tokens = f.login.exchange(&id, &verifier, 1001).unwrap();
+
+    let handoff = f
+        .sessions
+        .issue_workspace_ticket(tokens.access_token.expose(), 1002)
+        .unwrap();
+    assert_eq!(handoff.expires_at, 1062);
+
+    let principal = f
+        .sessions
+        .consume_workspace_ticket(handoff.ticket.expose(), 1002)
+        .unwrap();
+    assert_eq!(principal.instance_id, f.store.instance_id());
+    assert_eq!(principal.company_id, f.store.company_id());
+    assert_eq!(principal.user_id, tokens.identity.user_id);
+    assert_eq!(principal.space_id, tokens.identity.space_id);
+    assert!(!principal.session_id.is_empty());
+    assert!(principal.auth_version > 0);
+
+    assert!(f
+        .sessions
+        .consume_workspace_ticket(handoff.ticket.expose(), 1002)
+        .is_err());
+
+    let encoded = format!("{handoff:?} {principal:?}");
+    assert!(!encoded.contains(handoff.ticket.expose()));
+
+    let stored: String = f
+        .store
+        .db()
+        .conn()
+        .query_row(
+            "SELECT token_hash FROM team_workspace_ticket LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, digest(handoff.ticket.expose()));
+}
+
+#[test]
+fn workspace_ticket_rejects_expiry_logout_and_member_deactivation() {
+    let f = Fixture::new();
+    let verifier = "bb".repeat(32);
+
+    let id = f.authorize(&verifier, 1001);
+    let tokens = f.login.exchange(&id, &verifier, 1001).unwrap();
+    let expired = f
+        .sessions
+        .issue_workspace_ticket(tokens.access_token.expose(), 1002)
+        .unwrap();
+    assert!(f
+        .sessions
+        .consume_workspace_ticket(expired.ticket.expose(), expired.expires_at)
+        .is_err());
+
+    let logout_ticket = f
+        .sessions
+        .issue_workspace_ticket(tokens.access_token.expose(), 1003)
+        .unwrap();
+    f.sessions
+        .logout(tokens.access_token.expose(), 1003)
+        .unwrap();
+    assert!(f
+        .sessions
+        .consume_workspace_ticket(logout_ticket.ticket.expose(), 1003)
+        .is_err());
+
+    let id = f.authorize(&verifier, 1004);
+    let renewed = f.login.exchange(&id, &verifier, 1004).unwrap();
+    let inactive_ticket = f
+        .sessions
+        .issue_workspace_ticket(renewed.access_token.expose(), 1004)
+        .unwrap();
+    f.store
+        .mark_member_inactive(&renewed.identity.user_id, 1005)
+        .unwrap();
+    assert!(f
+        .sessions
+        .consume_workspace_ticket(inactive_ticket.ticket.expose(), 1005)
+        .is_err());
+}
