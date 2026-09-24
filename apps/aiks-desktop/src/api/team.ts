@@ -11,7 +11,7 @@ export interface TeamKnowledgeRow {
   id:string;title:string;revision:number|null;current_revision:number;content_revision:number|null;
   can_manage:boolean;share_source:ShareSource;stale:boolean;content_state:string;
 }
-export interface TeamKnowledgeDetail extends TeamKnowledgeRow {
+export interface TeamKnowledgeDetail extends TeamKnowledgeRow, Record<string,unknown> {
   summary:string;category:string;tags:string[];content:string|null;
 }
 export interface DirectoryEntry {target_type:"user"|"org";target_id:string;display_name:string}
