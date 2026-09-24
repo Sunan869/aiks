@@ -1,6 +1,6 @@
 //! Authenticated team business surface. This router is intentionally not mounted
 //! by the executable until the deployment/bootstrap task is completed.
-use super::{content_routes, middleware::require_session, share_routes};
+use super::{content_routes, import_routes, middleware::require_session, share_routes};
 use crate::error::ApiError;
 use aiks_core::{
     knowledge::ai_assist::AiAssistOperation,
@@ -44,6 +44,7 @@ pub fn business_router(runtime: Arc<ServiceRuntime>, sessions: Arc<SessionStore>
         .route("/api/v1/knowledge/{id}/assist", post(assist))
         .merge(share_routes::routes())
         .merge(content_routes::routes())
+        .merge(import_routes::routes())
         .fallback(|| async { ApiError(ServiceError::NotFound) })
         .method_not_allowed_fallback(|| async { ApiError(ServiceError::InvalidInput) })
         .layer(DefaultBodyLimit::max(MAX_BODY))

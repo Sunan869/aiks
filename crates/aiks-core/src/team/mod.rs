@@ -4,6 +4,7 @@ mod directory;
 mod directory_audit;
 mod directory_types;
 mod directory_validate;
+mod imports;
 pub mod policy;
 pub mod provider;
 mod repo;
@@ -14,6 +15,7 @@ pub use content::{
     ContentOperation, ContentWorker, ManagedAsset, MAX_MANAGED_ASSET_BYTES, MAX_TEAM_CONTENT_BYTES,
 };
 pub use directory_types::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, UserRecord};
+pub use imports::ImportReceipt;
 pub use provider::{ExternalLogin, IdentityProvider};
 pub use repo::TeamStore;
 pub(crate) use shares::knowledge_access_in_conn;

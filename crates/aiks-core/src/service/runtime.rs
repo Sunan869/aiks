@@ -14,7 +14,10 @@ use crate::{
     search::{UnifiedSearchFilter, UnifiedSearchService},
     sink::SiYuanSink,
     storage::StateDb,
-    team::{ContentOperation, ContentWorker, GrantInput, ManagedAsset, ShareState, TeamStore},
+    team::{
+        ContentOperation, ContentWorker, GrantInput, ImportReceipt, ManagedAsset, ShareState,
+        TeamStore,
+    },
 };
 use serde_json::{json, Value};
 use std::{
@@ -444,6 +447,33 @@ impl ServiceRuntime {
         let final_ctx = ctx.clone();
         self.blocking_for(final_ctx, move |db, ctx, at| {
             query::search_response_for(&db, &ctx, at, before, results)
+        })
+        .await
+    }
+
+    pub async fn import_knowledge_for(
+        &self,
+        ctx: &RequestContext,
+        operation_id: String,
+        title: String,
+        markdown: String,
+        source_fingerprint: String,
+    ) -> Result<(ImportReceipt, bool), ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        self.blocking_for(request, move |_db, ctx, at| {
+            let RuntimeMode::Team(store) = mode else {
+                return Err(ServiceError::NotFound);
+            };
+            let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+            Ok(store.import_knowledge(
+                team,
+                &operation_id,
+                &title,
+                &markdown,
+                &source_fingerprint,
+                at,
+            )?)
         })
         .await
     }

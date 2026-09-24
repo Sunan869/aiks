@@ -727,7 +727,7 @@ fn worker_owner_valid_in_tx(
     }))
 }
 
-fn validate_title(value: &str) -> Result<(), TeamError> {
+pub(super) fn validate_title(value: &str) -> Result<(), TeamError> {
     if value.trim().is_empty()
         || value.len() > 4096
         || value.contains('\0')
@@ -740,14 +740,14 @@ fn validate_title(value: &str) -> Result<(), TeamError> {
     Ok(())
 }
 
-fn validate_markdown(value: &str) -> Result<(), TeamError> {
+pub(super) fn validate_markdown(value: &str) -> Result<(), TeamError> {
     if value.len() > MAX_TEAM_CONTENT_BYTES || value.contains('\0') {
         return Err(TeamError::InvalidInput);
     }
     Ok(())
 }
 
-fn valid_operation_id(value: &str) -> bool {
+pub(super) fn valid_operation_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value.trim() == value
