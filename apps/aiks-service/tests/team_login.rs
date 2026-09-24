@@ -533,6 +533,50 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
         204
     );
 
+    {
+        let conn = s.store.db().conn();
+        conn.execute(
+            "INSERT INTO knowledge_item(
+                id,title,category,summary,content,tags,created_at,updated_at,siyuan_doc_id
+             ) VALUES ('workspace-doc','Workspace doc','general','','body','[]','test','test','siyuan-doc-1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO team_knowledge_owner(company_id,knowledge_id,owner_user_id)
+             VALUES (?1,'workspace-doc',?2)",
+            rusqlite::params![
+                s.store.company_id(),
+                principal["user_id"].as_str().unwrap()
+            ],
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/documents/authorize",
+        )
+        .json(&json!({"principal":principal,"document_id":"siyuan-doc-1"}))
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        204
+    );
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/documents/authorize",
+        )
+        .json(&json!({"principal":principal,"document_id":"not-visible"}))
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        404
+    );
+
     assert_eq!(
         s.request(reqwest::Method::POST, "/api/v1/auth/logout")
             .bearer_auth(access)
@@ -548,6 +592,18 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
             "/api/v1/internal/workspace/principals/validate",
         )
         .json(&principal)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        401
+    );
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/documents/authorize",
+        )
+        .json(&json!({"principal":principal,"document_id":"siyuan-doc-1"}))
         .send()
         .await
         .unwrap()

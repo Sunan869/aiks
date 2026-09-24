@@ -1,11 +1,11 @@
 //! One-time handoff from an authenticated AIKS session to the team SiYuan workspace.
 
-use rusqlite::{params, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 use super::{
     auth_types::{deadline, digest, valid_secret, AuthSecret},
-    SessionStore, TeamContext, TeamError,
+    policy, Action, SessionStore, TeamContext, TeamError,
 };
 
 const WORKSPACE_TICKET_TTL_SECONDS: u64 = 60;
@@ -164,6 +164,77 @@ impl SessionStore {
         principal: &WorkspacePrincipal,
         now: u64,
     ) -> Result<(), TeamError> {
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction()?;
+        self.validate_workspace_principal_in_conn(&tx, principal, now)
+    }
+
+    /// Authorize one canonical SiYuan document for an already exchanged workspace principal.
+    /// This is intentionally document-scoped: notebook/tree/search callers must never infer
+    /// visibility from presence in the shared SiYuan workspace.
+    pub fn authorize_workspace_document(
+        &self,
+        principal: &WorkspacePrincipal,
+        siyuan_doc_id: &str,
+        action: Action,
+        now: u64,
+    ) -> Result<(), TeamError> {
+        if !valid_document_id(siyuan_doc_id) {
+            return Err(TeamError::InvalidInput);
+        }
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction()?;
+        self.validate_workspace_principal_in_conn(&tx, principal, now)?;
+
+        let mut stmt = tx.prepare(
+            "SELECT o.owner_user_id=?3,
+                    EXISTS(SELECT 1 FROM document_share_grant g
+                           WHERE g.company_id=o.company_id AND g.knowledge_id=o.knowledge_id
+                             AND g.target_user_id=?3),
+                    EXISTS(SELECT 1 FROM document_share_grant g
+                           JOIN team_company c ON c.id=g.company_id
+                           JOIN team_org_membership m ON m.company_id=g.company_id
+                                AND m.generation=c.directory_generation AND m.user_id=?3
+                           WHERE g.company_id=o.company_id AND g.knowledge_id=o.knowledge_id
+                             AND g.target_org_id IS NOT NULL
+                             AND (m.org_id=g.target_org_id OR (g.include_descendants=1 AND EXISTS(
+                                 SELECT 1 FROM team_org_closure oc
+                                 WHERE oc.company_id=m.company_id AND oc.generation=m.generation
+                                   AND oc.ancestor_id=g.target_org_id AND oc.descendant_id=m.org_id))))
+             FROM team_knowledge_owner o
+             JOIN knowledge_item ki ON ki.id=o.knowledge_id AND ki.status='active'
+             WHERE o.company_id=?1 AND ki.siyuan_doc_id=?2
+             LIMIT 2",
+        )?;
+        let mut rows = stmt.query(params![
+            self.store.company_id(),
+            siyuan_doc_id,
+            principal.user_id
+        ])?;
+        let Some(row) = rows.next()? else {
+            return Err(TeamError::NotFound);
+        };
+        let access: (bool, bool, bool) = (row.get(0)?, row.get(1)?, row.get(2)?);
+        // Duplicate canonical document mappings are an integrity failure. Hide them rather than
+        // selecting an arbitrary ACL row.
+        if rows.next()?.is_some() {
+            return Err(TeamError::NotFound);
+        }
+        if policy::allows(action, true, true, true, access.0, access.1, access.2) {
+            Ok(())
+        } else if matches!(action, Action::Read) {
+            Err(TeamError::NotFound)
+        } else {
+            Err(TeamError::Forbidden)
+        }
+    }
+
+    fn validate_workspace_principal_in_conn(
+        &self,
+        conn: &Connection,
+        principal: &WorkspacePrincipal,
+        now: u64,
+    ) -> Result<(), TeamError> {
         if now > i64::MAX as u64
             || principal.instance_id != self.store.instance_id()
             || principal.company_id != self.store.company_id()
@@ -171,9 +242,7 @@ impl SessionStore {
             return Err(TeamError::Unauthorized);
         }
 
-        let mut conn = self.store.db().conn();
-        let tx = conn.transaction()?;
-        let active: Option<i64> = tx
+        let active: Option<i64> = conn
             .query_row(
                 "SELECT 1 FROM team_auth_session
                  WHERE id=?1 AND company_id=?2 AND user_id=?3 AND space_id=?4 AND auth_version=?5
@@ -195,7 +264,7 @@ impl SessionStore {
 
         let identity = super::sessions::member(
             &self.store,
-            &tx,
+            conn,
             &principal.user_id,
             principal.auth_version,
             now,
@@ -206,6 +275,13 @@ impl SessionStore {
         }
         Ok(())
     }
+}
+
+fn valid_document_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
 }
 
 fn cleanup_workspace_tickets(tx: &rusqlite::Transaction<'_>, now: u64) -> Result<(), TeamError> {

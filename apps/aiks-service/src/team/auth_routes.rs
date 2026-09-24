@@ -5,8 +5,8 @@ use super::{
     dingtalk::authorize_url,
 };
 use aiks_core::team::{
-    AuthPolicy, IdentityProvider, LoginStore, SessionStore, SessionTokens, TeamError, TeamStore,
-    WorkspacePrincipal,
+    Action, AuthPolicy, IdentityProvider, LoginStore, SessionStore, SessionTokens, TeamError,
+    TeamStore, WorkspacePrincipal,
 };
 use axum::{
     extract::{
@@ -98,6 +98,10 @@ pub fn auth_router(auth: Arc<AuthService>) -> Router {
         .route(
             "/api/v1/internal/workspace/principals/validate",
             post(validate_workspace_principal),
+        )
+        .route(
+            "/api/v1/internal/workspace/documents/authorize",
+            post(authorize_workspace_document),
         )
         .method_not_allowed_fallback(|| async { TeamHttpError::from(TeamError::InvalidInput) })
         .layer(DefaultBodyLimit::max(8192))
@@ -232,6 +236,12 @@ struct RefreshInput {
 #[serde(deny_unknown_fields)]
 struct WorkspaceTicketInput {
     ticket: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceDocumentAccessInput {
+    principal: WorkspacePrincipal,
+    document_id: String,
 }
 
 async fn start(
@@ -416,6 +426,22 @@ async fn validate_workspace_principal(
     let principal = body(input)?;
     auth.blocking(move |_, sessions, at| sessions.validate_workspace_principal(&principal, at))
         .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn authorize_workspace_document(
+    State(auth): State<Arc<AuthService>>,
+    input: Result<Json<WorkspaceDocumentAccessInput>, JsonRejection>,
+) -> Result<StatusCode, TeamHttpError> {
+    let input = body(input)?;
+    auth.blocking(move |_, sessions, at| {
+        sessions.authorize_workspace_document(
+            &input.principal,
+            &input.document_id,
+            Action::Read,
+            at,
+        )
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) fn now() -> Result<u64, TeamError> {
