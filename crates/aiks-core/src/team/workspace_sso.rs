@@ -1,7 +1,7 @@
 //! One-time handoff from an authenticated AIKS session to the team SiYuan workspace.
 
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     auth_types::{deadline, digest, valid_secret, AuthSecret},
@@ -17,7 +17,8 @@ pub struct WorkspaceTicket {
     pub expires_at: u64,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct WorkspacePrincipal {
     pub instance_id: String,
     pub company_id: String,
@@ -153,6 +154,57 @@ impl SessionStore {
             session_id,
             auth_version,
         })
+    }
+
+    /// Revalidate a workspace session family without requiring the current short-lived access token.
+    /// Refresh rotation preserves the session id/auth version, while logout, replay revocation,
+    /// member deactivation and refresh-family expiry invalidate the principal.
+    pub fn validate_workspace_principal(
+        &self,
+        principal: &WorkspacePrincipal,
+        now: u64,
+    ) -> Result<(), TeamError> {
+        if now > i64::MAX as u64
+            || principal.instance_id != self.store.instance_id()
+            || principal.company_id != self.store.company_id()
+        {
+            return Err(TeamError::Unauthorized);
+        }
+
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction()?;
+        let active: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM team_auth_session
+                 WHERE id=?1 AND company_id=?2 AND user_id=?3 AND space_id=?4 AND auth_version=?5
+                   AND revoked_at IS NULL AND created_at<=?6 AND refresh_expires_at>?6",
+                params![
+                    principal.session_id,
+                    self.store.company_id(),
+                    principal.user_id,
+                    principal.space_id,
+                    principal.auth_version,
+                    now
+                ],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if active.is_none() {
+            return Err(TeamError::Unauthorized);
+        }
+
+        let identity = super::sessions::member(
+            &self.store,
+            &tx,
+            &principal.user_id,
+            principal.auth_version,
+            now,
+            self.policy.directory_max_age,
+        )?;
+        if identity.space_id != principal.space_id {
+            return Err(TeamError::Unauthorized);
+        }
+        Ok(())
     }
 }
 
