@@ -36,11 +36,16 @@ fn server_secret_resolution_is_injected_bounded_and_redacted() {
     ))
     .is_err());
     let missing = SecretSource::File(std::env::temp_dir().join("not-created-secret"));
+    let expected_missing_file_code = if cfg!(windows) {
+        "secret_file_not_supported"
+    } else {
+        "secret_missing"
+    };
     assert_eq!(
         resolve_secret_with(&missing, |_| panic!("file is not env"))
             .unwrap_err()
             .code,
-        "secret_missing"
+        expected_missing_file_code
     );
     #[cfg(unix)]
     {
