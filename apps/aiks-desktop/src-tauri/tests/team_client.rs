@@ -202,8 +202,7 @@ async fn account_switch_never_retargets_pending_team_uploads() {
 fn same_company_different_service_instance_never_claims_pending_upload() {
     let root = TestRoot::new();
     let outbox = CollectorOutbox::open(&root.0.join("collector-instance.db")).unwrap();
-    let target_a =
-        TargetIdentity::team("instance-1", "company-1", "user-a", "space-a").unwrap();
+    let target_a = TargetIdentity::team("instance-1", "company-1", "user-a", "space-a").unwrap();
     let other_instance =
         TargetIdentity::team("instance-2", "company-1", "user-a", "space-a").unwrap();
     let pending = PendingSubmission::new(fixture::submission(

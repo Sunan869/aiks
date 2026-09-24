@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -204,46 +204,78 @@ fn platform_delete(_: &Path, connection: &str, user: &str) -> ClientResult<()> {
 }
 
 #[cfg(target_os = "windows")]
+fn dpapi(bytes: &[u8], protect: bool) -> ClientResult<Vec<u8>> {
+    use std::ptr::null_mut;
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::Cryptography::{
+            CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+        },
+    };
+
+    let mut input = CRYPT_INTEGER_BLOB {
+        cbData: u32::try_from(bytes.len()).map_err(|_| ClientError::TooLarge)?,
+        pbData: bytes.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    let ok = unsafe {
+        if protect {
+            CryptProtectData(
+                &mut input,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut output,
+            )
+        } else {
+            CryptUnprotectData(
+                &mut input,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut output,
+            )
+        }
+    };
+    if ok == 0 || output.pbData.is_null() {
+        return Err(ClientError::Storage);
+    }
+    let result =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+    if !protect {
+        unsafe { std::ptr::write_bytes(output.pbData, 0, output.cbData as usize) };
+    }
+    unsafe {
+        LocalFree(output.pbData.cast());
+    }
+    Ok(result)
+}
+
+#[cfg(target_os = "windows")]
 fn platform_store(root: &Path, connection: &str, user: &str, bytes: &[u8]) -> ClientResult<bool> {
     let path = root.join(file_name(connection, user));
-    let script = r#"Add-Type -AssemblyName System.Security;$d=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($d);$e=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[IO.File]::WriteAllBytes($args[0],$e)"#;
-    let mut child = match Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return Ok(false),
-    };
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(bytes).map_err(|_| ClientError::Storage)?;
-    }
-    Ok(child.wait().map(|s| s.success()).unwrap_or(false))
+    let encrypted = dpapi(bytes, true)?;
+    std::fs::write(path, encrypted).map_err(|_| ClientError::Storage)?;
+    Ok(true)
 }
 #[cfg(target_os = "windows")]
 fn platform_load(root: &Path, connection: &str, user: &str) -> ClientResult<Option<Vec<u8>>> {
-    use base64::Engine;
     let path = root.join(file_name(connection, user));
     if !path.exists() {
         return Ok(None);
     }
-    let script = r#"Add-Type -AssemblyName System.Security;$e=[IO.File]::ReadAllBytes($args[0]);$b=[Security.Cryptography.ProtectedData]::Unprotect($e,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Out.Write([Convert]::ToBase64String($b))"#;
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .arg(&path)
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|_| ClientError::Storage)?;
-    if !output.status.success() {
+    let encrypted = std::fs::read(path).map_err(|_| ClientError::Storage)?;
+    if encrypted.is_empty() || encrypted.len() > 128 * 1024 {
         return Err(ClientError::Storage);
     }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(output.stdout)
-        .map_err(|_| ClientError::Storage)?;
-    Ok(Some(bytes))
+    Ok(Some(dpapi(&encrypted, false)?))
 }
 #[cfg(target_os = "windows")]
 fn platform_delete(root: &Path, connection: &str, user: &str) -> ClientResult<()> {
