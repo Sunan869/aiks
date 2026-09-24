@@ -366,16 +366,18 @@ pub fn knowledge_list_for(
                  )
              ) ORDER BY ki.rowid DESC LIMIT ?3 OFFSET ?4",
         )?;
-        stmt.query_map(
-            params![
-                team.company_id(),
-                team.user_id(),
-                page.limit as i64,
-                page.offset as i64
-            ],
-            knowledge_list_row,
-        )?
-        .collect::<Result<Vec<_>, _>>()?
+        let items = stmt
+            .query_map(
+                params![
+                    team.company_id(),
+                    team.user_id(),
+                    page.limit as i64,
+                    page.offset as i64
+                ],
+                knowledge_list_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        items
     } else {
         let mut stmt = tx.prepare(
             "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL
@@ -385,16 +387,18 @@ pub fn knowledge_list_for(
              WHERE ki.status='active' AND ((b.principal_id=?1 AND b.space_id=?2) OR (kb.principal_id=?1 AND kb.space_id=?2))
              ORDER BY ki.rowid DESC LIMIT ?3 OFFSET ?4",
         )?;
-        stmt.query_map(
-            params![
-                ctx.principal_id(),
-                ctx.space_id(),
-                page.limit as i64,
-                page.offset as i64
-            ],
-            knowledge_list_row,
-        )?
-        .collect::<Result<Vec<_>, _>>()?
+        let items = stmt
+            .query_map(
+                params![
+                    ctx.principal_id(),
+                    ctx.space_id(),
+                    page.limit as i64,
+                    page.offset as i64
+                ],
+                knowledge_list_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        items
     };
     Ok(json!({"items":items,"limit":page.limit,"offset":page.offset}))
 }
