@@ -1,28 +1,51 @@
-# AIKS single-company deployment
+# AIKS single-company team deployment
 
-This directory is a deployment reference, not a ready-to-run configuration. The checked-in template keeps team mode disabled and contains no credentials.
+本目录提供 S2 单企业团队服务的两种部署入口：
 
-## Prepare
+- **Docker Compose（推荐用于当前服务器联调）**：`docker-compose.yml` + `.env` + `deploy.sh`；
+- **systemd + 宿主机 Nginx**：`service.toml.example` + `aiks-service.service.example` + `nginx.conf.example`。
 
-1. Copy `service.toml.example` to `/etc/aiks/service.toml`.
-2. Copy `.env.example` to `/etc/aiks/team.env` and set mode `0600`, or configure an equivalent service-manager secret source.
-3. Fill the single-company CorpId, Client ID, callback, authorized department IDs and server-side secrets. Keep SiYuan bound to loopback.
-4. Set both `team.enabled=true` and `team.dingtalk.enabled=true`.
-5. Run `/opt/aiks/bin/aiks-service --config /etc/aiks/service.toml --check-config`.
-6. Only after the check succeeds, install/start the systemd unit and enable the Nginx TLS endpoint.
+完整 Docker 部署步骤见 [`SERVER_DEPLOY.md`](./SERVER_DEPLOY.md)。
 
-The team service itself listens only on the configured numeric loopback address. Nginx terminates TLS and forwards only the allowlisted AIKS paths with the configured public Host. Do not add generic `/proxy`, SQL, file, SiYuan or arbitrary URL forwarding. Do not add `Forwarded` or `X-Forwarded-*` identity headers; the service rejects them.
+## Docker 快速开始
 
-## Secrets
+```bash
+cd deploy/team
+chmod +x deploy.sh
+./deploy.sh init
+vim .env
+./deploy.sh check
+./deploy.sh up
+./deploy.sh logs
+```
 
-`AIKS_DINGTALK_CLIENT_SECRET`, `AIKS_SIYUAN_TOKEN` and optional model keys are server-only. They must not be put in desktop configuration, URLs, logs or Git. On Unix, DingTalk Client Secret may alternatively use `client_secret_file` with an absolute, non-symlink file owned by the service account and no group/other permissions.
+Compose 使用 `network_mode: host`，但 AIKS Service 本身仍只监听 `127.0.0.1:${AIKS_SERVICE_PORT}`，没有 `ports:` 公网映射。这是当前 team 安全契约的一部分：宿主机 Nginx 负责 TLS/公网入口，SiYuan 只在 `127.0.0.1:6806` 内部可达。
 
-## Backup and rollback
+`.env` 中的 DingTalk Client Secret、SiYuan Token 和模型 Key 只注入 Service 进程。容器入口脚本生成的 `/run/aiks/service.toml` 只保存环境变量**名称**，不会把 Secret 值写进去。
 
-Before a backup: stop accepting new writes, let AIKS work drain, stop the internal SiYuan instance, checkpoint/copy the SQLite database together with the SiYuan workspace, and write a manifest containing file hashes but no usernames or secrets. Restore first into a new isolated directory and verify it before touching the original installation.
+## systemd 部署
 
-For rollback, stop the service and restore the matching database + SiYuan workspace pair. Do not let an older binary open a database after a newer schema has been introduced. A failed restore must leave the original data directory intact.
+1. 复制 `service.toml.example` 到 `/etc/aiks/service.toml`；
+2. 复制 `.env.example` 或另建 `/etc/aiks/team.env`，只保留 systemd 所需变量；
+3. 填 CorpId、Client ID、回调、部门范围和服务器 Secret；
+4. 将 `team.enabled=true`、`team.dingtalk.enabled=true`；
+5. 执行 `/opt/aiks/bin/aiks-service --config /etc/aiks/service.toml --check-config`；
+6. 安装 `aiks-service.service.example` 和 `nginx.conf.example` 后再启动。
+
+系统服务方式下建议使用独立 `aiks` 用户、`UMask=0077`，数据库和 SiYuan workspace 都放到仅该服务账户可写的目录。
+
+## Security boundary
+
+- Team Service 只允许固定 numeric loopback listener；不要改成 `0.0.0.0`。
+- Nginx 只代理明确的 AIKS API allowlist；不要增加 `/proxy/`、SQL、任意文件、SiYuan 原生接口。
+- 不信任 `Forwarded` / `X-Forwarded-*` 来推导身份，模板会主动清空这些头。
+- Client Secret、SiYuan Token、AI/Embedding Key 不进入桌面端、URL、日志、Git。
+- `.env` 不是 shell 脚本，`deploy.sh` 不会 `source` 或执行其中内容。
+
+## Backup / rollback
+
+备份前应停止新写入、等待 AIKS 任务 drain、停止内部 SiYuan，然后对 SQLite 与 SiYuan workspace 做同一批次备份并记录 hash。恢复时先在新隔离目录验证，再切换原服务。不要让旧二进制直接打开已经升级 schema 的数据库。
 
 ## Validation status
 
-CI uses synthetic identities, temporary databases and synthetic secrets. Real DingTalk enterprise authorization, real SiYuan recovery and the desktop browser callback are separate deployment evidence and require manually supplied environment-specific parameters.
+CI 使用合成身份、临时数据库与合成 Secret。真实 DingTalk 企业授权、真实 SiYuan 恢复、桌面浏览器 callback、真实模型参数仍属于服务器联调证据，不能由 CI 绿色替代。
