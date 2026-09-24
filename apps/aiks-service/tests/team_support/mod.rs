@@ -56,9 +56,9 @@ impl TeamTestService {
         let research_id = store.org_id_by_external("research").unwrap().unwrap();
         let policy = AuthPolicy::default();
         let login = LoginStore::new(store.clone(), policy).unwrap();
-        let owner_token = issue(&login, "owner", "employee-owner", "union-owner", at + 1);
-        let reader_token = issue(&login, "reader", "employee-reader", "union-reader", at + 1);
-        let child_token = issue(&login, "child", "employee-child", "union-child", at + 1);
+        let owner_token = issue(&login, "owner", "employee-owner", "union-owner", at);
+        let reader_token = issue(&login, "reader", "employee-reader", "union-reader", at);
+        let child_token = issue(&login, "child", "employee-child", "union-child", at);
         let sessions = Arc::new(SessionStore::new(store.clone(), policy).unwrap());
         let config = ServiceConfig::personal(path.clone());
         let runtime = Arc::new(
