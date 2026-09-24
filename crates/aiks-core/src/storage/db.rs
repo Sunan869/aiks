@@ -299,6 +299,10 @@ impl StateDb {
             "../../migrations/022_team_knowledge_import.sql"
         ))
         .context("run team knowledge import migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/023_team_workspace_tickets.sql"
+        ))
+        .context("run team workspace SSO ticket migration")?;
         tx.commit()?;
         Ok(())
     }
