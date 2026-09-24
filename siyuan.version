@@ -11,3 +11,4 @@ bridge_protocol=1
 # desktop_revision=linux-gtk-fixed-final
 # runtime_asset_revision=embedded-profile-x11-gtk-fixed-2
 # desktop_revision=release-v0.4.0
+# desktop_revision=release-v0.4.0-linux-arm64-xdg-open-fix
