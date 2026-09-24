@@ -31,9 +31,10 @@ async fn directory_search_returns_only_safe_current_targets() {
     let orgs = service
         .auth(
             &service.reader_token,
-            service
-                .client
-                .get(format!("{}/api/v1/directory/search?q=Research", service.base)),
+            service.client.get(format!(
+                "{}/api/v1/directory/search?q=Research",
+                service.base
+            )),
         )
         .send()
         .await
