@@ -523,6 +523,41 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
     assert_eq!(
         s.request(
             reqwest::Method::POST,
+            "/api/v1/internal/workspace/principals/validate",
+        )
+        .json(&principal)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        204
+    );
+
+    assert_eq!(
+        s.request(reqwest::Method::POST, "/api/v1/auth/logout")
+            .bearer_auth(access)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/principals/validate",
+        )
+        .json(&principal)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        401
+    );
+
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
             "/api/v1/internal/workspace/tickets/consume",
         )
         .json(&json!({"ticket":ticket}))
