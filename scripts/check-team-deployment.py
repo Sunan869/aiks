@@ -66,7 +66,7 @@ def main() -> None:
         "siyuan:",
         "aiks-service:",
         "image:",
-        "host network",
+        "network_mode: host",
         "env_file:",
         "- .env",
         "read_only: true",
@@ -111,7 +111,7 @@ def main() -> None:
     for required in [
         "docker push",
         "./deploy.sh pull",
-        "network_mode: host",
+        "host network",
         "AIKS_DINGTALK_CLIENT_SECRET",
     ]:
         if required not in docs:
