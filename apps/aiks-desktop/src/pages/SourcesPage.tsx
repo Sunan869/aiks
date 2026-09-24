@@ -4,9 +4,23 @@ import { getApi } from "../api/client";
 import type { FullStatus } from "../api/types";
 import { useSourceCatalog } from "../ProviderCatalog";
 import { saveProviderSettings } from "../api/provider-catalog";
-import { sourceStateLabel, syncCatalogSource, type SourceDescriptor } from "../api/provider-catalog-model";
+import { sourceStatusPresentation, syncCatalogSource, type SourceDescriptor, type SourceStatusTone } from "../api/provider-catalog-model";
 
 interface Props { fullStatus: FullStatus | null; }
+
+const STATUS_TONE_CLASS: Record<SourceStatusTone, string> = {
+  success: "text-green-600 dark:text-green-400",
+  neutral: "text-gray-500 dark:text-gray-400",
+  warning: "text-amber-600 dark:text-amber-400",
+  danger: "text-red-600 dark:text-red-400",
+};
+
+const ISSUE_TONE_CLASS: Record<SourceStatusTone, string> = {
+  success: "",
+  neutral: "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300",
+  warning: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-200",
+  danger: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/25 dark:text-red-200",
+};
 
 function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDescriptor; count: number; diagnostics: string[]; refresh: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
@@ -34,17 +48,38 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
     finally { setBusy(false); }
   };
   const readable = source.enabled && source.status === "ok" && !source.restart_required;
+  const status = sourceStatusPresentation(source);
+  const hasDetails = Boolean(source.message?.trim()) || diagnostics.length > 0;
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">{source.display_name}</h2>
-        <span className={`text-xs ${readable ? "text-green-600" : "text-gray-500"}`}>{sourceStateLabel(source)}</span>
+        <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{status.label}</span>
       </div>
       <div className="mt-2 break-all text-xs text-gray-500">
-        {source.paths.length ? source.paths.join(" · ") : source.key === "aider" ? "需要配置项目根目录；不会自动扫描整个磁盘。" : "自动探测该工具的本地会话目录"}
+        {source.paths.length
+          ? <>检测目录：{source.paths.join(" · ")}</>
+          : source.key === "aider"
+            ? "需要配置项目根目录；不会自动扫描整个磁盘。"
+            : "自动探测该工具的本地会话目录"}
       </div>
-      {source.enabled && source.status !== "ok" && source.message && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{source.message}</p>}
-      {diagnostics.length > 0 && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">最近扫描未完整完成，已有数据保留。诊断：{diagnostics.join("、")}</p>}
+
+      {status.title && (
+        <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${ISSUE_TONE_CLASS[status.tone]}`}>
+          <div className="font-medium">{status.title}</div>
+          {status.description && <div className="mt-1 leading-5 opacity-80">{status.description}</div>}
+        </div>
+      )}
+
+      {hasDetails && (
+        <details className="mt-2 text-[11px] text-gray-400">
+          <summary className="cursor-pointer select-none hover:text-gray-600 dark:hover:text-gray-300">查看详情</summary>
+          <div className="mt-1.5 space-y-1 rounded-md bg-gray-50 px-3 py-2 font-mono leading-5 dark:bg-gray-900/50">
+            {source.message?.trim() && <div>原始信息：{source.message}</div>}
+            {diagnostics.length > 0 && <div>诊断：{diagnostics.join("、")}</div>}
+          </div>
+        </details>
+      )}
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="text-xs text-gray-500">最近扫描发现 <strong className="text-blue-600">{count}</strong> 条会话</span>
         <div className="flex gap-2">
