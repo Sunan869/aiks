@@ -62,6 +62,8 @@ pub enum ServiceError {
     AiDisabled,
     #[error("Canonical content is temporarily unavailable")]
     ContentUnavailable,
+    #[error("Canonical content update is still in progress")]
+    ContentPending,
     #[error("Internal service error")]
     Internal,
     #[error("Revision limit reached")]
@@ -82,6 +84,7 @@ impl ServiceError {
             Self::Unavailable => "unavailable",
             Self::AiDisabled => "ai_disabled",
             Self::ContentUnavailable => "content_unavailable",
+            Self::ContentPending => "content_pending",
             Self::Internal => "internal",
             Self::RevisionExhausted => "revision_exhausted",
         }

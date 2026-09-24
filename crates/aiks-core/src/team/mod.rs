@@ -1,4 +1,5 @@
 //! Single-company authorization primitives. Network access remains opt-in and gated.
+mod content;
 mod directory;
 mod directory_audit;
 mod directory_types;
@@ -9,6 +10,9 @@ mod repo;
 mod shares;
 mod types;
 
+pub use content::{
+    ContentOperation, ContentWorker, ManagedAsset, MAX_MANAGED_ASSET_BYTES, MAX_TEAM_CONTENT_BYTES,
+};
 pub use directory_types::{DirectorySnapshot, DirectoryUser, Membership, OrgRecord, UserRecord};
 pub use provider::{ExternalLogin, IdentityProvider};
 pub use repo::TeamStore;

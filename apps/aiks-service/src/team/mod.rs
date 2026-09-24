@@ -8,5 +8,6 @@ pub mod secrets;
 mod auth_http;
 pub mod auth_routes;
 pub mod business_routes;
+mod content_routes;
 mod middleware;
 mod share_routes;

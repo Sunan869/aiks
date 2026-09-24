@@ -18,7 +18,9 @@ impl IntoResponse for ApiError {
             ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
             ServiceError::NotFound => StatusCode::NOT_FOUND,
             ServiceError::Forbidden => StatusCode::FORBIDDEN,
-            ServiceError::Conflict | ServiceError::RevisionExhausted => StatusCode::CONFLICT,
+            ServiceError::Conflict
+            | ServiceError::ContentPending
+            | ServiceError::RevisionExhausted => StatusCode::CONFLICT,
             ServiceError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             ServiceError::IncompleteSnapshot => StatusCode::UNPROCESSABLE_ENTITY,
             ServiceError::Unavailable

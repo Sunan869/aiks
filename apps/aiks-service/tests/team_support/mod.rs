@@ -44,6 +44,10 @@ pub struct TeamTestService {
 
 impl TeamTestService {
     pub async fn start() -> Self {
+        Self::configured(|_| {}).await
+    }
+
+    pub async fn configured(configure: impl FnOnce(&mut ServiceConfig)) -> Self {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("team.db");
         let db = Arc::new(StateDb::open_exclusive(&path).unwrap());
@@ -60,7 +64,8 @@ impl TeamTestService {
         let reader_token = issue(&login, "reader", "employee-reader", "union-reader", at);
         let child_token = issue(&login, "child", "employee-child", "union-child", at);
         let sessions = Arc::new(SessionStore::new(store.clone(), policy).unwrap());
-        let config = ServiceConfig::personal(path.clone());
+        let mut config = ServiceConfig::personal(path.clone());
+        configure(&mut config);
         let runtime = Arc::new(
             ServiceRuntime::open_team_bound(store.clone(), config.runtime_config()).unwrap(),
         );

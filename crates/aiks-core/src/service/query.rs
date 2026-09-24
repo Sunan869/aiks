@@ -235,6 +235,7 @@ pub struct KnowledgeView {
     pub tags: Vec<String>,
     pub revision: Option<u32>,
     pub current_revision: u32,
+    pub content_revision: Option<u64>,
     pub stale: bool,
     pub content_state: String,
     pub content: Option<String>,
@@ -264,12 +265,22 @@ pub fn knowledge_for(
     let generation = epoch(&tx)?;
     if let Some(team) = ctx.team() {
         knowledge_access_in_conn(&tx, team, id, Action::Read, now)?;
+        let content_pending: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM team_content_operation
+             WHERE company_id=?1 AND knowledge_id=?2 AND state IN ('applying','verifying'))",
+            params![team.company_id(), id],
+            |row| row.get(0),
+        )?;
+        if content_pending {
+            return Err(ServiceError::ContentPending);
+        }
     }
     let sql = if ctx.is_team() {
         "SELECT ki.id,substr(ki.title,1,4096),substr(ki.summary,1,16384),substr(ki.category,1,256),
                 CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
                 d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id,
-                CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END
+                CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END,
+                (SELECT content_revision FROM team_knowledge_owner o WHERE o.knowledge_id=ki.id)
          FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.id=?1 AND ki.status='active'"
@@ -277,7 +288,8 @@ pub fn knowledge_for(
         "SELECT ki.id,substr(ki.title,1,4096),substr(ki.summary,1,16384),substr(ki.category,1,256),
                 CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
                 d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id,
-                CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END
+                CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END,
+                NULL
          FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
          LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
@@ -314,6 +326,7 @@ fn knowledge_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnowledgeView> {
         tags: serde_json::from_str(&tags).unwrap_or_default(),
         revision,
         current_revision,
+        content_revision: row.get(9)?,
         stale: revision != Some(current_revision),
         content_state: if doc_id.is_some() {
             "published"
@@ -343,7 +356,7 @@ pub fn knowledge_list_for(
     ctx.authorize_in_conn(&tx, now)?;
     let items = if let Some(team) = ctx.team() {
         let mut stmt = tx.prepare(
-            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL
+            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,o.content_revision
              FROM knowledge_item ki
              JOIN team_knowledge_owner o ON o.knowledge_id=ki.id AND o.company_id=?1
              LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
@@ -380,7 +393,7 @@ pub fn knowledge_list_for(
         items
     } else {
         let mut stmt = tx.prepare(
-            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL
+            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,NULL
              FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
              LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
              LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
@@ -408,7 +421,8 @@ fn knowledge_list_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let current: u32 = row.get(3)?;
     Ok(
         json!({"id":row.get::<_,String>(0)?,"title":row.get::<_,String>(1)?,"revision":revision,
-        "current_revision":current,"stale":revision!=Some(current),
+        "current_revision":current,"content_revision":row.get::<_,Option<u64>>(5)?,
+        "stale":revision!=Some(current),
         "content_state":if row.get::<_,bool>(4)? {"published"} else {"draft"}}),
     )
 }

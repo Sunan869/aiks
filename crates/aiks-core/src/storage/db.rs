@@ -287,6 +287,10 @@ impl StateDb {
             .context("run V19 atomic team directory migration")?;
         tx.execute_batch(include_str!("../../migrations/019_team_auth_sessions.sql"))
             .context("run team authentication migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/020_team_content_intents.sql"
+        ))
+        .context("run team content intent migration")?;
         tx.commit()?;
         Ok(())
     }

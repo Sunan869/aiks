@@ -14,7 +14,7 @@ use crate::{
     search::{UnifiedSearchFilter, UnifiedSearchService},
     sink::SiYuanSink,
     storage::StateDb,
-    team::{GrantInput, ShareState, TeamStore},
+    team::{ContentOperation, ContentWorker, GrantInput, ManagedAsset, ShareState, TeamStore},
 };
 use serde_json::{json, Value};
 use std::{
@@ -70,7 +70,8 @@ pub struct ServiceRuntime {
     mode: RuntimeMode,
     worker: PipelineWorker,
     models: Arc<ModelService>,
-    content: SiYuanSink,
+    content: Arc<SiYuanSink>,
+    content_worker: Option<ContentWorker>,
     closing: AtomicBool,
 }
 
@@ -112,14 +113,23 @@ impl ServiceRuntime {
             config.ai.clone(),
             config.embedding.clone(),
         )?);
-        let content = SiYuanSink::service_reader(config.siyuan)?;
+        let content = Arc::new(SiYuanSink::service_reader(config.siyuan)?);
         let db = mode.db();
         let worker = PipelineWorker::start_from_snapshots(db, config.ai, config.embedding);
+        let content_worker = match &mode {
+            RuntimeMode::Team(store) => Some(ContentWorker::start(
+                store.clone(),
+                content.clone(),
+                models.clone(),
+            )),
+            RuntimeMode::Personal(_) => None,
+        };
         Ok(Self {
             mode,
             worker,
             models,
             content,
+            content_worker,
             closing: AtomicBool::new(false),
         })
     }
@@ -150,7 +160,7 @@ impl ServiceRuntime {
             RuntimeMode::Team(store) => json!({"api_version":1,"instance_id":store.instance_id(),
                 "mode":"team","snapshots":true,"keyword_search":true,
                 "semantic_search":self.models.embedding_config().enabled,
-                "ai_assist":self.models.llm_config().enabled,"team":true,"content_write":false,"rag":false}),
+                "ai_assist":self.models.llm_config().enabled,"team":true,"content_write":true,"rag":false}),
         }
     }
 
@@ -474,8 +484,131 @@ impl ServiceRuntime {
         .await
     }
 
+    pub async fn submit_content_for(
+        &self,
+        ctx: &RequestContext,
+        id: String,
+        operation_id: String,
+        base_revision: u64,
+        title: String,
+        markdown: String,
+    ) -> Result<ContentOperation, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        let result = self
+            .blocking_for(request, move |_db, ctx, at| {
+                let RuntimeMode::Team(store) = mode else {
+                    return Err(ServiceError::NotFound);
+                };
+                let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+                Ok(store.enqueue_content_update(
+                    team,
+                    &id,
+                    &operation_id,
+                    base_revision,
+                    &title,
+                    &markdown,
+                    at,
+                )?)
+            })
+            .await?;
+        if let Some(worker) = &self.content_worker {
+            worker.wake();
+        }
+        Ok(result)
+    }
+
+    pub async fn publish_for(
+        &self,
+        ctx: &RequestContext,
+        id: String,
+        operation_id: String,
+        base_revision: u64,
+    ) -> Result<ContentOperation, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        let result = self
+            .blocking_for(request, move |_db, ctx, at| {
+                let RuntimeMode::Team(store) = mode else {
+                    return Err(ServiceError::NotFound);
+                };
+                let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+                Ok(store.enqueue_publish(team, &id, &operation_id, base_revision, at)?)
+            })
+            .await?;
+        if let Some(worker) = &self.content_worker {
+            worker.wake();
+        }
+        Ok(result)
+    }
+
+    pub async fn content_operation_for(
+        &self,
+        ctx: &RequestContext,
+        operation_id: String,
+    ) -> Result<ContentOperation, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        self.blocking_for(request, move |_db, ctx, at| {
+            let RuntimeMode::Team(store) = mode else {
+                return Err(ServiceError::NotFound);
+            };
+            let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+            Ok(store.content_operation(team, &operation_id, at)?)
+        })
+        .await
+    }
+
+    pub async fn create_asset_for(
+        &self,
+        ctx: &RequestContext,
+        knowledge_id: String,
+        filename: String,
+        content_type: String,
+        bytes: Vec<u8>,
+    ) -> Result<String, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        self.blocking_for(request, move |_db, ctx, at| {
+            let RuntimeMode::Team(store) = mode else {
+                return Err(ServiceError::NotFound);
+            };
+            let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+            Ok(store.create_managed_asset(
+                team,
+                &knowledge_id,
+                &filename,
+                &content_type,
+                &bytes,
+                at,
+            )?)
+        })
+        .await
+    }
+
+    pub async fn managed_asset_for(
+        &self,
+        ctx: &RequestContext,
+        knowledge_id: String,
+        asset_id: String,
+    ) -> Result<ManagedAsset, ServiceError> {
+        let request = ctx.clone();
+        let mode = self.mode.clone();
+        self.blocking_for(request, move |_db, ctx, at| {
+            let RuntimeMode::Team(store) = mode else {
+                return Err(ServiceError::NotFound);
+            };
+            let team = ctx.team().ok_or(ServiceError::Unauthorized)?;
+            Ok(store.managed_asset(team, &knowledge_id, &asset_id, at)?)
+        })
+        .await
+    }
+
     pub async fn shutdown(&self, grace: Duration) -> anyhow::Result<()> {
         self.closing.store(true, Ordering::Release);
+        if let Some(worker) = &self.content_worker {
+            worker.shutdown(grace).await;
+        }
         self.worker.shutdown(grace).await
     }
 }
