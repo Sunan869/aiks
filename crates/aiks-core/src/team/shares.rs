@@ -1,5 +1,5 @@
 //! Owner-only knowledge authorization and read-only person/organization grants.
-use std::collections::BTreeMap;
+use std::collections::{btree_map::Entry, BTreeMap};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
@@ -100,10 +100,20 @@ impl TeamStore {
                     if !valid_id(id) || !current_org(&tx, self.company_id(), id, generation)? {
                         return Err(TeamError::InvalidInput);
                     }
-                    canonical.insert(
-                        format!("org:{id}:{}", u8::from(*descendants)),
-                        grant.clone(),
-                    );
+                    match canonical.entry(format!("org:{id}")) {
+                        Entry::Vacant(slot) => {
+                            slot.insert(grant.clone());
+                        }
+                        Entry::Occupied(mut slot) => {
+                            if let GrantTarget::Org {
+                                descendants: existing,
+                                ..
+                            } = &mut slot.get_mut().target
+                            {
+                                *existing |= *descendants;
+                            }
+                        }
+                    }
                 }
             }
         }

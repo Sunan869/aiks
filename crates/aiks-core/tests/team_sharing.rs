@@ -130,7 +130,6 @@ fn owner_managed_read_grants_are_versioned_union_scoped_and_revocable() {
     let (_root, store, at) = setup();
     let owner = store.user_by_union("uo").unwrap().unwrap();
     let reader = store.user_by_union("ur").unwrap().unwrap();
-    let child = store.user_by_union("uc").unwrap().unwrap();
     let research = store.org_id_by_external("research").unwrap().unwrap();
     store.db().conn().execute(
         "INSERT INTO knowledge_item(id,title,summary,category,tags,content,created_at,updated_at) VALUES ('k','K','','','[]','body','x','x')",
@@ -209,9 +208,40 @@ fn owner_managed_read_grants_are_versioned_union_scoped_and_revocable() {
     ));
     assert_eq!(
         store
-            .replace_grants(&owner_ctx, "k", 2, &[], at + 1)
+            .replace_grants(
+                &owner_ctx,
+                "k",
+                2,
+                &[
+                    GrantInput {
+                        target: GrantTarget::Org {
+                            id: store.org_id_by_external("research").unwrap().unwrap(),
+                            descendants: false,
+                        },
+                    },
+                    GrantInput {
+                        target: GrantTarget::Org {
+                            id: store.org_id_by_external("research").unwrap().unwrap(),
+                            descendants: true,
+                        },
+                    },
+                ],
+                at + 1,
+            )
             .unwrap(),
         3
+    );
+    let deduped = store.list_grants(&owner_ctx, "k", at + 1).unwrap();
+    assert_eq!(deduped.grants.len(), 1);
+    assert!(deduped.grants[0].include_descendants);
+    assert!(store
+        .knowledge_access(&child_ctx, "k", Action::Read, at + 1)
+        .is_ok());
+    assert_eq!(
+        store
+            .replace_grants(&owner_ctx, "k", 3, &[], at + 1)
+            .unwrap(),
+        4
     );
     assert!(matches!(
         store.knowledge_access(&reader_ctx, "k", Action::Read, at + 1),
