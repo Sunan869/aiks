@@ -68,6 +68,7 @@ struct ClaimedOperation {
     target_hash: String,
     expected_remote_hash: Option<String>,
     target_doc_id: Option<String>,
+    target_category: Option<String>,
     lease_token: String,
     attempt_count: u32,
 }
@@ -113,21 +114,32 @@ impl TeamStore {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         ctx.authorize_in_conn(&tx, now)?;
         knowledge_access_in_conn(&tx, ctx, knowledge_id, Action::Edit, now)?;
-        let row: (u64, String, String, Option<String>) = tx
+        let row: (u64, String, String, String, Option<String>) = tx
             .query_row(
-                "SELECT o.content_revision,ki.title,ki.content,ki.siyuan_doc_id
+                "SELECT o.content_revision,ki.title,ki.category,ki.content,ki.siyuan_doc_id
                  FROM team_knowledge_owner o JOIN knowledge_item ki ON ki.id=o.knowledge_id
                  WHERE o.company_id=?1 AND o.knowledge_id=?2 AND o.owner_user_id=?3",
                 params![self.company_id(), knowledge_id, ctx.user_id()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?
             .ok_or(TeamError::NotFound)?;
-        if row.3.is_some() {
+        if let Some((_, existing, owner)) =
+            read_operation_with_hash(&tx, self.company_id(), operation_id)?
+        {
+            if existing.knowledge_id == knowledge_id
+                && existing.base_revision == base_revision
+                && owner == ctx.user_id()
+            {
+                return Ok(existing);
+            }
+            return Err(TeamError::Conflict);
+        }
+        if row.4.is_some() {
             return Err(TeamError::Conflict);
         }
         validate_title(&row.1)?;
-        validate_markdown(&row.2)?;
+        validate_markdown(&row.3)?;
         let operation = enqueue_operation_in_tx(
             &tx,
             self.company_id(),
@@ -137,10 +149,11 @@ impl TeamStore {
             base_revision,
             ContentOperationKind::Publish,
             &row.1,
-            &row.2,
+            &row.3,
             row.0,
             None,
             None,
+            Some(&row.2),
             now,
         )?;
         tx.commit()?;
@@ -193,6 +206,7 @@ impl TeamStore {
             row.0,
             row.1.as_deref(),
             row.2.as_deref(),
+            None,
             now,
         )?;
         tx.commit()?;
@@ -332,9 +346,11 @@ impl TeamStore {
             return Ok(None);
         }
         let claimed = tx.query_row(
-            "SELECT id,knowledge_id,owner_user_id,origin_session_id,kind,base_revision,directory_max_age,target_title,
-                    target_markdown,target_hash,expected_remote_hash,target_doc_id,lease_token,attempt_count
-             FROM team_content_operation WHERE company_id=?1 AND id=?2",
+            "SELECT o.id,o.knowledge_id,o.owner_user_id,o.origin_session_id,o.kind,o.base_revision,o.directory_max_age,o.target_title,
+                    o.target_markdown,o.target_hash,o.expected_remote_hash,o.target_doc_id,o.lease_token,o.attempt_count,p.category
+             FROM team_content_operation o
+             LEFT JOIN team_content_publish_target p ON p.company_id=o.company_id AND p.operation_id=o.id
+             WHERE o.company_id=?1 AND o.id=?2",
             params![self.company_id(), id],
             |r| {
                 let kind: String = r.get(4)?;
@@ -357,6 +373,7 @@ impl TeamStore {
                     target_doc_id: r.get(11)?,
                     lease_token: r.get(12)?,
                     attempt_count: r.get(13)?,
+                    target_category: r.get(14)?,
                 })
             },
         )?;
@@ -547,6 +564,7 @@ fn enqueue_operation_in_tx(
     current_revision: u64,
     target_doc_id: Option<&str>,
     expected_remote_hash: Option<&str>,
+    target_category: Option<&str>,
     now: u64,
 ) -> Result<ContentOperation, TeamError> {
     let payload_hash = operation_payload_hash(kind, knowledge_id, base_revision, title, markdown);
@@ -595,6 +613,12 @@ fn enqueue_operation_in_tx(
             now
         ],
     )?;
+    if let Some(category) = target_category {
+        tx.execute(
+            "INSERT INTO team_content_publish_target(company_id,operation_id,category) VALUES (?1,?2,?3)",
+            params![company_id, operation_id, category],
+        )?;
+    }
     tx.execute(
         "INSERT INTO team_audit_event(id,company_id,actor_user_id,action,resource_id,occurred_at)
          VALUES (?1,?2,?3,'knowledge_content_queued',?4,?5)",
@@ -992,20 +1016,15 @@ async fn publish_operation(
     {
         return Err(ProcessError::Conflict);
     }
-    let category = {
-        let conn = store.db().conn();
-        conn.query_row(
-            "SELECT category FROM knowledge_item WHERE id=?1",
-            [op.knowledge_id.as_str()],
-            |r| r.get::<_, String>(0),
-        )
-        .map_err(|_| ProcessError::Unavailable)?
-    };
+    let category = op
+        .target_category
+        .as_deref()
+        .ok_or(ProcessError::Conflict)?;
     let notebook = sink
         .ensure_notebook()
         .await
         .map_err(|_| ProcessError::Unavailable)?;
-    let path = sink.build_knowledge_path(&category, &op.knowledge_id, &op.target_title);
+    let path = sink.build_knowledge_path(category, &op.knowledge_id, &op.target_title);
     store
         .set_operation_verifying(op, unix_now())
         .map_err(|_| ProcessError::Unavailable)?;
@@ -1022,14 +1041,8 @@ async fn publish_operation(
     }
     // Attributes are advisory metadata, never authorization. Failure is retried
     // because a later pass safely reconciles the same deterministic document.
-    sink.set_knowledge_attrs(
-        &doc_id,
-        &op.knowledge_id,
-        "team",
-        &op.target_hash,
-        &category,
-    )
-    .await
-    .map_err(|_| ProcessError::Unavailable)?;
+    sink.set_knowledge_attrs(&doc_id, &op.knowledge_id, "team", &op.target_hash, category)
+        .await
+        .map_err(|_| ProcessError::Unavailable)?;
     Ok((Some(doc_id), Some(markdown)))
 }

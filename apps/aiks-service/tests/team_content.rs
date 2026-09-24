@@ -24,6 +24,8 @@ struct SiYuanState {
     hpaths: Mutex<HashMap<String, String>>,
     update_seen: Semaphore,
     update_release: Semaphore,
+    create_seen: Semaphore,
+    create_release: Semaphore,
     fail_create_response_once: Mutex<bool>,
 }
 
@@ -34,6 +36,8 @@ impl Default for SiYuanState {
             hpaths: Mutex::new(HashMap::new()),
             update_seen: Semaphore::new(0),
             update_release: Semaphore::new(0),
+            create_seen: Semaphore::new(0),
+            create_release: Semaphore::new(0),
             fail_create_response_once: Mutex::new(false),
         }
     }
@@ -72,9 +76,15 @@ async fn siyuan_fixture(State(state): State<Arc<SiYuanState>>, request: Request<
             let hpath = input["path"].as_str().unwrap().to_owned();
             state.documents.lock().unwrap().insert(id.clone(), markdown);
             state.hpaths.lock().unwrap().insert(hpath, id.clone());
-            let mut fail = state.fail_create_response_once.lock().unwrap();
-            if *fail {
-                *fail = false;
+            let fail = {
+                let mut flag = state.fail_create_response_once.lock().unwrap();
+                let fail = *flag;
+                *flag = false;
+                fail
+            };
+            if fail {
+                state.create_seen.add_permits(1);
+                state.create_release.acquire().await.unwrap().forget();
                 (StatusCode::SERVICE_UNAVAILABLE, "synthetic response loss").into_response()
             } else {
                 JsonResponse(json!({"code":0,"msg":"","data":id})).into_response()
@@ -497,6 +507,19 @@ async fn publish_reconciles_a_committed_document_after_the_create_response_is_lo
         .await
         .unwrap();
     assert_eq!(response.status(), ReqwestStatus::ACCEPTED);
+    tokio::time::timeout(Duration::from_secs(2), siyuan.create_seen.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    Connection::open(&service.path)
+        .unwrap()
+        .execute(
+            "UPDATE knowledge_item SET category='changed-after-remote-commit' WHERE id='draft-publish'",
+            [],
+        )
+        .unwrap();
+    siyuan.create_release.add_permits(1);
     let done = wait_state(&service, &service.owner_token, "publish-one", "done").await;
     assert_eq!(done["result_revision"], 2);
 
@@ -517,6 +540,22 @@ async fn publish_reconciles_a_committed_document_after_the_create_response_is_lo
     assert_eq!(knowledge["content_state"], "published");
     assert_eq!(knowledge["content_revision"], 2);
     assert_eq!(siyuan.documents.lock().unwrap().len(), 1);
+    assert_eq!(siyuan.hpaths.lock().unwrap().len(), 1);
+
+    let replay = service
+        .auth(
+            &service.owner_token,
+            service.client.post(format!(
+                "{}/api/v1/knowledge/draft-publish/publish",
+                service.base
+            )),
+        )
+        .json(&json!({"base_revision":1,"operation_id":"publish-one"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), ReqwestStatus::ACCEPTED);
+    assert_eq!(replay.json::<Value>().await.unwrap()["state"], "done");
 
     service.stop().await;
     server.abort();
