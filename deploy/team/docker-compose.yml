@@ -1,13 +1,19 @@
 name: aiks-team
 
 services:
+  siyuan:
+    image: ${SIYUAN_IMAGE:-b3log/siyuan:latest}
+    container_name: ${SIYUAN_CONTAINER_NAME:-aiks-siyuan}
+    network_mode: host
+    volumes:
+      - ${AIKS_SIYUAN_DATA_DIR:-./siyuan-data}:/siyuan/workspace
+    command:
+      - --workspace=/siyuan/workspace
+      - --accessAuthCode=${AIKS_SIYUAN_TOKEN}
+    restart: unless-stopped
+
   aiks-service:
-    build:
-      context: ../..
-      dockerfile: deploy/team/Dockerfile
-      args:
-        RUST_VERSION: ${AIKS_RUST_VERSION:-1.98.1}
-    image: ${AIKS_IMAGE_NAME:-aiks-service}:${AIKS_IMAGE_TAG:-s2-dev}
+    image: ${AIKS_IMAGE:-aiks-service:s2-dev}
     container_name: ${AIKS_CONTAINER_NAME:-aiks-service-team}
     network_mode: host
     env_file:
@@ -16,6 +22,8 @@ services:
       AIKS_CONFIG_PATH: /run/aiks/service.toml
     volumes:
       - ${AIKS_DATA_DIR:-./data}:/var/lib/aiks-team
+    depends_on:
+      - siyuan
     read_only: true
     tmpfs:
       - /run/aiks:rw,noexec,nosuid,size=1m,mode=0700
