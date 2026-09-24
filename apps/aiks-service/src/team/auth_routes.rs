@@ -103,6 +103,10 @@ pub fn auth_router(auth: Arc<AuthService>) -> Router {
             "/api/v1/internal/workspace/documents/authorize",
             post(authorize_workspace_document),
         )
+        .route(
+            "/api/v1/internal/workspace/documents/filter",
+            post(filter_workspace_documents),
+        )
         .method_not_allowed_fallback(|| async { TeamHttpError::from(TeamError::InvalidInput) })
         .layer(DefaultBodyLimit::max(8192))
         .layer(middleware::from_fn_with_state(auth.clone(), guard))
@@ -242,6 +246,12 @@ struct WorkspaceTicketInput {
 struct WorkspaceDocumentAccessInput {
     principal: WorkspacePrincipal,
     document_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceDocumentFilterInput {
+    principal: WorkspacePrincipal,
+    document_ids: Vec<String>,
 }
 
 async fn start(
@@ -443,6 +453,18 @@ async fn authorize_workspace_document(
     })
     .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn filter_workspace_documents(
+    State(auth): State<Arc<AuthService>>,
+    input: Result<Json<WorkspaceDocumentFilterInput>, JsonRejection>,
+) -> Result<Json<Value>, TeamHttpError> {
+    let input = body(input)?;
+    let document_ids = auth
+        .blocking(move |_, sessions, at| {
+            sessions.filter_workspace_documents(&input.principal, &input.document_ids, at)
+        })
+        .await?;
+    Ok(Json(json!({"document_ids":document_ids})))
 }
 pub(crate) fn now() -> Result<u64, TeamError> {
     SystemTime::now()

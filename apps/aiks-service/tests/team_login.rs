@@ -576,6 +576,19 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
         .status(),
         404
     );
+    let filtered: Value = s
+        .request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/documents/filter",
+        )
+        .json(&json!({"principal":principal,"document_ids":["not-visible","siyuan-doc-1","not-visible"]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(filtered["document_ids"], json!(["siyuan-doc-1"]));
 
     assert_eq!(
         s.request(reqwest::Method::POST, "/api/v1/auth/logout")

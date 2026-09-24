@@ -185,8 +185,43 @@ impl SessionStore {
         let mut conn = self.store.db().conn();
         let tx = conn.transaction()?;
         self.validate_workspace_principal_in_conn(&tx, principal, now)?;
+        self.authorize_workspace_document_in_conn(&tx, principal, siyuan_doc_id, action)
+    }
 
-        let mut stmt = tx.prepare(
+    /// Filter a bounded document-id set with one principal validation and one SQLite snapshot.
+    pub fn filter_workspace_documents(
+        &self,
+        principal: &WorkspacePrincipal,
+        siyuan_doc_ids: &[String],
+        now: u64,
+    ) -> Result<Vec<String>, TeamError> {
+        if siyuan_doc_ids.len() > 512
+            || siyuan_doc_ids.iter().any(|id| !valid_document_id(id))
+        {
+            return Err(TeamError::InvalidInput);
+        }
+        let mut conn = self.store.db().conn();
+        let tx = conn.transaction()?;
+        self.validate_workspace_principal_in_conn(&tx, principal, now)?;
+        let mut visible = Vec::with_capacity(siyuan_doc_ids.len());
+        for id in siyuan_doc_ids {
+            match self.authorize_workspace_document_in_conn(&tx, principal, id, Action::Read) {
+                Ok(()) => visible.push(id.clone()),
+                Err(TeamError::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(visible)
+    }
+
+    fn authorize_workspace_document_in_conn(
+        &self,
+        conn: &Connection,
+        principal: &WorkspacePrincipal,
+        siyuan_doc_id: &str,
+        action: Action,
+    ) -> Result<(), TeamError> {
+        let mut stmt = conn.prepare(
             "SELECT o.owner_user_id=?3,
                     EXISTS(SELECT 1 FROM document_share_grant g
                            WHERE g.company_id=o.company_id AND g.knowledge_id=o.knowledge_id
@@ -215,8 +250,6 @@ impl SessionStore {
             return Err(TeamError::NotFound);
         };
         let access: (bool, bool, bool) = (row.get(0)?, row.get(1)?, row.get(2)?);
-        // Duplicate canonical document mappings are an integrity failure. Hide them rather than
-        // selecting an arbitrary ACL row.
         if rows.next()?.is_some() {
             return Err(TeamError::NotFound);
         }
