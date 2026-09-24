@@ -195,9 +195,7 @@ impl SessionStore {
         siyuan_doc_ids: &[String],
         now: u64,
     ) -> Result<Vec<String>, TeamError> {
-        if siyuan_doc_ids.len() > 512
-            || siyuan_doc_ids.iter().any(|id| !valid_document_id(id))
-        {
+        if siyuan_doc_ids.len() > 512 || siyuan_doc_ids.iter().any(|id| !valid_document_id(id)) {
             return Err(TeamError::InvalidInput);
         }
         let mut conn = self.store.db().conn();

@@ -545,10 +545,7 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
         conn.execute(
             "INSERT INTO team_knowledge_owner(company_id,knowledge_id,owner_user_id)
              VALUES (?1,'workspace-doc',?2)",
-            rusqlite::params![
-                s.store.company_id(),
-                principal["user_id"].as_str().unwrap()
-            ],
+            rusqlite::params![s.store.company_id(), principal["user_id"].as_str().unwrap()],
         )
         .unwrap();
     }
