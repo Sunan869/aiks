@@ -51,8 +51,7 @@ impl SessionStore {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        let (session_id, user_id, space_id, auth_version) =
-            row.ok_or(TeamError::Unauthorized)?;
+        let (session_id, user_id, space_id, auth_version) = row.ok_or(TeamError::Unauthorized)?;
 
         let ctx = TeamContext {
             instance_id: self.store.instance_id().into(),
@@ -157,10 +156,7 @@ impl SessionStore {
     }
 }
 
-fn cleanup_workspace_tickets(
-    tx: &rusqlite::Transaction<'_>,
-    now: u64,
-) -> Result<(), TeamError> {
+fn cleanup_workspace_tickets(tx: &rusqlite::Transaction<'_>, now: u64) -> Result<(), TeamError> {
     tx.execute(
         "DELETE FROM team_workspace_ticket
          WHERE token_hash IN (
