@@ -7,6 +7,10 @@ import {button,primary,errorText} from "./shared";
 
 const labels:Record<ShareSource,string>={mine:"我的",shared_to_me:"分享给我",department:"部门共享"};
 
+export function TeamKnowledgeToolbar({detail,onShare}:{detail:TeamKnowledgeDetail;onShare:()=>void}){
+  return <div className="flex items-center justify-between border-b bg-white px-6 py-3"><div className="flex items-center gap-2 text-xs text-slate-500"><Users size={14}/>{labels[detail.share_source]}</div>{detail.can_manage&&<button className={button} onClick={onShare}>管理分享</button>}</div>;
+}
+
 export default function TeamConnection(){
   const [connections,setConnections]=useState<TeamConnectionStatus[]>([]);const [selected,setSelected]=useState("");const [origin,setOrigin]=useState("");
   const [rows,setRows]=useState<TeamKnowledgeRow[]>([]);const [detail,setDetail]=useState<TeamKnowledgeDetail|null>(null);const [filter,setFilter]=useState<ShareSource>("mine");
@@ -34,7 +38,7 @@ export default function TeamConnection(){
     {!connection?<div className="p-8 text-sm text-slate-500">选择或添加一个团队连接。</div>:connection.state!=="signed_in"?<div className="p-8"><h2 className="font-semibold">需要登录</h2><p className="mt-2 text-sm text-slate-500">团队知识不会回退为个人身份；请完成钉钉登录后再访问。</p></div>:<>
       <div className="flex shrink-0 gap-2 border-b bg-white p-4">{(["mine","shared_to_me","department"] as ShareSource[]).map(key=><button key={key} className={filter===key?primary:button} onClick={()=>setFilter(key)}>{labels[key]}</button>)}</div>
       <div className="flex min-h-0 flex-1"><aside className="w-80 shrink-0 overflow-auto border-r bg-white">{loading&&<p className="p-4 text-sm text-slate-500">正在读取团队知识…</p>}{!loading&&visible.length===0&&<p className="p-4 text-sm text-slate-500">当前分类暂无知识。</p>}{visible.map(row=><button key={row.id} onClick={()=>void openKnowledge(row.id)} className="block w-full border-b px-4 py-4 text-left hover:bg-slate-50"><p className="text-sm font-medium">{row.title}</p><p className="mt-1 text-xs text-slate-400">{labels[row.share_source]}{row.content_revision!=null?` · 内容版本 ${row.content_revision}`:""}</p></button>)}</aside>
-        <section className="min-w-0 flex-1 overflow-auto">{detail?<><div className="flex items-center justify-between border-b bg-white px-6 py-3"><div className="flex items-center gap-2 text-xs text-slate-500"><Users size={14}/>{labels[detail.share_source]}</div>{detail.can_manage&&<button className={button} onClick={()=>setSharing(true)}>管理分享</button>}</div><KnowledgeReading detail={detail}/>{sharing&&detail.can_manage&&<ShareDialog connectionId={connection.connection_id} knowledgeId={detail.id} onClose={()=>setSharing(false)}/>}</>:<div className="flex h-full items-center justify-center p-8 text-sm text-slate-400">选择一条团队知识开始阅读</div>}</section>
+        <section className="min-w-0 flex-1 overflow-auto">{detail?<><TeamKnowledgeToolbar detail={detail} onShare={()=>setSharing(true)}/><KnowledgeReading detail={detail}/>{sharing&&detail.can_manage&&<ShareDialog connectionId={connection.connection_id} knowledgeId={detail.id} onClose={()=>setSharing(false)}/>}</>:<div className="flex h-full items-center justify-center p-8 text-sm text-slate-400">选择一条团队知识开始阅读</div>}</section>
       </div>
     </>}
   </main></div></div>;

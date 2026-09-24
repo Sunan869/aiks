@@ -89,11 +89,17 @@ export class TeamRequestGate {
   accepts(ticket:RequestTicket){return ticket.connectionId===this.connectionId&&ticket.generation===this.generation;}
   current(){return this.connectionId;}
 }
+function contentToken(value:string):string{
+  let hash=0xcbf29ce484222325n;
+  for(const byte of new TextEncoder().encode(value)){hash^=BigInt(byte);hash=(hash*0x100000001b3n)&0xffffffffffffffffn;}
+  return hash.toString(16).padStart(16,"0");
+}
 export function buildImportRequest(detail:Record<string,unknown>):ImportRequest{
   const id=String(detail.id??"");const title=String(detail.title??"").trim();const markdown=typeof detail.content==="string"?detail.content:"";
   if(!id||!title||!markdown)throw new Error("content_unavailable");
   const revision=String(detail.content_revision??detail.current_revision??detail.revision??0);
-  const safe=id.replace(/[^A-Za-z0-9_-]/g,"_").slice(0,80);
-  return {operationId:`import_${safe}_${revision}`.slice(0,128),title,markdown,sourceFingerprint:`personal:${id}:revision:${revision}`.slice(0,512)};
+  const safe=id.replace(/[^A-Za-z0-9_-]/g,"_").slice(0,72);
+  const token=contentToken(`${title}\0${markdown}`);
+  return {operationId:`import_${safe}_${revision}_${token}`.slice(0,128),title,markdown,sourceFingerprint:`personal:${id}:revision:${revision}:content:${token}`.slice(0,512)};
 }
 export const teamApi=new TeamApi(async(command,args)=>{const {invoke}=await import("@tauri-apps/api/core");return invoke(command,args);});
