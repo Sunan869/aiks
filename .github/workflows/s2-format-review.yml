@@ -47,7 +47,8 @@ jobs:
                   assert path.endswith('.rs') and not path.startswith('/') and '..' not in pathlib.PurePosixPath(path).parts
                   content=pathlib.Path(path).read_bytes()
                   assert len(content)<=512*1024
-                  old=subprocess.check_output(['git','rev-parse',f'HEAD:{path}'],text=True).strip()
+                  old_result=subprocess.run(['git','rev-parse',f'HEAD:{path}'],text=True,capture_output=True)
+                  old=old_result.stdout.strip() if old_result.returncode==0 else None
                   request=urllib.request.Request('https://api.github.com/repos/Sunan869/aiks/git/blobs',method='POST',data=json.dumps({'encoding':'base64','content':base64.b64encode(content).decode()}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_BLOB_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
                   with urllib.request.urlopen(request,timeout=30) as response: blob=json.load(response)
                   result['files'].append({'path':path,'old_sha':old,'sha':blob['sha']})
