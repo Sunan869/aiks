@@ -78,14 +78,6 @@ pub struct UnifiedSearchService<'a> {
 }
 
 impl UnifiedSearchService<'static> {
-    pub(crate) fn scoped(
-        db: Arc<StateDb>,
-        embeddings: Arc<dyn EmbeddingProvider>,
-        context: crate::service::LocalContext,
-    ) -> Self {
-        Self::scoped_for(db, embeddings, context.into(), 0)
-    }
-
     pub(crate) fn scoped_for(
         db: Arc<StateDb>,
         embeddings: Arc<dyn EmbeddingProvider>,
