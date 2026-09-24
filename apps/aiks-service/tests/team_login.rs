@@ -458,3 +458,77 @@ async fn credentials_in_query_strings_are_refused_before_starting_an_attempt() {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+
+#[tokio::test]
+async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
+    let s = Server::start().await;
+    let verifier = "66".repeat(32);
+    let start = s.start_login(&verifier).await;
+    let id = start["attempt_id"].as_str().unwrap();
+    let (state, cookie) = s.browser(&start).await;
+    assert_eq!(
+        s.callback(&state, Some(&cookie), "workspace-ticket-code")
+            .await
+            .status(),
+        200
+    );
+    let response = s.exchange(id, &verifier).await;
+    assert_eq!(response.status(), 200);
+    let tokens: Value = response.json().await.unwrap();
+    let access = tokens["access_token"].as_str().unwrap();
+
+    assert_eq!(
+        s.request(reqwest::Method::POST, "/api/v1/workspace/tickets")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+
+    let response = s
+        .request(reqwest::Method::POST, "/api/v1/workspace/tickets")
+        .bearer_auth(access)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let handoff: Value = response.json().await.unwrap();
+    let ticket = handoff["ticket"].as_str().unwrap();
+    assert_eq!(ticket.len(), 64);
+    assert!(handoff["expires_at"].as_u64().unwrap() > now());
+
+    let response = s
+        .request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/tickets/consume",
+        )
+        .json(&json!({"ticket":ticket}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let principal: Value = response.json().await.unwrap();
+    assert_eq!(principal["company_id"], "synthetic-corp");
+    assert_eq!(principal["user_id"], tokens["identity"]["user_id"]);
+    assert_eq!(principal["space_id"], tokens["identity"]["space_id"]);
+    assert!(principal["session_id"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(principal["auth_version"].as_u64().unwrap() > 0);
+    assert!(principal.get("access_token").is_none());
+    assert!(principal.get("refresh_token").is_none());
+
+    assert_eq!(
+        s.request(
+            reqwest::Method::POST,
+            "/api/v1/internal/workspace/tickets/consume",
+        )
+        .json(&json!({"ticket":ticket}))
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        401
+    );
+}
