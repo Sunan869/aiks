@@ -1,6 +1,7 @@
-import {useEffect,useRef,useState} from "react";
+import {type ReactNode,useEffect,useRef,useState} from "react";
 import {BookOpen,MessageSquare,Search} from "lucide-react";
 import {serviceApi,type SearchHit} from "../../api/service";
+import PublishToTeam from "./PublishToTeam";
 import {button,errorText} from "./shared";
 
 export function TextBody({text}:{text:string}){
@@ -29,11 +30,12 @@ export function Conversation({messages}:{messages:unknown[]}){
     </section>;
   })}</div>;
 }
-export function KnowledgeReading({detail}:{detail:Record<string,unknown>}){
+export function KnowledgeReading({detail,actions}:{detail:Record<string,unknown>;actions?:ReactNode}){
   const session=detail.session&&typeof detail.session==="object"?detail.session as Record<string,unknown>:null;
   return <article className="mx-auto w-full max-w-4xl p-6 lg:p-9">
     <h2 className="mb-2 text-xl font-semibold">{String(detail.title??session?.title??"会话记录")}</h2>
     <div className="mb-6 flex flex-wrap gap-2 text-xs text-slate-500">{detail.revision!=null&&<span>来源版本 {String(detail.revision)}</span>}{detail.content_state==="draft"&&<span>提炼草稿</span>}{detail.stale===true&&<span className="text-amber-700">此条知识来自旧版本，会保留原内容</span>}</div>
+    {actions&&<div className="mb-5 flex flex-wrap gap-2">{actions}</div>}
     {session&&Array.isArray(session.messages)?<Conversation messages={session.messages}/>:typeof detail.content==="string"?<TextBody text={detail.content}/>:<p className="text-slate-500">正文暂不可用，请刷新后重试。</p>}
   </article>;
 }
@@ -82,7 +84,7 @@ export default function Reading({corpus,ready,onSettings}:{corpus:"knowledge"|"s
         {!loading&&loaded&&items.map(row=><button key={row.entity_id} aria-pressed={selected===row.entity_id} onClick={()=>void open(row.entity_id)} className={`block w-full border-b px-5 py-4 text-left hover:bg-slate-50 ${selected===row.entity_id?"bg-blue-50":""}`}><span className="block text-sm font-medium">{row.title}</span>{row.snippet&&<span className="mt-2 line-clamp-3 block text-xs leading-5 text-slate-500">{row.snippet}</span>}<span className="mt-2 block text-xs text-slate-400">{row.revision!=null?`来源版本 ${row.revision}`:"来源版本待确认"}</span></button>)}
         {!hits&&loaded&&<div className="flex items-center justify-between gap-2 p-4 text-xs"><button className={button} disabled={offset===0||loading} onClick={()=>void list(Math.max(0,offset-30))}>上一页</button><span>第 {Math.floor(offset/30)+1} 页</span><button className={button} disabled={rows.length<30||loading} onClick={()=>void list(offset+30)}>下一页</button></div>}
       </aside>
-      <div className="min-w-0 flex-1 overflow-auto">{detailLoading?<p className="p-8 text-sm text-slate-500">正在读取正文…</p>:detail?<KnowledgeReading detail={detail}/>:<div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-slate-400">{corpus==="knowledge"?<BookOpen size={34}/>:<MessageSquare size={34}/>}<p className="text-sm">选择左侧条目开始阅读</p></div>}</div>
+      <div className="min-w-0 flex-1 overflow-auto">{detailLoading?<p className="p-8 text-sm text-slate-500">正在读取正文…</p>:detail?<KnowledgeReading detail={detail} actions={corpus==="knowledge"?<PublishToTeam detail={detail}/>:undefined}/>:<div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-slate-400">{corpus==="knowledge"?<BookOpen size={34}/>:<MessageSquare size={34}/>}<p className="text-sm">选择左侧条目开始阅读</p></div>}</div>
     </div>}
   </div>;
 }
