@@ -6,6 +6,7 @@ use super::{
 };
 use aiks_core::team::{
     AuthPolicy, IdentityProvider, LoginStore, SessionStore, SessionTokens, TeamError, TeamStore,
+    WorkspacePrincipal,
 };
 use axum::{
     extract::{
@@ -93,6 +94,10 @@ pub fn auth_router(auth: Arc<AuthService>) -> Router {
         .route(
             "/api/v1/internal/workspace/tickets/consume",
             post(consume_workspace_ticket),
+        )
+        .route(
+            "/api/v1/internal/workspace/principals/validate",
+            post(validate_workspace_principal),
         )
         .method_not_allowed_fallback(|| async { TeamHttpError::from(TeamError::InvalidInput) })
         .layer(DefaultBodyLimit::max(8192))
@@ -403,6 +408,17 @@ async fn consume_workspace_ticket(
         .blocking(move |_, sessions, at| sessions.consume_workspace_ticket(&input.ticket, at))
         .await?;
     Ok(Json(json!(principal)))
+}
+async fn validate_workspace_principal(
+    State(auth): State<Arc<AuthService>>,
+    input: Result<Json<WorkspacePrincipal>, JsonRejection>,
+) -> Result<StatusCode, TeamHttpError> {
+    let principal = body(input)?;
+    auth.blocking(move |_, sessions, at| {
+        sessions.validate_workspace_principal(&principal, at)
+    })
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) fn now() -> Result<u64, TeamError> {
     SystemTime::now()
