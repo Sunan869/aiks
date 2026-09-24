@@ -4,6 +4,7 @@ pub mod config;
 pub mod dingtalk;
 pub mod directory_worker;
 pub mod secrets;
+pub mod server;
 
 mod auth_http;
 pub mod auth_routes;

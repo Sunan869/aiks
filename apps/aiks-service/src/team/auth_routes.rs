@@ -1,4 +1,4 @@
-//! Auth-only router. The executable still rejects team startup until business ACLs land.
+//! Auth-only routes. Production team startup composes these with the authorized business router.
 use super::{
     auth_http::{bearer, one_header, LoginLimiter, TeamHttpError},
     config::ValidatedTeamSettings,
@@ -89,7 +89,6 @@ pub fn auth_router(auth: Arc<AuthService>) -> Router {
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/me", get(me))
-        .fallback(|| async { TeamHttpError::from(TeamError::NotFound) })
         .method_not_allowed_fallback(|| async { TeamHttpError::from(TeamError::InvalidInput) })
         .layer(DefaultBodyLimit::max(8192))
         .layer(middleware::from_fn_with_state(auth.clone(), guard))

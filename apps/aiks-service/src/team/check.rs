@@ -21,8 +21,8 @@ impl ServiceConfig {
                 .map_err(|_| issue("service", "invalid_personal_configuration"))?,
             "team" => {
                 let validated = validate_static(&self.team).map_err(|issues| issues[0])?;
-                if !allowed_ip(self.listen.ip()) {
-                    return Err(issue("listen", "loopback_required"));
+                if !allowed_ip(self.listen.ip()) || self.listen.port() == 0 {
+                    return Err(issue("listen", "loopback_listener_required"));
                 }
                 let content = reqwest::Url::parse(&self.siyuan.base_url)
                     .map_err(|_| issue("siyuan.base_url", "invalid_internal_origin"))?;
