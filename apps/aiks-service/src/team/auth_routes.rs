@@ -400,9 +400,7 @@ async fn consume_workspace_ticket(
 ) -> Result<Json<Value>, TeamHttpError> {
     let input = body(input)?;
     let principal = auth
-        .blocking(move |_, sessions, at| {
-            sessions.consume_workspace_ticket(&input.ticket, at)
-        })
+        .blocking(move |_, sessions, at| sessions.consume_workspace_ticket(&input.ticket, at))
         .await?;
     Ok(Json(json!(principal)))
 }
