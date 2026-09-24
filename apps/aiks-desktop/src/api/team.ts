@@ -90,9 +90,12 @@ export class TeamRequestGate {
   current(){return this.connectionId;}
 }
 function contentToken(value:string):string{
-  let hash=0xcbf29ce484222325n;
-  for(const byte of new TextEncoder().encode(value)){hash^=BigInt(byte);hash=(hash*0x100000001b3n)&0xffffffffffffffffn;}
-  return hash.toString(16).padStart(16,"0");
+  let a=0x811c9dc5>>>0,b=0x9e3779b9>>>0;
+  for(const byte of new TextEncoder().encode(value)){
+    a=Math.imul((a^byte)>>>0,0x01000193)>>>0;
+    b=Math.imul((b^byte)>>>0,0x85ebca6b)>>>0;
+  }
+  return a.toString(16).padStart(8,"0")+b.toString(16).padStart(8,"0");
 }
 export function buildImportRequest(detail:Record<string,unknown>):ImportRequest{
   const id=String(detail.id??"");const title=String(detail.title??"").trim();const markdown=typeof detail.content==="string"?detail.content:"";
