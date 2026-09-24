@@ -236,6 +236,8 @@ pub struct KnowledgeView {
     pub revision: Option<u32>,
     pub current_revision: u32,
     pub content_revision: Option<u64>,
+    pub can_manage: bool,
+    pub share_source: String,
     pub stale: bool,
     pub content_state: String,
     pub content: Option<String>,
@@ -280,8 +282,15 @@ pub fn knowledge_for(
                 CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
                 d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id,
                 CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END,
-                (SELECT content_revision FROM team_knowledge_owner o WHERE o.knowledge_id=ki.id)
-         FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
+                o.content_revision,o.owner_user_id=?3,
+                CASE WHEN o.owner_user_id=?3 THEN 'mine'
+                     WHEN EXISTS(SELECT 1 FROM document_share_grant g
+                                 WHERE g.company_id=o.company_id AND g.knowledge_id=o.knowledge_id
+                                   AND g.target_user_id=?3) THEN 'shared_to_me'
+                     ELSE 'department' END
+         FROM knowledge_item ki
+         JOIN team_knowledge_owner o ON o.knowledge_id=ki.id AND o.company_id=?2
+         LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.id=?1 AND ki.status='active'"
     } else {
@@ -289,14 +298,18 @@ pub fn knowledge_for(
                 CASE WHEN length(ki.tags)<=65536 THEN ki.tags ELSE '[]' END,
                 d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id,
                 CASE WHEN ki.siyuan_doc_id IS NULL AND length(CAST(ki.content AS BLOB))<=1048576 THEN ki.content END,
-                NULL
+                NULL,1,'mine'
          FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
          LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
          LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
          WHERE ki.id=?1 AND ki.status='active' AND ((b.principal_id=?2 AND b.space_id=?3) OR (kb.principal_id=?2 AND kb.space_id=?3))"
     };
-    let mut result = if ctx.is_team() {
-        tx.query_row(sql, [id], knowledge_row)
+    let mut result = if let Some(team) = ctx.team() {
+        tx.query_row(
+            sql,
+            params![id, team.company_id(), team.user_id()],
+            knowledge_row,
+        )
     } else {
         tx.query_row(
             sql,
@@ -327,6 +340,8 @@ fn knowledge_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnowledgeView> {
         revision,
         current_revision,
         content_revision: row.get(9)?,
+        can_manage: row.get(10)?,
+        share_source: row.get(11)?,
         stale: revision != Some(current_revision),
         content_state: if doc_id.is_some() {
             "published"
@@ -356,7 +371,13 @@ pub fn knowledge_list_for(
     ctx.authorize_in_conn(&tx, now)?;
     let items = if let Some(team) = ctx.team() {
         let mut stmt = tx.prepare(
-            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,o.content_revision
+            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,o.content_revision,
+                    o.owner_user_id=?2,
+                    CASE WHEN o.owner_user_id=?2 THEN 'mine'
+                         WHEN EXISTS(SELECT 1 FROM document_share_grant sg
+                                     WHERE sg.company_id=o.company_id AND sg.knowledge_id=o.knowledge_id
+                                       AND sg.target_user_id=?2) THEN 'shared_to_me'
+                         ELSE 'department' END
              FROM knowledge_item ki
              JOIN team_knowledge_owner o ON o.knowledge_id=ki.id AND o.company_id=?1
              LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
@@ -393,7 +414,7 @@ pub fn knowledge_list_for(
         items
     } else {
         let mut stmt = tx.prepare(
-            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,NULL
+            "SELECT ki.id,substr(ki.title,1,4096),d.revision,COALESCE(b.current_revision,0),ki.siyuan_doc_id IS NOT NULL,NULL,1,'mine'
              FROM knowledge_item ki LEFT JOIN service_session_binding b ON b.session_id=ki.source_session_id
              LEFT JOIN service_knowledge_binding kb ON kb.knowledge_id=ki.id AND ki.source_session_id IS NULL
              LEFT JOIN service_knowledge_revision d ON d.session_id=b.session_id AND d.knowledge_id=ki.id
@@ -422,6 +443,7 @@ fn knowledge_list_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     Ok(
         json!({"id":row.get::<_,String>(0)?,"title":row.get::<_,String>(1)?,"revision":revision,
         "current_revision":current,"content_revision":row.get::<_,Option<u64>>(5)?,
+        "can_manage":row.get::<_,bool>(6)?,"share_source":row.get::<_,String>(7)?,
         "stale":revision!=Some(current),
         "content_state":if row.get::<_,bool>(4)? {"published"} else {"draft"}}),
     )

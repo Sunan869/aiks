@@ -90,6 +90,24 @@ async fn owner_can_replace_read_grants_without_exposing_the_private_source_sessi
     let reader_body: Value = reader.json().await.unwrap();
     assert_eq!(reader_body["content"], "SHARED_BODY");
     assert!(!reader_body.to_string().contains("PRIVATE_OWNER_SOURCE"));
+    assert_eq!(reader_body["can_manage"], false);
+    assert_eq!(reader_body["share_source"], "shared_to_me");
+
+    let owner_body: Value = service
+        .auth(
+            &service.owner_token,
+            service
+                .client
+                .get(format!("{}/api/v1/knowledge/shared-k", service.base)),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(owner_body["can_manage"], true);
+    assert_eq!(owner_body["share_source"], "mine");
 
     let child = service
         .auth(
@@ -221,6 +239,43 @@ async fn owner_can_replace_read_grants_without_exposing_the_private_source_sessi
             .status(),
         200
     );
+    let child_body: Value = service
+        .auth(
+            &service.child_token,
+            service
+                .client
+                .get(format!("{}/api/v1/knowledge/shared-k", service.base)),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(child_body["can_manage"], false);
+    assert_eq!(child_body["share_source"], "department");
+
+    let reader_list: Value = service
+        .auth(
+            &service.reader_token,
+            service
+                .client
+                .get(format!("{}/api/v1/knowledge", service.base)),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let shared = reader_list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "shared-k")
+        .unwrap();
+    assert_eq!(shared["can_manage"], false);
+    assert_eq!(shared["share_source"], "shared_to_me");
 
     let private = service
         .auth(
