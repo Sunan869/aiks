@@ -48,6 +48,11 @@ pub enum WorkbenchAction {
         suggestion: Option<Value>,
         error: Option<String>,
     },
+    LocalFileOpenResult {
+        path: String,
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 pub fn validate_protocol_version(version: u16) -> anyhow::Result<()> {
@@ -152,5 +157,18 @@ mod tests {
         let json = serde_json::to_value(action).unwrap();
         assert_eq!(json["action"], "aiAssistResult");
         assert_eq!(json["request_id"], "request-123");
+    }
+
+    #[test]
+    fn local_file_open_result_is_part_of_the_cross_system_protocol() {
+        let action = WorkbenchAction::LocalFileOpenResult {
+            path: "C:\\work\\README.md".to_string(),
+            ok: true,
+            error: None,
+        };
+        let json = serde_json::to_value(action).unwrap();
+        assert_eq!(json["action"], "localFileOpenResult");
+        assert_eq!(json["path"], "C:\\work\\README.md");
+        assert_eq!(json["ok"], true);
     }
 }

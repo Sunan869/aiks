@@ -89,6 +89,14 @@ impl BridgeEnvelope {
                 let doc_id = validate_identifier("doc_id", &doc_id)?;
                 ("refreshDocument", json!({ "docId": doc_id }))
             }
+            WorkbenchAction::LocalFileOpenResult { path, ok, error } => (
+                "localFileOpenResult",
+                json!({
+                    "path": path,
+                    "ok": ok,
+                    "error": error,
+                }),
+            ),
         };
 
         Ok(Self {

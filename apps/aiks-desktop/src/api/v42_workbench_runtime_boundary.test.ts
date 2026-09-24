@@ -5,6 +5,8 @@ import knowledgeWorkspaceSource from "../pages/KnowledgeWorkspacePage.tsx?raw";
 import lifecycleSource from "../../src-tauri/src/lifecycle.rs?raw";
 import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import bridgePluginInstallerSource from "../../src-tauri/src/workbench/plugin.rs?raw";
+import workbenchEventsSource from "../../src-tauri/src/workbench/events.rs?raw";
+import embeddedBridgeSource from "../../src-tauri/resources/siyuan/data/plugins/aiks-bridge/index.js?raw";
 import runtimeSource from "../../../../crates/aiks-core/src/runtime/mod.rs?raw";
 import engineSource from "../../../../crates/aiks-core/src/engine/mod.rs?raw";
 
@@ -67,12 +69,21 @@ describe("V4.2 embedded workbench runtime boundaries", () => {
     expect(workbenchHostSource).toContain("getApi().hideWorkbench()");
   });
 
-  it("keeps Ask AIKS reachable outside the native child-webview bounds", () => {
-    expect(knowledgeWorkspaceSource).toContain("onAskAiks?: () => void");
-    expect(knowledgeWorkspaceSource).toContain("onClick={onAskAiks}");
-    expect(knowledgeWorkspaceSource).toContain("<span>问 AIKS</span>");
+  it("keeps Ask AIKS reachable inside the native child-webview", () => {
+    expect(embeddedBridgeSource).toContain('button.id = "aiks-ask-launcher"');
+    expect(embeddedBridgeSource).toContain('this.emit("requestAskAiks")');
+    expect(appSource).toContain('listen("ask-aiks-open"');
     expect(appSource).toContain('nav.page !== "knowledge"');
-    expect(appSource).toContain("onAskAiks={() => setAskOpen(true)}");
+  });
+
+  it("opens detected local file paths through the trusted workbench bridge", () => {
+    expect(embeddedBridgeSource).toContain("caretRangeFromPoint");
+    expect(embeddedBridgeSource).toContain('this.emit("requestOpenLocalFile", { path })');
+    expect(embeddedBridgeSource).toContain('"localFileOpenResult"');
+    expect(workbenchEventsSource).toContain('"requestOpenLocalFile"');
+    expect(workbenchEventsSource).toContain("validated_local_path");
+    expect(workbenchEventsSource).toContain("is_blocked_executable");
+    expect(workbenchEventsSource).toContain(".open_path(path_string, None::<&str>)");
   });
 
   it("records the real lifecycle trigger for automatic sync runs", () => {
