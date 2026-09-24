@@ -495,7 +495,6 @@ fn workspace_ticket_rejects_expiry_logout_and_member_deactivation() {
         .is_err());
 }
 
-
 #[test]
 fn workspace_principal_survives_access_refresh_but_not_session_revocation() {
     let f = Fixture::new();
