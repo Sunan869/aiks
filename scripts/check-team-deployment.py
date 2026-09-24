@@ -110,7 +110,7 @@ def main() -> None:
     docs = (root / "SERVER_DEPLOY.md").read_text()
     for required in [
         "docker push",
-        "docker compose pull",
+        "./deploy.sh pull",
         "network_mode: host",
         "AIKS_DINGTALK_CLIENT_SECRET",
     ]:
