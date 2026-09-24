@@ -127,7 +127,7 @@ if ! root_toml="$(printf '%s\n' "$roots" | awk -F, '
     for (i = 1; i <= NF; i++) {
       if ($i !~ /^[1-9][0-9]*$/ || length($i) > 18) exit 1
       if (i > 1) printf ", "
-      printf "\\\"%s\\\"", $i
+      printf "\"%s\"", $i
     }
   }
 ')"; then
