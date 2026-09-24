@@ -407,7 +407,6 @@ fn cancelled_attempt_and_reused_authorization_code_cannot_issue_tokens() {
     }
 }
 
-
 #[test]
 fn workspace_ticket_is_short_lived_one_time_and_contains_only_server_identity() {
     let f = Fixture::new();
