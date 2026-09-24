@@ -295,8 +295,10 @@ impl StateDb {
             "../../migrations/021_team_content_publish_target.sql"
         ))
         .context("run stable team publish target migration")?;
-        tx.execute_batch(include_str!("../../migrations/022_team_knowledge_import.sql"))
-            .context("run team knowledge import migration")?;
+        tx.execute_batch(include_str!(
+            "../../migrations/022_team_knowledge_import.sql"
+        ))
+        .context("run team knowledge import migration")?;
         tx.commit()?;
         Ok(())
     }

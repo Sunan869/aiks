@@ -50,7 +50,13 @@ impl TeamStore {
                  FROM team_knowledge_import
                  WHERE company_id=?1 AND owner_user_id=?2 AND operation_id=?3",
                 params![self.company_id(), ctx.user_id(), operation_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()?
         {
@@ -66,7 +72,13 @@ impl TeamStore {
                  FROM team_knowledge_import
                  WHERE company_id=?1 AND owner_user_id=?2 AND source_fingerprint=?3",
                 params![self.company_id(), ctx.user_id(), source_fingerprint],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()?
         {
