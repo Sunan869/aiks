@@ -459,7 +459,6 @@ async fn credentials_in_query_strings_are_refused_before_starting_an_attempt() {
     assert_eq!(count, 0);
 }
 
-
 #[tokio::test]
 async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
     let s = Server::start().await;
@@ -511,10 +510,12 @@ async fn workspace_ticket_handoff_is_bearer_bound_internal_and_one_time() {
         .unwrap();
     assert_eq!(response.status(), 200);
     let principal: Value = response.json().await.unwrap();
-    assert_eq!(principal["company_id"], "synthetic-corp");
+    assert_eq!(principal["company_id"], s.store.company_id());
     assert_eq!(principal["user_id"], tokens["identity"]["user_id"]);
     assert_eq!(principal["space_id"], tokens["identity"]["space_id"]);
-    assert!(principal["session_id"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(principal["session_id"]
+        .as_str()
+        .is_some_and(|v| !v.is_empty()));
     assert!(principal["auth_version"].as_u64().unwrap() > 0);
     assert!(principal.get("access_token").is_none());
     assert!(principal.get("refresh_token").is_none());
