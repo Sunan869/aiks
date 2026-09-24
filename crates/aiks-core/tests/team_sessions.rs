@@ -494,3 +494,46 @@ fn workspace_ticket_rejects_expiry_logout_and_member_deactivation() {
         .consume_workspace_ticket(inactive_ticket.ticket.expose(), 1005)
         .is_err());
 }
+
+
+#[test]
+fn workspace_principal_survives_access_refresh_but_not_session_revocation() {
+    let f = Fixture::new();
+    let verifier = "cc".repeat(32);
+    let id = f.authorize(&verifier, 1001);
+    let tokens = f.login.exchange(&id, &verifier, 1001).unwrap();
+    let handoff = f
+        .sessions
+        .issue_workspace_ticket(tokens.access_token.expose(), 1002)
+        .unwrap();
+    let principal = f
+        .sessions
+        .consume_workspace_ticket(handoff.ticket.expose(), 1002)
+        .unwrap();
+
+    f.sessions
+        .validate_workspace_principal(&principal, 1002)
+        .unwrap();
+
+    let refreshed = f
+        .sessions
+        .refresh(tokens.refresh_token.expose(), 1003)
+        .unwrap();
+    f.sessions
+        .validate_workspace_principal(&principal, 1003)
+        .unwrap();
+
+    let other = Fixture::new();
+    assert!(other
+        .sessions
+        .validate_workspace_principal(&principal, 1003)
+        .is_err());
+
+    f.sessions
+        .logout(refreshed.access_token.expose(), 1004)
+        .unwrap();
+    assert!(f
+        .sessions
+        .validate_workspace_principal(&principal, 1004)
+        .is_err());
+}
