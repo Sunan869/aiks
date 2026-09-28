@@ -55,6 +55,13 @@ jobs:
           cargo test --locked -p aiks-desktop --lib service_desktop_tests -- --test-threads=1
           cargo test --locked -p aiks-desktop --lib settings_mapping_tests -- --test-threads=1
 
+      - name: Desktop team boundary UI tests
+        working-directory: apps/aiks-desktop
+        run: |
+          npm ci --no-audit --no-fund
+          npm test -- src/pages/service/team-sharing.test.tsx src/pages/service-workspace.test.tsx
+          npm run build
+
       - name: Changed Rust surface clippy
         run: cargo clippy --locked -p aiks-core -p aiks-service -p aiks-desktop --all-targets -- -D warnings
 
