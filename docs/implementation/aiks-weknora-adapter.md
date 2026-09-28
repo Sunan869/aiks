@@ -65,3 +65,20 @@ but the response was lost" duplicate window.
 
 The existing S2 DingTalk/ACL/SiYuan implementation remains in history while
 this adapter is proven. Do not extend that old ACL layer on this branch.
+
+
+## Desktop wiring
+
+`Config.weknora` is part of the normal AIKS configuration. When Desktop runs
+in `ServiceLocal` mode it copies this non-secret section into the generated
+service runtime TOML. The API key value itself remains an environment secret.
+
+A logged-in/managed credential flow can replace the environment variable later;
+the adapter contract does not require storing raw API keys in AIKS config files.
+
+The authenticated local service also exposes:
+
+`GET /api/v1/integrations/weknora/status`
+
+with only `enabled`, `pending` and `terminal` counts for delivery
+observability.

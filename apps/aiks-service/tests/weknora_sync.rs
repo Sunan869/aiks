@@ -18,6 +18,7 @@ use std::{
 struct FakeWeKnora {
     requests: Mutex<Vec<(Method, String, Value)>>,
     failures_remaining: Mutex<usize>,
+    put_not_found_remaining: Mutex<usize>,
 }
 
 async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Response {
@@ -46,6 +47,13 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
         if *failures > 0 {
             *failures -= 1;
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+    if method == Method::PUT {
+        let mut missing = state.put_not_found_remaining.lock().unwrap();
+        if *missing > 0 {
+            *missing -= 1;
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -207,6 +215,29 @@ async fn failed_delivery_remains_durable_and_can_retry_without_resubmission() {
     assert_eq!(requests[1].0, Method::POST);
     assert_eq!(requests[0].2["external_id"], requests[1].2["external_id"]);
     drop(requests);
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn missing_remote_mapping_is_recreated_and_remapped() {
+    let (origin, state, server) = start_fake().await;
+    let root = tempfile::tempdir().unwrap();
+    let database = root.path().join("service.db");
+    let settings = settings(origin);
+    let sync = build(&settings, database);
+
+    sync.sync_session(&session("FIRST"), 1).await.unwrap();
+    *state.put_not_found_remaining.lock().unwrap() = 1;
+    sync.sync_session(&session("SECOND"), 2).await.unwrap();
+
+    let requests = state.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].0, Method::POST);
+    assert_eq!(requests[1].0, Method::PUT);
+    assert_eq!(requests[2].0, Method::POST);
+    drop(requests);
+    assert_eq!(sync.pending_count().await.unwrap(), 0);
 
     server.abort();
 }

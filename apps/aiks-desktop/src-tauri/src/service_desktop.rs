@@ -125,7 +125,7 @@ impl ServiceDesktop {
             result=runtime.start()=>result?,
         };
         self.ensure_running()?;
-        let path = prepare_config(&root, &info.base_url)?;
+        let path = prepare_config(&root, &info.base_url, &self.provider_config.weknora)?;
         let identity_path = root.join("instance-id");
         validate_private_path(&identity_path, true)?;
         let expected = if identity_path.exists() {
@@ -300,7 +300,11 @@ impl ServiceDesktop {
     }
 }
 
-fn prepare_config(root: &Path, content_url: &str) -> anyhow::Result<PathBuf> {
+fn prepare_config(
+    root: &Path,
+    content_url: &str,
+    weknora: &aiks_core::config::WeKnoraConfig,
+) -> anyhow::Result<PathBuf> {
     let models = root.join("config/models.toml");
     validate_private_path(&models, true)?;
     if !models.exists() {
@@ -323,6 +327,7 @@ fn prepare_config(root: &Path, content_url: &str) -> anyhow::Result<PathBuf> {
     );
     let mut value = json!({"database":root.join("data/aiks.db"),"mode":"personal","listen":"127.0.0.1:0",
         "ai":{"enabled":false,"base_url":"","model":""},"embedding":{"enabled":false},
+        "weknora":weknora,
         "siyuan":{"base_url":content_url,"token":"","notebook_name":"AIKS Service Knowledge"}});
     for section in ["ai", "embedding"] {
         if let Some(config) = table.get(section) {
@@ -430,14 +435,22 @@ mod service_desktop_tests {
     fn profile_links_and_model_defaults_cannot_escape_the_new_space() {
         let root = std::env::temp_dir().join(format!("aiks-profile-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).unwrap();
-        let path = prepare_config(&root, "http://127.0.0.1:12345").unwrap();
+        let path = prepare_config(
+            &root,
+            "http://127.0.0.1:12345",
+            &aiks_core::config::WeKnoraConfig::default(),
+        ).unwrap();
         let value: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["ai"]["enabled"].as_bool(), Some(false));
         assert_eq!(value["ai"]["model"].as_str(), Some(""));
         assert_eq!(value["embedding"]["enabled"].as_bool(), Some(false));
         let models = root.join("config/models.toml");
         std::fs::write(&models, "[ai]\nmodel='explicit-name'\n").unwrap();
-        let path = prepare_config(&root, "http://127.0.0.1:12345").unwrap();
+        let path = prepare_config(
+            &root,
+            "http://127.0.0.1:12345",
+            &aiks_core::config::WeKnoraConfig::default(),
+        ).unwrap();
         let value: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(value["ai"]["enabled"].as_bool(), Some(false));
         assert_eq!(value["ai"]["base_url"].as_str(), Some(""));
@@ -447,7 +460,11 @@ mod service_desktop_tests {
             let target = root.join("private-models");
             std::fs::write(&target, "DO_NOT_TOUCH").unwrap();
             std::os::unix::fs::symlink(&target, &models).unwrap();
-            assert!(prepare_config(&root, "http://127.0.0.1:12345").is_err());
+            assert!(prepare_config(
+            &root,
+            "http://127.0.0.1:12345",
+            &aiks_core::config::WeKnoraConfig::default(),
+        ).is_err());
             assert_eq!(std::fs::read_to_string(target).unwrap(), "DO_NOT_TOUCH");
         }
         std::fs::remove_dir_all(root).unwrap();

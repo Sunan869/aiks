@@ -289,7 +289,12 @@ impl WeKnoraSync {
     }
 
     pub async fn pending_count(&self) -> anyhow::Result<u64> {
-        pending_count(self.inner.database.clone()).await
+        let (pending, terminal) = outbox_counts(self.inner.database.clone()).await?;
+        Ok(pending.saturating_add(terminal))
+    }
+
+    pub async fn outbox_counts(&self) -> anyhow::Result<(u64, u64)> {
+        outbox_counts(self.inner.database.clone()).await
     }
 
     async fn process_due(&self, limit: usize) -> anyhow::Result<usize> {
@@ -747,13 +752,19 @@ async fn reset_retry_delays(database: PathBuf) -> anyhow::Result<()> {
     .await?
 }
 
-async fn pending_count(database: PathBuf) -> anyhow::Result<u64> {
-    tokio::task::spawn_blocking(move || -> anyhow::Result<u64> {
+async fn outbox_counts(database: PathBuf) -> anyhow::Result<(u64, u64)> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<(u64, u64)> {
         let conn = Connection::open(database)?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        let count: i64 =
-            conn.query_row("SELECT COUNT(*) FROM aiks_weknora_outbox", [], |row| row.get(0))?;
-        Ok(count.max(0) as u64)
+        let (pending, terminal): (i64, i64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN terminal=0 THEN 1 ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN terminal=1 THEN 1 ELSE 0 END),0)
+             FROM aiks_weknora_outbox",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok((pending.max(0) as u64, terminal.max(0) as u64))
     })
     .await?
 }

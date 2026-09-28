@@ -48,6 +48,7 @@ pub fn build_router_with_weknora(
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/source-registrations", post(register))
         .route("/api/v1/session-snapshots", post(ingest))
+        .route("/api/v1/integrations/weknora/status", get(weknora_status))
         .route("/api/v1/sessions", get(sessions))
         .route("/api/v1/sessions/{id}", get(session))
         .route("/api/v1/receipts/{id}", get(receipt))
@@ -221,6 +222,23 @@ async fn ingest(
     )
         .into_response())
 }
+async fn weknora_status(
+    Extension(weknora): Extension<WeKnoraExtension>,
+) -> Result<Json<Value>, ApiError> {
+    let Some(sync) = weknora.0.as_ref() else {
+        return Ok(Json(json!({"enabled":false,"pending":0,"terminal":0})));
+    };
+    let (pending, terminal) = sync
+        .outbox_counts()
+        .await
+        .map_err(|_| ApiError(ServiceError::Internal))?;
+    Ok(Json(json!({
+        "enabled":true,
+        "pending":pending,
+        "terminal":terminal
+    })))
+}
+
 async fn sessions(
     State(r): State<Arc<ServiceRuntime>>,
     input: Result<Query<Page>, QueryRejection>,

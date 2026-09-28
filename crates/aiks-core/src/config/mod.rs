@@ -26,6 +26,7 @@ pub struct Config {
     pub extractor: ExtractorConfig,
     pub ai: AiModelConfig,
     pub embedding: EmbeddingConfig,
+    pub weknora: WeKnoraConfig,
     pub desktop: DesktopConfig,
 }
 
@@ -42,7 +43,30 @@ impl Default for Config {
             extractor: ExtractorConfig::default(),
             ai: AiModelConfig::default(),
             embedding: EmbeddingConfig::default(),
+            weknora: WeKnoraConfig::default(),
             desktop: DesktopConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WeKnoraConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub knowledge_base_id: String,
+    pub api_key_env: String,
+    pub channel: String,
+}
+
+impl Default for WeKnoraConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            knowledge_base_id: String::new(),
+            api_key_env: "AIKS_WEKNORA_API_KEY".into(),
+            channel: "aiks".into(),
         }
     }
 }
