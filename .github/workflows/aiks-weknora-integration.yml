@@ -2,6 +2,8 @@ name: AIKS WeKnora integration gate
 
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/aiks-weknora-adapter]
 
 permissions:
   contents: read
