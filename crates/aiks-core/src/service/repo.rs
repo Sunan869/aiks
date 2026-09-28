@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{storage::StateDb, team::TeamContext};
 
-use super::ServiceError;
+use super::{validation::validate_identifier, ServiceError};
 
 /// Created only from the persistent service identity, never deserialized from
 /// client-supplied owner IDs or forwarding headers. Not a team ACL yet.
@@ -30,11 +30,52 @@ impl LocalContext {
     }
 }
 
-/// Server-issued request identity. Neither variant can be constructed from an
-/// HTTP payload: their inner identity types keep all fields private.
+/// Verified remote-collector identity. The HTTP layer derives this only after
+/// validating the caller against WeKnora; raw client-supplied owner IDs never
+/// become a CollectorContext.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollectorContext {
+    instance_id: String,
+    principal_id: String,
+    space_id: String,
+}
+
+impl CollectorContext {
+    pub fn verified(
+        instance_id: &str,
+        principal_id: &str,
+        space_id: &str,
+    ) -> Result<Self, ServiceError> {
+        validate_identifier(instance_id)?;
+        validate_identifier(principal_id)?;
+        validate_identifier(space_id)?;
+        Ok(Self {
+            instance_id: instance_id.to_owned(),
+            principal_id: principal_id.to_owned(),
+            space_id: space_id.to_owned(),
+        })
+    }
+
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+
+    pub fn principal_id(&self) -> &str {
+        &self.principal_id
+    }
+
+    pub fn space_id(&self) -> &str {
+        &self.space_id
+    }
+}
+
+/// Server-issued request identity. Neither variant is deserialized from an HTTP
+/// payload. Collector identities are constructed only after upstream WeKnora
+/// authentication succeeds.
 #[derive(Clone, Debug)]
 pub enum RequestContext {
     Personal(LocalContext),
+    Collector(CollectorContext),
     Team(TeamContext),
 }
 
@@ -42,6 +83,7 @@ impl RequestContext {
     pub fn instance_id(&self) -> &str {
         match self {
             Self::Personal(ctx) => ctx.instance_id(),
+            Self::Collector(ctx) => ctx.instance_id(),
             Self::Team(ctx) => ctx.instance_id(),
         }
     }
@@ -49,6 +91,7 @@ impl RequestContext {
     pub fn principal_id(&self) -> &str {
         match self {
             Self::Personal(ctx) => ctx.principal_id(),
+            Self::Collector(ctx) => ctx.principal_id(),
             Self::Team(ctx) => ctx.user_id(),
         }
     }
@@ -56,13 +99,14 @@ impl RequestContext {
     pub fn space_id(&self) -> &str {
         match self {
             Self::Personal(ctx) => ctx.space_id(),
+            Self::Collector(ctx) => ctx.space_id(),
             Self::Team(ctx) => ctx.space_id(),
         }
     }
 
     pub fn company_id(&self) -> Option<&str> {
         match self {
-            Self::Personal(_) => None,
+            Self::Personal(_) | Self::Collector(_) => None,
             Self::Team(ctx) => Some(ctx.company_id()),
         }
     }
@@ -71,9 +115,13 @@ impl RequestContext {
         matches!(self, Self::Team(_))
     }
 
+    pub fn is_collector(&self) -> bool {
+        matches!(self, Self::Collector(_))
+    }
+
     pub(crate) fn team(&self) -> Option<&TeamContext> {
         match self {
-            Self::Personal(_) => None,
+            Self::Personal(_) | Self::Collector(_) => None,
             Self::Team(ctx) => Some(ctx),
         }
     }
@@ -96,6 +144,12 @@ impl RequestContext {
 impl From<LocalContext> for RequestContext {
     fn from(value: LocalContext) -> Self {
         Self::Personal(value)
+    }
+}
+
+impl From<CollectorContext> for RequestContext {
+    fn from(value: CollectorContext) -> Self {
+        Self::Collector(value)
     }
 }
 

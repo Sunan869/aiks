@@ -2,7 +2,7 @@
 use super::{
     ingestion::{accept_with_flags_for, register_source_for},
     query::{self, Page},
-    validate_submission, LocalContext, RequestContext, ServiceError, ServiceStore, SnapshotReceipt,
+    validate_submission, CollectorContext, LocalContext, RequestContext, ServiceError, ServiceStore, SnapshotReceipt,
     SnapshotSubmission,
 };
 use crate::{
@@ -55,6 +55,11 @@ impl RuntimeMode {
         match (self, ctx) {
             (Self::Personal(store), RequestContext::Personal(request))
                 if *request == store.local_context() =>
+            {
+                Ok(())
+            }
+            (Self::Personal(store), RequestContext::Collector(request))
+                if request.instance_id() == store.local_context().instance_id() =>
             {
                 Ok(())
             }
@@ -141,6 +146,19 @@ impl ServiceRuntime {
         match &self.mode {
             RuntimeMode::Personal(store) => store.local_context(),
             RuntimeMode::Team(_) => panic!("personal context requested from team runtime"),
+        }
+    }
+
+    pub fn collector_context(
+        &self,
+        principal_id: &str,
+        space_id: &str,
+    ) -> Result<RequestContext, ServiceError> {
+        match &self.mode {
+            RuntimeMode::Personal(store) => Ok(RequestContext::Collector(
+                CollectorContext::verified(store.local_context().instance_id(), principal_id, space_id)?,
+            )),
+            RuntimeMode::Team(_) => Err(ServiceError::Unauthorized),
         }
     }
 
