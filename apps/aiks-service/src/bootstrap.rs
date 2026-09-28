@@ -134,7 +134,7 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
     Ok(())
 }
 
-async fn run_collector(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Result<()> {
+async fn run_collector(config: ServiceConfig, bootstrap: bool) -> anyhow::Result<()> {
     anyhow::ensure!(!bootstrap, "Collector mode does not use bootstrap stdin");
     config.check_configuration_with(|name| std::env::var(name).ok())?;
     let collector_token = config

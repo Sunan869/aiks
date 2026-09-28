@@ -54,12 +54,12 @@ impl ServiceConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{net::SocketAddr, path::PathBuf};
+    use std::net::SocketAddr;
 
     fn collector_config() -> ServiceConfig {
         let mut config = ServiceConfig::default();
         config.mode = "collector".into();
-        config.database = PathBuf::from("/tmp/aiks-collector-config-test.db");
+        config.database = std::env::temp_dir().join("aiks-collector-config-test.db");
         config.listen = "0.0.0.0:28082".parse::<SocketAddr>().unwrap();
         config.weknora.enabled = true;
         config.weknora.base_url = "https://weknora.example.test".into();
