@@ -1,0 +1,39 @@
+name: aiks-collector
+
+services:
+  collector:
+    image: ${AIKS_COLLECTOR_IMAGE:-aiks-service:weknora-collector}
+    container_name: ${AIKS_COLLECTOR_CONTAINER_NAME:-aiks-collector}
+    env_file:
+      - .env
+    environment:
+      AIKS_CONFIG_PATH: /run/aiks/service.toml
+      AIKS_DATA_DIR: /var/lib/aiks-collector
+      AIKS_COLLECTOR_PORT: 28082
+    volumes:
+      - ${AIKS_COLLECTOR_DATA_DIR:-./data}:/var/lib/aiks-collector
+    ports:
+      - "${AIKS_COLLECTOR_BIND:-127.0.0.1}:${AIKS_COLLECTOR_PORT:-28082}:28082"
+    read_only: true
+    tmpfs:
+      - /run/aiks:rw,noexec,nosuid,size=1m,mode=0700
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:28082/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aiks-team
+
+networks:
+  aiks-team:
+    external: true
+    name: ${AIKS_TEAM_NETWORK:-aiks-team-network}
