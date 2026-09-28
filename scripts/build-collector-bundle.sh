@@ -3,6 +3,7 @@ set -euo pipefail
 
 TAG="${1:-weknora-collector}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PLATFORM="${AIKS_PLATFORM:-linux/amd64}"
 IMAGE_REPO="${AIKS_COLLECTOR_IMAGE_REPO:-aiks-service}"
 IMAGE="${IMAGE_REPO}:${TAG}"
 OUT_DIR="${AIKS_IMAGE_OUT_DIR:-${ROOT_DIR}/dist/images}"

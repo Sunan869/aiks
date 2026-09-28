@@ -11,6 +11,12 @@ die() {
   exit 1
 }
 
+env_value() {
+  local key="$1" line
+  line="$(grep -m1 -E "^${key}=" .env 2>/dev/null || true)"
+  printf '%s' "${line#*=}"
+}
+
 set_env() {
   local key="$1" value="$2"
   if grep -qE "^${key}=" .env; then
@@ -53,16 +59,11 @@ ensure_env() {
     cp .env.example .env
     echo "[INFO] created .env from .env.example"
   fi
-  # shellcheck disable=SC1091
-  source .env
-  if [ -z "${AIKS_COLLECTOR_TOKEN:-}" ]; then
+  if [ -z "$(env_value AIKS_COLLECTOR_TOKEN)" ]; then
     set_env AIKS_COLLECTOR_TOKEN "$(random_hex_32)"
     echo "[INFO] generated AIKS_COLLECTOR_TOKEN"
   fi
-  # reload generated values
-  # shellcheck disable=SC1091
-  source .env
-  [ -n "${AIKS_WEKNORA_API_KEY:-}" ] || die "AIKS_WEKNORA_API_KEY is empty. Start WeKnora first, create the server platform API key, fill .env, then rerun ./start.sh."
+  [ -n "$(env_value AIKS_WEKNORA_API_KEY)" ] || die "AIKS_WEKNORA_API_KEY is empty. Start WeKnora first, create the server platform API key, fill .env, then rerun ./start.sh."
 }
 
 ensure_network() {
@@ -85,7 +86,9 @@ start_service() {
   "${COMPOSE[@]}" config >/dev/null
   "${COMPOSE[@]}" up -d --force-recreate --remove-orphans
 
-  local container="${AIKS_COLLECTOR_CONTAINER_NAME:-aiks-collector}"
+  local container
+  container="$(env_value AIKS_COLLECTOR_CONTAINER_NAME)"
+  container="${container:-aiks-collector}"
   echo "[INFO] waiting for collector health..."
   for _ in $(seq 1 30); do
     if docker exec "$container" curl -fsS http://127.0.0.1:28082/healthz >/dev/null 2>&1; then
