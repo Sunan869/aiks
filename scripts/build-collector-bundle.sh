@@ -11,7 +11,7 @@ OUT_FILE="${OUT_DIR}/aiks-collector-${TAG}.tar"
 
 mkdir -p "$OUT_DIR"
 
-echo "[INFO] building $IMAGE for $PLATFORM"
+echo "[INFO] building $IMAGE for $PLATFORM (base images via docker.1ms.run)"
 docker buildx build \
   --platform "$PLATFORM" \
   --load \

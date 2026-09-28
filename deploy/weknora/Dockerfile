@@ -1,5 +1,5 @@
 ARG RUST_VERSION=1.98.1
-FROM rust:${RUST_VERSION}-bookworm AS builder
+FROM docker.1ms.run/rust:${RUST_VERSION}-bookworm AS builder
 
 RUN sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
     && apt-get update \
@@ -15,7 +15,7 @@ COPY crates ./crates
 COPY apps ./apps
 RUN cargo build --locked --release -p aiks-service
 
-FROM debian:bookworm-slim AS runtime
+FROM docker.1ms.run/debian:bookworm-slim AS runtime
 
 RUN sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
     && apt-get update \
