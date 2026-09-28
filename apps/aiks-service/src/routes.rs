@@ -68,7 +68,7 @@ fn build_router_inner(
         weknora: weknora.clone(),
         collector,
     });
-    Router::new()
+    let mut router = Router::new()
         .route("/healthz", get(health))
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/collector/bootstrap", get(collector_bootstrap))
@@ -78,11 +78,20 @@ fn build_router_inner(
         .route("/api/v1/sessions", get(sessions))
         .route("/api/v1/sessions/{id}", get(session))
         .route("/api/v1/receipts/{id}", get(receipt))
-        .route("/api/v1/jobs/{id}", get(job))
-        .route("/api/v1/search", post(search))
-        .route("/api/v1/knowledge", get(knowledge_list))
-        .route("/api/v1/knowledge/{id}", get(knowledge))
-        .route("/api/v1/knowledge/{id}/assist", post(assist))
+        .route("/api/v1/jobs/{id}", get(job));
+
+    // Collector mode is deliberately not a second knowledge product.
+    // WeKnora owns shared knowledge, retrieval/RAG, AI assist and ACLs.
+    // Keep these endpoints only on the personal loopback service.
+    if !collector {
+        router = router
+            .route("/api/v1/search", post(search))
+            .route("/api/v1/knowledge", get(knowledge_list))
+            .route("/api/v1/knowledge/{id}", get(knowledge))
+            .route("/api/v1/knowledge/{id}/assist", post(assist));
+    }
+
+    router
         .fallback(|| async { ApiError(ServiceError::NotFound) })
         .method_not_allowed_fallback(|| async { ApiError(ServiceError::InvalidInput) })
         .layer(DefaultBodyLimit::max(MAX_BODY))
@@ -266,6 +275,11 @@ async fn capabilities(
         value["space_id"] = json!(route.space_id());
         value["weknora_tenant_id"] = json!(route.tenant_id());
         value["weknora_knowledge_base_id"] = json!(route.knowledge_base_id());
+        value["keyword_search"] = json!(false);
+        value["semantic_search"] = json!(false);
+        value["ai_assist"] = json!(false);
+        value["content_write"] = json!(false);
+        value["rag"] = json!(false);
     }
     Json(value)
 }

@@ -388,6 +388,9 @@ impl ServiceClient {
         self.knowledge_page(0).await
     }
     pub async fn knowledge_page(&self, offset: usize) -> ClientResult<Value> {
+        if self.connection.is_collector() {
+            return Err(ClientError::NotFound);
+        }
         self.read_page("knowledge", offset).await
     }
     async fn read_page(&self, resource: &str, offset: usize) -> ClientResult<Value> {
@@ -399,6 +402,9 @@ impl ServiceClient {
             .await
     }
     pub async fn knowledge(&self, id: &str) -> ClientResult<Value> {
+        if self.connection.is_collector() {
+            return Err(ClientError::NotFound);
+        }
         self.read(&["knowledge", id]).await
     }
     pub async fn search(&self, query: &str) -> ClientResult<Value> {
@@ -498,6 +504,9 @@ impl ServiceClient {
         query: &str,
         corpus: Option<aiks_core::search::SearchCorpus>,
     ) -> ClientResult<Value> {
+        if self.connection.is_collector() {
+            return Err(ClientError::NotFound);
+        }
         if query.trim().is_empty() || query.len() > 16_384 {
             return Err(ClientError::InvalidInput);
         }

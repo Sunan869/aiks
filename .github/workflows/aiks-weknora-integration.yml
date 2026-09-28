@@ -2,8 +2,6 @@ name: AIKS WeKnora integration gate
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/aiks-weknora-adapter]
 
 permissions:
   contents: read
@@ -47,6 +45,7 @@ jobs:
         run: |
           cargo test --locked -p aiks-service --test weknora_sync -- --test-threads=1
           cargo test --locked -p aiks-service --test collector_workspace_isolation -- --test-threads=1
+          cargo test --locked -p aiks-service --test collector_surface -- --test-threads=1
 
       - name: Service library tests
         run: cargo test --locked -p aiks-service --lib -- --test-threads=1

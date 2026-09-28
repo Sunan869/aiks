@@ -105,5 +105,13 @@ The WeKnora fork now provides DingTalk login and direct user KB sharing.
 Organization sharing remains available upstream. Sharing happens after private
 placement; aiks-service does not recreate WeKnora ACLs.
 
-Department-level DingTalk directory sharing remains a WeKnora-side extension
-after this private-routing module is verified.
+DingTalk department-to-organization membership synchronization now lives in
+the WeKnora fork. aiks-service does not own DingTalk directory state or ACLs.
+
+## Collector API boundary
+
+Collector mode is intentionally smaller than the personal loopback service.
+It exposes collection/session transport, receipts/jobs and WeKnora delivery
+status. It does **not** expose AIKS knowledge browsing, search or AI assist:
+those team-facing capabilities belong to WeKnora. Personal/offline mode keeps
+the existing local knowledge/search/assist APIs unchanged.
