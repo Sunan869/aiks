@@ -41,12 +41,7 @@ impl ServiceConnection {
             mode: ConnectionMode::Personal,
         })
     }
-    pub fn collector(
-        url: &str,
-        instance: &str,
-        space: &str,
-        token: &str,
-    ) -> ClientResult<Self> {
+    pub fn collector(url: &str, instance: &str, space: &str, token: &str) -> ClientResult<Self> {
         let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
         let loopback_http = base.scheme() == "http"
             && base
@@ -155,7 +150,10 @@ impl ServiceClient {
                 .host_str()
                 .and_then(|s| s.trim_matches(['[', ']']).parse::<IpAddr>().ok())
                 .is_some_and(|ip| ip.is_loopback());
-        if !(probe.scheme() == "https" || loopback_http) || !clean_origin(&probe) || !valid_token(token) {
+        if !(probe.scheme() == "https" || loopback_http)
+            || !clean_origin(&probe)
+            || !valid_token(token)
+        {
             return Err(ClientError::InvalidInput);
         }
         let client = Client::builder()
