@@ -2,8 +2,8 @@
 use super::{
     ingestion::{accept_with_flags_for, register_source_for},
     query::{self, Page},
-    validate_submission, CollectorContext, LocalContext, RequestContext, ServiceError, ServiceStore, SnapshotReceipt,
-    SnapshotSubmission,
+    validate_submission, CollectorContext, LocalContext, RequestContext, ServiceError,
+    ServiceStore, SnapshotReceipt, SnapshotSubmission,
 };
 use crate::{
     ai::{config::AiModelConfig, ModelService},
@@ -155,9 +155,13 @@ impl ServiceRuntime {
         space_id: &str,
     ) -> Result<RequestContext, ServiceError> {
         match &self.mode {
-            RuntimeMode::Personal(store) => Ok(RequestContext::Collector(
-                CollectorContext::verified(store.local_context().instance_id(), principal_id, space_id)?,
-            )),
+            RuntimeMode::Personal(store) => {
+                Ok(RequestContext::Collector(CollectorContext::verified(
+                    store.local_context().instance_id(),
+                    principal_id,
+                    space_id,
+                )?))
+            }
             RuntimeMode::Team(_) => Err(ServiceError::Unauthorized),
         }
     }

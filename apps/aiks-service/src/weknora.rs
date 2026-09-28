@@ -73,10 +73,18 @@ pub struct WeKnoraRoute {
 }
 
 impl WeKnoraRoute {
-    pub fn tenant_id(&self) -> u64 { self.tenant_id }
-    pub fn knowledge_base_id(&self) -> &str { &self.knowledge_base_id }
-    pub fn principal_id(&self) -> &str { &self.principal_id }
-    pub fn space_id(&self) -> &str { &self.space_id }
+    pub fn tenant_id(&self) -> u64 {
+        self.tenant_id
+    }
+    pub fn knowledge_base_id(&self) -> &str {
+        &self.knowledge_base_id
+    }
+    pub fn principal_id(&self) -> &str {
+        &self.principal_id
+    }
+    pub fn space_id(&self) -> &str {
+        &self.space_id
+    }
 }
 
 #[derive(Clone)]
@@ -287,9 +295,18 @@ impl WeKnoraSync {
         user_api_key: &str,
         knowledge_base_id: &str,
     ) -> anyhow::Result<WeKnoraRoute> {
-        anyhow::ensure!(self.inner.dynamic_targets, "Dynamic WeKnora targets are disabled");
-        anyhow::ensure!(valid_secret(user_api_key), "Invalid WeKnora user credential");
-        anyhow::ensure!(valid_id(knowledge_base_id), "Invalid WeKnora knowledge base ID");
+        anyhow::ensure!(
+            self.inner.dynamic_targets,
+            "Dynamic WeKnora targets are disabled"
+        );
+        anyhow::ensure!(
+            valid_secret(user_api_key),
+            "Invalid WeKnora user credential"
+        );
+        anyhow::ensure!(
+            valid_id(knowledge_base_id),
+            "Invalid WeKnora knowledge base ID"
+        );
 
         let mut me_url = self.inner.base_url.clone();
         me_url.set_path("/api/v1/auth/me");
@@ -302,7 +319,10 @@ impl WeKnoraSync {
             .await?;
         anyhow::ensure!(me.status().is_success(), "WeKnora identity rejected");
         let me_bytes = me.bytes().await?;
-        anyhow::ensure!(me_bytes.len() <= MAX_RESPONSE_BYTES, "WeKnora identity response exceeds budget");
+        anyhow::ensure!(
+            me_bytes.len() <= MAX_RESPONSE_BYTES,
+            "WeKnora identity response exceeds budget"
+        );
         let envelope: IdentityEnvelope = serde_json::from_slice(&me_bytes)?;
         anyhow::ensure!(envelope.success, "WeKnora identity rejected");
         let tenant_id = envelope
@@ -321,14 +341,26 @@ impl WeKnoraSync {
             .header("X-API-Key", user_api_key)
             .send()
             .await?;
-        anyhow::ensure!(kb.status().is_success(), "WeKnora knowledge base is not accessible");
+        anyhow::ensure!(
+            kb.status().is_success(),
+            "WeKnora knowledge base is not accessible"
+        );
         let kb_bytes = kb.bytes().await?;
-        anyhow::ensure!(kb_bytes.len() <= MAX_RESPONSE_BYTES, "WeKnora knowledge base response exceeds budget");
+        anyhow::ensure!(
+            kb_bytes.len() <= MAX_RESPONSE_BYTES,
+            "WeKnora knowledge base response exceeds budget"
+        );
         let envelope: KnowledgeBaseEnvelope = serde_json::from_slice(&kb_bytes)?;
         let target = envelope
             .data
-            .filter(|data| envelope.success && data.id == knowledge_base_id && data.tenant_id == tenant_id)
-            .ok_or_else(|| anyhow::anyhow!("WeKnora knowledge base does not belong to the authenticated workspace"))?;
+            .filter(|data| {
+                envelope.success && data.id == knowledge_base_id && data.tenant_id == tenant_id
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "WeKnora knowledge base does not belong to the authenticated workspace"
+                )
+            })?;
 
         Ok(WeKnoraRoute {
             tenant_id,
@@ -391,7 +423,10 @@ impl WeKnoraSync {
         session: &NormalizedSession,
         revision: u32,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(route.tenant_id > 0 && valid_id(&route.knowledge_base_id), "Invalid dynamic WeKnora route");
+        anyhow::ensure!(
+            route.tenant_id > 0 && valid_id(&route.knowledge_base_id),
+            "Invalid dynamic WeKnora route"
+        );
         let intent = intent_from_session(session, revision, route);
         enqueue_intent(self.inner.database.clone(), intent).await?;
         self.inner.notify.notify_one();
@@ -519,11 +554,7 @@ impl WeKnoraSync {
 
         let knowledge_id = if let Some(existing) = existing {
             match self
-                .update(
-                    intent.target_tenant_id,
-                    &existing.knowledge_id,
-                    &request,
-                )
+                .update(intent.target_tenant_id, &existing.knowledge_id, &request)
                 .await
             {
                 Ok(()) => existing.knowledge_id,
@@ -1038,9 +1069,7 @@ fn markdown_title(markdown: &str) -> String {
 }
 
 fn valid_secret(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 8192
-        && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+    !value.is_empty() && value.len() <= 8192 && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 fn valid_env_name(value: &str) -> bool {

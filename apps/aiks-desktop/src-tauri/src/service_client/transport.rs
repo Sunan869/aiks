@@ -163,9 +163,7 @@ fn valid_token(token: &str) -> bool {
 }
 
 fn valid_external_secret(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 8192
-        && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+    !value.is_empty() && value.len() <= 8192 && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 #[derive(Clone)]
@@ -270,8 +268,8 @@ impl ServiceClient {
         if bootstrap_bytes.len() > 16 * 1024 {
             return Err(ClientError::TooLarge);
         }
-        let bootstrap: Bootstrap = serde_json::from_slice(&bootstrap_bytes)
-            .map_err(|_| ClientError::InvalidResponse)?;
+        let bootstrap: Bootstrap =
+            serde_json::from_slice(&bootstrap_bytes).map_err(|_| ClientError::InvalidResponse)?;
         if bootstrap.api_version != 1
             || bootstrap.weknora_tenant_id == 0
             || bootstrap.instance_id != health.instance_id
@@ -325,9 +323,7 @@ impl ServiceClient {
             } else {
                 "personal"
             };
-            if value["api_version"] != 1
-                || value["mode"] != expected_mode
-                || value["team"] != false
+            if value["api_version"] != 1 || value["mode"] != expected_mode || value["team"] != false
             {
                 return Err(ClientError::InvalidResponse);
             }
@@ -569,10 +565,7 @@ impl ServiceClient {
         if let Some(identity) = &self.connection.collector_identity {
             request = request
                 .header("X-AIKS-WeKnora-API-Key", identity.api_key.as_ref())
-                .header(
-                    "X-AIKS-WeKnora-KB-ID",
-                    identity.knowledge_base_id.as_ref(),
-                );
+                .header("X-AIKS-WeKnora-KB-ID", identity.knowledge_base_id.as_ref());
         }
         if let Some(body) = body {
             request = request

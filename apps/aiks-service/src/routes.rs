@@ -272,15 +272,18 @@ async fn capabilities(
 
 async fn collector_bootstrap(
     State(runtime): State<Arc<ServiceRuntime>>,
-    Extension(route): Extension<WeKnoraRoute>,
-) -> Json<Value> {
-    Json(json!({
+    route: Option<Extension<WeKnoraRoute>>,
+) -> Result<Json<Value>, ApiError> {
+    let Some(Extension(route)) = route else {
+        return Err(ApiError(ServiceError::NotFound));
+    };
+    Ok(Json(json!({
         "api_version":1,
         "instance_id":runtime.context().instance_id(),
         "space_id":route.space_id(),
         "weknora_tenant_id":route.tenant_id(),
         "weknora_knowledge_base_id":route.knowledge_base_id()
-    }))
+    })))
 }
 async fn register(
     State(runtime): State<Arc<ServiceRuntime>>,
@@ -316,7 +319,8 @@ async fn ingest(
     };
     if let Some(sync) = weknora.0.as_ref() {
         let queued = if let Some(Extension(route)) = route.as_ref() {
-            sync.enqueue_session_for(route, &session, receipt.revision).await
+            sync.enqueue_session_for(route, &session, receipt.revision)
+                .await
         } else {
             sync.enqueue_session(&session, receipt.revision).await
         };
@@ -351,7 +355,7 @@ async fn weknora_status(
     } else {
         sync.outbox_counts().await
     }
-        .map_err(|_| ApiError(ServiceError::Internal))?;
+    .map_err(|_| ApiError(ServiceError::Internal))?;
     Ok(Json(json!({
         "enabled":true,
         "pending":pending,
@@ -462,7 +466,8 @@ async fn search(
     };
     let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
     Ok(Json(if let Some(context) = context {
-        r.search_for(&context, input.query, input.limit, filter).await?
+        r.search_for(&context, input.query, input.limit, filter)
+            .await?
     } else {
         r.search(input.query, input.limit, filter).await?
     }))
