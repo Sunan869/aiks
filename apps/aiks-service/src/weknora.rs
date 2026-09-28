@@ -30,6 +30,7 @@ pub struct WeKnoraSettings {
     pub knowledge_base_id: String,
     pub api_key_env: String,
     pub channel: String,
+    pub dynamic_targets: bool,
 }
 
 impl Default for WeKnoraSettings {
@@ -40,6 +41,7 @@ impl Default for WeKnoraSettings {
             knowledge_base_id: String::new(),
             api_key_env: "AIKS_WEKNORA_API_KEY".into(),
             channel: "aiks".into(),
+            dynamic_targets: false,
         }
     }
 }
@@ -55,15 +57,33 @@ struct WeKnoraInner {
     knowledge_base_id: String,
     api_key: String,
     channel: String,
+    dynamic_targets: bool,
     database: PathBuf,
     serial: Mutex<()>,
     notify: Arc<Notify>,
     worker_started: AtomicBool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WeKnoraRoute {
+    tenant_id: u64,
+    knowledge_base_id: String,
+    principal_id: String,
+    space_id: String,
+}
+
+impl WeKnoraRoute {
+    pub fn tenant_id(&self) -> u64 { self.tenant_id }
+    pub fn knowledge_base_id(&self) -> &str { &self.knowledge_base_id }
+    pub fn principal_id(&self) -> &str { &self.principal_id }
+    pub fn space_id(&self) -> &str { &self.space_id }
+}
+
 #[derive(Clone)]
 struct SyncIntent {
     source: String,
+    target_tenant_id: u64,
+    target_knowledge_base_id: String,
     external_session_id: String,
     external_id: String,
     revision: u32,
@@ -97,6 +117,34 @@ struct ApiResponse {
 #[derive(Deserialize)]
 struct KnowledgeResponse {
     id: String,
+}
+
+#[derive(Deserialize)]
+struct IdentityEnvelope {
+    success: bool,
+    data: Option<IdentityData>,
+}
+
+#[derive(Deserialize)]
+struct IdentityData {
+    tenant: Option<IdentityTenant>,
+}
+
+#[derive(Deserialize)]
+struct IdentityTenant {
+    id: u64,
+}
+
+#[derive(Deserialize)]
+struct KnowledgeBaseEnvelope {
+    success: bool,
+    data: Option<KnowledgeBaseIdentity>,
+}
+
+#[derive(Deserialize)]
+struct KnowledgeBaseIdentity {
+    id: String,
+    tenant_id: u64,
 }
 
 #[derive(Debug)]
@@ -160,7 +208,16 @@ pub fn check_settings_with(
     {
         return Err(issue("weknora.base_url", "invalid_origin"));
     }
-    if !valid_id(&settings.knowledge_base_id) {
+    if !settings.dynamic_targets && !valid_id(&settings.knowledge_base_id) {
+        return Err(issue(
+            "weknora.knowledge_base_id",
+            "invalid_knowledge_base_id",
+        ));
+    }
+    if settings.dynamic_targets
+        && !settings.knowledge_base_id.is_empty()
+        && !valid_id(&settings.knowledge_base_id)
+    {
         return Err(issue(
             "weknora.knowledge_base_id",
             "invalid_knowledge_base_id",
@@ -216,12 +273,69 @@ impl WeKnoraSync {
                 knowledge_base_id: settings.knowledge_base_id.clone(),
                 api_key,
                 channel: settings.channel.clone(),
+                dynamic_targets: settings.dynamic_targets,
                 database,
                 serial: Mutex::new(()),
                 notify: Arc::new(Notify::new()),
                 worker_started: AtomicBool::new(false),
             }),
         }))
+    }
+
+    pub async fn resolve_route(
+        &self,
+        user_api_key: &str,
+        knowledge_base_id: &str,
+    ) -> anyhow::Result<WeKnoraRoute> {
+        anyhow::ensure!(self.inner.dynamic_targets, "Dynamic WeKnora targets are disabled");
+        anyhow::ensure!(valid_secret(user_api_key), "Invalid WeKnora user credential");
+        anyhow::ensure!(valid_id(knowledge_base_id), "Invalid WeKnora knowledge base ID");
+
+        let mut me_url = self.inner.base_url.clone();
+        me_url.set_path("/api/v1/auth/me");
+        let me = self
+            .inner
+            .client
+            .get(me_url)
+            .header("X-API-Key", user_api_key)
+            .send()
+            .await?;
+        anyhow::ensure!(me.status().is_success(), "WeKnora identity rejected");
+        let me_bytes = me.bytes().await?;
+        anyhow::ensure!(me_bytes.len() <= MAX_RESPONSE_BYTES, "WeKnora identity response exceeds budget");
+        let envelope: IdentityEnvelope = serde_json::from_slice(&me_bytes)?;
+        anyhow::ensure!(envelope.success, "WeKnora identity rejected");
+        let tenant_id = envelope
+            .data
+            .and_then(|data| data.tenant)
+            .map(|tenant| tenant.id)
+            .filter(|id| *id > 0)
+            .ok_or_else(|| anyhow::anyhow!("WeKnora workspace is unavailable"))?;
+
+        let mut kb_url = self.inner.base_url.clone();
+        kb_url.set_path(&format!("/api/v1/knowledge-bases/{knowledge_base_id}"));
+        let kb = self
+            .inner
+            .client
+            .get(kb_url)
+            .header("X-API-Key", user_api_key)
+            .send()
+            .await?;
+        anyhow::ensure!(kb.status().is_success(), "WeKnora knowledge base is not accessible");
+        let kb_bytes = kb.bytes().await?;
+        anyhow::ensure!(kb_bytes.len() <= MAX_RESPONSE_BYTES, "WeKnora knowledge base response exceeds budget");
+        let envelope: KnowledgeBaseEnvelope = serde_json::from_slice(&kb_bytes)?;
+        let target = envelope
+            .data
+            .filter(|data| envelope.success && data.id == knowledge_base_id && data.tenant_id == tenant_id)
+            .ok_or_else(|| anyhow::anyhow!("WeKnora knowledge base does not belong to the authenticated workspace"))?;
+
+        Ok(WeKnoraRoute {
+            tenant_id,
+            knowledge_base_id: target.id,
+            principal_id: format!("wk-principal-{tenant_id}"),
+            space_id: format!("wk-space-{tenant_id}"),
+        })
     }
 
     /// Start one recovery worker for this adapter. It uses a Weak reference so
@@ -259,7 +373,26 @@ impl WeKnoraSync {
         session: &NormalizedSession,
         revision: u32,
     ) -> anyhow::Result<()> {
-        let intent = intent_from_session(session, revision);
+        let route = WeKnoraRoute {
+            tenant_id: 0,
+            knowledge_base_id: self.inner.knowledge_base_id.clone(),
+            principal_id: String::new(),
+            space_id: String::new(),
+        };
+        let intent = intent_from_session(session, revision, &route);
+        enqueue_intent(self.inner.database.clone(), intent).await?;
+        self.inner.notify.notify_one();
+        Ok(())
+    }
+
+    pub async fn enqueue_session_for(
+        &self,
+        route: &WeKnoraRoute,
+        session: &NormalizedSession,
+        revision: u32,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(route.tenant_id > 0 && valid_id(&route.knowledge_base_id), "Invalid dynamic WeKnora route");
+        let intent = intent_from_session(session, revision, route);
         enqueue_intent(self.inner.database.clone(), intent).await?;
         self.inner.notify.notify_one();
         Ok(())
@@ -272,7 +405,13 @@ impl WeKnoraSync {
         session: &NormalizedSession,
         revision: u32,
     ) -> anyhow::Result<()> {
-        let intent = intent_from_session(session, revision);
+        let route = WeKnoraRoute {
+            tenant_id: 0,
+            knowledge_base_id: self.inner.knowledge_base_id.clone(),
+            principal_id: String::new(),
+            space_id: String::new(),
+        };
+        let intent = intent_from_session(session, revision, &route);
         enqueue_intent(self.inner.database.clone(), intent.clone()).await?;
         let _serial = self.inner.serial.lock().await;
         self.process_intent(intent).await
@@ -286,12 +425,20 @@ impl WeKnoraSync {
     }
 
     pub async fn pending_count(&self) -> anyhow::Result<u64> {
-        let (pending, terminal) = outbox_counts(self.inner.database.clone()).await?;
+        let (pending, terminal) = outbox_counts(self.inner.database.clone(), None).await?;
         Ok(pending.saturating_add(terminal))
     }
 
     pub async fn outbox_counts(&self) -> anyhow::Result<(u64, u64)> {
-        outbox_counts(self.inner.database.clone()).await
+        outbox_counts(self.inner.database.clone(), None).await
+    }
+
+    pub async fn outbox_counts_for(&self, route: &WeKnoraRoute) -> anyhow::Result<(u64, u64)> {
+        outbox_counts(
+            self.inner.database.clone(),
+            Some((route.tenant_id, route.knowledge_base_id.clone())),
+        )
+        .await
     }
 
     async fn process_due(&self, limit: usize) -> anyhow::Result<usize> {
@@ -371,13 +518,32 @@ impl WeKnoraSync {
         };
 
         let knowledge_id = if let Some(existing) = existing {
-            match self.update(&existing.knowledge_id, &request).await {
+            match self
+                .update(
+                    intent.target_tenant_id,
+                    &existing.knowledge_id,
+                    &request,
+                )
+                .await
+            {
                 Ok(()) => existing.knowledge_id,
-                Err(error) if error.not_found => self.create(&request).await?,
+                Err(error) if error.not_found => {
+                    self.create(
+                        intent.target_tenant_id,
+                        &intent.target_knowledge_base_id,
+                        &request,
+                    )
+                    .await?
+                }
                 Err(error) => return Err(error),
             }
         } else {
-            self.create(&request).await?
+            self.create(
+                intent.target_tenant_id,
+                &intent.target_knowledge_base_id,
+                &request,
+            )
+            .await?
         };
 
         store_mapping(
@@ -393,13 +559,22 @@ impl WeKnoraSync {
         Ok(())
     }
 
-    async fn create(&self, request: &ManualKnowledgeRequest<'_>) -> Result<String, RemoteError> {
+    async fn create(
+        &self,
+        tenant_id: u64,
+        knowledge_base_id: &str,
+        request: &ManualKnowledgeRequest<'_>,
+    ) -> Result<String, RemoteError> {
+        if !valid_id(knowledge_base_id) {
+            return Err(RemoteError::permanent("invalid_target_knowledge_base_id"));
+        }
         let mut url = self.inner.base_url.clone();
         url.set_path(&format!(
-            "/api/v1/knowledge-bases/{}/knowledge/manual",
-            self.inner.knowledge_base_id
+            "/api/v1/knowledge-bases/{knowledge_base_id}/knowledge/manual"
         ));
-        let envelope = self.request_json(Method::POST, url, request, false).await?;
+        let envelope = self
+            .request_json(tenant_id, Method::POST, url, request, false)
+            .await?;
         if !envelope.success {
             return Err(RemoteError::retry("rejected_response"));
         }
@@ -412,6 +587,7 @@ impl WeKnoraSync {
 
     async fn update(
         &self,
+        tenant_id: u64,
         knowledge_id: &str,
         request: &ManualKnowledgeRequest<'_>,
     ) -> Result<(), RemoteError> {
@@ -420,7 +596,9 @@ impl WeKnoraSync {
         }
         let mut url = self.inner.base_url.clone();
         url.set_path(&format!("/api/v1/knowledge/manual/{knowledge_id}"));
-        let envelope = self.request_json(Method::PUT, url, request, true).await?;
+        let envelope = self
+            .request_json(tenant_id, Method::PUT, url, request, true)
+            .await?;
         if !envelope.success {
             return Err(RemoteError::retry("rejected_response"));
         }
@@ -429,17 +607,22 @@ impl WeKnoraSync {
 
     async fn request_json(
         &self,
+        tenant_id: u64,
         method: Method,
         url: Url,
         request: &ManualKnowledgeRequest<'_>,
         allow_not_found: bool,
     ) -> Result<ApiResponse, RemoteError> {
-        let response = self
+        let mut outbound = self
             .inner
             .client
             .request(method, url)
             .header("X-API-Key", &self.inner.api_key)
-            .json(request)
+            .json(request);
+        if tenant_id > 0 {
+            outbound = outbound.header("X-Tenant-ID", tenant_id.to_string());
+        }
+        let response = outbound
             .send()
             .await
             .map_err(|_| RemoteError::retry("transport"))?;
@@ -468,14 +651,21 @@ impl WeKnoraSync {
     }
 }
 
-fn intent_from_session(session: &NormalizedSession, revision: u32) -> SyncIntent {
-    let source = session.source.as_str().to_owned();
+fn intent_from_session(
+    session: &NormalizedSession,
+    revision: u32,
+    route: &WeKnoraRoute,
+) -> SyncIntent {
+    let source_kind = session.source.as_str();
+    let source = storage_source(route, source_kind);
     let external_session_id = session.external_session_id.clone();
     let markdown = MarkdownRenderer::new(ContentConfig::default(), true).render(session);
     let content_hash = hex::encode(Sha256::digest(markdown.as_bytes()));
-    let external_id = stable_external_id(&source, &external_session_id);
+    let external_id = stable_external_id(source_kind, &external_session_id);
     SyncIntent {
         source,
+        target_tenant_id: route.tenant_id,
+        target_knowledge_base_id: route.knowledge_base_id.clone(),
         external_session_id,
         external_id,
         revision,
@@ -484,6 +674,18 @@ fn intent_from_session(session: &NormalizedSession, revision: u32) -> SyncIntent
         content_hash,
         attempts: 0,
     }
+}
+
+fn storage_source(route: &WeKnoraRoute, source: &str) -> String {
+    if route.tenant_id == 0 {
+        return source.to_owned();
+    }
+    let hash = Sha256::digest(route.knowledge_base_id.as_bytes());
+    format!(
+        "wk{}-{}-{source}",
+        route.tenant_id,
+        &hex::encode(hash)[..12]
+    )
 }
 
 fn stable_external_id(source: &str, external_session_id: &str) -> String {
@@ -525,6 +727,8 @@ fn initialize_tables(database: &PathBuf) -> anyhow::Result<()> {
             source TEXT NOT NULL,
             external_session_id TEXT NOT NULL,
             external_id TEXT NOT NULL,
+            target_tenant_id INTEGER NOT NULL DEFAULT 0 CHECK(target_tenant_id >= 0),
+            target_knowledge_base_id TEXT NOT NULL DEFAULT '',
             revision INTEGER NOT NULL CHECK(revision >= 0),
             title TEXT NOT NULL,
             markdown TEXT NOT NULL,
@@ -539,6 +743,35 @@ fn initialize_tables(database: &PathBuf) -> anyhow::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_aiks_weknora_outbox_due
             ON aiks_weknora_outbox(terminal, next_attempt_at, updated_at);",
     )?;
+    ensure_column(
+        &conn,
+        "aiks_weknora_outbox",
+        "target_tenant_id",
+        "ALTER TABLE aiks_weknora_outbox ADD COLUMN target_tenant_id INTEGER NOT NULL DEFAULT 0;",
+    )?;
+    ensure_column(
+        &conn,
+        "aiks_weknora_outbox",
+        "target_knowledge_base_id",
+        "ALTER TABLE aiks_weknora_outbox ADD COLUMN target_knowledge_base_id TEXT NOT NULL DEFAULT '';",
+    )?;
+    Ok(())
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> anyhow::Result<()> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name=?1",
+        table.replace('\'', "''")
+    );
+    let count: i64 = conn.query_row(&sql, [column], |row| row.get(0))?;
+    if count == 0 {
+        conn.execute_batch(alter_sql)?;
+    }
     Ok(())
 }
 
@@ -548,11 +781,14 @@ async fn enqueue_intent(database: PathBuf, intent: SyncIntent) -> anyhow::Result
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute(
             "INSERT INTO aiks_weknora_outbox(
-                source, external_session_id, external_id, revision, title, markdown,
+                source, external_session_id, external_id, target_tenant_id,
+                target_knowledge_base_id, revision, title, markdown,
                 content_hash, attempts, next_attempt_at, terminal, last_error_code, updated_at
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,0,0,0,NULL,?8)
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,0,0,0,NULL,?10)
              ON CONFLICT(source, external_session_id) DO UPDATE SET
                 external_id=excluded.external_id,
+                target_tenant_id=excluded.target_tenant_id,
+                target_knowledge_base_id=excluded.target_knowledge_base_id,
                 revision=excluded.revision,
                 title=excluded.title,
                 markdown=excluded.markdown,
@@ -567,6 +803,8 @@ async fn enqueue_intent(database: PathBuf, intent: SyncIntent) -> anyhow::Result
                 intent.source,
                 intent.external_session_id,
                 intent.external_id,
+                intent.target_tenant_id,
+                intent.target_knowledge_base_id,
                 intent.revision,
                 intent.title,
                 intent.markdown,
@@ -586,8 +824,9 @@ async fn load_due_intent(database: PathBuf) -> anyhow::Result<Option<SyncIntent>
         let at = unix_now()?;
         Ok(conn
             .query_row(
-                "SELECT source, external_session_id, external_id, revision, title,
-                        markdown, content_hash, attempts
+                "SELECT source, external_session_id, external_id, target_tenant_id,
+                        target_knowledge_base_id, revision, title, markdown,
+                        content_hash, attempts
                  FROM aiks_weknora_outbox
                  WHERE terminal=0 AND next_attempt_at <= ?1
                  ORDER BY next_attempt_at ASC, updated_at ASC
@@ -598,11 +837,13 @@ async fn load_due_intent(database: PathBuf) -> anyhow::Result<Option<SyncIntent>
                         source: row.get(0)?,
                         external_session_id: row.get(1)?,
                         external_id: row.get(2)?,
-                        revision: row.get(3)?,
-                        title: row.get(4)?,
-                        markdown: row.get(5)?,
-                        content_hash: row.get(6)?,
-                        attempts: row.get(7)?,
+                        target_tenant_id: row.get(3)?,
+                        target_knowledge_base_id: row.get(4)?,
+                        revision: row.get(5)?,
+                        title: row.get(6)?,
+                        markdown: row.get(7)?,
+                        content_hash: row.get(8)?,
+                        attempts: row.get(9)?,
                     })
                 },
             )
@@ -746,18 +987,33 @@ async fn reset_retry_delays(database: PathBuf) -> anyhow::Result<()> {
     .await?
 }
 
-async fn outbox_counts(database: PathBuf) -> anyhow::Result<(u64, u64)> {
+async fn outbox_counts(
+    database: PathBuf,
+    target: Option<(u64, String)>,
+) -> anyhow::Result<(u64, u64)> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<(u64, u64)> {
         let conn = Connection::open(database)?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        let (pending, terminal): (i64, i64) = conn.query_row(
-            "SELECT
-                COALESCE(SUM(CASE WHEN terminal=0 THEN 1 ELSE 0 END),0),
-                COALESCE(SUM(CASE WHEN terminal=1 THEN 1 ELSE 0 END),0)
-             FROM aiks_weknora_outbox",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let (pending, terminal): (i64, i64) = if let Some((tenant_id, kb_id)) = target {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN terminal=0 THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN terminal=1 THEN 1 ELSE 0 END),0)
+                 FROM aiks_weknora_outbox
+                 WHERE target_tenant_id=?1 AND target_knowledge_base_id=?2",
+                params![tenant_id, kb_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+        } else {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN terminal=0 THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN terminal=1 THEN 1 ELSE 0 END),0)
+                 FROM aiks_weknora_outbox",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+        };
         Ok((pending.max(0) as u64, terminal.max(0) as u64))
     })
     .await?
@@ -779,6 +1035,12 @@ fn markdown_title(markdown: &str) -> String {
         title = "AI Session".into();
     }
     title
+}
+
+fn valid_secret(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 8192
+        && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 fn valid_env_name(value: &str) -> bool {
