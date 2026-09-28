@@ -6,18 +6,32 @@ pub enum BackendMode {
     #[default]
     Legacy,
     ServiceLocal,
+    ServiceRemote,
 }
 impl BackendMode {
     pub fn parse(value: &str) -> anyhow::Result<Self> {
         match value {
             "legacy" => Ok(Self::Legacy),
             "service_local" => Ok(Self::ServiceLocal),
-            _ => anyhow::bail!("backend.mode must be legacy or service_local"),
+            "service_remote" => Ok(Self::ServiceRemote),
+            _ => anyhow::bail!("backend.mode must be legacy, service_local or service_remote"),
         }
     }
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BackendConfig {
     pub mode: BackendMode,
+    pub collector_url: String,
+    pub collector_token_env: String,
+}
+
+impl Default for BackendConfig {
+    fn default() -> Self {
+        Self {
+            mode: BackendMode::Legacy,
+            collector_url: String::new(),
+            collector_token_env: "AIKS_COLLECTOR_TOKEN".into(),
+        }
+    }
 }

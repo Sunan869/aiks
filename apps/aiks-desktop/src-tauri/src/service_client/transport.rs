@@ -13,6 +13,7 @@ use std::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ConnectionMode {
     Personal,
+    Collector,
     Team,
 }
 #[derive(Clone)]
@@ -40,6 +41,32 @@ impl ServiceConnection {
             mode: ConnectionMode::Personal,
         })
     }
+    pub fn collector(
+        url: &str,
+        instance: &str,
+        space: &str,
+        token: &str,
+    ) -> ClientResult<Self> {
+        let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
+        let loopback_http = base.scheme() == "http"
+            && base
+                .host_str()
+                .and_then(|s| s.trim_matches(['[', ']']).parse::<IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+        if !(base.scheme() == "https" || loopback_http)
+            || !clean_origin(&base)
+            || !valid_token(token)
+        {
+            return Err(ClientError::InvalidInput);
+        }
+        Ok(Self {
+            base,
+            target: TargetIdentity::personal(instance, space)?,
+            credential: Arc::from(token),
+            mode: ConnectionMode::Collector,
+        })
+    }
+
     pub fn team(
         url: &str,
         instance: &str,
@@ -121,6 +148,62 @@ pub struct ServiceClient {
     client: Client,
 }
 impl ServiceClient {
+    pub async fn connect_collector(url: &str, token: &str) -> ClientResult<Self> {
+        let probe = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
+        let loopback_http = probe.scheme() == "http"
+            && probe
+                .host_str()
+                .and_then(|s| s.trim_matches(['[', ']']).parse::<IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+        if !(probe.scheme() == "https" || loopback_http) || !clean_origin(&probe) || !valid_token(token) {
+            return Err(ClientError::InvalidInput);
+        }
+        let client = Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| ClientError::InvalidInput)?;
+        let mut health = probe.clone();
+        health.set_path("/healthz");
+        let response = client
+            .get(health)
+            .send()
+            .await
+            .map_err(|_| ClientError::Retryable)?;
+        if !response.status().is_success()
+            || response.content_length().is_some_and(|n| n > 16 * 1024)
+        {
+            return Err(ClientError::InvalidResponse);
+        }
+        #[derive(Deserialize)]
+        struct Health {
+            status: String,
+            api_version: u16,
+            instance_id: String,
+            space_id: String,
+        }
+        let bytes = response.bytes().await.map_err(|_| ClientError::Retryable)?;
+        if bytes.len() > 16 * 1024 {
+            return Err(ClientError::TooLarge);
+        }
+        let health: Health =
+            serde_json::from_slice(&bytes).map_err(|_| ClientError::InvalidResponse)?;
+        if health.status != "ok"
+            || health.api_version != 1
+            || !valid_id(&health.instance_id)
+            || !valid_id(&health.space_id)
+        {
+            return Err(ClientError::InvalidResponse);
+        }
+        let connection =
+            ServiceConnection::collector(url, &health.instance_id, &health.space_id, token)?;
+        let service = Self::new(connection)?;
+        service.capabilities().await?;
+        Ok(service)
+    }
+
     pub fn new(connection: ServiceConnection) -> ClientResult<Self> {
         let client = Client::builder()
             .no_proxy()

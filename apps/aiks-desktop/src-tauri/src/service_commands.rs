@@ -34,9 +34,12 @@ pub async fn service_status(app: AppHandle, webview: Webview) -> Result<Value, S
         .map_err(|_| "invalid_backend_configuration")?
         .backend
         .mode;
-    Ok(
-        json!({"mode":if mode==BackendMode::Legacy{"legacy"}else{"service_local"},"phase":"starting"}),
-    )
+    let mode = match mode {
+        BackendMode::Legacy => "legacy",
+        BackendMode::ServiceLocal => "service_local",
+        BackendMode::ServiceRemote => "service_remote",
+    };
+    Ok(json!({"mode":mode,"phase":"starting"}))
 }
 #[tauri::command]
 pub async fn service_collect_selected(

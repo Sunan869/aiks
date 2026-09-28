@@ -1,3 +1,12 @@
+# Backend modes:
+#   legacy         - original embedded/local backend
+#   service_local  - owned local aiks-service
+#   service_remote - local providers upload snapshots to the server collector
+[backend]
+mode = "legacy"
+collector_url = "https://aiks-collector.example.com"
+collector_token_env = "AIKS_COLLECTOR_TOKEN"
+
 [sync]
 scan_interval_seconds = 300
 watch_enabled = true

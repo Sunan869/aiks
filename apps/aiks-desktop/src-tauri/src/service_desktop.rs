@@ -10,7 +10,7 @@ use aiks_core::{
     providers::{build_registry, catalog::descriptors, ProviderRegistry},
     runtime::SiyuanRuntime,
     storage::ownership::BusinessDbLease,
-    Config,
+    config::BackendMode, Config,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -97,9 +97,25 @@ impl ServiceDesktop {
         Ok(())
     }
     async fn start_inner(self: &Arc<Self>, app: &AppHandle) -> anyhow::Result<()> {
+        match self.provider_config.backend.mode {
+            BackendMode::ServiceLocal => self.start_local(app).await,
+            BackendMode::ServiceRemote => self.start_remote().await,
+            BackendMode::Legacy => anyhow::bail!("Legacy mode cannot start ServiceDesktop"),
+        }
+    }
+
+    pub(super) fn service_root(&self) -> PathBuf {
+        let name = match self.provider_config.backend.mode {
+            BackendMode::ServiceRemote => "service-remote",
+            _ => "service-local",
+        };
+        crate::app_state::data_dir().join(name)
+    }
+
+    async fn start_local(self: &Arc<Self>, app: &AppHandle) -> anyhow::Result<()> {
         self.ensure_running()?;
         let mut cancelled = self.cancel.subscribe();
-        let root = crate::app_state::data_dir().join("service-local");
+        let root = self.service_root();
         let lease = BusinessDbLease::acquire(&root.join("desktop-owner"))?;
         *self
             .profile_lease
@@ -158,6 +174,51 @@ impl ServiceDesktop {
         *self.outbox.write().await = Some(outbox);
         self.ensure_running()?;
         *self.phase.write().await = "ready";
+        self.start_delivery().await;
+        Ok(())
+    }
+
+    async fn start_remote(self: &Arc<Self>) -> anyhow::Result<()> {
+        self.ensure_running()?;
+        let root = self.service_root();
+        let lease = BusinessDbLease::acquire(&root.join("desktop-owner"))?;
+        *self
+            .profile_lease
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Profile lock unavailable"))? = Some(lease);
+        validate_private_path(&root, false)?;
+        std::fs::create_dir_all(&root)?;
+        let outbox = self.local_store().await.map_err(anyhow::Error::msg)?;
+
+        let url = self.provider_config.backend.collector_url.trim();
+        anyhow::ensure!(!url.is_empty(), "Remote collector URL is required");
+        let env_name = self.provider_config.backend.collector_token_env.trim();
+        anyhow::ensure!(
+            !env_name.is_empty()
+                && env_name.len() <= 128
+                && env_name
+                    .bytes()
+                    .next()
+                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+                && env_name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+            "Invalid collector token environment reference"
+        );
+        let token = std::env::var(env_name)
+            .map_err(|_| anyhow::anyhow!("Collector token is unavailable"))?;
+        let client = ServiceClient::connect_collector(url, &token)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+
+        *self.client.write().await = Some(client);
+        *self.outbox.write().await = Some(outbox);
+        *self.phase.write().await = "ready";
+        self.start_delivery().await;
+        Ok(())
+    }
+
+    async fn start_delivery(self: &Arc<Self>) {
         let state = self.clone();
         *self.delivery.lock().await = Some(tokio::spawn(async move {
             let mut cancelled = state.cancel.subscribe();
@@ -186,7 +247,6 @@ impl ServiceDesktop {
                 }
             }
         }));
-        Ok(())
     }
     pub async fn connection(&self) -> Result<(ServiceClient, Arc<CollectorOutbox>), String> {
         if self.stopping.load(Ordering::Acquire) {
@@ -211,7 +271,8 @@ impl ServiceDesktop {
         let mut capabilities = None;
         let mut connection_error = None;
         let mut weknora = json!({
-            "enabled": self.provider_config.weknora.enabled,
+            "enabled": self.provider_config.weknora.enabled
+                || self.provider_config.backend.mode == BackendMode::ServiceRemote,
             "pending": 0,
             "terminal": 0
         });
@@ -236,7 +297,12 @@ impl ServiceDesktop {
             .filter(|p| p.configurable)
             .map(|p| json!({"key":p.key,"display_name":p.display_name,"enabled":p.enabled}))
             .collect::<Vec<_>>();
-        json!({"mode":"service_local","phase":if connection_error.is_some(){"unavailable"}else{phase},
+        let mode = if self.provider_config.backend.mode == BackendMode::ServiceRemote {
+            "service_remote"
+        } else {
+            "service_local"
+        };
+        json!({"mode":mode,"phase":if connection_error.is_some(){"unavailable"}else{phase},
             "error_code":connection_error.or(*self.error.read().await),"capabilities":capabilities,
             "weknora":weknora,"providers":providers})
     }

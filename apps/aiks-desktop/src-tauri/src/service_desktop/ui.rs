@@ -14,7 +14,7 @@ impl ServiceDesktop {
         if *self.phase.read().await == "stopped" {
             return Err("service_stopping".into());
         }
-        let root = crate::app_state::data_dir().join("service-local");
+        let root = self.service_root();
         let outbox = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             validate_private_path(&root, false)?;
             std::fs::create_dir_all(&root)?;

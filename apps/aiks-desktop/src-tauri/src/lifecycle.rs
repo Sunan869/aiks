@@ -38,7 +38,7 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             anyhow::ensure!(app.manage(lease), "Legacy writer already initialized");
             legacy::startup(app).await
         }
-        BackendMode::ServiceLocal => {
+        BackendMode::ServiceLocal | BackendMode::ServiceRemote => {
             let state = Arc::new(ServiceDesktop::new(config));
             anyhow::ensure!(
                 app.manage(state.clone()),
