@@ -1,0 +1,60 @@
+name: AIKS WeKnora integration gate
+
+on:
+  push:
+    branches: [feature/aiks-weknora-adapter]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aiks-weknora-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Prepare CI-only desktop resource
+        run: |
+          mkdir -p apps/aiks-desktop/src-tauri/resources/siyuan
+          printf 'CI-only resource placeholder\n' > apps/aiks-desktop/src-tauri/resources/siyuan/placeholder.txt
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: WeKnora service contracts
+        run: cargo test --locked -p aiks-service --test weknora_sync -- --test-threads=1
+
+      - name: Service library tests
+        run: cargo test --locked -p aiks-service --lib -- --test-threads=1
+
+      - name: Desktop service configuration tests
+        run: |
+          cargo test --locked -p aiks-desktop --lib service_desktop_tests -- --test-threads=1
+          cargo test --locked -p aiks-desktop --lib settings_mapping_tests -- --test-threads=1
+
+      - name: Changed Rust surface clippy
+        run: cargo clippy --locked -p aiks-core -p aiks-service -p aiks-desktop --all-targets -- -D warnings
+
+      - name: Lockfile unchanged
+        run: git diff --exit-code -- Cargo.lock
