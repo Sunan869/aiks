@@ -12,26 +12,3 @@ knowledge_base_id = ""
 api_key_env = "AIKS_WEKNORA_API_KEY"
 channel = "aiks"
 dynamic_targets = true
-
-[ai]
-enabled = false
-base_url = ""
-model = ""
-
-[embedding]
-enabled = false
-base_url = ""
-model = ""
-
-[model_credentials]
-ai_api_key_env = ""
-embedding_api_key_env = ""
-
-[siyuan]
-base_url = "http://127.0.0.1:6806"
-token = ""
-token_env = ""
-notebook_name = "AIKS"
-session_notebook_name = "AIKS"
-session_root = "/10 AI Sessions"
-knowledge_root = "/20 Knowledge"

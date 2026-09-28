@@ -79,8 +79,8 @@ that key in its SQLite snapshot database or durable WeKnora outbox.
 3. Collector verifies the key against WeKnora `/auth/me`.
 4. Collector verifies that the target KB belongs to that active workspace.
 5. Collector returns a workspace-specific AIKS `space_id`.
-6. Source registration, snapshots, receipts, jobs, searches and local derived
-   state are scoped by the verified `principal_id + space_id`.
+6. Source registration, snapshots, sessions, receipts and jobs are scoped by
+   the verified `principal_id + space_id`.
 7. The durable WeKnora outbox persists only the validated tenant/KB target.
    Retries use the server platform key with `X-Tenant-ID`.
 
@@ -115,3 +115,14 @@ It exposes collection/session transport, receipts/jobs and WeKnora delivery
 status. It does **not** expose AIKS knowledge browsing, search or AI assist:
 those team-facing capabilities belong to WeKnora. Personal/offline mode keeps
 the existing local knowledge/search/assist APIs unchanged.
+
+## Legacy team runtime retirement
+
+The old aiks-service `mode = "team"` runtime is no longer a supported startup
+mode on this branch. Server-side DingTalk authentication, directory sync,
+team ACL/share endpoints and SiYuan team content are superseded by WeKnora.
+
+The legacy source modules remain temporarily in-tree only to keep the retirement
+reviewable and to avoid mixing a large physical deletion with the runtime
+cut-over. They are not part of the supported deployment path and can be removed
+after the consolidated integration gate passes.

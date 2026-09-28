@@ -1,7 +1,6 @@
 use crate::{
     build_collector_router, build_router_with_weknora, LocalAuth, ServiceConfig, ServiceRuntime,
 };
-use aiks_core::team::IdentityProvider;
 use serde::Deserialize;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -55,7 +54,7 @@ pub async fn run() -> anyhow::Result<()> {
     file.read_to_end(&mut bytes).await?;
     anyhow::ensure!(bytes.len() <= 1024 * 1024, "Config exceeds budget");
     let mut config: ServiceConfig = toml::from_str(std::str::from_utf8(&bytes)?)?;
-    if matches!(config.mode.as_str(), "team" | "collector") {
+    if config.mode == "collector" {
         anyhow::ensure!(
             config_path.is_absolute(),
             "Server config path must be absolute"
@@ -72,7 +71,6 @@ pub async fn run() -> anyhow::Result<()> {
     match config.mode.as_str() {
         "personal" => run_personal(config, bootstrap).await,
         "collector" => run_collector(config, bootstrap).await,
-        "team" => run_team(config, bootstrap).await,
         _ => anyhow::bail!("Unsupported service mode"),
     }
 }
@@ -142,10 +140,9 @@ async fn run_collector(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Re
     let collector_token = config
         .collector
         .resolve_token_with(|name| std::env::var(name).ok())?;
-    config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
-    config.resolve_siyuan_credentials_with(|name| std::env::var(name).ok())?;
-
-    // Open all state and resolve every secret before exposing the network listener.
+    // Collector intentionally has no local AI/embedding/SiYuan responsibility.
+    // Static validation rejects those model capabilities before state or sockets open.
+    // Open all state and resolve every collector/WeKnora secret before exposing the listener.
     let runtime = Arc::new(ServiceRuntime::open(config.runtime_config()).await?);
     let identity = runtime.context();
     let auth = LocalAuth::new(&collector_token, identity.instance_id())?;
@@ -165,37 +162,6 @@ async fn run_collector(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Re
     .with_graceful_shutdown(shutdown_signal())
     .await;
     let drained = runtime.shutdown(Duration::from_secs(10)).await;
-    result?;
-    drained?;
-    Ok(())
-}
-
-async fn run_team(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Result<()> {
-    use crate::team::{
-        config::validate_static, dingtalk::DingTalkClient, secrets::resolve_secret,
-        server::TeamServer,
-    };
-    anyhow::ensure!(!bootstrap, "Team mode does not use bootstrap stdin");
-    config.check_configuration_with(|name| std::env::var(name).ok())?;
-    let settings = validate_static(&config.team).map_err(|issues| issues[0])?;
-    let secret = resolve_secret(settings.secret_source())?;
-    config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
-    config.resolve_siyuan_credentials_with(|name| std::env::var(name).ok())?;
-    crate::team::server::validate_team_content_origin(&config)?;
-    let provider: Arc<dyn IdentityProvider> =
-        Arc::new(DingTalkClient::new(settings.clone(), secret)?);
-    // Config and every secret are validated before opening the database or socket.
-    let listener = tokio::net::TcpListener::bind(config.listen).await?;
-    let server = TeamServer::build(&config, settings, provider)?;
-    let result = axum::serve(
-        listener,
-        server
-            .router()
-            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await;
-    let drained = server.shutdown(Duration::from_secs(10)).await;
     result?;
     drained?;
     Ok(())

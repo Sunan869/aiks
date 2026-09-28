@@ -22,6 +22,9 @@ WeKnora
 ```
 
 The old central S2 DingTalk/ACL/SiYuan stack is not part of this path.
+The aiks-service runtime now supports only `personal` and `collector` modes;
+legacy `mode = "team"` is rejected. Collector mode also rejects local
+AI/embedding model capabilities so team knowledge intelligence remains in WeKnora.
 
 ## Server deployment
 
@@ -106,8 +109,8 @@ server-side.
 
 ## Sharing and login
 
-The WeKnora fork already provides DingTalk login and direct user KB sharing.
-Collected sessions must remain in each employee's private workspace/KB first;
-sharing is applied afterwards in WeKnora. Department-level sharing remains a
-WeKnora-side directory/permission extension and is not reimplemented in
-`aiks-service`.
+The WeKnora fork provides DingTalk login, direct user KB sharing and
+DingTalk department-to-organization membership synchronization. Collected
+sessions remain in each employee's private workspace/KB first; sharing is
+applied afterwards in WeKnora. DingTalk directory state and ACLs are not
+reimplemented in `aiks-service`.
