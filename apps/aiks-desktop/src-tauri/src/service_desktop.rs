@@ -220,11 +220,9 @@ impl ServiceDesktop {
                 match tokio::time::timeout(Duration::from_secs(3), client.capabilities()).await {
                     Ok(Ok(value)) => {
                         capabilities = Some(value);
-                        if let Ok(Ok(value)) = tokio::time::timeout(
-                            Duration::from_secs(3),
-                            client.weknora_status(),
-                        )
-                        .await
+                        if let Ok(Ok(value)) =
+                            tokio::time::timeout(Duration::from_secs(3), client.weknora_status())
+                                .await
                         {
                             weknora = value;
                         }
@@ -486,9 +484,7 @@ mod service_desktop_tests {
             let target = root.join("private-models");
             std::fs::write(&target, "DO_NOT_TOUCH").unwrap();
             std::os::unix::fs::symlink(&target, &models).unwrap();
-            assert!(
-                prepare_config(&root, "http://127.0.0.1:12345", &weknora).is_err()
-            );
+            assert!(prepare_config(&root, "http://127.0.0.1:12345", &weknora).is_err());
             assert_eq!(std::fs::read_to_string(target).unwrap(), "DO_NOT_TOUCH");
         }
         std::fs::remove_dir_all(root).unwrap();
