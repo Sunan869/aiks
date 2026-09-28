@@ -9,12 +9,23 @@ IMAGE="${IMAGE_REPO}:${TAG}"
 OUT_DIR="${AIKS_IMAGE_OUT_DIR:-${ROOT_DIR}/dist/images}"
 OUT_FILE="${OUT_DIR}/aiks-collector-${TAG}.tar"
 
+BASE_IMAGES=(
+  "rust:1.98.1-bookworm"
+  "debian:bookworm-slim"
+)
+
 mkdir -p "$OUT_DIR"
 
-echo "[INFO] building $IMAGE for $PLATFORM (base images via docker.1ms.run)"
-docker buildx build \
+echo "[INFO] target platform: $PLATFORM"
+echo "[INFO] pulling official base images first"
+for base in "${BASE_IMAGES[@]}"; do
+  docker pull --platform "$PLATFORM" "$base"
+done
+
+echo "[INFO] building $IMAGE using local base images"
+docker build \
   --platform "$PLATFORM" \
-  --load \
+  --pull=false \
   -t "$IMAGE" \
   -f "${ROOT_DIR}/deploy/weknora/Dockerfile" \
   "$ROOT_DIR"
