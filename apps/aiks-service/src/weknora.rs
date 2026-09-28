@@ -413,7 +413,5 @@ fn valid_id(value: &str) -> bool {
 }
 
 fn unix_now() -> anyhow::Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs())
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
