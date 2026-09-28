@@ -1,4 +1,4 @@
-use crate::{error::ApiError, LocalAuth};
+use crate::{error::ApiError, weknora::WeKnoraSync, LocalAuth};
 use aiks_core::{
     knowledge::ai_assist::AiAssistOperation,
     model::SourceKind,
@@ -14,7 +14,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -27,7 +27,18 @@ struct Gate {
     inflight: Semaphore,
 }
 
+#[derive(Clone)]
+struct WeKnoraExtension(Option<WeKnoraSync>);
+
 pub fn build_router(runtime: Arc<ServiceRuntime>, auth: LocalAuth) -> Router {
+    build_router_with_weknora(runtime, auth, None)
+}
+
+pub fn build_router_with_weknora(
+    runtime: Arc<ServiceRuntime>,
+    auth: LocalAuth,
+    weknora: Option<WeKnoraSync>,
+) -> Router {
     let gate = Arc::new(Gate {
         auth,
         inflight: Semaphore::new(32),
@@ -48,6 +59,7 @@ pub fn build_router(runtime: Arc<ServiceRuntime>, auth: LocalAuth) -> Router {
         .fallback(|| async { ApiError(ServiceError::NotFound) })
         .method_not_allowed_fallback(|| async { ApiError(ServiceError::InvalidInput) })
         .layer(DefaultBodyLimit::max(MAX_BODY))
+        .layer(Extension(WeKnoraExtension(weknora)))
         .layer(middleware::from_fn_with_state(gate, guard))
         .with_state(runtime)
 }
@@ -183,9 +195,15 @@ async fn register(
 }
 async fn ingest(
     State(runtime): State<Arc<ServiceRuntime>>,
+    Extension(weknora): Extension<WeKnoraExtension>,
     input: Result<Json<SnapshotSubmission>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    let (receipt, created) = runtime.accept(body(input)?).await?;
+    let input = body(input)?;
+    let session = input.session.clone();
+    let (receipt, created) = runtime.accept(input).await?;
+    if let Some(sync) = weknora.0 {
+        sync.schedule(session, receipt.revision);
+    }
     Ok((
         if created {
             StatusCode::ACCEPTED

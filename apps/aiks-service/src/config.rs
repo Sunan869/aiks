@@ -22,6 +22,7 @@ pub struct ServiceConfig {
     pub embedding: EmbeddingConfig,
     pub siyuan: SiYuanConfig,
     pub model_credentials: ModelCredentials,
+    pub weknora: crate::weknora::WeKnoraSettings,
     pub team: crate::team::config::TeamSettings,
 }
 
@@ -38,6 +39,7 @@ impl Default for ServiceConfig {
             },
             siyuan: SiYuanConfig::default(),
             model_credentials: ModelCredentials::default(),
+            weknora: crate::weknora::WeKnoraSettings::default(),
             team: crate::team::config::TeamSettings::default(),
         }
     }

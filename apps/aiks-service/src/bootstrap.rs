@@ -1,4 +1,4 @@
-use crate::{build_router, LocalAuth, ServiceConfig, ServiceRuntime};
+use crate::{build_router_with_weknora, LocalAuth, ServiceConfig, ServiceRuntime};
 use aiks_core::team::IdentityProvider;
 use serde::Deserialize;
 use serde_json::json;
@@ -96,6 +96,11 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let address = listener.local_addr()?;
     let runtime = Arc::new(ServiceRuntime::open(config.runtime_config()).await?);
+    let weknora = crate::weknora::WeKnoraSync::build_with(
+        &config.weknora,
+        config.database.clone(),
+        |name| std::env::var(name).ok(),
+    )?;
     let identity = runtime.context();
     let auth = LocalAuth::new(&boot.token, identity.instance_id())?.with_authority(address)?;
     let nonce = auth.boot_nonce().to_owned();
@@ -112,7 +117,10 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
             _ = owner_shutdown(stdin, controlled, lifetime, nonce) => {},
         }
     };
-    let result = axum::serve(listener, build_router(runtime.clone(), auth))
+    let result = axum::serve(
+        listener,
+        build_router_with_weknora(runtime.clone(), auth, weknora),
+    )
         .with_graceful_shutdown(stop)
         .await;
     let drained = runtime.shutdown(Duration::from_secs(10)).await;

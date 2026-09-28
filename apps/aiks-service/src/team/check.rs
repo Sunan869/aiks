@@ -55,6 +55,7 @@ impl ServiceConfig {
             }
             _ => return Err(issue("mode", "unsupported_mode")),
         }
+        crate::weknora::check_settings_with(&self.weknora, &lookup)?;
         let mut candidate = self.clone();
         candidate
             .resolve_model_credentials_with(&lookup)
