@@ -17,10 +17,17 @@ enum ConnectionMode {
     Team,
 }
 #[derive(Clone)]
+struct CollectorIdentityCredential {
+    api_key: Arc<str>,
+    knowledge_base_id: Arc<str>,
+}
+
+#[derive(Clone)]
 pub struct ServiceConnection {
     base: Url,
     target: TargetIdentity,
     credential: Arc<str>,
+    collector_identity: Option<CollectorIdentityCredential>,
     mode: ConnectionMode,
 }
 impl ServiceConnection {
@@ -38,10 +45,18 @@ impl ServiceConnection {
             base,
             target: TargetIdentity::personal(instance, space)?,
             credential: Arc::from(token),
+            collector_identity: None,
             mode: ConnectionMode::Personal,
         })
     }
-    pub fn collector(url: &str, instance: &str, space: &str, token: &str) -> ClientResult<Self> {
+    pub fn collector(
+        url: &str,
+        instance: &str,
+        space: &str,
+        token: &str,
+        weknora_api_key: &str,
+        knowledge_base_id: &str,
+    ) -> ClientResult<Self> {
         let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
         let loopback_http = base.scheme() == "http"
             && base
@@ -51,6 +66,8 @@ impl ServiceConnection {
         if !(base.scheme() == "https" || loopback_http)
             || !clean_origin(&base)
             || !valid_token(token)
+            || !valid_external_secret(weknora_api_key)
+            || !valid_id(knowledge_base_id)
         {
             return Err(ClientError::InvalidInput);
         }
@@ -58,6 +75,10 @@ impl ServiceConnection {
             base,
             target: TargetIdentity::personal(instance, space)?,
             credential: Arc::from(token),
+            collector_identity: Some(CollectorIdentityCredential {
+                api_key: Arc::from(weknora_api_key),
+                knowledge_base_id: Arc::from(knowledge_base_id),
+            }),
             mode: ConnectionMode::Collector,
         })
     }
@@ -78,6 +99,7 @@ impl ServiceConnection {
             base,
             target: TargetIdentity::team(instance, company, user, space)?,
             credential: Arc::from(token),
+            collector_identity: None,
             mode: ConnectionMode::Team,
         })
     }
@@ -98,6 +120,9 @@ impl ServiceConnection {
     }
     pub fn is_team(&self) -> bool {
         self.mode == ConnectionMode::Team
+    }
+    pub fn is_collector(&self) -> bool {
+        self.mode == ConnectionMode::Collector
     }
     pub fn origin(&self) -> String {
         self.base.origin().ascii_serialization()
@@ -137,13 +162,24 @@ fn valid_token(token: &str) -> bool {
     token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn valid_external_secret(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 8192
+        && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+}
+
 #[derive(Clone)]
 pub struct ServiceClient {
     connection: ServiceConnection,
     client: Client,
 }
 impl ServiceClient {
-    pub async fn connect_collector(url: &str, token: &str) -> ClientResult<Self> {
+    pub async fn connect_collector(
+        url: &str,
+        token: &str,
+        weknora_api_key: &str,
+        knowledge_base_id: &str,
+    ) -> ClientResult<Self> {
         let probe = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
         let loopback_http = probe.scheme() == "http"
             && probe
@@ -153,6 +189,8 @@ impl ServiceClient {
         if !(probe.scheme() == "https" || loopback_http)
             || !clean_origin(&probe)
             || !valid_token(token)
+            || !valid_external_secret(weknora_api_key)
+            || !valid_id(knowledge_base_id)
         {
             return Err(ClientError::InvalidInput);
         }
@@ -195,8 +233,62 @@ impl ServiceClient {
         {
             return Err(ClientError::InvalidResponse);
         }
-        let connection =
-            ServiceConnection::collector(url, &health.instance_id, &health.space_id, token)?;
+
+        #[derive(Deserialize)]
+        struct Bootstrap {
+            api_version: u16,
+            instance_id: String,
+            space_id: String,
+            weknora_tenant_id: u64,
+            weknora_knowledge_base_id: String,
+        }
+        let mut bootstrap_url = probe.clone();
+        bootstrap_url.set_path("/api/v1/collector/bootstrap");
+        let bootstrap_response = client
+            .get(bootstrap_url)
+            .bearer_auth(token)
+            .header("X-AIKS-Instance-ID", &health.instance_id)
+            .header("X-AIKS-WeKnora-API-Key", weknora_api_key)
+            .header("X-AIKS-WeKnora-KB-ID", knowledge_base_id)
+            .send()
+            .await
+            .map_err(|_| ClientError::Retryable)?;
+        if bootstrap_response.status() == StatusCode::UNAUTHORIZED {
+            return Err(ClientError::Unauthorized);
+        }
+        if !bootstrap_response.status().is_success()
+            || bootstrap_response
+                .content_length()
+                .is_some_and(|n| n > 16 * 1024)
+        {
+            return Err(ClientError::InvalidResponse);
+        }
+        let bootstrap_bytes = bootstrap_response
+            .bytes()
+            .await
+            .map_err(|_| ClientError::Retryable)?;
+        if bootstrap_bytes.len() > 16 * 1024 {
+            return Err(ClientError::TooLarge);
+        }
+        let bootstrap: Bootstrap = serde_json::from_slice(&bootstrap_bytes)
+            .map_err(|_| ClientError::InvalidResponse)?;
+        if bootstrap.api_version != 1
+            || bootstrap.weknora_tenant_id == 0
+            || bootstrap.instance_id != health.instance_id
+            || bootstrap.weknora_knowledge_base_id != knowledge_base_id
+            || !valid_id(&bootstrap.space_id)
+        {
+            return Err(ClientError::InvalidResponse);
+        }
+
+        let connection = ServiceConnection::collector(
+            url,
+            &health.instance_id,
+            &bootstrap.space_id,
+            token,
+            weknora_api_key,
+            knowledge_base_id,
+        )?;
         let service = Self::new(connection)?;
         service.capabilities().await?;
         Ok(service)
@@ -228,7 +320,15 @@ impl ServiceClient {
             if value["space_id"].as_str() != Some(self.connection.space_id()) {
                 return Err(ClientError::WrongInstance);
             }
-            if value["api_version"] != 1 || value["mode"] != "personal" || value["team"] != false {
+            let expected_mode = if self.connection.is_collector() {
+                "collector"
+            } else {
+                "personal"
+            };
+            if value["api_version"] != 1
+                || value["mode"] != expected_mode
+                || value["team"] != false
+            {
                 return Err(ClientError::InvalidResponse);
             }
         }
@@ -465,6 +565,14 @@ impl ServiceClient {
             .bearer_auth(self.connection.credential.as_ref());
         if !self.connection.is_team() {
             request = request.header("X-AIKS-Instance-ID", self.connection.instance_id());
+        }
+        if let Some(identity) = &self.connection.collector_identity {
+            request = request
+                .header("X-AIKS-WeKnora-API-Key", identity.api_key.as_ref())
+                .header(
+                    "X-AIKS-WeKnora-KB-ID",
+                    identity.knowledge_base_id.as_ref(),
+                );
         }
         if let Some(body) = body {
             request = request

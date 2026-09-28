@@ -208,9 +208,39 @@ impl ServiceDesktop {
         );
         let token = std::env::var(env_name)
             .map_err(|_| anyhow::anyhow!("Collector token is unavailable"))?;
-        let client = ServiceClient::connect_collector(url, &token)
-            .await
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+
+        let weknora = &self.provider_config.weknora;
+        anyhow::ensure!(
+            weknora.enabled,
+            "Remote collector requires a per-workspace WeKnora identity"
+        );
+        anyhow::ensure!(
+            !weknora.knowledge_base_id.trim().is_empty(),
+            "Remote collector requires a private WeKnora knowledge base"
+        );
+        let weknora_env = weknora.api_key_env.trim();
+        anyhow::ensure!(
+            !weknora_env.is_empty()
+                && weknora_env.len() <= 128
+                && weknora_env
+                    .bytes()
+                    .next()
+                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+                && weknora_env
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+            "Invalid WeKnora user API key environment reference"
+        );
+        let weknora_api_key = std::env::var(weknora_env)
+            .map_err(|_| anyhow::anyhow!("WeKnora user API key is unavailable"))?;
+        let client = ServiceClient::connect_collector(
+            url,
+            &token,
+            &weknora_api_key,
+            weknora.knowledge_base_id.trim(),
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
 
         *self.client.write().await = Some(client);
         *self.outbox.write().await = Some(outbox);
