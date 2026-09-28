@@ -26,6 +26,7 @@ jobs:
         run: |
           cargo generate-lockfile
           git diff -- Cargo.lock
+          exit 1
       - name: Service tests
         run: |
           cargo test --locked --no-fail-fast -p aiks-service -- --test-threads=1
