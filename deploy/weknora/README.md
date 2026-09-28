@@ -1,78 +1,92 @@
-# AIKS + WeKnora POC
+# AIKS + WeKnora
 
-This directory documents the first deployable integration slice on
-`feature/aiks-weknora-adapter`.
-
-## Topology
+The recommended team topology is now the standalone collector:
 
 ```text
-AIKS Desktop
-  -> local provider collection
-  -> owned aiks-service (ServiceLocal, loopback only)
-  -> durable SQLite WeKnora outbox
-  -> WeKnora REST API
-  -> WeKnora workspace / knowledge base / RAG
+AIKS Desktop / provider collectors
+        |
+        | AIKS snapshot protocol
+        | Bearer AIKS_COLLECTOR_TOKEN
+        v
+aiks-service (mode = collector)
+        |
+        | durable SQLite outbox
+        | server-only AIKS_WEKNORA_API_KEY
+        v
+WeKnora
+        |
+        +-- workspace / RBAC / sharing
+        +-- knowledge / Wiki / revision
+        +-- embedding / retrieval / RAG
 ```
 
-The old central AIKS S2 DingTalk/ACL/SiYuan stack is not part of this POC.
+The old central S2 DingTalk/ACL/SiYuan stack is not part of this path.
 
-## WeKnora
+## Server deployment
 
-Use the `feature/aiks-team-integration` branch of
-`Sunan869/aiks-WeKnora`. Because this fork contains AIKS-specific ingestion
-changes, build/deploy the fork itself rather than pulling an unmodified upstream
-release image.
-
-After WeKnora is running:
-
-1. create the target workspace / knowledge base;
-2. create a scoped API key that can write that knowledge base;
-3. record the knowledge-base ID.
-
-## AIKS Desktop
-
-In the normal AIKS configuration:
-
-```toml
-[backend]
-mode = "service_local"
-
-[weknora]
-enabled = true
-base_url = "https://weknora.example.com"
-knowledge_base_id = "replace-with-kb-id"
-api_key_env = "AIKS_WEKNORA_API_KEY"
-channel = "aiks"
+```bash
+cd deploy/weknora
+cp .env.example .env
+openssl rand -hex 32
+# fill .env with the generated collector token, WeKnora URL, KB ID and API key
+docker compose up -d --build
+curl http://127.0.0.1:28082/healthz
 ```
 
-Set the secret in the environment that launches AIKS Desktop:
+The container publishes on host loopback by default. Put Nginx/TongHttpServer or
+another HTTPS reverse proxy in front of it for remote Desktop access. Do not
+expose the plain HTTP collector port directly to an untrusted network because
+the collector bearer token authorizes Session ingestion.
 
-```text
-AIKS_WEKNORA_API_KEY=<scoped-key>
+## Client handshake
+
+`GET /healthz` is public and returns the non-secret `instance_id` and
+`space_id`. The client then uses the existing AIKS service protocol:
+
+1. `POST /api/v1/source-registrations`
+2. `POST /api/v1/session-snapshots`
+3. optional `GET /api/v1/integrations/weknora/status`
+
+Authenticated requests include:
+
+```http
+Authorization: Bearer <AIKS_COLLECTOR_TOKEN>
+X-AIKS-Instance-Id: <instance_id returned by /healthz>
 ```
 
-The owned aiks-service inherits the Desktop process environment. The raw key is
-never copied into `aiks.toml` or the generated service runtime TOML.
+A browser `Origin` header is rejected. The server accepts reverse-proxied Host
+values in collector mode; personal ServiceLocal mode remains pinned to its exact
+loopback Host.
 
-## Verification
+## Delivery behavior
 
-Collect one session from AIKS. In the local service status, the
-`weknora.pending` count should return to zero. In WeKnora, the created manual
-knowledge should show source channel `AIKS`.
+Snapshot acceptance and WeKnora delivery are intentionally decoupled. The
+collector first commits the snapshot, then writes sanitized Markdown into the
+durable WeKnora outbox. Network/5xx/rate-limit failures retry with bounded
+backoff. Restarting the collector resumes pending deliveries.
 
-Edit or extend the same source session and collect it again. The same WeKnora
-knowledge ID should be updated rather than duplicated.
+The stable `external_id = aiks-<sha256>` is also enforced by the
+`feature/aiks-team-integration` WeKnora fork, closing the duplicate window
+where a create succeeded remotely but its HTTP response was lost.
 
-If WeKnora is temporarily unavailable, local snapshot acceptance still
-succeeds. The delivery stays in the SQLite outbox and is retried after WeKnora
-recovers.
+## WeKnora fork
 
-## Not yet part of this slice
+Deploy `Sunan869/aiks-WeKnora:feature/aiks-team-integration`. The fork adds:
 
-- DingTalk login federation into WeKnora;
-- automatic provisioning of per-user WeKnora credentials;
-- document-to-individual-user sharing beyond WeKnora's current sharing model;
-- removal of the old S2 implementation.
+- AIKS as a first-class ingestion channel;
+- stable AIKS external identity on manual knowledge;
+- idempotent create/replay behavior;
+- a larger AIKS-only manual payload budget;
+- AIKS source labels in the knowledge UI.
 
-Those are separate team-identity/sharing tasks after this ingestion POC is
-green.
+## Local POC fallback
+
+Desktop `service_local` can still talk directly to WeKnora for development.
+For the team deployment, prefer collector mode so employee machines never hold
+the WeKnora API key.
+
+## Still separate work
+
+DingTalk login federation into WeKnora and finer individual/department sharing
+are WeKnora-side identity/permission tasks. They are intentionally not
+reimplemented in aiks-service.

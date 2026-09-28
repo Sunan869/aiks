@@ -1,0 +1,36 @@
+mode = "collector"
+listen = "0.0.0.0:28082"
+database = "/var/lib/aiks-collector/state.db"
+
+[collector]
+token_env = "AIKS_COLLECTOR_TOKEN"
+
+[weknora]
+enabled = true
+base_url = "http://weknora.example.internal:8080"
+knowledge_base_id = "replace-with-kb-id"
+api_key_env = "AIKS_WEKNORA_API_KEY"
+channel = "aiks"
+
+[ai]
+enabled = false
+base_url = ""
+model = ""
+
+[embedding]
+enabled = false
+base_url = ""
+model = ""
+
+[model_credentials]
+ai_api_key_env = ""
+embedding_api_key_env = ""
+
+[siyuan]
+base_url = "http://127.0.0.1:6806"
+token = ""
+token_env = ""
+notebook_name = "AIKS"
+session_notebook_name = "AIKS"
+session_root = "/10 AI Sessions"
+knowledge_root = "/20 Knowledge"
