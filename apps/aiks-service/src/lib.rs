@@ -10,4 +10,4 @@ pub mod weknora;
 pub use aiks_core::service::ServiceRuntime;
 pub use auth::LocalAuth;
 pub use config::ServiceConfig;
-pub use routes::{build_router, build_router_with_weknora};
+pub use routes::{build_collector_router, build_router, build_router_with_weknora};

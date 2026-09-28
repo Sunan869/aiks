@@ -1,9 +1,13 @@
-use crate::{error::ApiError, weknora::WeKnoraSync, LocalAuth};
+use crate::{
+    error::ApiError,
+    weknora::{WeKnoraRoute, WeKnoraSync},
+    LocalAuth,
+};
 use aiks_core::{
     knowledge::ai_assist::AiAssistOperation,
     model::SourceKind,
     search::{SearchCorpus, UnifiedSearchFilter},
-    service::{query::Page, ServiceError, ServiceRuntime, SnapshotSubmission},
+    service::{query::Page, RequestContext, ServiceError, ServiceRuntime, SnapshotSubmission},
 };
 use axum::{
     extract::{
@@ -25,13 +29,15 @@ const MAX_BODY: usize = 16 * 1024 * 1024;
 struct Gate {
     auth: LocalAuth,
     inflight: Semaphore,
+    weknora: Option<WeKnoraSync>,
+    collector: bool,
 }
 
 #[derive(Clone)]
 struct WeKnoraExtension(Option<WeKnoraSync>);
 
 pub fn build_router(runtime: Arc<ServiceRuntime>, auth: LocalAuth) -> Router {
-    build_router_with_weknora(runtime, auth, None)
+    build_router_inner(runtime, auth, None, false)
 }
 
 pub fn build_router_with_weknora(
@@ -39,13 +45,33 @@ pub fn build_router_with_weknora(
     auth: LocalAuth,
     weknora: Option<WeKnoraSync>,
 ) -> Router {
+    build_router_inner(runtime, auth, weknora, false)
+}
+
+pub fn build_collector_router(
+    runtime: Arc<ServiceRuntime>,
+    auth: LocalAuth,
+    weknora: WeKnoraSync,
+) -> Router {
+    build_router_inner(runtime, auth, Some(weknora), true)
+}
+
+fn build_router_inner(
+    runtime: Arc<ServiceRuntime>,
+    auth: LocalAuth,
+    weknora: Option<WeKnoraSync>,
+    collector: bool,
+) -> Router {
     let gate = Arc::new(Gate {
         auth,
         inflight: Semaphore::new(32),
+        weknora: weknora.clone(),
+        collector,
     });
     Router::new()
         .route("/healthz", get(health))
         .route("/api/v1/capabilities", get(capabilities))
+        .route("/api/v1/collector/bootstrap", get(collector_bootstrap))
         .route("/api/v1/source-registrations", post(register))
         .route("/api/v1/session-snapshots", post(ingest))
         .route("/api/v1/integrations/weknora/status", get(weknora_status))
@@ -65,10 +91,30 @@ pub fn build_router_with_weknora(
         .with_state(runtime)
 }
 
-async fn guard(State(gate): State<Arc<Gate>>, request: Request, next: Next) -> Response {
+async fn guard(State(gate): State<Arc<Gate>>, mut request: Request, next: Next) -> Response {
     let public = request.uri().path() == "/healthz";
     if !gate.auth.check(request.headers(), public) {
         return ApiError(ServiceError::Unauthorized).into_response();
+    }
+    if gate.collector && !public {
+        let Some(sync) = gate.weknora.as_ref() else {
+            return ApiError(ServiceError::Unavailable).into_response();
+        };
+        let Some(user_key) = single_header(request.headers(), "x-aiks-weknora-api-key") else {
+            return ApiError(ServiceError::Unauthorized).into_response();
+        };
+        let Some(kb_id) = single_header(request.headers(), "x-aiks-weknora-kb-id") else {
+            return ApiError(ServiceError::Unauthorized).into_response();
+        };
+        let route = match sync.resolve_route(user_key, kb_id).await {
+            Ok(route) => route,
+            Err(error) => {
+                tracing::warn!(error = %error, "Collector WeKnora identity rejected");
+                return ApiError(ServiceError::Unauthorized).into_response();
+            }
+        };
+        request.headers_mut().remove("x-aiks-weknora-api-key");
+        request.extensions_mut().insert(route);
     }
     if request.uri().path().len() > 4096 {
         return ApiError(ServiceError::InvalidInput).into_response();
@@ -141,6 +187,25 @@ async fn guard(State(gate): State<Arc<Gate>>, request: Request, next: Next) -> R
     response
 }
 
+fn single_header<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
+    let mut values = headers.get_all(name).iter();
+    let first = values.next()?.to_str().ok()?;
+    if values.next().is_some() || first.is_empty() {
+        return None;
+    }
+    Some(first)
+}
+
+fn collector_context(
+    runtime: &ServiceRuntime,
+    route: Option<&WeKnoraRoute>,
+) -> Result<Option<RequestContext>, ApiError> {
+    route
+        .map(|route| runtime.collector_context(route.principal_id(), route.space_id()))
+        .transpose()
+        .map_err(ApiError)
+}
+
 fn body<T: DeserializeOwned>(input: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
     input.map(|Json(value)| value).map_err(|error| {
         ApiError(if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
@@ -191,29 +256,71 @@ async fn health(State(runtime): State<Arc<ServiceRuntime>>) -> Json<Value> {
     }))
 }
 
-async fn capabilities(State(runtime): State<Arc<ServiceRuntime>>) -> Json<Value> {
-    Json(runtime.capabilities())
+async fn capabilities(
+    State(runtime): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
+) -> Json<Value> {
+    let mut value = runtime.capabilities();
+    if let Some(Extension(route)) = route {
+        value["mode"] = json!("collector");
+        value["space_id"] = json!(route.space_id());
+        value["weknora_tenant_id"] = json!(route.tenant_id());
+        value["weknora_knowledge_base_id"] = json!(route.knowledge_base_id());
+    }
+    Json(value)
+}
+
+async fn collector_bootstrap(
+    State(runtime): State<Arc<ServiceRuntime>>,
+    Extension(route): Extension<WeKnoraRoute>,
+) -> Json<Value> {
+    Json(json!({
+        "api_version":1,
+        "instance_id":runtime.context().instance_id(),
+        "space_id":route.space_id(),
+        "weknora_tenant_id":route.tenant_id(),
+        "weknora_knowledge_base_id":route.knowledge_base_id()
+    }))
 }
 async fn register(
     State(runtime): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     input: Result<Json<Registration>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let input = body(input)?;
-    let id = runtime
-        .register_source(input.source, input.registration_key)
-        .await?;
+    let context = collector_context(&runtime, route.as_ref().map(|value| &value.0))?;
+    let id = if let Some(context) = context {
+        runtime
+            .register_source_for(&context, input.source, input.registration_key)
+            .await?
+    } else {
+        runtime
+            .register_source(input.source, input.registration_key)
+            .await?
+    };
     Ok(Json(json!({"source_registration_id":id})))
 }
 async fn ingest(
     State(runtime): State<Arc<ServiceRuntime>>,
     Extension(weknora): Extension<WeKnoraExtension>,
+    route: Option<Extension<WeKnoraRoute>>,
     input: Result<Json<SnapshotSubmission>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let input = body(input)?;
     let session = input.session.clone();
-    let (receipt, created) = runtime.accept(input).await?;
+    let context = collector_context(&runtime, route.as_ref().map(|value| &value.0))?;
+    let (receipt, created) = if let Some(context) = context {
+        runtime.accept_for(&context, input).await?
+    } else {
+        runtime.accept(input).await?
+    };
     if let Some(sync) = weknora.0.as_ref() {
-        if let Err(error) = sync.enqueue_session(&session, receipt.revision).await {
+        let queued = if let Some(Extension(route)) = route.as_ref() {
+            sync.enqueue_session_for(route, &session, receipt.revision).await
+        } else {
+            sync.enqueue_session(&session, receipt.revision).await
+        };
+        if let Err(error) = queued {
             tracing::warn!(
                 source = session.source.as_str(),
                 external_session_id = %session.external_session_id,
@@ -234,13 +341,16 @@ async fn ingest(
 }
 async fn weknora_status(
     Extension(weknora): Extension<WeKnoraExtension>,
+    route: Option<Extension<WeKnoraRoute>>,
 ) -> Result<Json<Value>, ApiError> {
     let Some(sync) = weknora.0.as_ref() else {
         return Ok(Json(json!({"enabled":false,"pending":0,"terminal":0})));
     };
-    let (pending, terminal) = sync
-        .outbox_counts()
-        .await
+    let (pending, terminal) = if let Some(Extension(route)) = route.as_ref() {
+        sync.outbox_counts_for(route).await
+    } else {
+        sync.outbox_counts().await
+    }
         .map_err(|_| ApiError(ServiceError::Internal))?;
     Ok(Json(json!({
         "enabled":true,
@@ -251,62 +361,109 @@ async fn weknora_status(
 
 async fn sessions(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     input: Result<Query<Page>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(r.sessions(page(input)?).await?))
+    let page = page(input)?;
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.sessions_for(&context, page).await?
+    } else {
+        r.sessions(page).await?
+    }))
 }
 async fn session(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(r.session(id).await?))
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.session_for(&context, id).await?
+    } else {
+        r.session(id).await?
+    }))
 }
 async fn receipt(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    Ok(Json(r.receipt(id).await?).into_response())
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    let value = if let Some(context) = context {
+        r.receipt_for(&context, id).await?
+    } else {
+        r.receipt(id).await?
+    };
+    Ok(Json(value).into_response())
 }
 async fn job(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(r.job(id).await?))
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.job_for(&context, id).await?
+    } else {
+        r.job(id).await?
+    }))
 }
 async fn knowledge_list(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     input: Result<Query<Page>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(r.knowledge_list(page(input)?).await?))
+    let page = page(input)?;
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.knowledge_list_for(&context, page).await?
+    } else {
+        r.knowledge_list(page).await?
+    }))
 }
 async fn knowledge(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    Ok(Json(r.knowledge(id).await?).into_response())
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    let value = if let Some(context) = context {
+        r.knowledge_for(&context, id).await?
+    } else {
+        r.knowledge(id).await?
+    };
+    Ok(Json(value).into_response())
 }
 async fn assist(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     Path(id): Path<String>,
     input: Result<Json<AssistRequest>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(r.assist(id, body(input)?.operation).await?))
+    let operation = body(input)?.operation;
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.assist_for(&context, id, operation).await?
+    } else {
+        r.assist(id, operation).await?
+    }))
 }
 async fn search(
     State(r): State<Arc<ServiceRuntime>>,
+    route: Option<Extension<WeKnoraRoute>>,
     input: Result<Json<SearchRequest>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let input = body(input)?;
-    Ok(Json(
-        r.search(
-            input.query,
-            input.limit,
-            UnifiedSearchFilter {
-                corpora: input.corpora,
-                project: input.project,
-                source: input.source,
-            },
-        )
-        .await?,
-    ))
+    let filter = UnifiedSearchFilter {
+        corpora: input.corpora,
+        project: input.project,
+        source: input.source,
+    };
+    let context = collector_context(&r, route.as_ref().map(|value| &value.0))?;
+    Ok(Json(if let Some(context) = context {
+        r.search_for(&context, input.query, input.limit, filter).await?
+    } else {
+        r.search(input.query, input.limit, filter).await?
+    }))
 }

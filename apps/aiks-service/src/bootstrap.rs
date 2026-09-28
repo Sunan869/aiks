@@ -1,4 +1,6 @@
-use crate::{build_router_with_weknora, LocalAuth, ServiceConfig, ServiceRuntime};
+use crate::{
+    build_collector_router, build_router_with_weknora, LocalAuth, ServiceConfig, ServiceRuntime,
+};
 use aiks_core::team::IdentityProvider;
 use serde::Deserialize;
 use serde_json::json;
@@ -158,7 +160,7 @@ async fn run_collector(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Re
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let result = axum::serve(
         listener,
-        build_router_with_weknora(runtime.clone(), auth, Some(weknora)),
+        build_collector_router(runtime.clone(), auth, weknora),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await;
