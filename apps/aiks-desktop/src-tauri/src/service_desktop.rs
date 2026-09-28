@@ -210,10 +210,25 @@ impl ServiceDesktop {
         let phase = *self.phase.read().await;
         let mut capabilities = None;
         let mut connection_error = None;
+        let mut weknora = json!({
+            "enabled": self.provider_config.weknora.enabled,
+            "pending": 0,
+            "terminal": 0
+        });
         if phase == "ready" {
             if let Ok((client, _)) = self.connection().await {
                 match tokio::time::timeout(Duration::from_secs(3), client.capabilities()).await {
-                    Ok(Ok(value)) => capabilities = Some(value),
+                    Ok(Ok(value)) => {
+                        capabilities = Some(value);
+                        if let Ok(Ok(value)) = tokio::time::timeout(
+                            Duration::from_secs(3),
+                            client.weknora_status(),
+                        )
+                        .await
+                        {
+                            weknora = value;
+                        }
+                    }
                     _ => connection_error = Some("service_unavailable"),
                 }
             }
@@ -224,7 +239,8 @@ impl ServiceDesktop {
             .map(|p| json!({"key":p.key,"display_name":p.display_name,"enabled":p.enabled}))
             .collect::<Vec<_>>();
         json!({"mode":"service_local","phase":if connection_error.is_some(){"unavailable"}else{phase},
-            "error_code":connection_error.or(*self.error.read().await),"capabilities":capabilities,"providers":providers})
+            "error_code":connection_error.or(*self.error.read().await),"capabilities":capabilities,
+            "weknora":weknora,"providers":providers})
     }
     pub async fn collect(&self, sources: Vec<String>) -> Result<Value, String> {
         if sources.is_empty() || sources.len() > 16 {

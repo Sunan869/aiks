@@ -1,3 +1,9 @@
+> [!WARNING]
+> 本目录是旧 S2（AIKS 自管钉钉认证/ACL + SiYuan 内容容器）部署模板。
+> `feature/aiks-weknora-adapter` 正在验证的新团队方向由 WeKnora 接管认证、权限、知识管理和 RAG，
+> **不要用本目录作为新 WeKnora 方案的部署入口**。当前 POC 通过 Desktop `ServiceLocal`
+> 将 Session 持久同步到 WeKnora，配置见 `config.example.toml` 的 `[weknora]`。
+
 # AIKS single-company team deployment
 
 本目录提供 S2 单企业团队服务的两种部署入口：
