@@ -19,6 +19,26 @@ impl ServiceConfig {
             "personal" => self
                 .validate()
                 .map_err(|_| issue("service", "invalid_personal_configuration"))?,
+            "collector" => {
+                if self.listen.port() == 0 {
+                    return Err(issue("listen", "port_required"));
+                }
+                if !self.weknora.enabled {
+                    return Err(issue("weknora.enabled", "weknora_required"));
+                }
+                let _token = self.collector.resolve_token_with(&lookup)?;
+                if self.ai.enabled
+                    && (self.ai.base_url.trim().is_empty() || self.ai.model.trim().is_empty())
+                {
+                    return Err(issue("ai", "explicit_endpoint_and_model_required"));
+                }
+                if self.embedding.enabled
+                    && (self.embedding.base_url.trim().is_empty()
+                        || self.embedding.model.trim().is_empty())
+                {
+                    return Err(issue("embedding", "explicit_endpoint_and_model_required"));
+                }
+            }
             "team" => {
                 let validated = validate_static(&self.team).map_err(|issues| issues[0])?;
                 if !allowed_ip(self.listen.ip()) || self.listen.port() == 0 {

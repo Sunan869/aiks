@@ -13,6 +13,41 @@ use crate::model_credentials::ModelCredentials;
 
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct CollectorSettings {
+    pub token_env: String,
+}
+
+impl Default for CollectorSettings {
+    fn default() -> Self {
+        Self {
+            token_env: "AIKS_COLLECTOR_TOKEN".into(),
+        }
+    }
+}
+
+impl CollectorSettings {
+    pub fn resolve_token_with(
+        &self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Result<String, crate::team::config::ConfigIssue> {
+        use crate::team::config::{valid_environment_name, ConfigIssue};
+        let issue = |code| ConfigIssue {
+            field: "collector.token_env",
+            code,
+        };
+        if self.token_env.trim() != self.token_env || !valid_environment_name(&self.token_env) {
+            return Err(issue("invalid_environment_reference"));
+        }
+        let value = lookup(&self.token_env).ok_or_else(|| issue("secret_missing"))?;
+        if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(issue("secret_invalid"));
+        }
+        Ok(value)
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ServiceConfig {
     pub database: PathBuf,
     pub mode: String,
@@ -22,6 +57,7 @@ pub struct ServiceConfig {
     pub embedding: EmbeddingConfig,
     pub siyuan: SiYuanConfig,
     pub model_credentials: ModelCredentials,
+    pub collector: CollectorSettings,
     pub weknora: crate::weknora::WeKnoraSettings,
     pub team: crate::team::config::TeamSettings,
 }
@@ -39,6 +75,7 @@ impl Default for ServiceConfig {
             },
             siyuan: SiYuanConfig::default(),
             model_credentials: ModelCredentials::default(),
+            collector: CollectorSettings::default(),
             weknora: crate::weknora::WeKnoraSettings::default(),
             team: crate::team::config::TeamSettings::default(),
         }

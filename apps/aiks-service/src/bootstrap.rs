@@ -53,12 +53,12 @@ pub async fn run() -> anyhow::Result<()> {
     file.read_to_end(&mut bytes).await?;
     anyhow::ensure!(bytes.len() <= 1024 * 1024, "Config exceeds budget");
     let mut config: ServiceConfig = toml::from_str(std::str::from_utf8(&bytes)?)?;
-    if config.mode == "team" {
+    if matches!(config.mode.as_str(), "team" | "collector") {
         anyhow::ensure!(
             config_path.is_absolute(),
-            "Team config path must be absolute"
+            "Server config path must be absolute"
         );
-        anyhow::ensure!(listen.is_none(), "Team listen override is not supported");
+        anyhow::ensure!(listen.is_none(), "Server listen override is not supported");
     } else if let Some(listen) = listen {
         config.listen = listen.parse()?;
     }
@@ -69,6 +69,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
     match config.mode.as_str() {
         "personal" => run_personal(config, bootstrap).await,
+        "collector" => run_collector(config, bootstrap).await,
         "team" => run_team(config, bootstrap).await,
         _ => anyhow::bail!("Unsupported service mode"),
     }
@@ -126,6 +127,40 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
         build_router_with_weknora(runtime.clone(), auth, weknora),
     )
     .with_graceful_shutdown(stop)
+    .await;
+    let drained = runtime.shutdown(Duration::from_secs(10)).await;
+    result?;
+    drained?;
+    Ok(())
+}
+
+async fn run_collector(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Result<()> {
+    anyhow::ensure!(!bootstrap, "Collector mode does not use bootstrap stdin");
+    config.check_configuration_with(|name| std::env::var(name).ok())?;
+    let collector_token = config
+        .collector
+        .resolve_token_with(|name| std::env::var(name).ok())?;
+    config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
+    config.resolve_siyuan_credentials_with(|name| std::env::var(name).ok())?;
+
+    // Open all state and resolve every secret before exposing the network listener.
+    let runtime = Arc::new(ServiceRuntime::open(config.runtime_config()).await?);
+    let identity = runtime.context();
+    let auth = LocalAuth::new(&collector_token, identity.instance_id())?;
+    let weknora = crate::weknora::WeKnoraSync::build_with(
+        &config.weknora,
+        config.database.clone(),
+        |name| std::env::var(name).ok(),
+    )?
+    .ok_or_else(|| anyhow::anyhow!("Collector requires WeKnora integration"))?;
+    weknora.start_background();
+
+    let listener = tokio::net::TcpListener::bind(config.listen).await?;
+    let result = axum::serve(
+        listener,
+        build_router_with_weknora(runtime.clone(), auth, Some(weknora)),
+    )
+    .with_graceful_shutdown(shutdown_signal())
     .await;
     let drained = runtime.shutdown(Duration::from_secs(10)).await;
     result?;

@@ -14,7 +14,7 @@ impl LocalAuth {
     pub fn new(token: &str, instance_id: &str) -> anyhow::Result<Self> {
         anyhow::ensure!(
             token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()),
-            "Bootstrap needs 32 random bytes encoded as hex"
+            "Authentication requires 32 random bytes encoded as hex"
         );
         anyhow::ensure!(
             !instance_id.is_empty() && instance_id.len() <= 128,
@@ -39,8 +39,18 @@ impl LocalAuth {
         &self.boot_nonce
     }
     pub(crate) fn check(&self, headers: &HeaderMap, public: bool) -> bool {
-        if headers.contains_key("origin") || one(headers, "host") != self.authority.as_deref() {
+        // Browser-originated requests are never accepted by this bearer-token API.
+        // Personal mode additionally pins Host to the owned loopback listener.
+        // Collector mode intentionally leaves authority unset so a reverse proxy
+        // may forward any configured public Host while the bearer + instance id
+        // remain mandatory for every non-public request.
+        if headers.contains_key("origin") {
             return false;
+        }
+        match self.authority.as_deref() {
+            Some(authority) if one(headers, "host") != Some(authority) => return false,
+            None if one(headers, "host").is_none() => return false,
+            _ => {}
         }
         if public {
             return true;

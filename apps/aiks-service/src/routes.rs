@@ -44,7 +44,7 @@ pub fn build_router_with_weknora(
         inflight: Semaphore::new(32),
     });
     Router::new()
-        .route("/healthz", get(|| async { Json(json!({"status":"ok"})) }))
+        .route("/healthz", get(health))
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/source-registrations", post(register))
         .route("/api/v1/session-snapshots", post(ingest))
@@ -179,6 +179,16 @@ fn default_limit() -> usize {
 #[serde(deny_unknown_fields)]
 struct AssistRequest {
     operation: AiAssistOperation,
+}
+
+async fn health(State(runtime): State<Arc<ServiceRuntime>>) -> Json<Value> {
+    let ctx = runtime.context();
+    Json(json!({
+        "status":"ok",
+        "api_version":1,
+        "instance_id":ctx.instance_id(),
+        "space_id":ctx.space_id()
+    }))
 }
 
 async fn capabilities(State(runtime): State<Arc<ServiceRuntime>>) -> Json<Value> {
