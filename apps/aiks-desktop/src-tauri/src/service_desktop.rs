@@ -432,41 +432,49 @@ mod service_desktop_tests {
         assert_eq!(*state.phase.read().await, "stopped");
     }
     #[test]
-    fn profile_links_and_model_defaults_cannot_escape_the_new_space() {
+    fn profile_links_models_and_weknora_config_cannot_escape_the_new_space() {
         let root = std::env::temp_dir().join(format!("aiks-profile-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).unwrap();
-        let path = prepare_config(
-            &root,
-            "http://127.0.0.1:12345",
-            &aiks_core::config::WeKnoraConfig::default(),
-        ).unwrap();
+        let weknora = aiks_core::config::WeKnoraConfig {
+            enabled: true,
+            base_url: "https://weknora.example.com".into(),
+            knowledge_base_id: "kb-1".into(),
+            ..Default::default()
+        };
+        let path = prepare_config(&root, "http://127.0.0.1:12345", &weknora).unwrap();
         let value: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["ai"]["enabled"].as_bool(), Some(false));
         assert_eq!(value["ai"]["model"].as_str(), Some(""));
         assert_eq!(value["embedding"]["enabled"].as_bool(), Some(false));
+        assert_eq!(value["weknora"]["enabled"].as_bool(), Some(true));
+        assert_eq!(
+            value["weknora"]["base_url"].as_str(),
+            Some("https://weknora.example.com")
+        );
+        assert_eq!(value["weknora"]["knowledge_base_id"].as_str(), Some("kb-1"));
+        assert_eq!(
+            value["weknora"]["api_key_env"].as_str(),
+            Some("AIKS_WEKNORA_API_KEY")
+        );
+
         let models = root.join("config/models.toml");
         std::fs::write(&models, "[ai]\nmodel='explicit-name'\n").unwrap();
-        let path = prepare_config(
-            &root,
-            "http://127.0.0.1:12345",
-            &aiks_core::config::WeKnoraConfig::default(),
-        ).unwrap();
+        let path = prepare_config(&root, "http://127.0.0.1:12345", &weknora).unwrap();
         let value: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(value["ai"]["enabled"].as_bool(), Some(false));
         assert_eq!(value["ai"]["base_url"].as_str(), Some(""));
+
         #[cfg(unix)]
         {
             std::fs::remove_file(&models).unwrap();
             let target = root.join("private-models");
             std::fs::write(&target, "DO_NOT_TOUCH").unwrap();
             std::os::unix::fs::symlink(&target, &models).unwrap();
-            assert!(prepare_config(
-            &root,
-            "http://127.0.0.1:12345",
-            &aiks_core::config::WeKnoraConfig::default(),
-        ).is_err());
+            assert!(
+                prepare_config(&root, "http://127.0.0.1:12345", &weknora).is_err()
+            );
             assert_eq!(std::fs::read_to_string(target).unwrap(), "DO_NOT_TOUCH");
         }
         std::fs::remove_dir_all(root).unwrap();
     }
-}
+}}

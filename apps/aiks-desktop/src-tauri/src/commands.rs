@@ -326,6 +326,9 @@ mod settings_mapping_tests {
         let mut config = aiks_core::Config::default();
         config.embedding.enabled = true;
         config.ai.api_key = Some("preserve-me".to_string());
+        config.weknora.enabled = true;
+        config.weknora.base_url = "https://weknora.example.com".to_string();
+        config.weknora.knowledge_base_id = "kb-preserve".to_string();
         let defaults = AppSettings::from_config(
             &config,
             config.desktop.startup,
@@ -345,6 +348,9 @@ mod settings_mapping_tests {
         assert!(!config.desktop.close_to_tray);
         assert!(config.embedding.enabled);
         assert_eq!(config.ai.api_key.as_deref(), Some("preserve-me"));
+        assert!(config.weknora.enabled);
+        assert_eq!(config.weknora.base_url, "https://weknora.example.com");
+        assert_eq!(config.weknora.knowledge_base_id, "kb-preserve");
     }
 }
 

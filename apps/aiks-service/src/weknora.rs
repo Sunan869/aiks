@@ -312,7 +312,7 @@ impl WeKnoraSync {
                 Err(error) => {
                     record_failure(self.inner.database.clone(), &intent, &error).await?;
                     tracing::warn!(
-                        source = intent.source,
+                        source = %intent.source,
                         external_session_id = %intent.external_session_id,
                         error_code = error.code,
                         retryable = error.retryable,
