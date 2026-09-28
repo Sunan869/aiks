@@ -12,7 +12,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TITLE_CHARS: usize = 200;
 
 #[derive(Clone, Deserialize)]
