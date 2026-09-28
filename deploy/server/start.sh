@@ -67,7 +67,9 @@ ensure_env() {
 }
 
 ensure_network() {
-  local network="${AIKS_TEAM_NETWORK:-aiks-team-network}"
+  local network
+  network="$(env_value AIKS_TEAM_NETWORK)"
+  network="${network:-aiks-team-network}"
   if ! docker network inspect "$network" >/dev/null 2>&1; then
     docker network create "$network" >/dev/null
     echo "[INFO] created docker network: $network"
@@ -78,11 +80,15 @@ start_service() {
   ensure_env
   load_images
   ensure_network
-  # shellcheck disable=SC1091
-  source .env
-  docker image inspect "${AIKS_COLLECTOR_IMAGE:-aiks-service:weknora-collector}" >/dev/null 2>&1     || die "missing image: ${AIKS_COLLECTOR_IMAGE:-aiks-service:weknora-collector}. Put the tar under images/ or docker load it first."
+  local image data_dir
+  image="$(env_value AIKS_COLLECTOR_IMAGE)"
+  image="${image:-aiks-service:weknora-collector}"
+  data_dir="$(env_value AIKS_COLLECTOR_DATA_DIR)"
+  data_dir="${data_dir:-./data}"
+  docker image inspect "$image" >/dev/null 2>&1 \
+    || die "missing image: $image. Put the tar under images/ or docker load it first."
 
-  mkdir -p "${AIKS_COLLECTOR_DATA_DIR:-./data}"
+  mkdir -p "$data_dir"
   "${COMPOSE[@]}" config >/dev/null
   "${COMPOSE[@]}" up -d --force-recreate --remove-orphans
 

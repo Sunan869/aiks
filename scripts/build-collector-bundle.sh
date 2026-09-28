@@ -11,8 +11,13 @@ OUT_FILE="${OUT_DIR}/aiks-collector-${TAG}.tar"
 
 mkdir -p "$OUT_DIR"
 
-echo "[INFO] building $IMAGE"
-docker build   -t "$IMAGE"   -f "${ROOT_DIR}/deploy/weknora/Dockerfile"   "$ROOT_DIR"
+echo "[INFO] building $IMAGE for $PLATFORM"
+docker buildx build \
+  --platform "$PLATFORM" \
+  --load \
+  -t "$IMAGE" \
+  -f "${ROOT_DIR}/deploy/weknora/Dockerfile" \
+  "$ROOT_DIR"
 
 echo "[INFO] saving $OUT_FILE"
 docker save -o "$OUT_FILE" "$IMAGE"
