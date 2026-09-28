@@ -26,6 +26,12 @@ impl ServiceConfig {
                 if !self.weknora.enabled {
                     return Err(issue("weknora.enabled", "weknora_required"));
                 }
+                if !self.weknora.dynamic_targets {
+                    return Err(issue(
+                        "weknora.dynamic_targets",
+                        "dynamic_workspace_routing_required",
+                    ));
+                }
                 let _token = self.collector.resolve_token_with(&lookup)?;
                 if self.ai.enabled
                     && (self.ai.base_url.trim().is_empty() || self.ai.model.trim().is_empty())

@@ -117,14 +117,17 @@ knowledge_root = "/20 Knowledge"
 # token 建议使用环境变量 SIYUAN_TOKEN，不要提交到 Git。
 
 
-# Optional team knowledge destination. In ServiceLocal mode this section is
-# copied into the generated aiks-service runtime config. Keep the API key in
-# the named environment variable; do not place the key itself in this file.
+# WeKnora destination.
+# - service_local: this is the direct destination and API key.
+# - service_remote: set enabled=true, knowledge_base_id to THIS EMPLOYEE'S
+#   private AIKS KB, and api_key_env to a WeKnora API key for that same private
+#   workspace. The key is used only to prove workspace/KB ownership to the
+#   collector; it is never stored in the collector outbox.
 [weknora]
 enabled = false
 base_url = "https://weknora.example.com"
 knowledge_base_id = ""
-api_key_env = "AIKS_WEKNORA_API_KEY"
+api_key_env = "AIKS_WEKNORA_USER_API_KEY"
 channel = "aiks"
 
 [archive]

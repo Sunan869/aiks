@@ -21,7 +21,7 @@ AIKS_CONFIG_PATH="${AIKS_CONFIG_PATH:-/run/aiks/service.toml}"
 AIKS_DATA_DIR="${AIKS_DATA_DIR:-/var/lib/aiks-collector}"
 AIKS_WEKNORA_CHANNEL="${AIKS_WEKNORA_CHANNEL:-aiks}"
 
-for name in AIKS_COLLECTOR_TOKEN AIKS_WEKNORA_BASE_URL AIKS_WEKNORA_KNOWLEDGE_BASE_ID AIKS_WEKNORA_API_KEY; do
+for name in AIKS_COLLECTOR_TOKEN AIKS_WEKNORA_BASE_URL AIKS_WEKNORA_API_KEY; do
   require_env "$name"
 done
 
@@ -51,9 +51,10 @@ token_env = "AIKS_COLLECTOR_TOKEN"
 [weknora]
 enabled = true
 base_url = "$(toml_escape "$AIKS_WEKNORA_BASE_URL")"
-knowledge_base_id = "$(toml_escape "$AIKS_WEKNORA_KNOWLEDGE_BASE_ID")"
+knowledge_base_id = ""
 api_key_env = "AIKS_WEKNORA_API_KEY"
 channel = "$(toml_escape "$AIKS_WEKNORA_CHANNEL")"
+dynamic_targets = true
 
 [ai]
 enabled = false

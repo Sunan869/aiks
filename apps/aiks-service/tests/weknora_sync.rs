@@ -16,7 +16,7 @@ use std::{
 
 #[derive(Default)]
 struct FakeWeKnora {
-    requests: Mutex<Vec<(Method, String, Value)>>,
+    requests: Mutex<Vec<(Method, String, Value, Option<String>)>>,
     failures_remaining: Mutex<usize>,
     put_not_found_remaining: Mutex<usize>,
 }
@@ -24,23 +24,54 @@ struct FakeWeKnora {
 async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Response {
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    if request
+    let api_key = request
         .headers()
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
-        != Some("synthetic-weknora-key")
-    {
+        .unwrap_or("");
+    let tenant_header = request
+        .headers()
+        .get("x-tenant-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
+    if method == Method::GET && path == "/api/v1/auth/me" {
+        if api_key != "synthetic-user-key" {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        return Json(json!({
+            "success":true,
+            "data":{"tenant":{"id":77}}
+        }))
+        .into_response();
+    }
+    if method == Method::GET && path == "/api/v1/knowledge-bases/kb-user" {
+        if api_key != "synthetic-user-key" {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        return Json(json!({
+            "success":true,
+            "data":{"id":"kb-user","tenant_id":77}
+        }))
+        .into_response();
+    }
+    if api_key != "synthetic-weknora-key" {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+
     let bytes = axum::body::to_bytes(request.into_body(), 1024 * 1024)
         .await
         .unwrap();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let body: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     state
         .requests
         .lock()
         .unwrap()
-        .push((method.clone(), path.clone(), body));
+        .push((method.clone(), path.clone(), body, tenant_header));
 
     {
         let mut failures = state.failures_remaining.lock().unwrap();
@@ -60,6 +91,9 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
     match (method, path.as_str()) {
         (Method::POST, "/api/v1/knowledge-bases/kb-1/knowledge/manual") => {
             Json(json!({"success":true,"data":{"id":"knowledge-1"}})).into_response()
+        }
+        (Method::POST, "/api/v1/knowledge-bases/kb-user/knowledge/manual") => {
+            Json(json!({"success":true,"data":{"id":"knowledge-user"}})).into_response()
         }
         (Method::PUT, "/api/v1/knowledge/manual/knowledge-1") => {
             Json(json!({"success":true,"data":{"id":"knowledge-1"}})).into_response()
@@ -90,6 +124,18 @@ fn settings(origin: String) -> WeKnoraSettings {
         knowledge_base_id: "kb-1".into(),
         api_key_env: "AIKS_WEKNORA_API_KEY".into(),
         channel: "aiks".into(),
+        dynamic_targets: false,
+    }
+}
+
+fn dynamic_settings(origin: String) -> WeKnoraSettings {
+    WeKnoraSettings {
+        enabled: true,
+        base_url: origin,
+        knowledge_base_id: String::new(),
+        api_key_env: "AIKS_WEKNORA_API_KEY".into(),
+        channel: "aiks".into(),
+        dynamic_targets: true,
     }
 }
 
@@ -239,6 +285,46 @@ async fn missing_remote_mapping_is_recreated_and_remapped() {
     assert_eq!(requests[2].0, Method::POST);
     drop(requests);
     assert_eq!(sync.pending_count().await.unwrap(), 0);
+
+    server.abort();
+}
+
+
+#[tokio::test]
+async fn dynamic_route_verifies_workspace_and_retries_with_server_platform_key() {
+    let (origin, state, server) = start_fake().await;
+    let root = tempfile::tempdir().unwrap();
+    let database = root.path().join("service.db");
+    let sync = build(&dynamic_settings(origin), database);
+
+    let route = sync
+        .resolve_route("synthetic-user-key", "kb-user")
+        .await
+        .unwrap();
+    assert_eq!(route.tenant_id(), 77);
+    assert_eq!(route.knowledge_base_id(), "kb-user");
+    assert_eq!(route.principal_id(), "wk-principal-77");
+    assert_eq!(route.space_id(), "wk-space-77");
+
+    sync.enqueue_session_for(&route, &session("PRIVATE_NEEDLE"), 1)
+        .await
+        .unwrap();
+    assert_eq!(sync.outbox_counts_for(&route).await.unwrap(), (1, 0));
+    assert_eq!(sync.retry_pending_now().await.unwrap(), 1);
+    assert_eq!(sync.outbox_counts_for(&route).await.unwrap(), (0, 0));
+
+    let requests = state.requests.lock().unwrap();
+    let write = requests
+        .iter()
+        .find(|request| request.1 == "/api/v1/knowledge-bases/kb-user/knowledge/manual")
+        .expect("dynamic target write");
+    assert_eq!(write.0, Method::POST);
+    assert_eq!(write.3.as_deref(), Some("77"));
+    assert!(write.2["content"]
+        .as_str()
+        .unwrap()
+        .contains("PRIVATE_NEEDLE"));
+    drop(requests);
 
     server.abort();
 }

@@ -6,12 +6,13 @@ The recommended team topology is now the standalone collector:
 AIKS Desktop / provider collectors
         |
         | AIKS snapshot protocol
-        | Bearer AIKS_COLLECTOR_TOKEN
+        | collector token + employee WeKnora API key + private KB id
         v
 aiks-service (mode = collector)
         |
+        | verified Workspace -> isolated collector namespace
         | durable SQLite outbox
-        | server-only AIKS_WEKNORA_API_KEY
+        | server-only WeKnora platform API key
         v
 WeKnora
         |
@@ -28,31 +29,48 @@ The old central S2 DingTalk/ACL/SiYuan stack is not part of this path.
 cd deploy/weknora
 cp .env.example .env
 openssl rand -hex 32
-# fill .env with the generated collector token, WeKnora URL, KB ID and API key
+# fill .env with the generated collector token, WeKnora URL and platform API key
 docker compose up -d --build
 curl http://127.0.0.1:28082/healthz
 ```
 
 The container publishes on host loopback by default. Put Nginx/TongHttpServer or
 another HTTPS reverse proxy in front of it for remote Desktop access. Do not
-expose the plain HTTP collector port directly to an untrusted network because
-the collector bearer token authorizes Session ingestion.
+expose the plain HTTP collector port directly to an untrusted network.
 
-## Client handshake
+The server-side `AIKS_WEKNORA_API_KEY` must be a WeKnora **platform API key**
+that can ingest into the validated target workspace. It never leaves the
+collector host.
 
-`GET /healthz` is public and returns the non-secret `instance_id` and
-`space_id`. The client then uses the existing AIKS service protocol:
+## Client identity and handshake
 
-1. `POST /api/v1/source-registrations`
-2. `POST /api/v1/session-snapshots`
-3. optional `GET /api/v1/integrations/weknora/status`
+Each employee first creates a private WeKnora workspace/KB (for example
+`AIKS Sessions`) and a WeKnora API key that can read that KB. The Desktop
+configuration points `[weknora].knowledge_base_id` at that KB and keeps the
+personal key in the environment named by `[weknora].api_key_env`.
 
-Authenticated requests include:
+The Desktop handshake is:
+
+1. `GET /healthz` -> collector `instance_id`.
+2. `GET /api/v1/collector/bootstrap` with the employee WeKnora key + private KB id.
+3. Collector calls WeKnora `/auth/me` and the KB detail endpoint.
+4. On success it returns a workspace-specific `space_id`.
+5. `POST /api/v1/source-registrations` and `POST /api/v1/session-snapshots`
+   then run inside that isolated namespace.
+
+Authenticated collector requests include:
 
 ```http
 Authorization: Bearer <AIKS_COLLECTOR_TOKEN>
-X-AIKS-Instance-Id: <instance_id returned by /healthz>
+X-AIKS-Instance-Id: <collector instance_id>
+X-AIKS-WeKnora-API-Key: <employee workspace API key>
+X-AIKS-WeKnora-KB-ID: <employee private KB id>
 ```
+
+The employee key is used for live identity/target validation only. The collector
+removes it from the request before business handlers run and never writes it to
+SQLite. Durable retries use the server-side platform key together with the
+validated tenant id and KB id.
 
 A browser `Origin` header is rejected. The server accepts reverse-proxied Host
 values in collector mode; personal ServiceLocal mode remains pinned to its exact
@@ -85,8 +103,10 @@ Desktop `service_local` can still talk directly to WeKnora for development.
 For the team deployment, prefer collector mode so employee machines never hold
 the WeKnora API key.
 
-## Still separate work
+## Sharing and login
 
-DingTalk login federation into WeKnora and finer individual/department sharing
-are WeKnora-side identity/permission tasks. They are intentionally not
-reimplemented in aiks-service.
+The WeKnora fork already provides DingTalk login and direct user KB sharing.
+Collected sessions must remain in each employee's private workspace/KB first;
+sharing is applied afterwards in WeKnora. Department-level sharing remains a
+WeKnora-side directory/permission extension and is not reimplemented in
+`aiks-service`.
