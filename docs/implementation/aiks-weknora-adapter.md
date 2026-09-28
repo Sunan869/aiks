@@ -1,84 +1,109 @@
 # AIKS → WeKnora adapter
 
-This branch replaces the old assumption that the team service must own document
-ACL, sharing, RAG and a SiYuan content container.
+This branch replaces the old assumption that the AIKS team service must own
+document ACL, sharing, RAG and a SiYuan content container.
 
 ## Responsibility split
 
-AIKS keeps:
+AIKS owns provider discovery, local Session collection, normalization,
+secret-redacted Session → Markdown rendering, the remote collector protocol and
+durable delivery/retry state.
 
-- provider discovery and local Session collection;
-- normalization to `NormalizedSession`;
-- secret redaction and Session → Markdown rendering;
-- durable delivery state and the local mapping from a source session to a
-  WeKnora knowledge ID.
+WeKnora owns users, DingTalk login, workspaces, RBAC, sharing, knowledge
+lifecycle, indexing, retrieval/RAG, Wiki/history and audit.
 
-WeKnora owns:
+## Team topology
 
-- users, workspaces, RBAC and sharing;
-- knowledge-base document lifecycle;
-- indexing, embedding, retrieval and RAG;
-- Wiki/history/audit and team-facing knowledge UI.
+```text
+employee AIKS Desktop
+  -> provider scan
+  -> private Desktop outbox
+  -> HTTPS aiks-service collector
+       -> validates employee WeKnora API key + private KB
+       -> assigns workspace-specific collector namespace
+       -> durable server outbox
+       -> server-only WeKnora platform API key + X-Tenant-ID
+  -> employee private WeKnora workspace / AIKS KB
+  -> optional WeKnora user / organization sharing
+```
 
-## Service configuration
+A company-wide destination KB is not the team default. Every employee must use
+a private WeKnora workspace/KB (or another workspace dedicated exclusively to
+that employee) before sharing is applied.
+
+## Server configuration
+
+Collector mode requires dynamic target routing:
 
 ```toml
+mode = "collector"
+
+[collector]
+token_env = "AIKS_COLLECTOR_TOKEN"
+
 [weknora]
 enabled = true
 base_url = "https://weknora.example.com"
-knowledge_base_id = "replace-with-kb-id"
+knowledge_base_id = ""
 api_key_env = "AIKS_WEKNORA_API_KEY"
 channel = "aiks"
+dynamic_targets = true
 ```
 
-The secret is resolved only from the named environment variable. It is not
-accepted inline in the TOML.
+`AIKS_WEKNORA_API_KEY` is a server-side WeKnora platform API key with
+cross-workspace ingest authority. It never leaves the collector host.
 
-The API key must be scoped to the destination workspace / knowledge base and
-must grant ingestion/write access.
+## Desktop configuration
+
+```toml
+[backend]
+mode = "service_remote"
+collector_url = "https://aiks-collector.example.com"
+collector_token_env = "AIKS_COLLECTOR_TOKEN"
+
+[weknora]
+enabled = true
+knowledge_base_id = "<this employee's private AIKS KB>"
+api_key_env = "AIKS_WEKNORA_USER_API_KEY"
+```
+
+The employee key is used only for live identity/KB validation. The collector
+removes the credential header before business handlers execute and never stores
+that key in its SQLite snapshot database or durable WeKnora outbox.
+
+## Identity handshake and namespace isolation
+
+1. Desktop reads the collector `instance_id` from `GET /healthz`.
+2. Desktop calls `GET /api/v1/collector/bootstrap` with collector auth,
+   its WeKnora API key and private KB ID.
+3. Collector verifies the key against WeKnora `/auth/me`.
+4. Collector verifies that the target KB belongs to that active workspace.
+5. Collector returns a workspace-specific AIKS `space_id`.
+6. Source registration, snapshots, receipts, jobs, searches and local derived
+   state are scoped by the verified `principal_id + space_id`.
+7. The durable WeKnora outbox persists only the validated tenant/KB target.
+   Retries use the server platform key with `X-Tenant-ID`.
+
+Two workspaces may therefore upload the same provider, registration key,
+submission ID and upstream Session ID without sharing a collector Session row.
 
 ## Delivery semantics
 
-Accepted AIKS snapshots are committed locally first. When WeKnora integration
-is enabled, the service then persists a separate SQLite outbox row containing
-the sanitized Markdown. Remote availability never changes whether the local
-snapshot was accepted.
+Accepted AIKS snapshots are committed before WeKnora delivery. Each target has a
+durable outbox. The worker creates a manual knowledge item on first delivery,
+updates it for later revisions, skips unchanged rendered content, and retries
+transport/rate-limit/conflict/5xx failures with bounded backoff.
 
-The background worker:
+Each WeKnora write carries a stable opaque
+`external_id = aiks-<sha256(source + session-id)>`. The AIKS WeKnora fork
+makes create/replay idempotent inside the destination KB, covering the failure
+window where WeKnora committed a POST but the HTTP response was lost.
 
-1. claims due outbox rows serially;
-2. creates a WeKnora manual knowledge item on first delivery;
-3. stores `(source, external_session_id) -> knowledge_id + content_hash`;
-4. updates the same knowledge item for later revisions;
-5. skips a remote rewrite when a newer AIKS revision renders to the same hash;
-6. retries transport, auth/rate-limit, conflict and 5xx failures with bounded
-   exponential backoff;
-7. keeps non-retryable 4xx failures as terminal outbox rows for diagnosis;
-8. automatically resumes non-terminal rows after process restart.
+## Team sharing boundary
 
-Each request also carries a stable opaque `external_id = aiks-<sha256>`.
-The AIKS WeKnora fork stores that identifier in manual-knowledge metadata so a
-future server-side idempotent create can close the remaining "POST succeeded
-but the response was lost" duplicate window.
+The WeKnora fork now provides DingTalk login and direct user KB sharing.
+Organization sharing remains available upstream. Sharing happens after private
+placement; aiks-service does not recreate WeKnora ACLs.
 
-## Current boundary
-
-The existing S2 DingTalk/ACL/SiYuan implementation remains in history while
-this adapter is proven. Do not extend that old ACL layer on this branch.
-
-
-## Desktop wiring
-
-`Config.weknora` is part of the normal AIKS configuration. When Desktop runs
-in `ServiceLocal` mode it copies this non-secret section into the generated
-service runtime TOML. The API key value itself remains an environment secret.
-
-A logged-in/managed credential flow can replace the environment variable later;
-the adapter contract does not require storing raw API keys in AIKS config files.
-
-The authenticated local service also exposes:
-
-`GET /api/v1/integrations/weknora/status`
-
-with only `enabled`, `pending` and `terminal` counts for delivery
-observability.
+Department-level DingTalk directory sharing remains a WeKnora-side extension
+after this private-routing module is verified.

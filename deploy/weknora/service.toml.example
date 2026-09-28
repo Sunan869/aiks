@@ -8,9 +8,10 @@ token_env = "AIKS_COLLECTOR_TOKEN"
 [weknora]
 enabled = true
 base_url = "http://weknora.example.internal:8080"
-knowledge_base_id = "replace-with-kb-id"
+knowledge_base_id = ""
 api_key_env = "AIKS_WEKNORA_API_KEY"
 channel = "aiks"
+dynamic_targets = true
 
 [ai]
 enabled = false

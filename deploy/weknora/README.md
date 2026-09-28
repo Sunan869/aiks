@@ -100,8 +100,9 @@ Deploy `Sunan869/aiks-WeKnora:feature/aiks-team-integration`. The fork adds:
 ## Local POC fallback
 
 Desktop `service_local` can still talk directly to WeKnora for development.
-For the team deployment, prefer collector mode so employee machines never hold
-the WeKnora API key.
+For the team deployment, prefer collector mode so employee machines hold only
+their own workspace identity key; the cross-workspace platform key remains
+server-side.
 
 ## Sharing and login
 
