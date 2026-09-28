@@ -22,6 +22,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+      - name: Lockfile diagnostic
+        run: |
+          cargo generate-lockfile
+          git diff -- Cargo.lock
       - name: Service tests
         run: |
           cargo test --locked --no-fail-fast -p aiks-service -- --test-threads=1
