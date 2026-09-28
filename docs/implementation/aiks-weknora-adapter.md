@@ -63,6 +63,7 @@ collector_token_env = "AIKS_COLLECTOR_TOKEN"
 
 [weknora]
 enabled = true
+base_url = "https://weknora.example.com"
 knowledge_base_id = "<this employee's private AIKS KB>"
 api_key_env = "AIKS_WEKNORA_USER_API_KEY"
 ```
@@ -126,3 +127,14 @@ The legacy source modules remain temporarily in-tree only to keep the retirement
 reviewable and to avoid mixing a large physical deletion with the runtime
 cut-over. They are not part of the supported deployment path and can be removed
 after the consolidated integration gate passes.
+
+## Desktop team entry
+
+The old native `team_* ` client is no longer initialized by Desktop. The
+"团队空间" tab is a WeKnora workbench launcher and collector-status view.
+In `service_remote` mode, AIKS keeps Session browsing, source collection and
+delivery tasks; knowledge search, RAG, sharing and department access are opened
+in WeKnora.
+
+The obsolete native team-client source remains temporarily in-tree but is no
+longer registered with Tauri and is not part of the supported runtime.

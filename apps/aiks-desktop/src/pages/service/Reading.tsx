@@ -1,7 +1,6 @@
 import {type ReactNode,useEffect,useRef,useState} from "react";
 import {BookOpen,MessageSquare,Search} from "lucide-react";
 import {serviceApi,type SearchHit} from "../../api/service";
-import PublishToTeam from "./PublishToTeam";
 import {button,errorText} from "./shared";
 
 export function TextBody({text}:{text:string}){
@@ -39,7 +38,7 @@ export function KnowledgeReading({detail,actions}:{detail:Record<string,unknown>
     {session&&Array.isArray(session.messages)?<Conversation messages={session.messages}/>:typeof detail.content==="string"?<TextBody text={detail.content}/>:<p className="text-slate-500">正文暂不可用，请刷新后重试。</p>}
   </article>;
 }
-export default function Reading({corpus,ready,onSettings}:{corpus:"knowledge"|"session";ready:boolean;onSettings:()=>void}){
+export default function Reading({corpus,ready,onSettings,searchEnabled=true}:{corpus:"knowledge"|"session";ready:boolean;onSettings:()=>void;searchEnabled?:boolean}){
   const [query,setQuery]=useState("");const [hits,setHits]=useState<SearchHit[]|null>(null);
   const [rows,setRows]=useState<Record<string,unknown>[]>([]);const [offset,setOffset]=useState(0);
   const [loading,setLoading]=useState(false);const [loaded,setLoaded]=useState(false);const [error,setError]=useState<string|null>(null);
@@ -72,7 +71,7 @@ export default function Reading({corpus,ready,onSettings}:{corpus:"knowledge"|"s
   return <div className="flex h-full min-h-0 flex-col">
     <header className="border-b bg-white px-6 py-5"><h1 className="text-2xl font-semibold">{corpus==="knowledge"?"知识库":"会话记录"}</h1>
       <p className="mt-1 text-sm text-slate-500">{corpus==="knowledge"?"浏览与阅读沉淀的知识，不需要先完成采集或模型设置。":"查看已接收的 AI 工作对话；原始会话与提炼知识分别管理。"}</p>
-      <form className="mt-4 flex gap-2" onSubmit={e=>{e.preventDefault();void search();}}><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input aria-label="搜索知识与会话" className="w-full rounded-lg border py-2 pl-10 pr-3 text-sm" placeholder={corpus==="knowledge"?"搜索知识标题或正文":"搜索会话"} value={query} onChange={e=>setQuery(e.target.value)}/></div><button className={button} disabled={!ready||loading}>{loading?"加载中…":"搜索"}</button><button type="button" className={button} disabled={!ready||loading} onClick={()=>{setQuery("");void list();}}>刷新</button></form>
+      {searchEnabled?<form className="mt-4 flex gap-2" onSubmit={e=>{e.preventDefault();void search();}}><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input aria-label="搜索知识与会话" className="w-full rounded-lg border py-2 pl-10 pr-3 text-sm" placeholder={corpus==="knowledge"?"搜索知识标题或正文":"搜索会话"} value={query} onChange={e=>setQuery(e.target.value)}/></div><button className={button} disabled={!ready||loading}>{loading?"加载中…":"搜索"}</button><button type="button" className={button} disabled={!ready||loading} onClick={()=>{setQuery("");void list();}}>刷新</button></form>:<p className="mt-4 text-xs text-slate-500">远程团队模式下，全文检索与 RAG 请在 WeKnora 团队工作台使用；这里保留采集后的 Session 浏览。</p>}
     </header>
     {error&&<div role="alert" className="m-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     {!ready?<div className="p-8 text-sm text-slate-500">正在等待本机知识服务。你可以先查看设置；连接恢复后会自动读取内容。</div>:
@@ -84,7 +83,7 @@ export default function Reading({corpus,ready,onSettings}:{corpus:"knowledge"|"s
         {!loading&&loaded&&items.map(row=><button key={row.entity_id} aria-pressed={selected===row.entity_id} onClick={()=>void open(row.entity_id)} className={`block w-full border-b px-5 py-4 text-left hover:bg-slate-50 ${selected===row.entity_id?"bg-blue-50":""}`}><span className="block text-sm font-medium">{row.title}</span>{row.snippet&&<span className="mt-2 line-clamp-3 block text-xs leading-5 text-slate-500">{row.snippet}</span>}<span className="mt-2 block text-xs text-slate-400">{row.revision!=null?`来源版本 ${row.revision}`:"来源版本待确认"}</span></button>)}
         {!hits&&loaded&&<div className="flex items-center justify-between gap-2 p-4 text-xs"><button className={button} disabled={offset===0||loading} onClick={()=>void list(Math.max(0,offset-30))}>上一页</button><span>第 {Math.floor(offset/30)+1} 页</span><button className={button} disabled={rows.length<30||loading} onClick={()=>void list(offset+30)}>下一页</button></div>}
       </aside>
-      <div className="min-w-0 flex-1 overflow-auto">{detailLoading?<p className="p-8 text-sm text-slate-500">正在读取正文…</p>:detail?<KnowledgeReading detail={detail} actions={corpus==="knowledge"?<PublishToTeam detail={detail}/>:undefined}/>:<div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-slate-400">{corpus==="knowledge"?<BookOpen size={34}/>:<MessageSquare size={34}/>}<p className="text-sm">选择左侧条目开始阅读</p></div>}</div>
+      <div className="min-w-0 flex-1 overflow-auto">{detailLoading?<p className="p-8 text-sm text-slate-500">正在读取正文…</p>:detail?<KnowledgeReading detail={detail}/>:<div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 p-8 text-slate-400">{corpus==="knowledge"?<BookOpen size={34}/>:<MessageSquare size={34}/>}<p className="text-sm">选择左侧条目开始阅读</p></div>}</div>
     </div>}
   </div>;
 }

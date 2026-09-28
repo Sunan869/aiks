@@ -42,6 +42,42 @@ pub async fn service_status(app: AppHandle, webview: Webview) -> Result<Value, S
     Ok(json!({"mode":mode,"phase":"starting"}))
 }
 #[tauri::command]
+pub async fn service_team_workspace(app: AppHandle, webview: Webview) -> Result<Value, String> {
+    trusted(&webview)?;
+    Ok(state(&app)?.team_workspace_config())
+}
+
+fn open_external_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let child = std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(url)
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let child = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let child = std::process::Command::new("xdg-open").arg(url).spawn();
+    #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+    let child: std::io::Result<std::process::Child> =
+        Err(std::io::Error::other("unsupported platform"));
+
+    child
+        .map(|_| ())
+        .map_err(|_| "open_weknora_failed".to_string())
+}
+
+#[tauri::command]
+pub async fn service_open_team_workspace(
+    app: AppHandle,
+    webview: Webview,
+) -> Result<Value, String> {
+    trusted(&webview)?;
+    let url = state(&app)?.team_workspace_url()?;
+    open_external_url(&url)?;
+    Ok(json!({"opened":true,"url":url}))
+}
+
+#[tauri::command]
 pub async fn service_collect_selected(
     app: AppHandle,
     webview: Webview,

@@ -14,7 +14,6 @@ mod service_desktop;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
-pub mod team_client;
 mod tray;
 mod workbench;
 
@@ -72,12 +71,6 @@ pub fn run() {
         .manage(workbench::controller::WorkbenchController::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let team = Arc::new(team_client::TeamClientManager::open(
-                app_state::data_dir().join("team-client"),
-            )?);
-            if !app.manage(team) {
-                return Err(std::io::Error::other("Team client already initialized").into());
-            }
             tray::setup_tray(app)?;
             workbench::events::register(&app_handle);
             tauri::async_runtime::spawn(async move {
@@ -117,6 +110,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             service_commands::service_status,
+            service_commands::service_team_workspace,
+            service_commands::service_open_team_workspace,
             service_commands::service_ui_preferences,
             service_commands::service_finish_onboarding,
             service_commands::service_save_sources,
@@ -133,17 +128,6 @@ pub fn run() {
             service_commands::service_session,
             service_commands::service_knowledge,
             service_commands::service_knowledge_list,
-            team_client::team_add_connection,
-            team_client::team_begin_login,
-            team_client::team_finish_login,
-            team_client::team_logout,
-            team_client::team_connection_status,
-            team_client::team_knowledge_list,
-            team_client::team_knowledge,
-            team_client::team_directory_search,
-            team_client::team_get_shares,
-            team_client::team_replace_shares,
-            team_client::team_import_knowledge,
             provider_commands::get_source_descriptors,
             provider_commands::save_provider_settings,
             commands::get_status,

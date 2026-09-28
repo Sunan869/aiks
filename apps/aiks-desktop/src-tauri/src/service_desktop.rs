@@ -214,6 +214,22 @@ impl ServiceDesktop {
             weknora.enabled,
             "Remote collector requires a per-workspace WeKnora identity"
         );
+        let weknora_origin = reqwest::Url::parse(weknora.base_url.trim())?;
+        let loopback_http = weknora_origin.scheme() == "http"
+            && weknora_origin
+                .host_str()
+                .and_then(|host| host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+        anyhow::ensure!(
+            (weknora_origin.scheme() == "https" || loopback_http)
+                && weknora_origin.host_str().is_some()
+                && weknora_origin.username().is_empty()
+                && weknora_origin.password().is_none()
+                && weknora_origin.query().is_none()
+                && weknora_origin.fragment().is_none()
+                && matches!(weknora_origin.path(), "" | "/"),
+            "Remote collector requires a clean HTTPS WeKnora web origin"
+        );
         anyhow::ensure!(
             !weknora.knowledge_base_id.trim().is_empty(),
             "Remote collector requires a private WeKnora knowledge base"
@@ -297,6 +313,50 @@ impl ServiceDesktop {
             .ok_or("service_not_ready")?;
         Ok((client, outbox))
     }
+    pub fn team_workspace_url(&self) -> Result<String, String> {
+        let weknora = &self.provider_config.weknora;
+        let mut url = reqwest::Url::parse(weknora.base_url.trim())
+            .map_err(|_| "weknora_web_origin_invalid".to_string())?;
+        let loopback_http = url.scheme() == "http"
+            && url
+                .host_str()
+                .and_then(|host| host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+        if !(url.scheme() == "https" || loopback_http)
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !matches!(url.path(), "" | "/")
+        {
+            return Err("weknora_web_origin_invalid".into());
+        }
+        let kb_id = weknora.knowledge_base_id.trim();
+        {
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|_| "weknora_web_origin_invalid".to_string())?;
+            segments.clear().push("platform").push("knowledge-bases");
+            if !kb_id.is_empty() {
+                segments.push(kb_id);
+            }
+        }
+        Ok(url.to_string())
+    }
+
+    pub fn team_workspace_config(&self) -> Value {
+        let web_url = self.team_workspace_url().ok();
+        json!({
+            "configured": web_url.is_some(),
+            "web_url": web_url,
+            "base_url": self.provider_config.weknora.base_url.trim(),
+            "knowledge_base_id": self.provider_config.weknora.knowledge_base_id.trim(),
+            "collector_url": self.provider_config.backend.collector_url.trim(),
+            "remote_mode": self.provider_config.backend.mode == BackendMode::ServiceRemote
+        })
+    }
+
     pub async fn status(&self) -> Value {
         let phase = *self.phase.read().await;
         let mut capabilities = None;
