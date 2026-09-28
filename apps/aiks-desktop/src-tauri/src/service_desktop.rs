@@ -493,4 +493,4 @@ mod service_desktop_tests {
         }
         std::fs::remove_dir_all(root).unwrap();
     }
-}}
+}

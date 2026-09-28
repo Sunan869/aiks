@@ -125,8 +125,8 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
         listener,
         build_router_with_weknora(runtime.clone(), auth, weknora),
     )
-        .with_graceful_shutdown(stop)
-        .await;
+    .with_graceful_shutdown(stop)
+    .await;
     let drained = runtime.shutdown(Duration::from_secs(10)).await;
     result?;
     drained?;

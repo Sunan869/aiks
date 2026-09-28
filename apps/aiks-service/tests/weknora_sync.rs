@@ -70,9 +70,7 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
 
 async fn start_fake() -> (String, Arc<FakeWeKnora>, tokio::task::JoinHandle<()>) {
     let state = Arc::new(FakeWeKnora::default());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn({
         let state = state.clone();
@@ -200,7 +198,10 @@ async fn failed_delivery_remains_durable_and_can_retry_without_resubmission() {
     let settings = settings(origin);
     let sync = build(&settings, database.clone());
 
-    assert!(sync.sync_session(&session("RETRY_NEEDLE"), 1).await.is_err());
+    assert!(sync
+        .sync_session(&session("RETRY_NEEDLE"), 1)
+        .await
+        .is_err());
     assert_eq!(sync.pending_count().await.unwrap(), 1);
     assert_eq!(state.requests.lock().unwrap().len(), 1);
 

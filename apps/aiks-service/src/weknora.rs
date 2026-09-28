@@ -183,10 +183,7 @@ pub fn check_settings_with(
     }
     let key = lookup(&settings.api_key_env)
         .ok_or_else(|| issue("weknora.api_key_env", "secret_missing"))?;
-    if key.is_empty()
-        || key.len() > 8192
-        || !key.bytes().all(|b| (0x21..=0x7e).contains(&b))
-    {
+    if key.is_empty() || key.len() > 8192 || !key.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
         return Err(issue("weknora.api_key_env", "secret_invalid"));
     }
     Ok(())
@@ -396,10 +393,7 @@ impl WeKnoraSync {
         Ok(())
     }
 
-    async fn create(
-        &self,
-        request: &ManualKnowledgeRequest<'_>,
-    ) -> Result<String, RemoteError> {
+    async fn create(&self, request: &ManualKnowledgeRequest<'_>) -> Result<String, RemoteError> {
         let mut url = self.inner.base_url.clone();
         url.set_path(&format!(
             "/api/v1/knowledge-bases/{}/knowledge/manual",

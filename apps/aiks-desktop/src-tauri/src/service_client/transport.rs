@@ -154,12 +154,8 @@ impl ServiceClient {
         Ok(value)
     }
     pub async fn weknora_status(&self) -> ClientResult<Value> {
-        self.request(
-            Method::GET,
-            &["integrations", "weknora", "status"],
-            None,
-        )
-        .await
+        self.request(Method::GET, &["integrations", "weknora", "status"], None)
+            .await
     }
     pub async fn register_source(&self, source: SourceKind, key: &str) -> ClientResult<String> {
         if !valid_id(key) {
