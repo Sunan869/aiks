@@ -1,7 +1,7 @@
 name: Service S1 contracts
 on:
   push:
-    branches: [feature/aiks-service-extraction]
+    branches: [feature/aiks-service-extraction, feature/aiks-weknora-adapter]
 permissions:
   contents: read
 concurrency:

@@ -79,6 +79,7 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
     config.validate()?;
     config.resolve_model_credentials_with(|name| std::env::var(name).ok())?;
     config.resolve_siyuan_credentials_with(|name| std::env::var(name).ok())?;
+    crate::weknora::check_settings_with(&config.weknora, |name| std::env::var(name).ok())?;
     // Two bounded frames, bootstrap plus an explicitly opted-in owner command.
     let mut stdin = BufReader::new(tokio::io::stdin().take(8194));
     let mut frame = String::new();
