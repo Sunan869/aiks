@@ -3,7 +3,6 @@ use aiks_core::model::{
 };
 use aiks_service::weknora::{WeKnoraSettings, WeKnoraSync};
 use axum::{
-    body::Body,
     extract::{Request, State},
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
@@ -18,6 +17,7 @@ use std::{
 #[derive(Default)]
 struct FakeWeKnora {
     requests: Mutex<Vec<(Method, String, Value)>>,
+    failures_remaining: Mutex<usize>,
 }
 
 async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Response {
@@ -40,6 +40,14 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
         .lock()
         .unwrap()
         .push((method.clone(), path.clone(), body));
+
+    {
+        let mut failures = state.failures_remaining.lock().unwrap();
+        if *failures > 0 {
+            *failures -= 1;
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
 
     match (method, path.as_str()) {
         (Method::POST, "/api/v1/knowledge-bases/kb-1/knowledge/manual") => {
@@ -67,6 +75,24 @@ async fn start_fake() -> (String, Arc<FakeWeKnora>, tokio::task::JoinHandle<()>)
         }
     });
     (origin, state, task)
+}
+
+fn settings(origin: String) -> WeKnoraSettings {
+    WeKnoraSettings {
+        enabled: true,
+        base_url: origin,
+        knowledge_base_id: "kb-1".into(),
+        api_key_env: "AIKS_WEKNORA_API_KEY".into(),
+        channel: "aiks".into(),
+    }
+}
+
+fn build(settings: &WeKnoraSettings, database: std::path::PathBuf) -> WeKnoraSync {
+    WeKnoraSync::build_with(settings, database, |name| {
+        (name == "AIKS_WEKNORA_API_KEY").then(|| "synthetic-weknora-key".into())
+    })
+    .unwrap()
+    .unwrap()
 }
 
 fn session(text: &str) -> NormalizedSession {
@@ -100,18 +126,8 @@ async fn accepted_session_is_created_once_then_updated_by_stable_mapping() {
     let (origin, state, server) = start_fake().await;
     let root = tempfile::tempdir().unwrap();
     let database = root.path().join("service.db");
-    let settings = WeKnoraSettings {
-        enabled: true,
-        base_url: origin,
-        knowledge_base_id: "kb-1".into(),
-        api_key_env: "AIKS_WEKNORA_API_KEY".into(),
-        channel: "aiks".into(),
-    };
-    let sync = WeKnoraSync::build_with(&settings, database.clone(), |name| {
-        (name == "AIKS_WEKNORA_API_KEY").then(|| "synthetic-weknora-key".into())
-    })
-    .unwrap()
-    .unwrap();
+    let settings = settings(origin);
+    let sync = build(&settings, database.clone());
 
     sync.sync_session(&session("FIRST_NEEDLE"), 1)
         .await
@@ -120,17 +136,22 @@ async fn accepted_session_is_created_once_then_updated_by_stable_mapping() {
         .await
         .unwrap();
 
-    let requests = state.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].0, Method::POST);
-    assert_eq!(requests[0].2["channel"], "aiks");
-    assert_eq!(requests[0].2["status"], "publish");
-    assert_eq!(requests[0].2["title"], "Adapter contract");
-    assert!(requests[0].2["content"]
-        .as_str()
-        .unwrap()
-        .contains("FIRST_NEEDLE"));
-    drop(requests);
+    {
+        let requests = state.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, Method::POST);
+        assert_eq!(requests[0].2["channel"], "aiks");
+        assert_eq!(requests[0].2["status"], "publish");
+        assert_eq!(requests[0].2["title"], "Adapter contract");
+        assert!(requests[0].2["external_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("aiks-"));
+        assert!(requests[0].2["content"]
+            .as_str()
+            .unwrap()
+            .contains("FIRST_NEEDLE"));
+    }
 
     sync.sync_session(&session("SECOND_NEEDLE"), 2)
         .await
@@ -139,34 +160,53 @@ async fn accepted_session_is_created_once_then_updated_by_stable_mapping() {
         let requests = state.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1].0, Method::PUT);
-        assert_eq!(
-            requests[1].1,
-            "/api/v1/knowledge/manual/knowledge-1"
-        );
+        assert_eq!(requests[1].1, "/api/v1/knowledge/manual/knowledge-1");
         assert!(requests[1].2["content"]
             .as_str()
             .unwrap()
             .contains("SECOND_NEEDLE"));
     }
 
-    // A newer AIKS revision with identical rendered content only advances the
-    // durable local mapping; it must not rewrite the WeKnora document.
     sync.sync_session(&session("SECOND_NEEDLE"), 3)
         .await
         .unwrap();
     assert_eq!(state.requests.lock().unwrap().len(), 2);
 
-    // Re-opening the adapter proves the mapping is durable rather than process-local.
-    let reopened = WeKnoraSync::build_with(&settings, database, |name| {
-        (name == "AIKS_WEKNORA_API_KEY").then(|| "synthetic-weknora-key".into())
-    })
-    .unwrap()
-    .unwrap();
+    let reopened = build(&settings, database);
     reopened
         .sync_session(&session("SECOND_NEEDLE"), 4)
         .await
         .unwrap();
     assert_eq!(state.requests.lock().unwrap().len(), 2);
+    assert_eq!(reopened.pending_count().await.unwrap(), 0);
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn failed_delivery_remains_durable_and_can_retry_without_resubmission() {
+    let (origin, state, server) = start_fake().await;
+    *state.failures_remaining.lock().unwrap() = 1;
+    let root = tempfile::tempdir().unwrap();
+    let database = root.path().join("service.db");
+    let settings = settings(origin);
+    let sync = build(&settings, database.clone());
+
+    assert!(sync.sync_session(&session("RETRY_NEEDLE"), 1).await.is_err());
+    assert_eq!(sync.pending_count().await.unwrap(), 1);
+    assert_eq!(state.requests.lock().unwrap().len(), 1);
+
+    let reopened = build(&settings, database);
+    let processed = reopened.retry_pending_now().await.unwrap();
+    assert_eq!(processed, 1);
+    assert_eq!(reopened.pending_count().await.unwrap(), 0);
+
+    let requests = state.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].0, Method::POST);
+    assert_eq!(requests[1].0, Method::POST);
+    assert_eq!(requests[0].2["external_id"], requests[1].2["external_id"]);
+    drop(requests);
 
     server.abort();
 }

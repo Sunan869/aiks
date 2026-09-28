@@ -201,8 +201,15 @@ async fn ingest(
     let input = body(input)?;
     let session = input.session.clone();
     let (receipt, created) = runtime.accept(input).await?;
-    if let Some(sync) = weknora.0 {
-        sync.schedule(session, receipt.revision);
+    if let Some(sync) = weknora.0.as_ref() {
+        if let Err(error) = sync.enqueue_session(&session, receipt.revision).await {
+            tracing::warn!(
+                source = session.source.as_str(),
+                external_session_id = %session.external_session_id,
+                error = %error,
+                "Failed to persist WeKnora sync intent"
+            );
+        }
     }
     Ok((
         if created {

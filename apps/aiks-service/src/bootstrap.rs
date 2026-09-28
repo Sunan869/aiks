@@ -102,6 +102,9 @@ async fn run_personal(mut config: ServiceConfig, bootstrap: bool) -> anyhow::Res
         config.database.clone(),
         |name| std::env::var(name).ok(),
     )?;
+    if let Some(sync) = &weknora {
+        sync.start_background();
+    }
     let identity = runtime.context();
     let auth = LocalAuth::new(&boot.token, identity.instance_id())?.with_authority(address)?;
     let nonce = auth.boot_nonce().to_owned();
