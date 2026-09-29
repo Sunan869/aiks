@@ -12,9 +12,10 @@ die() {
 }
 
 env_value() {
-  local key="$1" line
+  local key="$1" line value
   line="$(grep -m1 -E "^${key}=" .env 2>/dev/null || true)"
-  printf '%s' "${line#*=}"
+  value="${line#*=}"
+  printf '%s' "$value" | tr -d '\r'
 }
 
 set_env() {
