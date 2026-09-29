@@ -24,7 +24,8 @@ RUN sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors
 
 COPY --from=builder /src/target/release/aiks-service /usr/local/bin/aiks-service
 COPY deploy/weknora/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod 0555 /usr/local/bin/aiks-service /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+    && chmod 0555 /usr/local/bin/aiks-service /usr/local/bin/docker-entrypoint.sh
 
 WORKDIR /var/lib/aiks-collector
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
