@@ -350,6 +350,11 @@ async fn ingest(
             // acknowledge it until its WeKnora delivery intent is durable.
             return Err(ApiError(ServiceError::Unavailable));
         }
+        tracing::info!(
+            source = session.source.as_str(),
+            revision = receipt.revision,
+            "Collector accepted snapshot and persisted WeKnora delivery intent"
+        );
     }
     Ok((
         if created {

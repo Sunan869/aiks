@@ -556,6 +556,11 @@ impl WeKnoraSync {
             match self.apply_intent(&intent).await {
                 Ok(()) => {
                     finish_intent(self.inner.database.clone(), &intent).await?;
+                    tracing::info!(
+                        source = %intent.source,
+                        revision = intent.revision,
+                        "WeKnora delivery acknowledged (parsing may still be pending)"
+                    );
                     processed += 1;
                 }
                 Err(error) => {
