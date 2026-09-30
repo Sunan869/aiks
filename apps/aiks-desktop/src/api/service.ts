@@ -3,7 +3,7 @@ export type InvokeService = (command:string,args?:Record<string,unknown>)=>Promi
 export interface Receipt {receipt_id:string;session_id:string;job_id:string;revision:number;state:string}
 export interface Upload {id:string;state:string;source:string;attempt:number;error_code:string|null;receipt:Receipt|null}
 export interface ServiceStatus {
-  mode:"legacy"|"service_local";phase:string;error_code?:string|null;
+  mode:"legacy"|"service_local"|"service_remote";phase:string;error_code?:string|null;
   capabilities?:{instance_id:string;space_id:string;ai_assist:boolean;semantic_search:boolean}|null;
   providers?:{key:string;display_name:string;enabled:boolean}[];
 }
@@ -30,6 +30,7 @@ function object(value:unknown):Record<string,unknown>{
   return value as Record<string,unknown>;
 }
 function array(value:unknown):unknown[]{if(!Array.isArray(value))throw new Error("invalid_service_response");return value;}
+export function isServiceWorkspaceMode(mode:string|null):mode is "service_local"|"service_remote"{return mode==="service_local"||mode==="service_remote";}
 export class ServiceApi {
   constructor(private readonly invoke:InvokeService){}
   private async call(command:string,args?:Record<string,unknown>):Promise<unknown>{
@@ -37,7 +38,7 @@ export class ServiceApi {
   }
   async status():Promise<ServiceStatus>{
     const value=object(await this.call("service_status"));
-    if(!["legacy","service_local"].includes(String(value.mode))||typeof value.phase!=="string")throw new Error("invalid_service_response");
+    if(!["legacy","service_local","service_remote"].includes(String(value.mode))||typeof value.phase!=="string")throw new Error("invalid_service_response");
     return value as unknown as ServiceStatus;
   }
   async search(query:string,corpus?:"session"|"knowledge"):Promise<SearchResult>{

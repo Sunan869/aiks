@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ServiceApi, statusText } from "./service";
+import { ServiceApi, isServiceWorkspaceMode, statusText } from "./service";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ServiceStatusPage from "../pages/ServiceStatusPage";
@@ -39,5 +39,22 @@ describe("service mode is a separate complete startup path", () => {
     expect(html).toContain("本地知识服务");
     expect(html).toContain("未启用");
     expect(html).not.toContain("处理完成");
+  });
+});
+
+
+describe("remote desktop startup mode", () => {
+  it("accepts the native service_remote status and selects the Service workspace", async () => {
+    const raw = {mode:"service_remote", phase:"waiting_for_login"};
+    const api = new ServiceApi(vi.fn().mockResolvedValue(raw));
+    const status = await api.status();
+    expect(status).toEqual(raw);
+    expect(isServiceWorkspaceMode(status.mode)).toBe(true);
+    expect(isServiceWorkspaceMode("service_local")).toBe(true);
+    expect(isServiceWorkspaceMode("legacy")).toBe(false);
+  });
+  it("still rejects unsupported native modes", async () => {
+    const api = new ServiceApi(vi.fn().mockResolvedValue({mode:"unknown", phase:"ready"}));
+    await expect(api.status()).rejects.toThrow("invalid_service_response");
   });
 });
