@@ -357,6 +357,7 @@ fn native_credential_store_survives_reopen_without_plaintext() {
         refresh_token: "f1".repeat(32),
         expires_at: u64::MAX / 2,
         identity: FakeTransport::identity(0),
+        desktop_bootstrap: None,
     };
     {
         let store = CredentialStore::new(path.clone()).unwrap();
