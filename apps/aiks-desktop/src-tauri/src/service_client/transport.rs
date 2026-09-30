@@ -107,7 +107,11 @@ impl ServiceConnection {
         token: &str,
     ) -> ClientResult<Self> {
         let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
-        if base.scheme() != "https" || !clean_origin(&base) || !valid_token(token) {
+        let insecure_http = std::env::var("AIKS_ALLOW_INSECURE_HTTP")
+            .ok()
+            .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            && base.scheme() == "http";
+        if !(base.scheme() == "https" || insecure_http) || !clean_origin(&base) || !valid_token(token) {
             return Err(ClientError::InvalidInput);
         }
         Ok(Self {
