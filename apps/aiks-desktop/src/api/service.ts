@@ -1,11 +1,19 @@
 /** Service business calls only. No URL, credentials or legacy business fallback. */
 export type InvokeService = (command:string,args?:Record<string,unknown>)=>Promise<unknown>;
 export interface Receipt {receipt_id:string;session_id:string;job_id:string;revision:number;state:string}
-export interface Upload {id:string;state:string;source:string;attempt:number;error_code:string|null;receipt:Receipt|null}
+export interface Upload {id:string;state:string;source:string;external_session_id:string;attempt:number;error_code:string|null;receipt:Receipt|null}
+export interface WeKnoraDeliveryFailure {
+  source:string;external_session_id:string;title:string;revision:number;attempts:number;error_code:string;
+}
+export interface WeKnoraStatus {
+  enabled:boolean;available?:boolean;pending?:number;terminal?:number;delivered?:number;
+  failures?:WeKnoraDeliveryFailure[];error_code?:string;
+}
 export interface ServiceStatus {
   mode:"legacy"|"service_local"|"service_remote";phase:string;error_code?:string|null;
   capabilities?:{instance_id:string;space_id:string;ai_assist:boolean;semantic_search:boolean}|null;
   providers?:{key:string;display_name:string;enabled:boolean}[];
+  weknora?:WeKnoraStatus;
 }
 export interface SearchHit {corpus:"session"|"knowledge";entity_id:string;title:string;snippet:string;revision:number}
 export interface SearchResult {hits:SearchHit[];degraded:boolean;warnings:string[]}
@@ -51,7 +59,20 @@ export class ServiceApi {
   async collect(sources:string[]):Promise<Record<string,unknown>>{
     return object(await this.call("service_collect_selected",{sources}));
   }
-  async uploads():Promise<Upload[]>{return array(await this.call("service_uploads")) as Upload[];}
+  async uploads():Promise<Upload[]>{
+    return array(await this.call("service_uploads")).map(raw=>{
+      const value=object(raw);
+      if(typeof value.id!=="string"||typeof value.source!=="string"||
+        typeof value.external_session_id!=="string"||typeof value.state!=="string")
+        throw new Error("invalid_upload_state");
+      return value as unknown as Upload;
+    });
+  }
+  async retryWeKnoraFailed():Promise<number>{
+    const value=object(await this.call("service_retry_weknora_failed"));
+    if(!count(value.queued))throw new Error("invalid_service_response");
+    return value.queued;
+  }
   async job(id:string):Promise<Job>{
     const value=object(await this.call("service_get_job",{id}));
     if(typeof value.status!=="string"||typeof value.job_id!=="string")throw new Error("invalid_service_response");

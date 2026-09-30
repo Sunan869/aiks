@@ -124,6 +124,7 @@ pub fn run() {
             service_commands::service_exclude_sessions,
             service_commands::service_collect_selected,
             service_commands::service_uploads,
+            service_commands::service_retry_weknora_failed,
             service_commands::service_get_receipt,
             service_commands::service_get_job,
             service_commands::service_search,

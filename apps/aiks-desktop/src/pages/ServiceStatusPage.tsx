@@ -18,7 +18,7 @@ export default function ServiceStatusPage(){
   useEffect(()=>{void controller.initialize();},[controller,refresh]);
   useEffect(()=>{let active=true,inflight=false;const load=async()=>{if(inflight)return;inflight=true;
     try{const value=await serviceApi.status();if(active)setStatus(value);}catch(error){console.error("AIKS workspace status refresh failed:",error);if(active)setStatus(previous=>previous?{...previous,phase:"unavailable"}:null);}finally{inflight=false;}};
-    void load();const timer=setInterval(load,3000);return()=>{active=false;clearInterval(timer);};
+    void load();const timer=setInterval(load,10000);return()=>{active=false;clearInterval(timer);};
   },[refresh]);
   useEffect(()=>{if(state.preferences)return;const timer=setInterval(()=>{void controller.initialize();},2000);return()=>clearInterval(timer);},[controller,state.preferences]);
   const remote=status?.mode==="service_remote";
@@ -41,7 +41,7 @@ export default function ServiceStatusPage(){
         <div className="flex-1 overflow-auto">
           {state.page==="setup"&&<section className="mx-auto mt-6 flex max-w-6xl flex-wrap items-center justify-between gap-4 rounded-xl border border-blue-100 bg-blue-50 p-6"><div><h1 className="text-xl font-semibold">欢迎使用 AIKS</h1><p className="mt-2 text-sm text-slate-600">可以先选择采集来源，也可以跳过。以后从“采集与同步”回来设置。</p><p className="mt-1 text-xs text-slate-500">跳过不会启动采集、上传历史会话或调用模型。</p></div><button className={button} onClick={()=>void controller.finish(true)}>跳过，进入知识库</button></section>}
           {(state.page==="sync"||state.page==="setup")&&<SourceSettings status={status} sources={sources} onSave={s=>controller.saveSources(s)} onComplete={state.page==="setup"?()=>controller.finish(false):undefined}/>}
-          {state.page==="tasks"&&<Tasks ready={ready}/>}
+          {state.page==="tasks"&&<Tasks ready={ready} status={status}/>}
           {state.page==="models"&&<><div className="mx-auto max-w-6xl space-y-5 p-6"><h1 className="text-2xl font-semibold">模型与服务设置</h1><section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">模型配置（可选）</h2><p className="mt-3 text-sm leading-7 text-slate-600">AI 提炼和语义检索分别按配置启用，不影响阅读已有知识。当前配置文件位于数据目录的 <code>service-local/config/models.toml</code>，修改后正常退出并重启程序。</p><p className="mt-3 text-sm leading-7 text-slate-600">AI 请求会发送到你配置的模型服务。完全离线使用需提前准备本机模型和运行资源；本机存储不等于远程模型调用不出网。</p></section><section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">个人独立部署</h2><p className="mt-3 text-sm leading-7 text-slate-600">个人空间始终使用本机 AIKS Service。团队登录不会关闭、迁移或接管个人库。</p><button className={`${button} mt-4`} onClick={()=>controller.navigate("setup")}>重新查看使用引导</button></section></div><DataStorageSettingsSection/></>}
         </div>}
       </main>
