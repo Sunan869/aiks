@@ -44,7 +44,7 @@ pub async fn service_status(app: AppHandle, webview: Webview) -> Result<Value, S
 #[tauri::command]
 pub async fn service_team_workspace(app: AppHandle, webview: Webview) -> Result<Value, String> {
     trusted(&webview)?;
-    Ok(state(&app)?.team_workspace_config())
+    Ok(state(&app)?.team_workspace_config().await)
 }
 
 fn open_external_url(url: &str) -> Result<(), String> {
