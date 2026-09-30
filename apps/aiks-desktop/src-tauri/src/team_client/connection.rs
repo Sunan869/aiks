@@ -8,10 +8,18 @@ use serde::{Deserialize, Serialize};
 pub struct TeamEndpoint {
     origin: Url,
 }
+fn allow_insecure_http() -> bool {
+    std::env::var("AIKS_ALLOW_INSECURE_HTTP")
+        .ok()
+        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+}
+
 impl TeamEndpoint {
     pub fn parse(value: &str) -> ClientResult<Self> {
         let origin = Url::parse(value).map_err(|_| ClientError::InvalidInput)?;
-        if origin.scheme() != "https"
+        let scheme_allowed = origin.scheme() == "https"
+            || (allow_insecure_http() && origin.scheme() == "http");
+        if !scheme_allowed
             || origin.port_or_known_default().is_none_or(|v| v == 0)
             || !origin.username().is_empty()
             || origin.password().is_some()
@@ -38,7 +46,9 @@ impl TeamEndpoint {
     }
     pub fn validate_browser_handoff(&self, value: &str) -> ClientResult<Url> {
         let url = Url::parse(value).map_err(|_| ClientError::InvalidResponse)?;
-        if url.scheme() != "https"
+        let scheme_allowed = url.scheme() == "https"
+            || (allow_insecure_http() && url.scheme() == "http");
+        if !scheme_allowed
             || url.origin() != self.origin.origin()
             || !url.username().is_empty()
             || url.password().is_some()
