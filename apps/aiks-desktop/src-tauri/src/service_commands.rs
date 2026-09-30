@@ -92,7 +92,13 @@ pub async fn service_open_team_workspace(
     webview: Webview,
 ) -> Result<Value, String> {
     trusted(&webview)?;
-    let url = state(&app)?.team_workspace_url()?;
+    let workspace = state(&app)?.team_workspace_config().await;
+    let url = workspace
+        .get("web_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "weknora_web_origin_invalid".to_string())?
+        .to_owned();
     open_external_url(&url)?;
     Ok(json!({"opened":true,"url":url}))
 }
