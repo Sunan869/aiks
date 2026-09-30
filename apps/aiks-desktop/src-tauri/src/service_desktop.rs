@@ -220,15 +220,17 @@ impl ServiceDesktop {
                 .host_str()
                 .and_then(|host| host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
                 .is_some_and(|ip| ip.is_loopback());
+        let insecure_http = self.provider_config.backend.allow_insecure_http
+            && weknora_origin.scheme() == "http";
         anyhow::ensure!(
-            (weknora_origin.scheme() == "https" || loopback_http)
+            (weknora_origin.scheme() == "https" || loopback_http || insecure_http)
                 && weknora_origin.host_str().is_some()
                 && weknora_origin.username().is_empty()
                 && weknora_origin.password().is_none()
                 && weknora_origin.query().is_none()
                 && weknora_origin.fragment().is_none()
                 && matches!(weknora_origin.path(), "" | "/"),
-            "Remote collector requires a clean HTTPS WeKnora web origin"
+            "Remote collector requires HTTPS unless backend.allow_insecure_http=true"
         );
         anyhow::ensure!(
             !weknora.knowledge_base_id.trim().is_empty(),
@@ -249,11 +251,12 @@ impl ServiceDesktop {
         );
         let weknora_api_key = std::env::var(weknora_env)
             .map_err(|_| anyhow::anyhow!("WeKnora user API key is unavailable"))?;
-        let client = ServiceClient::connect_collector(
+        let client = ServiceClient::connect_collector_with_insecure_http(
             url,
             &token,
             &weknora_api_key,
             weknora.knowledge_base_id.trim(),
+            self.provider_config.backend.allow_insecure_http,
         )
         .await
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -322,7 +325,8 @@ impl ServiceDesktop {
                 .host_str()
                 .and_then(|host| host.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
                 .is_some_and(|ip| ip.is_loopback());
-        if !(url.scheme() == "https" || loopback_http)
+        let insecure_http = self.provider_config.backend.allow_insecure_http && url.scheme() == "http";
+        if !(url.scheme() == "https" || loopback_http || insecure_http)
             || url.host_str().is_none()
             || !url.username().is_empty()
             || url.password().is_some()
@@ -353,7 +357,8 @@ impl ServiceDesktop {
             "base_url": self.provider_config.weknora.base_url.trim(),
             "knowledge_base_id": self.provider_config.weknora.knowledge_base_id.trim(),
             "collector_url": self.provider_config.backend.collector_url.trim(),
-            "remote_mode": self.provider_config.backend.mode == BackendMode::ServiceRemote
+            "remote_mode": self.provider_config.backend.mode == BackendMode::ServiceRemote,
+            "allow_insecure_http": self.provider_config.backend.allow_insecure_http
         })
     }
 
