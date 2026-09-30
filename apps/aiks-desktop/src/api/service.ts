@@ -5,9 +5,14 @@ export interface Upload {id:string;state:string;source:string;external_session_i
 export interface WeKnoraDeliveryFailure {
   source:string;external_session_id:string;title:string;revision:number;attempts:number;error_code:string;
 }
+export interface WeKnoraDeliveryItem {
+  source:string;external_session_id:string;revision:number;
+  state:"delivered"|"pending"|"failed";knowledge_id:string|null;
+  attempts:number;error_code:string|null;
+}
 export interface WeKnoraStatus {
   enabled:boolean;available?:boolean;pending?:number;terminal?:number;delivered?:number;
-  failures?:WeKnoraDeliveryFailure[];error_code?:string;
+  failures?:WeKnoraDeliveryFailure[];recent?:WeKnoraDeliveryItem[];error_code?:string;
 }
 export interface ServiceStatus {
   mode:"legacy"|"service_local"|"service_remote";phase:string;error_code?:string|null;

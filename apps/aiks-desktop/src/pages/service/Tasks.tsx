@@ -25,6 +25,9 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
   const [message,setMessage]=useState<string|null>(null);
   const remote=status?.mode==="service_remote";
   const delivery=status?.weknora;
+  const bySession=new Map((delivery?.recent??[]).map(item=>[
+    `${item.source}:\u0000${item.external_session_id}`,item
+  ] as const));
 
   useEffect(()=>{
     if(!ready){setRows(null);return;}
@@ -107,11 +110,24 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
       {!ready?<p>Collector 尚未连接。</p>:
       rows===null?<p>正在读取任务…</p>:
       rows.length===0?<p className="text-sm text-slate-500">当前没有上传记录。可以从“采集与同步”选择来源。</p>:
-      rows.map(row=><div key={row.id} className="flex flex-wrap items-center gap-4 border-b py-4 text-sm">
+      rows.map(row=>{
+        const item=bySession.get(`${row.source}:\u0000${row.external_session_id}`);
+        const current=item&&(!row.receipt||item.revision>=row.receipt.revision)?item:null;
+        return <div key={row.id} className="flex flex-wrap items-center gap-4 border-b py-4 text-sm">
         <span className="font-medium">{row.source}</span>
         <span className="max-w-xs break-all text-xs text-slate-500" title={row.external_session_id}>Session: {row.external_session_id}</span>
         <span>{row.state==="acknowledged"?"Collector 已接收":row.error_code==="excluded"?"已排除，停止发送":
           row.state==="blocked"?"上传已暂停，需核对版本或授权":row.state==="inflight"?"正在上传":"等待上传或重试"}</span>
+        {remote&&row.state==="acknowledged"&&<span className={
+          current?.state==="delivered"?"text-green-700":
+          current?.state==="failed"?"text-red-700":"text-amber-700"
+        }>{
+          !delivery?.available?"WeKnora 状态未知":
+          current?.state==="delivered"?"WeKnora 知识已创建（解析状态另查）":
+          current?.state==="pending"?"WeKnora 待投递或重试":
+          current?.state==="failed"?`WeKnora 投递失败：${deliveryLabel(current.error_code??"unknown")}`:
+          "当前版本的 WeKnora 状态不在最近 100 条窗口内"
+        }</span>}
         {row.error_code&&row.error_code!=="excluded"&&<span className="text-red-600">{errorText(row.error_code)}</span>}
         {row.receipt&&<button className={button} onClick={()=>void serviceApi.job(row.receipt!.job_id).then(setJob).catch(e=>setError(errorText(e)))}>
           查看 Collector 内部任务
@@ -119,7 +135,7 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
         <details className="text-xs text-slate-400"><summary>诊断详情</summary>
           <pre className="mt-2 max-h-48 overflow-auto">{JSON.stringify(row,null,2)}</pre>
         </details>
-      </div>)}
+      </div>})}
     </section>
     {job&&<section role="status" className="rounded-xl border bg-white p-5">
       <h2 className="font-semibold">{remote&&job.status==="DONE"?"Collector 内部处理完成（不代表 WeKnora 解析完成）":

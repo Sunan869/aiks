@@ -508,8 +508,20 @@ impl ServiceDesktop {
                         .await
                         {
                             Ok(Ok(value)) => {
-                                weknora = value;
-                                weknora["available"] = json!(true);
+                                let remote = self.provider_config.backend.mode
+                                    == BackendMode::ServiceRemote;
+                                if remote
+                                    && (!value["delivered"].is_u64()
+                                        || !value["pending"].is_u64()
+                                        || !value["terminal"].is_u64()
+                                        || !value["failures"].is_array()
+                                        || !value["recent"].is_array())
+                                {
+                                    weknora["error_code"] = json!("collector_upgrade_required");
+                                } else {
+                                    weknora = value;
+                                    weknora["available"] = json!(true);
+                                }
                             }
                             Ok(Err(error)) => {
                                 weknora["error_code"] = json!(error.code());
