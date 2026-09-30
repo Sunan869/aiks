@@ -376,6 +376,20 @@ impl ServiceClient {
         self.request(Method::GET, &["integrations", "weknora", "status"], None)
             .await
     }
+
+    pub async fn retry_failed_weknora_deliveries(&self) -> ClientResult<u64> {
+        if !self.connection.is_collector() {
+            return Err(ClientError::InvalidInput);
+        }
+        #[derive(Deserialize)]
+        struct RetryResult {
+            queued: u64,
+        }
+        let response: RetryResult = self
+            .request(Method::POST, &["integrations", "weknora", "retry"], None)
+            .await?;
+        Ok(response.queued)
+    }
     pub async fn register_source(&self, source: SourceKind, key: &str) -> ClientResult<String> {
         if !valid_id(key) {
             return Err(ClientError::InvalidInput);

@@ -93,6 +93,7 @@ pub struct UploadStatus {
     pub id: String,
     pub state: String,
     pub source: String,
+    pub external_session_id: String,
     pub attempt: u32,
     pub error_code: Option<String>,
     pub receipt: Option<SnapshotReceipt>,
@@ -423,7 +424,7 @@ impl CollectorOutbox {
     }
     pub fn statuses_for_target(&self, target: &TargetIdentity) -> ClientResult<Vec<UploadStatus>> {
         let conn = self.conn()?;
-        let mut statement=conn.prepare("SELECT id,state,source,attempt,error_code,receipt_json FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 ORDER BY rowid DESC LIMIT 100")?;
+        let mut statement=conn.prepare("SELECT id,state,source,upstream_id,attempt,error_code,receipt_json FROM collector_upload WHERE instance_id=?1 AND target_company_id=?2 AND target_user_id=?3 AND space_id=?4 ORDER BY rowid DESC LIMIT 100")?;
         let rows = statement.query_map(
             params![
                 target.instance_id,
@@ -436,15 +437,16 @@ impl CollectorOutbox {
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
-                    r.get::<_, u32>(3)?,
-                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, u32>(4)?,
                     r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
                 ))
             },
         )?;
         let mut result = Vec::new();
         for row in rows {
-            let (id, state, source, attempt, error_code, json) = row?;
+            let (id, state, source, external_session_id, attempt, error_code, json) = row?;
             let receipt = json
                 .map(|v| serde_json::from_str(&v))
                 .transpose()
@@ -453,6 +455,7 @@ impl CollectorOutbox {
                 id,
                 state,
                 source,
+                external_session_id,
                 attempt,
                 error_code,
                 receipt,

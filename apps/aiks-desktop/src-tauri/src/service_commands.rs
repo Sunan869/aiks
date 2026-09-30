@@ -127,6 +127,20 @@ pub async fn service_uploads(app: AppHandle, webview: Webview) -> Result<Value, 
     .map_err(|_| "collector_storage_unavailable".to_string())?
 }
 #[tauri::command]
+pub async fn service_retry_weknora_failed(
+    app: AppHandle,
+    webview: Webview,
+) -> Result<Value, String> {
+    trusted(&webview)?;
+    let (client, _) = state(&app)?.connection().await?;
+    let queued = client
+        .retry_failed_weknora_deliveries()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(json!({"queued":queued}))
+}
+
+#[tauri::command]
 pub async fn service_get_receipt(
     app: AppHandle,
     webview: Webview,

@@ -490,22 +490,33 @@ impl ServiceDesktop {
         let phase = *self.phase.read().await;
         let mut capabilities = None;
         let mut connection_error = None;
+        // Unknown remote status must never be presented as a successful zero.
         let mut weknora = json!({
             "enabled": self.provider_config.weknora.enabled
                 || self.provider_config.backend.mode == BackendMode::ServiceRemote,
-            "pending": 0,
-            "terminal": 0
+            "available": false
         });
         if phase == "ready" {
             if let Ok((client, _)) = self.connection().await {
                 match tokio::time::timeout(Duration::from_secs(3), client.capabilities()).await {
                     Ok(Ok(value)) => {
                         capabilities = Some(value);
-                        if let Ok(Ok(value)) =
-                            tokio::time::timeout(Duration::from_secs(3), client.weknora_status())
-                                .await
+                        match tokio::time::timeout(
+                            Duration::from_secs(3),
+                            client.weknora_status(),
+                        )
+                        .await
                         {
-                            weknora = value;
+                            Ok(Ok(value)) => {
+                                weknora = value;
+                                weknora["available"] = json!(true);
+                            }
+                            Ok(Err(error)) => {
+                                weknora["error_code"] = json!(error.code());
+                            }
+                            Err(_) => {
+                                weknora["error_code"] = json!("status_timeout");
+                            }
                         }
                     }
                     _ => connection_error = Some("service_unavailable"),
