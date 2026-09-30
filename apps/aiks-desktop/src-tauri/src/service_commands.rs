@@ -47,6 +47,26 @@ pub async fn service_team_workspace(app: AppHandle, webview: Webview) -> Result<
     Ok(state(&app)?.team_workspace_config().await)
 }
 
+#[tauri::command]
+pub async fn service_begin_team_login(
+    app: AppHandle,
+    webview: Webview,
+) -> Result<Value, String> {
+    trusted(&webview)?;
+    let authorize_url = state(&app)?.begin_team_login().await?;
+    open_external_url(&authorize_url)?;
+    Ok(json!({"state":"browser_opened"}))
+}
+
+#[tauri::command]
+pub async fn service_finish_team_login(
+    app: AppHandle,
+    webview: Webview,
+) -> Result<Value, String> {
+    trusted(&webview)?;
+    state(&app)?.finish_team_login().await
+}
+
 fn open_external_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let child = std::process::Command::new("rundll32.exe")

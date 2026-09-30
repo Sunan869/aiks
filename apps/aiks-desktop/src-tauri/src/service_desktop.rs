@@ -1,6 +1,6 @@
 //! The service-mode desktop owns collection and child lifetimes, not business DBs.
 mod ui;
-use crate::team_client::credentials::DesktopBootstrap;
+use crate::weknora_pairing::{DesktopBootstrap, PairingExchange, PendingPairing};
 use crate::service_client::{
     collector::{collect_provider, deliver_one, CollectionPolicy},
     supervisor::{binary_path, OwnedService},
@@ -39,6 +39,7 @@ pub struct ServiceDesktop {
     client: RwLock<Option<ServiceClient>>,
     outbox: RwLock<Option<Arc<CollectorOutbox>>>,
     remote_identity: RwLock<Option<RemoteDesktopIdentity>>,
+    pending_login: Mutex<Option<PendingPairing>>,
     owner: Mutex<Option<OwnedService>>,
     content: Mutex<Option<Arc<SiyuanRuntime>>>,
     profile_lease: std::sync::Mutex<Option<BusinessDbLease>>,
@@ -68,6 +69,7 @@ impl ServiceDesktop {
             client: RwLock::new(None),
             outbox: RwLock::new(None),
             remote_identity: RwLock::new(None),
+            pending_login: Mutex::new(None),
             owner: Mutex::new(None),
             content: Mutex::new(None),
             profile_lease: std::sync::Mutex::new(None),
@@ -270,7 +272,7 @@ impl ServiceDesktop {
                 && weknora_origin.query().is_none()
                 && weknora_origin.fragment().is_none()
                 && matches!(weknora_origin.path(), "" | "/"),
-            "Remote collector requires HTTPS unless backend.allow_insecure_http=true"
+            "WeKnora requires HTTPS unless backend.allow_insecure_http=true"
         );
 
         let client = ServiceClient::connect_collector_with_insecure_http(
@@ -288,6 +290,53 @@ impl ServiceDesktop {
         *self.error.write().await = None;
         self.start_delivery().await;
         Ok(())
+    }
+
+    pub async fn begin_team_login(&self) -> Result<String, String> {
+        if self.provider_config.backend.mode != BackendMode::ServiceRemote {
+            return Err("team_login_not_available".into());
+        }
+        let (pending, authorize_url) = crate::weknora_pairing::start(
+            self.provider_config.weknora.base_url.trim(),
+            self.provider_config.backend.allow_insecure_http,
+        )
+        .await?;
+        *self.pending_login.lock().await = Some(pending);
+        Ok(authorize_url)
+    }
+
+    pub async fn finish_team_login(self: &Arc<Self>) -> Result<Value, String> {
+        if self.provider_config.backend.mode != BackendMode::ServiceRemote {
+            return Err("team_login_not_available".into());
+        }
+        let pending = self
+            .pending_login
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| "weknora_login_not_started".to_string())?;
+        match crate::weknora_pairing::exchange(
+            self.provider_config.weknora.base_url.trim(),
+            self.provider_config.backend.allow_insecure_http,
+            &pending,
+        )
+        .await?
+        {
+            PairingExchange::Pending => Ok(json!({"state":"pending"})),
+            PairingExchange::Connected(bootstrap) => {
+                *self.pending_login.lock().await = None;
+                let result = json!({
+                    "state": "connected",
+                    "tenant_id": bootstrap.tenant_id,
+                    "knowledge_base_id": bootstrap.knowledge_base_id.clone(),
+                    "knowledge_base": bootstrap.knowledge_base.clone(),
+                    "display_name": bootstrap.display_name.clone(),
+                    "capabilities": bootstrap.capabilities.clone()
+                });
+                self.apply_desktop_bootstrap(bootstrap).await?;
+                Ok(result)
+            }
+        }
     }
 
     pub async fn apply_desktop_bootstrap(
@@ -431,6 +480,8 @@ impl ServiceDesktop {
             "knowledge_base_id": runtime_kb,
             "collector_url": self.provider_config.backend.collector_url.trim(),
             "remote_mode": self.provider_config.backend.mode == BackendMode::ServiceRemote,
+            "login_required": self.provider_config.backend.mode == BackendMode::ServiceRemote
+                && self.remote_identity.read().await.is_none(),
             "allow_insecure_http": self.provider_config.backend.allow_insecure_http
         })
     }
@@ -518,6 +569,7 @@ impl ServiceDesktop {
         *self.phase.write().await = "stopping";
         self.stop_owned().await;
         *self.outbox.write().await = None;
+        *self.pending_login.lock().await = None;
         self.browsers.lock().await.clear();
     }
     async fn stop_owned(&self) {
@@ -680,6 +732,21 @@ mod service_desktop_tests {
         state.shutdown().await;
         assert_eq!(*state.phase.read().await, "stopped");
     }
+    #[test]
+    fn remote_public_http_is_an_explicit_opt_in() {
+        assert!(!Config::default().backend.allow_insecure_http);
+        assert!(crate::weknora_pairing::validate_origin(
+            "http://203.0.113.10:8080",
+            false
+        )
+        .is_err());
+        assert!(crate::weknora_pairing::validate_origin(
+            "http://203.0.113.10:8080",
+            true
+        )
+        .is_ok());
+    }
+
     #[test]
     fn profile_links_models_and_weknora_config_cannot_escape_the_new_space() {
         let root = std::env::temp_dir().join(format!("aiks-profile-test-{}", uuid::Uuid::new_v4()));

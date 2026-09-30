@@ -6,6 +6,8 @@
 mode = "legacy"
 collector_url = "https://aiks-collector.example.com"
 collector_token_env = "AIKS_COLLECTOR_TOKEN"
+# Keep false in production. Set true only for explicit public/LAN HTTP integration testing.
+allow_insecure_http = false
 
 [sync]
 scan_interval_seconds = 300
@@ -119,10 +121,10 @@ knowledge_root = "/20 Knowledge"
 
 # WeKnora destination.
 # - service_local: this is the direct destination and API key.
-# - service_remote: set enabled=true, knowledge_base_id to THIS EMPLOYEE'S
-#   private AIKS KB, and api_key_env to a WeKnora API key for that same private
-#   workspace. The key is used only to prove workspace/KB ownership to the
-#   collector; it is never stored in the collector outbox.
+# - service_remote: normal Desktop flow only needs base_url here. After the
+#   user signs in to WeKnora/DingTalk, WeKnora automatically creates/reuses the
+#   private "AIKS Sessions" KB and returns a KB-scoped credential to the native
+#   Desktop process. knowledge_base_id + api_key_env remain a legacy fallback.
 [weknora]
 enabled = false
 base_url = "https://weknora.example.com"

@@ -60,17 +60,32 @@ cross-workspace ingest authority. It never leaves the collector host.
 mode = "service_remote"
 collector_url = "https://aiks-collector.example.com"
 collector_token_env = "AIKS_COLLECTOR_TOKEN"
+allow_insecure_http = false
 
 [weknora]
 enabled = true
 base_url = "https://weknora.example.com"
-knowledge_base_id = "<this employee's private AIKS KB>"
-api_key_env = "AIKS_WEKNORA_USER_API_KEY"
+# Normal flow leaves these empty: browser login bootstraps them automatically.
+knowledge_base_id = ""
+api_key_env = ""
 ```
 
-The employee key is used only for live identity/KB validation. The collector
-removes the credential header before business handlers execute and never stores
-that key in its SQLite snapshot database or durable WeKnora outbox.
+In the normal Desktop flow, clicking "登录 WeKnora 并自动初始化" starts a
+verifier-bound browser handoff. After WeKnora/DingTalk login, the server
+creates or reuses the private `AIKS Sessions` knowledge base, creates or
+repairs a `retrieve`-only KB-scoped API key, and returns the credential only
+to the native Desktop exchange. Desktop then bootstraps the collector with the
+returned KB ID/API key; the WebView never receives the key.
+
+`knowledge_base_id` + `api_key_env` are retained only as a legacy/non-
+interactive fallback. The employee key is used only for live identity/KB
+validation. The collector removes the credential header before business
+handlers execute and never stores that key in its SQLite snapshot database or
+durable WeKnora outbox.
+
+Remote HTTP is rejected by default. `backend.allow_insecure_http=true` may be
+set explicitly for integration testing against a public/LAN HTTP endpoint;
+production should keep the default `false` and use HTTPS.
 
 ## Identity handshake and namespace isolation
 
@@ -130,11 +145,11 @@ after the consolidated integration gate passes.
 
 ## Desktop team entry
 
-The old native `team_* ` client is no longer initialized by Desktop. The
-"团队空间" tab is a WeKnora workbench launcher and collector-status view.
-In `service_remote` mode, AIKS keeps Session browsing, source collection and
-delivery tasks; knowledge search, RAG, sharing and department access are opened
-in WeKnora.
+The old native `team_*` business client is no longer initialized by
+Desktop. The "团队空间" tab owns only the verifier-bound WeKnora browser
+pairing plus workbench/collector status. In `service_remote` mode, AIKS keeps
+Session browsing, source collection and delivery tasks; knowledge search, RAG,
+sharing and department access are opened in WeKnora.
 
-The obsolete native team-client source remains temporarily in-tree but is no
-longer registered with Tauri and is not part of the supported runtime.
+The obsolete native team-client source remains temporarily in-tree but is not
+registered with Tauri and is not part of the supported runtime.

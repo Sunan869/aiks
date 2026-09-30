@@ -11,6 +11,7 @@ mod search_commands;
 pub mod service_client;
 mod service_commands;
 mod service_desktop;
+mod weknora_pairing;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
@@ -111,6 +112,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             service_commands::service_status,
             service_commands::service_team_workspace,
+            service_commands::service_begin_team_login,
+            service_commands::service_finish_team_login,
             service_commands::service_open_team_workspace,
             service_commands::service_ui_preferences,
             service_commands::service_finish_onboarding,
