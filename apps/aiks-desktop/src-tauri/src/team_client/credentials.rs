@@ -14,12 +14,22 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DesktopBootstrap {
+    pub tenant_id: u64,
+    pub knowledge_base_id: String,
+    pub knowledge_base: String,
+    pub api_key: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StoredCredential {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: u64,
     pub identity: TeamIdentity,
+    #[serde(default)]
+    pub desktop_bootstrap: Option<DesktopBootstrap>,
 }
 impl StoredCredential {
     pub fn validate(&self) -> ClientResult<()> {
