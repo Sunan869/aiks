@@ -98,12 +98,24 @@ pub struct WeKnoraDeliveryFailure {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct WeKnoraDeliveryItem {
+    pub source: String,
+    pub external_session_id: String,
+    pub revision: u32,
+    pub state: String,
+    pub knowledge_id: Option<String>,
+    pub attempts: u32,
+    pub error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct WeKnoraDeliverySummary {
     /// WeKnora has returned a knowledge ID. Parsing/indexing is managed by WeKnora.
     pub delivered: u64,
     pub pending: u64,
     pub terminal: u64,
     pub failures: Vec<WeKnoraDeliveryFailure>,
+    pub recent: Vec<WeKnoraDeliveryItem>,
 }
 
 #[derive(Clone)]
@@ -1154,11 +1166,65 @@ async fn delivery_summary(
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        let mut recent_statement = conn.prepare(
+            "WITH merged AS (
+                SELECT m.source AS source,
+                       m.external_session_id AS external_session_id,
+                       CASE WHEN o.revision IS NOT NULL AND o.revision >= m.revision
+                            THEN o.revision ELSE m.revision END AS revision,
+                       CASE WHEN o.revision IS NOT NULL AND o.revision >= m.revision
+                            THEN CASE WHEN o.terminal=1 THEN 'failed' ELSE 'pending' END
+                            ELSE 'delivered' END AS state,
+                       CASE WHEN o.revision IS NULL OR o.revision < m.revision
+                            THEN m.knowledge_id ELSE NULL END AS knowledge_id,
+                       COALESCE(o.attempts,0) AS attempts,
+                       o.last_error_code AS error_code,
+                       CASE WHEN o.updated_at IS NOT NULL AND o.updated_at > m.updated_at
+                            THEN o.updated_at ELSE m.updated_at END AS sort_at
+                FROM aiks_weknora_session_sync m
+                LEFT JOIN aiks_weknora_outbox o
+                  ON o.source=m.source AND o.external_session_id=m.external_session_id
+                WHERE m.source LIKE ?3
+                UNION ALL
+                SELECT o.source, o.external_session_id, o.revision,
+                       CASE WHEN o.terminal=1 THEN 'failed' ELSE 'pending' END,
+                       NULL, o.attempts, o.last_error_code, o.updated_at
+                FROM aiks_weknora_outbox o
+                WHERE o.target_tenant_id=?1 AND o.target_knowledge_base_id=?2
+                  AND NOT EXISTS (
+                      SELECT 1 FROM aiks_weknora_session_sync m
+                      WHERE m.source=o.source AND m.external_session_id=o.external_session_id
+                  )
+             )
+             SELECT source, external_session_id, revision, state, knowledge_id, attempts, error_code
+             FROM merged ORDER BY sort_at DESC LIMIT 100",
+        )?;
+        let recent = recent_statement
+            .query_map(
+                params![route.tenant_id, &route.knowledge_base_id, format!("{prefix}%")],
+                |row| {
+                    let stored_source: String = row.get(0)?;
+                    Ok(WeKnoraDeliveryItem {
+                        source: stored_source
+                            .strip_prefix(&prefix)
+                            .unwrap_or(&stored_source)
+                            .to_owned(),
+                        external_session_id: row.get(1)?,
+                        revision: row.get(2)?,
+                        state: row.get(3)?,
+                        knowledge_id: row.get(4)?,
+                        attempts: row.get(5)?,
+                        error_code: row.get(6)?,
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(WeKnoraDeliverySummary {
             delivered: delivered.max(0) as u64,
             pending: pending.max(0) as u64,
             terminal: terminal.max(0) as u64,
             failures,
+            recent,
         })
     })
     .await?

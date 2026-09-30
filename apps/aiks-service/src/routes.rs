@@ -378,7 +378,8 @@ async fn weknora_status(
             "delivered":summary.delivered,
             "pending":summary.pending,
             "terminal":summary.terminal,
-            "failures":summary.failures
+            "failures":summary.failures,
+            "recent":summary.recent
         })));
     }
     let (pending, terminal) = sync

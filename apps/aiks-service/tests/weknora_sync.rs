@@ -369,6 +369,10 @@ async fn delivery_summary_and_manual_retry_are_route_scoped() {
     assert_eq!(alice_status.failures.len(), 1);
     assert_eq!(alice_status.failures[0].source, "codex");
     assert_eq!(alice_status.failures[0].error_code, "upstream_400");
+    assert_eq!(alice_status.recent.len(), 1);
+    assert_eq!(alice_status.recent[0].state, "failed");
+    assert_eq!(alice_status.recent[0].external_session_id, "session-1");
+    assert!(alice_status.recent[0].knowledge_id.is_none());
 
     *state.manual_failure_status.lock().unwrap() = None;
     sync.enqueue_session_for(&bob, &session("BOB"), 1).await.unwrap();
@@ -381,6 +385,10 @@ async fn delivery_summary_and_manual_retry_are_route_scoped() {
     let bob_status = sync.delivery_summary_for(&bob).await.unwrap();
     assert_eq!((alice_status.delivered, alice_status.pending, alice_status.terminal), (1, 0, 0));
     assert_eq!((bob_status.delivered, bob_status.pending, bob_status.terminal), (1, 0, 0));
+    assert_eq!(alice_status.recent[0].state, "delivered");
+    assert_eq!(alice_status.recent[0].knowledge_id.as_deref(), Some("knowledge-user"));
+    assert_eq!(bob_status.recent[0].state, "delivered");
+    assert_eq!(bob_status.recent[0].knowledge_id.as_deref(), Some("knowledge-user-2"));
     assert_eq!(sync.retry_failed_for(&alice).await.unwrap(), 0);
     server.abort();
 }
