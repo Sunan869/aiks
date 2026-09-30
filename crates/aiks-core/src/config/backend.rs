@@ -24,6 +24,9 @@ pub struct BackendConfig {
     pub mode: BackendMode,
     pub collector_url: String,
     pub collector_token_env: String,
+    /// Allow plain HTTP for remote collector/WeKnora during explicit development or LAN testing.
+    /// Production keeps this false so non-loopback remote endpoints require HTTPS.
+    pub allow_insecure_http: bool,
 }
 
 impl Default for BackendConfig {
@@ -32,6 +35,7 @@ impl Default for BackendConfig {
             mode: BackendMode::Legacy,
             collector_url: String::new(),
             collector_token_env: "AIKS_COLLECTOR_TOKEN".into(),
+            allow_insecure_http: false,
         }
     }
 }
