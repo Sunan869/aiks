@@ -117,11 +117,17 @@ impl TeamClientManager {
         let expires_at = now()?
             .checked_add(tokens.expires_in)
             .ok_or(ClientError::InvalidResponse)?;
+        let desktop_bootstrap = self
+            .transport
+            .desktop_bootstrap(&endpoint, &tokens.access_token)
+            .await
+            .ok();
         let stored = StoredCredential {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,
             expires_at,
             identity: tokens.identity.clone(),
+            desktop_bootstrap,
         };
         let credentials = self.credentials.clone();
         let connection = connection_id.to_owned();
@@ -236,6 +242,7 @@ impl TeamClientManager {
             if refreshed.identity != identity {
                 return Err(ClientError::Unauthorized);
             }
+            let desktop_bootstrap = stored.desktop_bootstrap.clone();
             stored = StoredCredential {
                 access_token: refreshed.access_token,
                 refresh_token: refreshed.refresh_token,
@@ -243,6 +250,7 @@ impl TeamClientManager {
                     .checked_add(refreshed.expires_in)
                     .ok_or(ClientError::InvalidResponse)?,
                 identity: refreshed.identity,
+                desktop_bootstrap,
             };
             let credentials = self.credentials.clone();
             let connection = connection_id.to_owned();
