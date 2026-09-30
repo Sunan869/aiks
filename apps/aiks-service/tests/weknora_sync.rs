@@ -392,3 +392,29 @@ async fn delivery_summary_and_manual_retry_are_route_scoped() {
     assert_eq!(sync.retry_failed_for(&alice).await.unwrap(), 0);
     server.abort();
 }
+
+
+#[tokio::test]
+async fn newer_revision_is_pending_even_when_older_revision_was_delivered() {
+    let (origin, _state, server) = start_fake().await;
+    let root = tempfile::tempdir().unwrap();
+    let sync = build(&dynamic_settings(origin), root.path().join("service.db"));
+    let route = sync.resolve_route("synthetic-user-key", "kb-user").await.unwrap();
+
+    sync.enqueue_session_for(&route, &session("FIRST_REVISION"), 1)
+        .await
+        .unwrap();
+    assert_eq!(sync.retry_pending_now().await.unwrap(), 1);
+
+    sync.enqueue_session_for(&route, &session("SECOND_REVISION"), 2)
+        .await
+        .unwrap();
+    let status = sync.delivery_summary_for(&route).await.unwrap();
+    assert_eq!(status.delivered, 1);
+    assert_eq!(status.pending, 1);
+    assert_eq!(status.recent.len(), 1);
+    assert_eq!(status.recent[0].revision, 2);
+    assert_eq!(status.recent[0].state, "pending");
+    assert!(status.recent[0].knowledge_id.is_none());
+    server.abort();
+}
