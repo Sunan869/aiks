@@ -9,9 +9,13 @@ pub struct TeamEndpoint {
     origin: Url,
 }
 fn allow_insecure_http() -> bool {
-    std::env::var("AIKS_ALLOW_INSECURE_HTTP")
+    let env_enabled = std::env::var("AIKS_ALLOW_INSECURE_HTTP")
         .ok()
-        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+    env_enabled
+        || crate::lifecycle::selected_config()
+            .map(|config| config.backend.allow_insecure_http)
+            .unwrap_or(false)
 }
 
 impl TeamEndpoint {
@@ -146,13 +150,14 @@ pub fn service_client(
     access_token: &str,
 ) -> ClientResult<ServiceClient> {
     identity.validate()?;
-    let connection = ServiceConnection::team(
+    let connection = ServiceConnection::team_with_insecure_http(
         &record.origin,
         &identity.instance_id,
         &identity.company_id,
         &identity.user_id,
         &identity.space_id,
         access_token,
+        allow_insecure_http(),
     )?;
     ServiceClient::new(connection)
 }
