@@ -24,13 +24,16 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
   const [retrying,setRetrying]=useState(false);
   const [message,setMessage]=useState<string|null>(null);
   const remote=status?.mode==="service_remote";
+  // A connectivity probe failure does not invalidate the durable local outbox.
+  // If the current account was already paired, native code can still read it.
+  const inspectLocal=ready||(remote&&status?.phase==="unavailable");
   const delivery=status?.weknora;
   const bySession=new Map((delivery?.recent??[]).map(item=>[
     `${item.source}:\u0000${item.external_session_id}`,item
   ] as const));
 
   useEffect(()=>{
-    if(!ready){setRows(null);return;}
+    if(!inspectLocal){setRows(null);return;}
     let active=true,inflight=false;
     const refresh=async()=>{
       if(inflight)return;
@@ -44,7 +47,7 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
     void refresh();
     const timer=setInterval(refresh,5000);
     return()=>{active=false;clearInterval(timer);};
-  },[ready]);
+  },[inspectLocal]);
 
   useEffect(()=>{
     if(!job||!["RUNNING","PENDING"].includes(job.status))return;
@@ -107,8 +110,8 @@ export default function Tasks({ready,status}:{ready:boolean;status:ServiceStatus
       </>}
     </section>}
     <section className="rounded-xl border bg-white p-5"><h2 className="mb-3 font-semibold">本地 → Collector 上传记录（最近 100 条）</h2>
-      {!ready?<p>Collector 尚未连接。</p>:
-      rows===null?<p>正在读取任务…</p>:
+      {!inspectLocal?<p>请先登录当前账号；尚不能确定本地上传记录归属。</p>:
+      rows===null?<p>正在读取本地上传记录；断网时不会清空待发送队列。</p>:
       rows.length===0?<p className="text-sm text-slate-500">当前没有上传记录。可以从“采集与同步”选择来源。</p>:
       rows.map(row=>{
         const item=bySession.get(`${row.source}:\u0000${row.external_session_id}`);

@@ -208,3 +208,9 @@ The source changes and regression tests have been committed on the feature
 branch, but a successful Windows Desktop build, Rust tests and live server
 integration are **required before calling the rollout verified**. Upgrade the
 collector before Desktop; deploy no new WeKnora fork for this slice.
+
+
+When a previously paired collector becomes temporarily unreachable, native
+upload records remain readable under the last verified target identity.
+The Desktop distinguishes an unreachable remote from an account that has never
+been paired; it never presents another account's outbox as the current user's.

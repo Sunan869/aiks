@@ -109,3 +109,16 @@ describe("remote delivery UI stages", () => {
     expect(html).toContain("collector_upgrade_required");
   });
 });
+
+
+describe("offline remote delivery UI", () => {
+  it("does not hide local durable uploads just because remote health is unavailable", () => {
+    const html=renderToStaticMarkup(createElement(Tasks,{
+      ready:false,
+      status:{mode:"service_remote",phase:"unavailable",
+        weknora:{enabled:true,available:false,error_code:"status_timeout"}}
+    }));
+    expect(html).toContain("正在读取本地上传记录");
+    expect(html).toContain("暂时无法查询投递状态");
+  });
+});
