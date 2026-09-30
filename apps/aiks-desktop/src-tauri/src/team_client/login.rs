@@ -1,4 +1,7 @@
-use super::connection::{valid_token, TeamEndpoint, TeamIdentity};
+use super::{
+    connection::{valid_token, TeamEndpoint, TeamIdentity},
+    credentials::DesktopBootstrap,
+};
 use crate::service_client::{valid_id, ClientError, ClientResult};
 use reqwest::{Client, Method, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -69,6 +72,14 @@ pub trait TeamAuthTransport: Send + Sync {
         endpoint: &'a TeamEndpoint,
         access_token: &'a str,
     ) -> AuthFuture<'a, ()>;
+
+    fn desktop_bootstrap<'a>(
+        &'a self,
+        _endpoint: &'a TeamEndpoint,
+        _access_token: &'a str,
+    ) -> AuthFuture<'a, DesktopBootstrap> {
+        Box::pin(async { Err(ClientError::NotFound) })
+    }
 }
 
 pub struct ReqwestTeamAuthTransport {
@@ -224,6 +235,43 @@ impl TeamAuthTransport for ReqwestTeamAuthTransport {
             } else {
                 Err(classify(response.status()))
             }
+        })
+    }
+
+    fn desktop_bootstrap<'a>(
+        &'a self,
+        endpoint: &'a TeamEndpoint,
+        access_token: &'a str,
+    ) -> AuthFuture<'a, DesktopBootstrap> {
+        Box::pin(async move {
+            if !valid_token(access_token) {
+                return Err(ClientError::Unauthorized);
+            }
+            #[derive(Deserialize)]
+            struct BootstrapEnvelope {
+                success: bool,
+                data: DesktopBootstrap,
+            }
+            let value: BootstrapEnvelope = self
+                .json(
+                    endpoint,
+                    Method::POST,
+                    "/api/v1/aiks/desktop/bootstrap",
+                    Some(Vec::new()),
+                    Some(access_token),
+                )
+                .await?;
+            if !value.success
+                || value.data.tenant_id == 0
+                || !valid_id(&value.data.knowledge_base_id)
+                || value.data.knowledge_base.trim().is_empty()
+                || value.data.api_key.is_empty()
+                || value.data.api_key.len() > 8192
+                || !value.data.api_key.bytes().all(|b| (0x21..=0x7e).contains(&b))
+            {
+                return Err(ClientError::InvalidResponse);
+            }
+            Ok(value.data)
         })
     }
 }
