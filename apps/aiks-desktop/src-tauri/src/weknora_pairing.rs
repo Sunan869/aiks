@@ -68,11 +68,13 @@ fn valid_sha256_hex(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 fn valid_secret(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 8192 && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+    !value.is_empty()
+        && value.len() <= 8192
+        && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 async fn bounded_json<T: DeserializeOwned>(mut response: Response) -> Result<T, String> {
