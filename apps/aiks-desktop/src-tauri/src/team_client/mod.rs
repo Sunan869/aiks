@@ -263,6 +263,24 @@ impl TeamClientManager {
         service_client(&record, &identity, &stored.access_token)
     }
 
+    pub async fn desktop_bootstrap(
+        &self,
+        connection_id: &str,
+    ) -> ClientResult<Option<credentials::DesktopBootstrap>> {
+        let record = self.record(connection_id).await?;
+        let identity = record
+            .active_identity
+            .clone()
+            .ok_or(ClientError::Unauthorized)?;
+        let credentials = self.credentials.clone();
+        let connection = connection_id.to_owned();
+        let user = identity.user_id;
+        let stored = tokio::task::spawn_blocking(move || credentials.load(&connection, &user))
+            .await
+            .map_err(|_| ClientError::Storage)??;
+        Ok(stored.and_then(|value| value.desktop_bootstrap))
+    }
+
     pub async fn active_target(
         &self,
         connection_id: &str,
@@ -425,10 +443,27 @@ pub async fn team_finish_login(
     connection_id: String,
 ) -> Result<TeamConnectionStatus, String> {
     trusted(&webview)?;
-    managed(&app)?
+    let manager = managed(&app)?;
+    let status = manager
         .finish_login(&connection_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if let Some(bootstrap) = manager
+        .desktop_bootstrap(&connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        use tauri::Manager;
+        if let Some(service) = app.try_state::<Arc<crate::service_desktop::ServiceDesktop>>() {
+            service
+                .inner()
+                .clone()
+                .apply_desktop_bootstrap(bootstrap)
+                .await?;
+        }
+    }
+    Ok(status)
 }
 
 #[tauri::command]
