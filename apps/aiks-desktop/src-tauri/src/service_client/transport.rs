@@ -106,11 +106,20 @@ impl ServiceConnection {
         space: &str,
         token: &str,
     ) -> ClientResult<Self> {
+        Self::team_with_insecure_http(url, instance, company, user, space, token, false)
+    }
+
+    pub fn team_with_insecure_http(
+        url: &str,
+        instance: &str,
+        company: &str,
+        user: &str,
+        space: &str,
+        token: &str,
+        allow_insecure_http: bool,
+    ) -> ClientResult<Self> {
         let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
-        let insecure_http = std::env::var("AIKS_ALLOW_INSECURE_HTTP")
-            .ok()
-            .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            && base.scheme() == "http";
+        let insecure_http = allow_insecure_http && base.scheme() == "http";
         if !(base.scheme() == "https" || insecure_http) || !clean_origin(&base) || !valid_token(token) {
             return Err(ClientError::InvalidInput);
         }
