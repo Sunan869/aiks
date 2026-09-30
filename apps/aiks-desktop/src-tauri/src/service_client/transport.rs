@@ -57,13 +57,28 @@ impl ServiceConnection {
         weknora_api_key: &str,
         knowledge_base_id: &str,
     ) -> ClientResult<Self> {
+        Self::collector_with_insecure_http(
+            url, instance, space, token, weknora_api_key, knowledge_base_id, false,
+        )
+    }
+
+    pub fn collector_with_insecure_http(
+        url: &str,
+        instance: &str,
+        space: &str,
+        token: &str,
+        weknora_api_key: &str,
+        knowledge_base_id: &str,
+        allow_insecure_http: bool,
+    ) -> ClientResult<Self> {
         let base = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
         let loopback_http = base.scheme() == "http"
             && base
                 .host_str()
                 .and_then(|s| s.trim_matches(['[', ']']).parse::<IpAddr>().ok())
                 .is_some_and(|ip| ip.is_loopback());
-        if !(base.scheme() == "https" || loopback_http)
+        let insecure_http = allow_insecure_http && base.scheme() == "http";
+        if !(base.scheme() == "https" || loopback_http || insecure_http)
             || !clean_origin(&base)
             || !valid_token(token)
             || !valid_external_secret(weknora_api_key)
@@ -178,13 +193,26 @@ impl ServiceClient {
         weknora_api_key: &str,
         knowledge_base_id: &str,
     ) -> ClientResult<Self> {
+        Self::connect_collector_with_insecure_http(
+            url, token, weknora_api_key, knowledge_base_id, false,
+        ).await
+    }
+
+    pub async fn connect_collector_with_insecure_http(
+        url: &str,
+        token: &str,
+        weknora_api_key: &str,
+        knowledge_base_id: &str,
+        allow_insecure_http: bool,
+    ) -> ClientResult<Self> {
         let probe = Url::parse(url).map_err(|_| ClientError::InvalidInput)?;
         let loopback_http = probe.scheme() == "http"
             && probe
                 .host_str()
                 .and_then(|s| s.trim_matches(['[', ']']).parse::<IpAddr>().ok())
                 .is_some_and(|ip| ip.is_loopback());
-        if !(probe.scheme() == "https" || loopback_http)
+        let insecure_http = allow_insecure_http && probe.scheme() == "http";
+        if !(probe.scheme() == "https" || loopback_http || insecure_http)
             || !clean_origin(&probe)
             || !valid_token(token)
             || !valid_external_secret(weknora_api_key)
@@ -279,13 +307,14 @@ impl ServiceClient {
             return Err(ClientError::InvalidResponse);
         }
 
-        let connection = ServiceConnection::collector(
+        let connection = ServiceConnection::collector_with_insecure_http(
             url,
             &health.instance_id,
             &bootstrap.space_id,
             token,
             weknora_api_key,
             knowledge_base_id,
+            allow_insecure_http,
         )?;
         let service = Self::new(connection)?;
         service.capabilities().await?;
