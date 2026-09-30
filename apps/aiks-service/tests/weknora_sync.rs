@@ -19,6 +19,7 @@ struct FakeWeKnora {
     requests: Mutex<Vec<(Method, String, Value, Option<String>)>>,
     failures_remaining: Mutex<usize>,
     put_not_found_remaining: Mutex<usize>,
+    manual_failure_status: Mutex<Option<StatusCode>>,
 }
 
 async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Response {
@@ -36,12 +37,13 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
         .map(str::to_owned);
 
     if method == Method::GET && path == "/api/v1/auth/me" {
-        if api_key != "synthetic-user-key" {
+        if api_key != "synthetic-user-key" && api_key != "synthetic-user-key-2" {
             return StatusCode::UNAUTHORIZED.into_response();
         }
+        let id = if api_key == "synthetic-user-key-2" { 88 } else { 77 };
         return Json(json!({
             "success":true,
-            "data":{"tenant":{"id":77}}
+            "data":{"tenant":{"id":id}}
         }))
         .into_response();
     }
@@ -52,6 +54,16 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
         return Json(json!({
             "success":true,
             "data":{"id":"kb-user","tenant_id":77}
+        }))
+        .into_response();
+    }
+    if method == Method::GET && path == "/api/v1/knowledge-bases/kb-user-2" {
+        if api_key != "synthetic-user-key-2" {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        return Json(json!({
+            "success":true,
+            "data":{"id":"kb-user-2","tenant_id":88}
         }))
         .into_response();
     }
@@ -80,6 +92,13 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     }
+    if (method == Method::POST || method == Method::PUT)
+        && path.contains("/knowledge/manual")
+    {
+        if let Some(status) = *state.manual_failure_status.lock().unwrap() {
+            return status.into_response();
+        }
+    }
     if method == Method::PUT {
         let mut missing = state.put_not_found_remaining.lock().unwrap();
         if *missing > 0 {
@@ -94,6 +113,9 @@ async fn handler(State(state): State<Arc<FakeWeKnora>>, request: Request) -> Res
         }
         (Method::POST, "/api/v1/knowledge-bases/kb-user/knowledge/manual") => {
             Json(json!({"success":true,"data":{"id":"knowledge-user"}})).into_response()
+        }
+        (Method::POST, "/api/v1/knowledge-bases/kb-user-2/knowledge/manual") => {
+            Json(json!({"success":true,"data":{"id":"knowledge-user-2"}})).into_response()
         }
         (Method::PUT, "/api/v1/knowledge/manual/knowledge-1") => {
             Json(json!({"success":true,"data":{"id":"knowledge-1"}})).into_response()
@@ -325,5 +347,40 @@ async fn dynamic_route_verifies_workspace_and_retries_with_server_platform_key()
         .contains("PRIVATE_NEEDLE"));
     drop(requests);
 
+    server.abort();
+}
+
+
+// Collector-to-WeKnora status must be scoped to the authenticated route.
+// These counts never claim that WeKnora has finished parsing a document.
+#[tokio::test]
+async fn delivery_summary_and_manual_retry_are_route_scoped() {
+    let (origin, state, server) = start_fake().await;
+    let root = tempfile::tempdir().unwrap();
+    let sync = build(&dynamic_settings(origin), root.path().join("service.db"));
+    let alice = sync.resolve_route("synthetic-user-key", "kb-user").await.unwrap();
+    let bob = sync.resolve_route("synthetic-user-key-2", "kb-user-2").await.unwrap();
+
+    *state.manual_failure_status.lock().unwrap() = Some(StatusCode::BAD_REQUEST);
+    sync.enqueue_session_for(&alice, &session("ALICE"), 1).await.unwrap();
+    assert_eq!(sync.retry_pending_now().await.unwrap(), 0);
+    let alice_status = sync.delivery_summary_for(&alice).await.unwrap();
+    assert_eq!((alice_status.delivered, alice_status.pending, alice_status.terminal), (0, 0, 1));
+    assert_eq!(alice_status.failures.len(), 1);
+    assert_eq!(alice_status.failures[0].source, "codex");
+    assert_eq!(alice_status.failures[0].error_code, "upstream_400");
+
+    *state.manual_failure_status.lock().unwrap() = None;
+    sync.enqueue_session_for(&bob, &session("BOB"), 1).await.unwrap();
+    assert_eq!(sync.delivery_summary_for(&bob).await.unwrap().pending, 1);
+    assert_eq!(sync.retry_failed_for(&alice).await.unwrap(), 1);
+    assert_eq!(sync.delivery_summary_for(&alice).await.unwrap().terminal, 0);
+    assert_eq!(sync.delivery_summary_for(&bob).await.unwrap().pending, 1);
+    assert_eq!(sync.retry_pending_now().await.unwrap(), 2);
+    let alice_status = sync.delivery_summary_for(&alice).await.unwrap();
+    let bob_status = sync.delivery_summary_for(&bob).await.unwrap();
+    assert_eq!((alice_status.delivered, alice_status.pending, alice_status.terminal), (1, 0, 0));
+    assert_eq!((bob_status.delivered, bob_status.pending, bob_status.terminal), (1, 0, 0));
+    assert_eq!(sync.retry_failed_for(&alice).await.unwrap(), 0);
     server.abort();
 }

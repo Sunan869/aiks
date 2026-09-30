@@ -87,6 +87,25 @@ impl WeKnoraRoute {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct WeKnoraDeliveryFailure {
+    pub source: String,
+    pub external_session_id: String,
+    pub title: String,
+    pub revision: u32,
+    pub attempts: u32,
+    pub error_code: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WeKnoraDeliverySummary {
+    /// WeKnora has returned a knowledge ID. Parsing/indexing is managed by WeKnora.
+    pub delivered: u64,
+    pub pending: u64,
+    pub terminal: u64,
+    pub failures: Vec<WeKnoraDeliveryFailure>,
+}
+
 #[derive(Clone)]
 struct SyncIntent {
     source: String,
@@ -476,6 +495,45 @@ impl WeKnoraSync {
         .await
     }
 
+    /// Route-scoped dashboard. No raw Markdown or credentials leave the collector.
+    /// A delivered mapping only proves that WeKnora returned a knowledge ID;
+    /// it does not imply WeKnora finished parsing or embedding that document.
+    pub async fn delivery_summary_for(
+        &self,
+        route: &WeKnoraRoute,
+    ) -> anyhow::Result<WeKnoraDeliverySummary> {
+        delivery_summary(self.inner.database.clone(), route.clone()).await
+    }
+
+    /// Explicitly retry up to ten terminal collector-to-WeKnora failures for
+    /// this verified tenant and KB only. WeKnora's own parse failures are separate.
+    pub async fn retry_failed_for(&self, route: &WeKnoraRoute) -> anyhow::Result<usize> {
+        let database = self.inner.database.clone();
+        let tenant_id = route.tenant_id;
+        let knowledge_base_id = route.knowledge_base_id.clone();
+        let count = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+            let conn = Connection::open(database)?;
+            conn.busy_timeout(Duration::from_secs(5))?;
+            let changed = conn.execute(
+                "UPDATE aiks_weknora_outbox
+                 SET terminal=0, attempts=0, next_attempt_at=0, last_error_code=NULL,
+                     updated_at=?3
+                 WHERE rowid IN (
+                     SELECT rowid FROM aiks_weknora_outbox
+                     WHERE target_tenant_id=?1 AND target_knowledge_base_id=?2 AND terminal=1
+                     ORDER BY updated_at ASC LIMIT 10
+                 )",
+                params![tenant_id, knowledge_base_id, unix_now()?],
+            )?;
+            Ok(changed)
+        })
+        .await??;
+        if count > 0 {
+            self.inner.notify.notify_one();
+        }
+        Ok(count)
+    }
+
     async fn process_due(&self, limit: usize) -> anyhow::Result<usize> {
         let _serial = self.inner.serial.lock().await;
         let mut processed = 0;
@@ -707,16 +765,16 @@ fn intent_from_session(
     }
 }
 
+fn route_source_prefix(route: &WeKnoraRoute) -> String {
+    let hash = Sha256::digest(route.knowledge_base_id.as_bytes());
+    format!("wk{}-{}-", route.tenant_id, &hex::encode(hash)[..12])
+}
+
 fn storage_source(route: &WeKnoraRoute, source: &str) -> String {
     if route.tenant_id == 0 {
         return source.to_owned();
     }
-    let hash = Sha256::digest(route.knowledge_base_id.as_bytes());
-    format!(
-        "wk{}-{}-{source}",
-        route.tenant_id,
-        &hex::encode(hash)[..12]
-    )
+    format!("{}{}", route_source_prefix(route), source)
 }
 
 fn stable_external_id(source: &str, external_session_id: &str) -> String {
@@ -737,6 +795,8 @@ fn status_error(status: StatusCode) -> RemoteError {
         status if status.is_server_error() => RemoteError::retry("upstream_5xx"),
         StatusCode::PAYLOAD_TOO_LARGE => RemoteError::permanent("payload_too_large"),
         StatusCode::UNPROCESSABLE_ENTITY => RemoteError::permanent("unprocessable"),
+        StatusCode::BAD_REQUEST => RemoteError::permanent("upstream_400"),
+        StatusCode::NOT_FOUND => RemoteError::permanent("upstream_404"),
         _ => RemoteError::permanent("upstream_4xx"),
     }
 }
@@ -1046,6 +1106,60 @@ async fn outbox_counts(
             )?
         };
         Ok((pending.max(0) as u64, terminal.max(0) as u64))
+    })
+    .await?
+}
+
+async fn delivery_summary(
+    database: PathBuf,
+    route: WeKnoraRoute,
+) -> anyhow::Result<WeKnoraDeliverySummary> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<WeKnoraDeliverySummary> {
+        let conn = Connection::open(database)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        let (pending, terminal): (i64, i64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN terminal=0 THEN 1 ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN terminal=1 THEN 1 ELSE 0 END),0)
+             FROM aiks_weknora_outbox
+             WHERE target_tenant_id=?1 AND target_knowledge_base_id=?2",
+            params![route.tenant_id, &route.knowledge_base_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let prefix = route_source_prefix(&route);
+        let delivered: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM aiks_weknora_session_sync WHERE source LIKE ?1",
+            [format!("{prefix}%")],
+            |row| row.get(0),
+        )?;
+        let mut statement = conn.prepare(
+            "SELECT source, external_session_id, title, revision, attempts, last_error_code
+             FROM aiks_weknora_outbox
+             WHERE target_tenant_id=?1 AND target_knowledge_base_id=?2 AND terminal=1
+             ORDER BY updated_at DESC LIMIT 20",
+        )?;
+        let failures = statement
+            .query_map(params![route.tenant_id, &route.knowledge_base_id], |row| {
+                let stored_source: String = row.get(0)?;
+                Ok(WeKnoraDeliveryFailure {
+                    source: stored_source
+                        .strip_prefix(&prefix)
+                        .unwrap_or(&stored_source)
+                        .to_owned(),
+                    external_session_id: row.get(1)?,
+                    title: row.get(2)?,
+                    revision: row.get(3)?,
+                    attempts: row.get(4)?,
+                    error_code: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "unknown".into()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(WeKnoraDeliverySummary {
+            delivered: delivered.max(0) as u64,
+            pending: pending.max(0) as u64,
+            terminal: terminal.max(0) as u64,
+            failures,
+        })
     })
     .await?
 }

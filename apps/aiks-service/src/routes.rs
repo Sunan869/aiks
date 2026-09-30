@@ -75,6 +75,7 @@ fn build_router_inner(
         .route("/api/v1/source-registrations", post(register))
         .route("/api/v1/session-snapshots", post(ingest))
         .route("/api/v1/integrations/weknora/status", get(weknora_status))
+        .route("/api/v1/integrations/weknora/retry", post(weknora_retry))
         .route("/api/v1/sessions", get(sessions))
         .route("/api/v1/sessions/{id}", get(session))
         .route("/api/v1/receipts/{id}", get(receipt))
@@ -339,12 +340,15 @@ async fn ingest(
             sync.enqueue_session(&session, receipt.revision).await
         };
         if let Err(error) = queued {
-            tracing::warn!(
+            tracing::error!(
                 source = session.source.as_str(),
                 external_session_id = %session.external_session_id,
                 error = %error,
-                "Failed to persist WeKnora sync intent"
+                "Collector saved snapshot but failed to persist WeKnora sync intent; client must retry"
             );
+            // The snapshot is idempotent for the same submission ID. Never
+            // acknowledge it until its WeKnora delivery intent is durable.
+            return Err(ApiError(ServiceError::Unavailable));
         }
     }
     Ok((
@@ -364,17 +368,39 @@ async fn weknora_status(
     let Some(sync) = weknora.0.as_ref() else {
         return Ok(Json(json!({"enabled":false,"pending":0,"terminal":0})));
     };
-    let (pending, terminal) = if let Some(Extension(route)) = route.as_ref() {
-        sync.outbox_counts_for(route).await
-    } else {
-        sync.outbox_counts().await
+    if let Some(Extension(route)) = route.as_ref() {
+        let summary = sync
+            .delivery_summary_for(route)
+            .await
+            .map_err(|_| ApiError(ServiceError::Internal))?;
+        return Ok(Json(json!({
+            "enabled":true,
+            "delivered":summary.delivered,
+            "pending":summary.pending,
+            "terminal":summary.terminal,
+            "failures":summary.failures
+        })));
     }
-    .map_err(|_| ApiError(ServiceError::Internal))?;
-    Ok(Json(json!({
-        "enabled":true,
-        "pending":pending,
-        "terminal":terminal
-    })))
+    let (pending, terminal) = sync
+        .outbox_counts()
+        .await
+        .map_err(|_| ApiError(ServiceError::Internal))?;
+    Ok(Json(json!({"enabled":true,"pending":pending,"terminal":terminal})))
+}
+
+async fn weknora_retry(
+    Extension(weknora): Extension<WeKnoraExtension>,
+    route: Option<Extension<WeKnoraRoute>>,
+) -> Result<Json<Value>, ApiError> {
+    let Some(Extension(route)) = route else {
+        return Err(ApiError(ServiceError::NotFound));
+    };
+    let sync = weknora.0.as_ref().ok_or(ApiError(ServiceError::Unavailable))?;
+    let queued = sync
+        .retry_failed_for(&route)
+        .await
+        .map_err(|_| ApiError(ServiceError::Internal))?;
+    Ok(Json(json!({"queued":queued})))
 }
 
 async fn sessions(
