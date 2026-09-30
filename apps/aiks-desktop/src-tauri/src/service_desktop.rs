@@ -1,5 +1,6 @@
 //! The service-mode desktop owns collection and child lifetimes, not business DBs.
 mod ui;
+use crate::team_client::credentials::DesktopBootstrap;
 use crate::service_client::{
     collector::{collect_provider, deliver_one, CollectionPolicy},
     supervisor::{binary_path, OwnedService},
@@ -26,11 +27,18 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::sync::{watch, Mutex, RwLock, Semaphore};
 
+#[derive(Clone)]
+struct RemoteDesktopIdentity {
+    api_key: String,
+    knowledge_base_id: String,
+}
+
 pub struct ServiceDesktop {
     phase: RwLock<&'static str>,
     error: RwLock<Option<&'static str>>,
     client: RwLock<Option<ServiceClient>>,
     outbox: RwLock<Option<Arc<CollectorOutbox>>>,
+    remote_identity: RwLock<Option<RemoteDesktopIdentity>>,
     owner: Mutex<Option<OwnedService>>,
     content: Mutex<Option<Arc<SiyuanRuntime>>>,
     profile_lease: std::sync::Mutex<Option<BusinessDbLease>>,
@@ -59,6 +67,7 @@ impl ServiceDesktop {
             error: RwLock::new(None),
             client: RwLock::new(None),
             outbox: RwLock::new(None),
+            remote_identity: RwLock::new(None),
             owner: Mutex::new(None),
             content: Mutex::new(None),
             profile_lease: std::sync::Mutex::new(None),
@@ -190,9 +199,37 @@ impl ServiceDesktop {
         validate_private_path(&root, false)?;
         std::fs::create_dir_all(&root)?;
         let outbox = self.local_store().await.map_err(anyhow::Error::msg)?;
+        *self.outbox.write().await = Some(outbox);
 
+        // Backward compatibility: an explicitly configured KB + user key may
+        // still start remote mode without an interactive DingTalk login.
+        let weknora = &self.provider_config.weknora;
+        if weknora.enabled && !weknora.knowledge_base_id.trim().is_empty() {
+            let env_name = weknora.api_key_env.trim();
+            if !env_name.is_empty() {
+                if let Ok(api_key) = std::env::var(env_name) {
+                    *self.remote_identity.write().await = Some(RemoteDesktopIdentity {
+                        api_key,
+                        knowledge_base_id: weknora.knowledge_base_id.trim().to_owned(),
+                    });
+                }
+            }
+        }
+
+        if self.remote_identity.read().await.is_none() {
+            *self.phase.write().await = "waiting_for_login";
+            *self.error.write().await = None;
+            return Ok(());
+        }
+
+        self.connect_remote_identity().await
+    }
+
+    async fn connect_remote_identity(self: &Arc<Self>) -> anyhow::Result<()> {
+        self.ensure_running()?;
         let url = self.provider_config.backend.collector_url.trim();
         anyhow::ensure!(!url.is_empty(), "Remote collector URL is required");
+
         let env_name = self.provider_config.backend.collector_token_env.trim();
         anyhow::ensure!(
             !env_name.is_empty()
@@ -209,11 +246,14 @@ impl ServiceDesktop {
         let token = std::env::var(env_name)
             .map_err(|_| anyhow::anyhow!("Collector token is unavailable"))?;
 
+        let identity = self
+            .remote_identity
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("DingTalk login is required"))?;
+
         let weknora = &self.provider_config.weknora;
-        anyhow::ensure!(
-            weknora.enabled,
-            "Remote collector requires a per-workspace WeKnora identity"
-        );
         let weknora_origin = reqwest::Url::parse(weknora.base_url.trim())?;
         let loopback_http = weknora_origin.scheme() == "http"
             && weknora_origin
@@ -232,40 +272,55 @@ impl ServiceDesktop {
                 && matches!(weknora_origin.path(), "" | "/"),
             "Remote collector requires HTTPS unless backend.allow_insecure_http=true"
         );
-        anyhow::ensure!(
-            !weknora.knowledge_base_id.trim().is_empty(),
-            "Remote collector requires a private WeKnora knowledge base"
-        );
-        let weknora_env = weknora.api_key_env.trim();
-        anyhow::ensure!(
-            !weknora_env.is_empty()
-                && weknora_env.len() <= 128
-                && weknora_env
-                    .bytes()
-                    .next()
-                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-                && weknora_env
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_'),
-            "Invalid WeKnora user API key environment reference"
-        );
-        let weknora_api_key = std::env::var(weknora_env)
-            .map_err(|_| anyhow::anyhow!("WeKnora user API key is unavailable"))?;
+
         let client = ServiceClient::connect_collector_with_insecure_http(
             url,
             &token,
-            &weknora_api_key,
-            weknora.knowledge_base_id.trim(),
+            &identity.api_key,
+            &identity.knowledge_base_id,
             self.provider_config.backend.allow_insecure_http,
         )
         .await
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
 
         *self.client.write().await = Some(client);
-        *self.outbox.write().await = Some(outbox);
         *self.phase.write().await = "ready";
+        *self.error.write().await = None;
         self.start_delivery().await;
         Ok(())
+    }
+
+    pub async fn apply_desktop_bootstrap(
+        self: &Arc<Self>,
+        bootstrap: DesktopBootstrap,
+    ) -> Result<(), String> {
+        if self.provider_config.backend.mode != BackendMode::ServiceRemote {
+            return Ok(());
+        }
+        if bootstrap.tenant_id == 0
+            || bootstrap.knowledge_base_id.trim().is_empty()
+            || bootstrap.api_key.trim().is_empty()
+        {
+            return Err("invalid_desktop_bootstrap".into());
+        }
+
+        *self.remote_identity.write().await = Some(RemoteDesktopIdentity {
+            api_key: bootstrap.api_key,
+            knowledge_base_id: bootstrap.knowledge_base_id,
+        });
+
+        // A previous connection may exist after account switching. Stop only
+        // the delivery task and replace the client; the local outbox remains
+        // target-scoped and cannot retarget queued records to the new user.
+        if let Some(task) = self.delivery.lock().await.take() {
+            task.abort();
+            let _ = task.await;
+        }
+        *self.client.write().await = None;
+
+        self.connect_remote_identity()
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn start_delivery(self: &Arc<Self>) {
@@ -349,13 +404,31 @@ impl ServiceDesktop {
         Ok(url.to_string())
     }
 
-    pub fn team_workspace_config(&self) -> Value {
-        let web_url = self.team_workspace_url().ok();
+    pub async fn team_workspace_config(&self) -> Value {
+        let runtime_kb = self
+            .remote_identity
+            .read()
+            .await
+            .as_ref()
+            .map(|identity| identity.knowledge_base_id.clone())
+            .unwrap_or_else(|| self.provider_config.weknora.knowledge_base_id.trim().to_owned());
+
+        let mut web_url = self.team_workspace_url().ok();
+        if let Some(url) = web_url.as_mut() {
+            if !runtime_kb.is_empty() {
+                if let Ok(mut parsed) = reqwest::Url::parse(url) {
+                    if let Ok(mut segments) = parsed.path_segments_mut() {
+                        segments.clear().push("platform").push("knowledge-bases").push(&runtime_kb);
+                    }
+                    *url = parsed.to_string();
+                }
+            }
+        }
         json!({
-            "configured": web_url.is_some(),
+            "configured": web_url.is_some() && !runtime_kb.is_empty(),
             "web_url": web_url,
             "base_url": self.provider_config.weknora.base_url.trim(),
-            "knowledge_base_id": self.provider_config.weknora.knowledge_base_id.trim(),
+            "knowledge_base_id": runtime_kb,
             "collector_url": self.provider_config.backend.collector_url.trim(),
             "remote_mode": self.provider_config.backend.mode == BackendMode::ServiceRemote,
             "allow_insecure_http": self.provider_config.backend.allow_insecure_http
