@@ -3,6 +3,7 @@ import { ServiceApi, isServiceWorkspaceMode, statusText } from "./service";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ServiceStatusPage from "../pages/ServiceStatusPage";
+import Tasks from "../pages/service/Tasks";
 import lifecycle from "../../src-tauri/src/lifecycle.rs?raw";
 import controller from "../../src-tauri/src/service_desktop.rs?raw";
 import dev from "../../../../scripts/dev.ps1?raw";
@@ -78,5 +79,33 @@ describe("collector delivery reconciliation", () => {
     expect(invoke.mock.calls.map(call=>call[0])).toEqual([
       "service_retry_weknora_failed","service_retry_weknora_failed"
     ]);
+  });
+});
+
+
+describe("remote delivery UI stages", () => {
+  it("shows WeKnora creation counts without claiming parsing is complete", () => {
+    const html=renderToStaticMarkup(createElement(Tasks,{
+      ready:true,
+      status:{
+        mode:"service_remote",phase:"ready",
+        weknora:{enabled:true,available:true,delivered:99,pending:0,terminal:1,failures:[],recent:[]}
+      }
+    }));
+    expect(html).toContain("WeKnora 已返回知识 ID");
+    expect(html).toContain("99");
+    expect(html).toContain("不代表知识解析");
+    expect(html).toContain("重试前 10 条");
+  });
+  it("never turns unavailable remote status into a false zero", () => {
+    const html=renderToStaticMarkup(createElement(Tasks,{
+      ready:true,
+      status:{
+        mode:"service_remote",phase:"ready",
+        weknora:{enabled:true,available:false,error_code:"collector_upgrade_required"}
+      }
+    }));
+    expect(html).toContain("暂时无法查询投递状态");
+    expect(html).toContain("collector_upgrade_required");
   });
 });

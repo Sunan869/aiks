@@ -105,6 +105,28 @@ async fn collector_exposes_transport_not_knowledge_product_surface() {
     assert_eq!(caps["content_write"], false);
     assert_eq!(caps["rag"], false);
 
+    let dashboard: Value = request(Method::GET, "/api/v1/integrations/weknora/status")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(dashboard["enabled"], true);
+    assert_eq!(dashboard["delivered"], 0);
+    assert_eq!(dashboard["pending"], 0);
+    assert_eq!(dashboard["terminal"], 0);
+    assert_eq!(dashboard["recent"].as_array().unwrap().len(), 0);
+
+    let retry: Value = request(Method::POST, "/api/v1/integrations/weknora/retry")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(retry["queued"], 0);
+
     for (method, path) in [
         (Method::POST, "/api/v1/search"),
         (Method::GET, "/api/v1/knowledge"),

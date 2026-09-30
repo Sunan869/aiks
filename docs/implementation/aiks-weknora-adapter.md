@@ -181,3 +181,30 @@ parsing/Embedding failures; use WeKnora's knowledge UI for those.
 
 Deploy the new collector before updating Desktop. No WeKnora fork change is
 required for these delivery-status improvements.
+
+
+### Per-Session reconciliation and observability
+
+The collector status response includes up to 100 recently changed Session
+deliveries (source + original external Session ID, latest revision,
+`delivered`/`pending`/`failed`, optional knowledge ID and error code).
+The Desktop matches those against its local upload records and labels each
+stage separately. A missing or outdated collector response is **unknown**,
+not zero; records outside the latest-100 window do not claim delivery.
+
+The standalone collector now installs a tracing subscriber and emits sanitized
+accept/intent and delivery lifecycle logs to container stderr. Use:
+
+```sh
+docker logs --tail 100 aiks-collector
+```
+
+`AIKS_LOG` optionally overrides the default `warn,aiks_service=info` filter.
+Do not set a verbose HTTP body logger on the collector or log Desktop user keys.
+
+### Integration gate
+
+The source changes and regression tests have been committed on the feature
+branch, but a successful Windows Desktop build, Rust tests and live server
+integration are **required before calling the rollout verified**. Upgrade the
+collector before Desktop; deploy no new WeKnora fork for this slice.
