@@ -31,8 +31,8 @@ export default function TeamConnection(){
   const [opening,setOpening]=useState(false);
   const [loginPending,setLoginPending]=useState(false);
 
-  async function refresh(){
-    setError(null);
+  async function refresh(passive=false){
+    if(!passive)setError(null);
     try{
       const [workspace,current]=await Promise.all([
         invokeNative<TeamWorkspaceConfig>("service_team_workspace"),
@@ -41,7 +41,11 @@ export default function TeamConnection(){
       setConfig(workspace);setStatus(current);
     }catch(e){setError(errorText(e));}
   }
-  useEffect(()=>{void refresh();},[]);
+  useEffect(()=>{
+    void refresh();
+    const timer=window.setInterval(()=>void refresh(true),10000);
+    return()=>window.clearInterval(timer);
+  },[]);
 
   useEffect(()=>{
     if(!loginPending)return;
@@ -85,8 +89,14 @@ export default function TeamConnection(){
     finally{setOpening(false);}
   }
 
-  const pending=Number((status as any)?.weknora?.pending??0);
-  const terminal=Number((status as any)?.weknora?.terminal??0);
+  const delivery=status?.weknora;
+  const showDelivery=delivery?.available===true
+    && typeof delivery.delivered==="number"
+    && typeof delivery.pending==="number"
+    && typeof delivery.terminal==="number";
+  const pending=showDelivery?String(delivery?.pending):"—";
+  const terminal=showDelivery?String(delivery?.terminal):"—";
+  const delivered=showDelivery?String(delivery?.delivered):"—";
   return <div className="h-full overflow-auto bg-slate-50 p-6">
     <div className="mx-auto max-w-5xl space-y-5">
       <section className="rounded-2xl border bg-white p-6">
@@ -111,7 +121,7 @@ export default function TeamConnection(){
       <div className="grid gap-4 md:grid-cols-3">
         <section className="rounded-xl border bg-white p-5"><UploadCloud size={20} className="text-blue-600"/><h2 className="mt-3 font-semibold">采集链路</h2><p className="mt-2 text-sm text-slate-600">{status?.phase==="ready"?"Collector 已连接":status?.phase==="waiting_for_login"?"等待团队登录":"Collector 尚未就绪"}</p><p className="mt-2 break-all text-xs text-slate-400">{config?.collector_url||"未配置 collector_url"}</p></section>
         <section className="rounded-xl border bg-white p-5"><ShieldCheck size={20} className="text-emerald-600"/><h2 className="mt-3 font-semibold">团队权限</h2><p className="mt-2 text-sm leading-6 text-slate-600">登录、用户直分享、组织分享和钉钉部门映射全部在 WeKnora 管理。</p></section>
-        <section className="rounded-xl border bg-white p-5"><Cloud size={20} className="text-violet-600"/><h2 className="mt-3 font-semibold">同步队列</h2><p className="mt-2 text-sm text-slate-600">待同步 {pending} · 终止失败 {terminal}</p><p className="mt-2 text-xs text-slate-400">网络恢复后由 collector durable outbox 自动重试。</p></section>
+        <section className="rounded-xl border bg-white p-5"><Cloud size={20} className="text-violet-600"/><h2 className="mt-3 font-semibold">同步队列</h2><p className="mt-2 text-sm text-slate-600">WeKnora 已返回知识 ID {delivered} · 待投递 {pending} · 投递失败 {terminal}</p><p className="mt-2 text-xs text-slate-400">WeKnora 创建知识与后续解析是两回事；解析状态请在知识库查看。</p></section>
       </div>
 
       <section className="rounded-xl border bg-white p-5">

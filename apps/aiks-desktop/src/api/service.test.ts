@@ -58,3 +58,25 @@ describe("remote desktop startup mode", () => {
     await expect(api.status()).rejects.toThrow("invalid_service_response");
   });
 });
+
+
+describe("collector delivery reconciliation", () => {
+  it("keeps upstream Session identity with the acknowledged upload row", async () => {
+    const api = new ServiceApi(vi.fn().mockResolvedValue([{
+      id:"upload-1",state:"acknowledged",source:"opencode",
+      external_session_id:"opencode-session-1",attempt:1,error_code:null,receipt:null
+    }]));
+    const uploads=await api.uploads();
+    expect(uploads[0].external_session_id).toBe("opencode-session-1");
+    expect(uploads[0].state).toBe("acknowledged");
+  });
+  it("validates explicit retry counts", async () => {
+    const invoke=vi.fn().mockResolvedValueOnce({queued:1}).mockResolvedValueOnce({queued:-1});
+    const api=new ServiceApi(invoke);
+    expect(await api.retryWeKnoraFailed()).toBe(1);
+    await expect(api.retryWeKnoraFailed()).rejects.toThrow("invalid_service_response");
+    expect(invoke.mock.calls.map(call=>call[0])).toEqual([
+      "service_retry_weknora_failed","service_retry_weknora_failed"
+    ]);
+  });
+});

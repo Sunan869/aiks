@@ -94,6 +94,7 @@ async fn real_provider_is_sanitized_before_queueing_and_survives_source_removal(
     );
     let status = o.statuses(&s.instance_id, &s.space_id).unwrap();
     assert_eq!(status[0].state, "acknowledged");
+    assert_eq!(status[0].external_session_id, "one");
     assert_eq!(status[0].receipt.as_ref().unwrap(), &receipt);
     s.stop().await;
 }

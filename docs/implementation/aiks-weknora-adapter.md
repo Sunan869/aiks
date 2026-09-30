@@ -153,3 +153,31 @@ sharing and department access are opened in WeKnora.
 
 The obsolete native team-client source remains temporarily in-tree but is not
 registered with Tauri and is not part of the supported runtime.
+
+
+## S3: delivery reconciliation and failure visibility
+
+Collector acceptance, WeKnora delivery, and WeKnora parsing/indexing are
+separate stages. The Desktop local upload record says **Collector accepted**
+only after the delivery intent was durably enqueued; if enqueue fails after the
+idempotent snapshot commit, Collector returns a retryable error, keeping the
+Desktop outbox pending until the same submission can repair the intent.
+
+In `service_remote` mode, the Desktop task page displays the latest 100 local
+upload records with upstream Session IDs, plus the current authenticated KB's
+Collector-to-WeKnora summary:
+
+- `delivered`: knowledge mappings for which WeKnora returned a knowledge ID
+  (does not prove the knowledge has finished parsing or embedding).
+- `pending`: queued delivery or automatic retry after a transient error.
+- `terminal`: Collector-to-WeKnora failures requiring intervention, with
+  up to 20 recent sanitized error codes and Session IDs.
+- Unavailable or old-version status displays **unknown**, not fabricated zeros.
+
+The user can explicitly requeue up to ten terminal delivery failures at once;
+the endpoint verifies the employee's WeKnora identity and affects only their
+target tenant and knowledge base. It does **not** retry WeKnora's internal
+parsing/Embedding failures; use WeKnora's knowledge UI for those.
+
+Deploy the new collector before updating Desktop. No WeKnora fork change is
+required for these delivery-status improvements.
