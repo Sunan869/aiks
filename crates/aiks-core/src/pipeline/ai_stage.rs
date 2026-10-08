@@ -23,6 +23,8 @@ use crate::ai::{
     AiClient,
 };
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
+use crate::pipeline::embedding_client::EmbeddingConfig;
+use crate::pipeline::semantic_dedup::SemanticDedup;
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::load_chunks;
 use crate::storage::StateDb;
@@ -32,6 +34,7 @@ pub struct AiStage {
     client: AiClient,
     sanitizer: SecretSanitizer,
     config: AiModelConfig,
+    embedding_config: Option<EmbeddingConfig>,
 }
 
 /// Conservative chars-per-token used ONLY for prompt budgeting. The chunker
@@ -51,7 +54,14 @@ impl AiStage {
             client,
             sanitizer: SecretSanitizer::new(),
             config,
+            embedding_config: None,
         })
+    }
+
+    pub fn new_with_embedding(config: AiModelConfig, embedding: EmbeddingConfig) -> anyhow::Result<Self> {
+        let mut stage = Self::new(config)?;
+        stage.embedding_config = Some(embedding);
+        Ok(stage)
     }
 
     /// Max characters the variable part of a prompt may occupy so that
@@ -119,7 +129,7 @@ impl AiStage {
             "[AI] Starting extraction"
         );
 
-        let result = if chunks.len() == 1 {
+        let mut result = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
@@ -165,6 +175,17 @@ impl AiStage {
                 None,
             )?;
             return Ok(0);
+        }
+
+        // Optional semantic reconciliation: vector candidates then LLM decision.
+        // If either model is disabled or unavailable, retain deterministic
+        // same-session matching without ever deleting user-managed knowledge.
+        if let Some(embedding) = self.embedding_config.clone() {
+            match SemanticDedup::new(embedding, self.config.clone()) {
+                Ok(Some(service)) => service.reconcile(db, session_id, &mut result).await,
+                Ok(None) => {},
+                Err(error) => tracing::warn!(error = %error, "[DEDUP] falling back to deterministic dedup"),
+            }
         }
 
         let item_count = result.items.len();
