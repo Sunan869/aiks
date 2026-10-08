@@ -16,6 +16,8 @@ const MAX_SAFE_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
 enum SiYuanSafetyError {
     #[error("SiYuan document too large: {bytes} bytes exceeds the {limit} byte safety limit")]
     DocumentTooLarge { bytes: usize, limit: usize },
+    #[error("SiYuan volume {volume_no} ({doc_id}) was edited; refusing to overwrite")]
+    VolumeConflict { volume_no: usize, doc_id: String },
 }
 
 /// Safety wrapper around the raw SiYuan HTTP sink.
@@ -56,7 +58,7 @@ impl SiYuanSink {
     pub fn is_retryable_write_error(error: &anyhow::Error) -> bool {
         !matches!(
             error.downcast_ref::<SiYuanSafetyError>(),
-            Some(SiYuanSafetyError::DocumentTooLarge { .. })
+            Some(SiYuanSafetyError::DocumentTooLarge { .. } | SiYuanSafetyError::VolumeConflict { .. })
         )
     }
 
@@ -229,10 +231,12 @@ impl SiYuanSink {
                 let remote = self.inner.get_document_markdown(&id).await
                     .with_context(|| format!("read volume {volume_no} ({id}) before update"))?;
                 let actual = volume_baseline(&remote);
-                anyhow::ensure!(
-                    actual == baseline,
-                    "SiYuan volume {volume_no} ({id}) was edited; refusing to overwrite"
-                );
+                if actual != baseline {
+                    return Err(SiYuanSafetyError::VolumeConflict {
+                        volume_no,
+                        doc_id: id,
+                    }.into());
+                }
                 if !Self::markdown_matches(&remote, &volume_markdown) {
                     self.update_document(&id, &volume_markdown).await
                         .with_context(|| format!("update volume {volume_no}"))?;
