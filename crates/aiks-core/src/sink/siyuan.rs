@@ -593,16 +593,25 @@ mod tests {
     fn codex_sessions_with_shared_rollout_prefix_have_distinct_paths() {
         let sink = SiYuanSink::embedded("http://127.0.0.1:6806", "AIKS").unwrap();
         let a = sink.build_document_path(
-            "codex", "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1", Some("Untitled"), None,
+            "codex",
+            "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1",
+            Some("Untitled"),
+            None,
         );
         let b = sink.build_document_path(
-            "codex", "rollout-2026-09-29T10-34-36-01a0eb03-99b0", Some("Untitled"), None,
+            "codex",
+            "rollout-2026-09-29T10-34-36-01a0eb03-99b0",
+            Some("Untitled"),
+            None,
         );
         assert_ne!(a, b);
         assert_eq!(
             a,
             sink.build_document_path(
-                "codex", "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1", Some("Untitled"), None,
+                "codex",
+                "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1",
+                Some("Untitled"),
+                None,
             )
         );
     }

@@ -58,7 +58,10 @@ impl SiYuanSink {
     pub fn is_retryable_write_error(error: &anyhow::Error) -> bool {
         !matches!(
             error.downcast_ref::<SiYuanSafetyError>(),
-            Some(SiYuanSafetyError::DocumentTooLarge { .. } | SiYuanSafetyError::VolumeConflict { .. })
+            Some(
+                SiYuanSafetyError::DocumentTooLarge { .. }
+                    | SiYuanSafetyError::VolumeConflict { .. }
+            )
         )
     }
 
@@ -168,16 +171,22 @@ impl SiYuanSink {
 
     /// True when a previous sync already used multi-document volumes. Keep
     /// using the index even if the session later shrinks below the threshold.
-    pub fn has_session_volumes(db: &crate::storage::StateDb, session_id: i64) -> anyhow::Result<bool> {
+    pub fn has_session_volumes(
+        db: &crate::storage::StateDb,
+        session_id: i64,
+    ) -> anyhow::Result<bool> {
         let conn = db.conn();
         let exists: i64 = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_volume')",
             [], |row| row.get(0),
         )?;
-        if exists == 0 { return Ok(false); }
+        if exists == 0 {
+            return Ok(false);
+        }
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM session_volume WHERE session_id = ?1)",
-            [session_id], |row| row.get::<_, i64>(0),
+            [session_id],
+            |row| row.get::<_, i64>(0),
         )? != 0)
     }
 
@@ -225,30 +234,40 @@ impl SiYuanSink {
                      WHERE session_id = ?1 AND volume_index = ?2",
                     params![session_db_id, volume_no as i64],
                     |row| Ok((row.get(0)?, row.get(1)?)),
-                ).optional()?
+                )
+                .optional()?
             };
             let doc_id = if let Some((id, baseline)) = existing {
-                let remote = self.inner.get_document_markdown(&id).await
+                let remote = self
+                    .inner
+                    .get_document_markdown(&id)
+                    .await
                     .with_context(|| format!("read volume {volume_no} ({id}) before update"))?;
                 let actual = volume_baseline(&remote);
                 if actual != baseline {
                     return Err(SiYuanSafetyError::VolumeConflict {
                         volume_no,
                         doc_id: id,
-                    }.into());
+                    }
+                    .into());
                 }
                 if !Self::markdown_matches(&remote, &volume_markdown) {
-                    self.update_document(&id, &volume_markdown).await
+                    self.update_document(&id, &volume_markdown)
+                        .await
                         .with_context(|| format!("update volume {volume_no}"))?;
                 }
                 id
             } else {
-                self.create_document(notebook_id, &path, &volume_markdown).await
+                self.create_document(notebook_id, &path, &volume_markdown)
+                    .await
                     .with_context(|| format!("create volume {volume_no}"))?
             };
             // Capture the server's own Markdown representation after write,
             // not the local payload, because SiYuan may normalize Markdown.
-            let remote = self.inner.get_document_markdown(&doc_id).await
+            let remote = self
+                .inner
+                .get_document_markdown(&doc_id)
+                .await
                 .with_context(|| format!("capture volume {volume_no} remote baseline"))?;
             let baseline = volume_baseline(&remote);
             {
@@ -263,13 +282,18 @@ impl SiYuanSink {
                        remote_hash = excluded.remote_hash,
                        updated_at = excluded.updated_at",
                     params![
-                        session_db_id, volume_no as i64, doc_id, path, baseline,
+                        session_db_id,
+                        volume_no as i64,
+                        doc_id,
+                        path,
+                        baseline,
                         chrono::Utc::now().to_rfc3339()
                     ],
                 )?;
             }
             self.set_aiks_attrs(&doc_id, source, external_id, &baseline, parser_version)
-                .await.with_context(|| format!("set volume {volume_no} attributes"))?;
+                .await
+                .with_context(|| format!("set volume {volume_no} attributes"))?;
             entries.push(format!("- [第 {volume_no} 部分](siyuan://blocks/{doc_id})"));
         }
         // Never blindly delete surplus older volumes after a session shrinks:
@@ -362,8 +386,12 @@ mod volume_tests {
     use super::*;
     #[test]
     fn splits_large_markdown_without_losing_any_bytes() {
-        let input = format!("{}\n{}\n{}", "a".repeat(TARGET_VOLUME_BYTES),
-            "中".repeat(2_000_000), "TAIL");
+        let input = format!(
+            "{}\n{}\n{}",
+            "a".repeat(TARGET_VOLUME_BYTES),
+            "中".repeat(2_000_000),
+            "TAIL"
+        );
         let parts = split_session_markdown(&input);
         assert!(parts.len() >= 3);
         assert!(parts.iter().all(|p| p.len() <= TARGET_VOLUME_BYTES));

@@ -686,20 +686,33 @@ impl SyncEngine {
         // remote ID/hash independently. Earlier volumes survive retries.
         let has_volumes = match SiYuanSink::has_session_volumes(db, db_session_id) {
             Ok(value) => value,
-            Err(error) => return SyncOutcome::Failed {
-                error: format!("check Session volumes: {error}"),
-            },
+            Err(error) => {
+                return SyncOutcome::Failed {
+                    error: format!("check Session volumes: {error}"),
+                }
+            }
         };
         if markdown.len() > 5 * 1024 * 1024 || has_volumes {
-            match sink.sync_session_volumes(
-                db, db_session_id, source, session_id, parser_version,
-                notebook_id, &doc_path, &markdown,
-            ).await {
+            match sink
+                .sync_session_volumes(
+                    db,
+                    db_session_id,
+                    source,
+                    session_id,
+                    parser_version,
+                    notebook_id,
+                    &doc_path,
+                    &markdown,
+                )
+                .await
+            {
                 Ok(index_markdown) => markdown = index_markdown,
                 Err(error) => {
                     let message = format!("sync Session volumes: {error:#}");
                     let _ = sync_target_repo.mark_failed(
-                        db_session_id, "siyuan", &message,
+                        db_session_id,
+                        "siyuan",
+                        &message,
                         SiYuanSink::is_retryable_write_error(&error),
                     );
                     return SyncOutcome::Failed { error: message };
