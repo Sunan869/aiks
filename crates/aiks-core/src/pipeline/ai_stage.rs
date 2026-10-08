@@ -218,7 +218,7 @@ impl AiStage {
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v3|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                "knowledge-chunk-v3|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
                 self.config.base_url, self.config.model,
                 self.config.temperature, self.config.max_tokens,
                 self.config.max_context_tokens, self.config.disable_thinking,
