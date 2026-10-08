@@ -16,16 +16,14 @@ use tracing::info;
 
 use crate::ai::{
     config::AiModelConfig,
-    prompts_v3::{
-        make_v3_extraction_prompt, SYSTEM_PROMPT_V3,
-    },
+    prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
     schema_v3::{V3ExtractionResult, V3KnowledgeItem},
     AiClient,
 };
-use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::embedding_client::EmbeddingConfig;
-use crate::pipeline::semantic_dedup::SemanticDedup;
+use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;
+use crate::pipeline::semantic_dedup::SemanticDedup;
 use crate::pipeline::session_chunker::load_chunks;
 use crate::storage::StateDb;
 use crate::util::SecretSanitizer;
@@ -58,7 +56,10 @@ impl AiStage {
         })
     }
 
-    pub fn new_with_embedding(config: AiModelConfig, embedding: EmbeddingConfig) -> anyhow::Result<Self> {
+    pub fn new_with_embedding(
+        config: AiModelConfig,
+        embedding: EmbeddingConfig,
+    ) -> anyhow::Result<Self> {
         let mut stage = Self::new(config)?;
         stage.embedding_config = Some(embedding);
         Ok(stage)
@@ -183,8 +184,10 @@ impl AiStage {
         if let Some(embedding) = self.embedding_config.clone() {
             match SemanticDedup::new(embedding, self.config.clone()) {
                 Ok(Some(service)) => service.reconcile(db, session_id, &mut result).await,
-                Ok(None) => {},
-                Err(error) => tracing::warn!(error = %error, "[DEDUP] falling back to deterministic dedup"),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(error = %error, "[DEDUP] falling back to deterministic dedup")
+                }
             }
         }
 
@@ -229,28 +232,36 @@ impl AiStage {
         // invalidates the key automatically.
         {
             let conn = db.conn();
-            conn.execute_batch("CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
                 cache_key TEXT PRIMARY KEY,
                 result_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            );")?;
+            );",
+            )?;
         }
         let mut results = Vec::with_capacity(chunks.len());
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
                 "knowledge-chunk-v3|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-                self.config.base_url, self.config.model,
-                self.config.temperature, self.config.max_tokens,
-                self.config.max_context_tokens, self.config.disable_thinking,
-                session_title.unwrap_or(""), project_name.unwrap_or(""), text
+                self.config.base_url,
+                self.config.model,
+                self.config.temperature,
+                self.config.max_tokens,
+                self.config.max_context_tokens,
+                self.config.disable_thinking,
+                session_title.unwrap_or(""),
+                project_name.unwrap_or(""),
+                text
             );
             let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
             let cached: Option<String> = {
                 let conn = db.conn();
                 let found = conn.query_row(
                     "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
-                    [&cache_key], |row| row.get(0)
+                    [&cache_key],
+                    |row| row.get(0),
                 );
                 match found {
                     Ok(value) => Some(value),
@@ -260,7 +271,11 @@ impl AiStage {
             };
             if let Some(value) = cached {
                 if let Ok(result) = serde_json::from_str::<V3ExtractionResult>(&value) {
-                    tracing::info!(chunk = idx + 1, total = chunks.len(), "[AI] Reused chunk extraction");
+                    tracing::info!(
+                        chunk = idx + 1,
+                        total = chunks.len(),
+                        "[AI] Reused chunk extraction"
+                    );
                     results.push(result);
                     continue;
                 }
@@ -302,9 +317,11 @@ impl AiStage {
                 }
             }
             tracing::info!(
-                chunk = idx + 1, total = chunks.len(),
+                chunk = idx + 1,
+                total = chunks.len(),
                 elapsed_ms = started.elapsed().as_millis(),
-                items = result.items.len(), "[AI] Chunk extraction completed"
+                items = result.items.len(),
+                "[AI] Chunk extraction completed"
             );
             results.push(result);
         }
@@ -326,8 +343,7 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
 
     for result in results {
         merged.knowledge_score = merged.knowledge_score.max(result.knowledge_score);
-        if !result.session_summary.trim().is_empty()
-            && !summaries.contains(&result.session_summary)
+        if !result.session_summary.trim().is_empty() && !summaries.contains(&result.session_summary)
         {
             summaries.push(result.session_summary);
         }
@@ -359,8 +375,14 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                     append_distinct_text(existing_problem, problem, "\n");
                 }
                 merge_vec(&mut existing.tags, item.tags);
-                merge_vec(existing.root_causes.get_or_insert_with(Vec::new), item.root_causes.unwrap_or_default());
-                merge_vec(existing.solutions.get_or_insert_with(Vec::new), item.solutions.unwrap_or_default());
+                merge_vec(
+                    existing.root_causes.get_or_insert_with(Vec::new),
+                    item.root_causes.unwrap_or_default(),
+                );
+                merge_vec(
+                    existing.solutions.get_or_insert_with(Vec::new),
+                    item.solutions.unwrap_or_default(),
+                );
                 merge_optional_vec(&mut existing.key_commands, item.key_commands);
                 merge_optional_vec(&mut existing.key_files, item.key_files);
                 merge_optional_vec(&mut existing.decisions, item.decisions);
@@ -386,15 +408,17 @@ fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool 
     if a.category != b.category {
         return false;
     }
-    let title_sim = bigram_overlap(&normalize_knowledge_title(&a.title),
-                                   &normalize_knowledge_title(&b.title));
+    let title_sim = bigram_overlap(
+        &normalize_knowledge_title(&a.title),
+        &normalize_knowledge_title(&b.title),
+    );
     if title_sim < 0.65 {
         return false;
     }
     let problem_agrees = match (&a.problem, &b.problem) {
-        (Some(x), Some(y)) if !x.trim().is_empty() && !y.trim().is_empty() =>
-            bigram_overlap(&normalize_knowledge_title(x),
-                           &normalize_knowledge_title(y)) >= 0.80,
+        (Some(x), Some(y)) if !x.trim().is_empty() && !y.trim().is_empty() => {
+            bigram_overlap(&normalize_knowledge_title(x), &normalize_knowledge_title(y)) >= 0.80
+        }
         _ => false,
     };
     let evidence_agrees = shared_evidence(
@@ -412,11 +436,14 @@ fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool 
 
 #[cfg(test)]
 fn shared_evidence(a: &[String], b: &[String]) -> bool {
-    a.iter().any(|x| b.iter().any(|y|
-        x.chars().count() >= 8
-            && y.chars().count() >= 8
-            && bigram_overlap(&normalize_knowledge_title(x),
-                              &normalize_knowledge_title(y)) >= 0.85))
+    a.iter().any(|x| {
+        b.iter().any(|y| {
+            x.chars().count() >= 8
+                && y.chars().count() >= 8
+                && bigram_overlap(&normalize_knowledge_title(x), &normalize_knowledge_title(y))
+                    >= 0.85
+        })
+    })
 }
 
 #[cfg(test)]
@@ -424,7 +451,10 @@ fn bigram_overlap(a: &str, b: &str) -> f32 {
     use std::collections::HashSet;
     let ngrams = |s: &str| -> HashSet<String> {
         let chars: Vec<char> = s.chars().collect();
-        chars.windows(2).map(|w| w.iter().copied().collect()).collect()
+        chars
+            .windows(2)
+            .map(|w| w.iter().copied().collect())
+            .collect()
     };
     let x = ngrams(a);
     let y = ngrams(b);
@@ -438,9 +468,11 @@ fn bigram_overlap(a: &str, b: &str) -> f32 {
 /// Normalize spacing and ASCII/CJK punctuation without guessing semantic
 /// equivalence. Semantic merging needs source-linked evidence and validation.
 fn normalize_knowledge_title(title: &str) -> String {
-    title.chars()
-        .filter(|ch| !ch.is_whitespace()
-            && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.'))
+    title
+        .chars()
+        .filter(|ch| {
+            !ch.is_whitespace() && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.')
+        })
         .flat_map(char::to_lowercase)
         .collect()
 }
@@ -1369,22 +1401,38 @@ mod tests {
                 "summary": "排查总结", "content": "细节", "problem": problem,
                 "root_causes": [cause], "solutions": [], "key_commands": [],
                 "key_files": [], "decisions": [], "tags": [], "confidence": 0.8
-            })).unwrap()
+            }))
+            .unwrap()
         };
-        let a = make("Redis连接池超时排查", "Redis连接池获取连接超时",
-                     "连接池最大连接数配置过低");
-        let b = make("Redis连接池超时问题", "Redis连接池获取连接超时",
-                     "连接池最大连接数配置过低");
-        let c = make("Redis连接池超时问题", "Redis连接池获取连接超时",
-                     "由于网络防火墙导致连接失败");
+        let a = make(
+            "Redis连接池超时排查",
+            "Redis连接池获取连接超时",
+            "连接池最大连接数配置过低",
+        );
+        let b = make(
+            "Redis连接池超时问题",
+            "Redis连接池获取连接超时",
+            "连接池最大连接数配置过低",
+        );
+        let c = make(
+            "Redis连接池超时问题",
+            "Redis连接池获取连接超时",
+            "由于网络防火墙导致连接失败",
+        );
         assert!(same_engineering_knowledge(&a, &b));
         assert!(!same_engineering_knowledge(&a, &c));
     }
 
     #[test]
     fn normalizes_safe_title_variants_without_merging_unrelated_topics() {
-        assert_eq!(normalize_knowledge_title("Redis：连接异常"), normalize_knowledge_title("Redis-连接异常"));
-        assert_ne!(normalize_knowledge_title("Redis连接异常"), normalize_knowledge_title("Redis连接池优化"));
+        assert_eq!(
+            normalize_knowledge_title("Redis：连接异常"),
+            normalize_knowledge_title("Redis-连接异常")
+        );
+        assert_ne!(
+            normalize_knowledge_title("Redis连接异常"),
+            normalize_knowledge_title("Redis连接池优化")
+        );
     }
 
     #[test]
@@ -1396,16 +1444,19 @@ mod tests {
                 "root_causes": [], "solutions": [],
                 "key_commands": [command], "key_files": [],
                 "decisions": [], "tags": ["Rust"], "confidence": 0.8
-            })).unwrap()
+            }))
+            .unwrap()
         };
         let result = merge_chunk_knowledge(vec![
             V3ExtractionResult {
-                session_summary: "前段".into(), knowledge_score: 0.8,
+                session_summary: "前段".into(),
+                knowledge_score: 0.8,
                 worth_extracting: true,
                 items: vec![make_item("数据库性能", "第一段证据", "EXPLAIN")],
             },
             V3ExtractionResult {
-                session_summary: "中段".into(), knowledge_score: 0.9,
+                session_summary: "中段".into(),
+                knowledge_score: 0.9,
                 worth_extracting: true,
                 items: vec![
                     make_item("数据库性能", "中段的重要 SQL", "ANALYZE"),
@@ -1413,8 +1464,10 @@ mod tests {
                 ],
             },
             V3ExtractionResult {
-                session_summary: "尾段".into(), knowledge_score: 0.3,
-                worth_extracting: false, items: vec![],
+                session_summary: "尾段".into(),
+                knowledge_score: 0.3,
+                worth_extracting: false,
+                items: vec![],
             },
         ]);
         assert_eq!(result.items.len(), 2);
@@ -1429,5 +1482,4 @@ mod tests {
         );
         assert!(result.items[1].content.contains("独立问题"));
     }
-
 }
