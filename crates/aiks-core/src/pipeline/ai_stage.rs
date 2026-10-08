@@ -240,11 +240,16 @@ impl AiStage {
             );",
             )?;
         }
-        let mut results = Vec::with_capacity(chunks.len());
+        // Cached results retain their original slot; uncached chunks are
+        // processed in bounded pairs to avoid queueing the entire session.
+        let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
+        let mut pending: Vec<(usize, String, String)> = Vec::new();
+        let mut cache_hits = 0usize;
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v3|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                "knowledge-chunk-v4|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                crate::ai::prompts_v3::PROMPT_VERSION_V3,
                 self.config.base_url,
                 self.config.model,
                 self.config.temperature,
@@ -258,73 +263,80 @@ impl AiStage {
             let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
             let cached: Option<String> = {
                 let conn = db.conn();
-                let found = conn.query_row(
+                match conn.query_row(
                     "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
-                    [&cache_key],
-                    |row| row.get(0),
-                );
-                match found {
+                    [&cache_key], |row| row.get(0)
+                ) {
                     Ok(value) => Some(value),
                     Err(rusqlite::Error::QueryReturnedNoRows) => None,
                     Err(error) => return Err(error.into()),
                 }
             };
-            if let Some(value) = cached {
-                if let Ok(result) = serde_json::from_str::<V3ExtractionResult>(&value) {
-                    tracing::info!(
-                        chunk = idx + 1,
-                        total = chunks.len(),
-                        "[AI] Reused chunk extraction"
-                    );
-                    results.push(result);
-                    continue;
-                }
+            if let Some(result) = cached.and_then(|v| serde_json::from_str(&v).ok()) {
+                cache_hits += 1;
+                results[idx] = Some(result);
+                continue;
             }
-            let started = Instant::now();
             let sanitized = self.sanitizer.sanitize(text);
             let context = format!(
-                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
+                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\\n{}",
                 session_title.unwrap_or("未知会话"),
                 project_name.unwrap_or("未知"),
                 sanitized
             );
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
-            // Never silently ignore an unavailable chunk: that would lose
-            // knowledge without any indication to the user.
-            let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
-            let result = parse_v3_result_typed(&response)?;
-            {
-                let conn = db.conn();
-                conn.execute(
-                    "INSERT OR REPLACE INTO ai_chunk_extract_cache(cache_key,result_json,created_at)
-                     VALUES (?1, ?2, ?3)",
-                    rusqlite::params![
-                        cache_key, serde_json::to_string(&result)?,
-                        chrono::Utc::now().to_rfc3339()
-                    ],
-                )?;
-                // Bound persistent cache growth (oldest successful entries first).
-                // Run pruning infrequently, not after every generated chunk.
-                if idx % 32 == 0 {
-                    conn.execute(
-                        "DELETE FROM ai_chunk_extract_cache
-                         WHERE cache_key IN (
-                            SELECT cache_key FROM ai_chunk_extract_cache
-                            ORDER BY created_at DESC LIMIT -1 OFFSET 2000
-                         )",
-                        [],
-                    )?;
+            pending.push((idx, cache_key, self.fit_to_budget(&make_v3_extraction_prompt(&context))));
+        }
+        tracing::info!(total_chunks = chunks.len(), cache_hits, llm_calls = pending.len(),
+            "[AI] Chunk cache summary");
+
+        // Concurrency is intentionally bounded at 2. Shared GPU backends
+        // may not support more concurrent generations; never fan out all jobs.
+        for batch in pending.chunks(2) {
+            let started = Instant::now();
+            let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
+            let responses = if batch.len() == 2 {
+                let second = self.client.chat(SYSTEM_PROMPT_V3, &batch[1].2);
+                let (a, b) = tokio::join!(first, second);
+                vec![a, b]
+            } else {
+                vec![first.await]
+            };
+            // Persist each successful result even if the other request failed,
+            // so the next pipeline retry does not repeat successful work.
+            let mut first_error = None;
+            for (request, response) in batch.iter().zip(responses) {
+                match response.and_then(|text| parse_v3_result_typed(&text)) {
+                    Ok(result) => {
+                        let conn = db.conn();
+                        conn.execute(
+                            "INSERT OR REPLACE INTO ai_chunk_extract_cache
+                             (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
+                            rusqlite::params![request.1, serde_json::to_string(&result)?,
+                                chrono::Utc::now().to_rfc3339()],
+                        )?;
+                        tracing::info!(chunk=request.0+1, elapsed_ms=started.elapsed().as_millis(),
+                            items=result.items.len(), "[AI] Chunk extraction completed");
+                        results[request.0] = Some(result);
+                    }
+                    Err(error) => {
+                        tracing::warn!(chunk=request.0+1, error=%error, "[AI] Chunk extraction failed");
+                        if first_error.is_none() { first_error = Some(error); }
+                    }
                 }
             }
-            tracing::info!(
-                chunk = idx + 1,
-                total = chunks.len(),
-                elapsed_ms = started.elapsed().as_millis(),
-                items = result.items.len(),
-                "[AI] Chunk extraction completed"
-            );
-            results.push(result);
+            if let Some(error) = first_error { return Err(error); }
         }
+        {
+            let conn = db.conn();
+            conn.execute(
+                "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
+                 (SELECT cache_key FROM ai_chunk_extract_cache
+                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)", [],
+            )?;
+        }
+        let results: Vec<V3ExtractionResult> = results.into_iter()
+            .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(merge_chunk_knowledge(results))
     }
 }
