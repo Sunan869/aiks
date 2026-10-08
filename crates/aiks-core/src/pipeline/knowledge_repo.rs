@@ -42,9 +42,12 @@ impl<'a> KnowledgeRepo<'a> {
         }
 
         fn normalize(value: &str) -> String {
-            value.chars()
-                .filter(|ch| !ch.is_whitespace()
-                    && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.'))
+            value
+                .chars()
+                .filter(|ch| {
+                    !ch.is_whitespace()
+                        && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.')
+                })
                 .flat_map(char::to_lowercase)
                 .collect()
         }
