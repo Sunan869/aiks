@@ -248,7 +248,7 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
         for item in result.items {
             let key = (
                 item.category.trim().to_lowercase(),
-                item.title.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase(),
+                normalize_knowledge_title(&item.title),
             );
             if let Some(&index) = keys.get(&key) {
                 let existing: &mut V3KnowledgeItem = &mut merged.items[index];
@@ -257,6 +257,13 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                 {
                     existing.content.push_str("\n\n---\n\n");
                     existing.content.push_str(&item.content);
+                }
+                // Preserve distinct summaries and the problem statement too,
+                // not just the Markdown body and auxiliary array fields.
+                append_distinct_text(&mut existing.summary, &item.summary, "\n");
+                if let Some(problem) = item.problem.as_deref() {
+                    let existing_problem = existing.problem.get_or_insert_with(String::new);
+                    append_distinct_text(existing_problem, problem, "\n");
                 }
                 merge_vec(&mut existing.tags, item.tags);
                 merge_vec(existing.root_causes.get_or_insert_with(Vec::new), item.root_causes.unwrap_or_default());
@@ -274,6 +281,27 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
     merged.session_summary = summaries.join("；");
     merged.worth_extracting = !merged.items.is_empty();
     merged
+}
+
+/// Normalize spacing and ASCII/CJK punctuation without guessing semantic
+/// equivalence. Semantic merging needs source-linked evidence and validation.
+fn normalize_knowledge_title(title: &str) -> String {
+    title.chars()
+        .filter(|ch| !ch.is_whitespace()
+            && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.'))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn append_distinct_text(existing: &mut String, extra: &str, separator: &str) {
+    let extra = extra.trim();
+    if extra.is_empty() || existing.contains(extra) {
+        return;
+    }
+    if !existing.is_empty() {
+        existing.push_str(separator);
+    }
+    existing.push_str(extra);
 }
 
 fn merge_vec(target: &mut Vec<String>, incoming: Vec<String>) {
@@ -1181,6 +1209,12 @@ mod tests {
         assert_eq!(result.items[0].summary, "条目缺摘要"); // falls back to title
         assert_eq!(result.items[1].content, "有摘要没内容"); // falls back to summary
     }
+    #[test]
+    fn normalizes_safe_title_variants_without_merging_unrelated_topics() {
+        assert_eq!(normalize_knowledge_title("Redis：连接异常"), normalize_knowledge_title("Redis-连接异常"));
+        assert_ne!(normalize_knowledge_title("Redis连接异常"), normalize_knowledge_title("Redis连接池优化"));
+    }
+
     #[test]
     fn chunk_merge_keeps_distinct_topics_and_middle_chunk_evidence() {
         let make_item = |title: &str, content: &str, command: &str| {
