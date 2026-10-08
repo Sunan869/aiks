@@ -1,12 +1,19 @@
 //! Conservative embedding + LLM semantic knowledge reconciliation.
 //! Same-session duplicates can be consolidated before persistence; cross-session
 //! duplicates are linked, never deleted, to retain provenance and user edits.
+use crate::ai::{
+    config::AiModelConfig,
+    schema_v3::{V3ExtractionResult, V3KnowledgeItem},
+    AiClient,
+};
+use crate::pipeline::{
+    embedding_client::{cosine_sim, EmbeddingClient, EmbeddingConfig},
+    knowledge_repo::KnowledgeRepo,
+};
+use crate::storage::StateDb;
+use rusqlite::params;
 use std::collections::HashSet;
 use tracing::warn;
-use rusqlite::params;
-use crate::ai::{AiClient, config::AiModelConfig, schema_v3::{V3ExtractionResult,V3KnowledgeItem}};
-use crate::pipeline::{embedding_client::{EmbeddingClient,EmbeddingConfig,cosine_sim},knowledge_repo::KnowledgeRepo};
-use crate::storage::StateDb;
 
 pub struct SemanticDedup {
     embed: EmbeddingClient,
@@ -27,30 +34,44 @@ impl SemanticDedup {
     }
 
     /// Unavailable embedding/LLM degrades safely to existing deterministic dedup.
-    pub async fn reconcile(
-        &self, db: &StateDb, session_id: i64, result: &mut V3ExtractionResult
-    ) {
+    pub async fn reconcile(&self, db: &StateDb, session_id: i64, result: &mut V3ExtractionResult) {
         let texts: Vec<String> = result.items.iter().map(knowledge_text).collect();
-        if texts.is_empty() { return; }
+        if texts.is_empty() {
+            return;
+        }
         let vectors = match self.embed.embed_batch(texts).await {
-            Ok(v) if v.len()==result.items.len() && v.iter().all(|v| !v.is_empty()) => v,
-            Ok(_) => { warn!("[DEDUP] embedding size mismatch, fallback to exact dedup"); return; }
-            Err(e) => { warn!(error=%e, "[DEDUP] embedding unavailable, fallback to exact dedup"); return; }
+            Ok(v) if v.len() == result.items.len() && v.iter().all(|v| !v.is_empty()) => v,
+            Ok(_) => {
+                warn!("[DEDUP] embedding size mismatch, fallback to exact dedup");
+                return;
+            }
+            Err(e) => {
+                warn!(error=%e, "[DEDUP] embedding unavailable, fallback to exact dedup");
+                return;
+            }
         };
         let mut removed = HashSet::new();
         for i in 0..result.items.len() {
-            if removed.contains(&i) { continue; }
-            for j in i+1..result.items.len() {
-                if removed.contains(&j) || result.items[i].category != result.items[j].category { continue; }
-                if cosine_sim(&vectors[i],&vectors[j]) < 0.87 { continue; }
-                match self.judge(&result.items[i],&result.items[j]).await {
+            if removed.contains(&i) {
+                continue;
+            }
+            for j in i + 1..result.items.len() {
+                if removed.contains(&j) || result.items[i].category != result.items[j].category {
+                    continue;
+                }
+                if cosine_sim(&vectors[i], &vectors[j]) < 0.87 {
+                    continue;
+                }
+                match self.judge(&result.items[i], &result.items[j]).await {
                     Ok("same") => {
                         let duplicate = result.items[j].clone();
-                        merge_item(&mut result.items[i],&duplicate);
+                        merge_item(&mut result.items[i], &duplicate);
                         removed.insert(j);
                     }
                     Ok(_) => {}
-                    Err(e) => warn!(error=%e, "[DEDUP] LLM unavailable; preserve both knowledge items"),
+                    Err(e) => {
+                        warn!(error=%e, "[DEDUP] LLM unavailable; preserve both knowledge items")
+                    }
                 }
             }
         }
@@ -115,11 +136,14 @@ impl SemanticDedup {
                 }
             }
         }
-        if relations.is_empty() { return; }
+        if relations.is_empty() {
+            return;
+        }
         // Store links by source session and item title until knowledge item IDs
         // are assigned. Never mutate the candidate's canonical knowledge data.
-        let conn=db.conn();
-        if let Err(e)=conn.execute_batch("CREATE TABLE IF NOT EXISTS semantic_knowledge_relation (
+        let conn = db.conn();
+        if let Err(e) = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS semantic_knowledge_relation (
             source_session_id INTEGER NOT NULL,
             item_title TEXT NOT NULL,
             candidate_knowledge_id TEXT NOT NULL,
@@ -128,11 +152,12 @@ impl SemanticDedup {
             embedding_model TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (source_session_id,item_title,candidate_knowledge_id)
-        )") {
+        )",
+        ) {
             warn!(error=%e,"[DEDUP] relation table unavailable");
             return;
         }
-        for (idx,id,decision,score) in relations {
+        for (idx, id, decision, score) in relations {
             if let Err(e)=conn.execute(
                 "INSERT OR REPLACE INTO semantic_knowledge_relation
                 (source_session_id,item_title,candidate_knowledge_id,relation,score,embedding_model,updated_at)
@@ -142,32 +167,50 @@ impl SemanticDedup {
         }
     }
 
-    async fn judge(&self, a:&V3KnowledgeItem,b:&V3KnowledgeItem)-> anyhow::Result<&'static str> {
+    async fn judge(
+        &self,
+        a: &V3KnowledgeItem,
+        b: &V3KnowledgeItem,
+    ) -> anyhow::Result<&'static str> {
         let prompt=format!(
             "判断两条工程知识的关系。必须对比故障现象、根因、解决方案和适用环境。即使标题相似，根因不同也不是相同知识。只能输出一个英文单词：same、related、different。\nA: {}\nB: {}",
             serde_json::to_string(a)?,serde_json::to_string(b)?
         );
-        let answer=self.llm.chat_with_max_tokens(
-            "你是严格的工程知识去重审核器。不要猜测未给出的事实。", &prompt, 16
-        ).await?;
-        let normalized=answer.trim().to_ascii_lowercase();
+        let answer = self
+            .llm
+            .chat_with_max_tokens(
+                "你是严格的工程知识去重审核器。不要猜测未给出的事实。",
+                &prompt,
+                16,
+            )
+            .await?;
+        let normalized = answer.trim().to_ascii_lowercase();
         Ok(match normalized.as_str() {
-            "same"=>"same","related"=>"related",_=>"different"
+            "same" => "same",
+            "related" => "related",
+            _ => "different",
         })
     }
 }
 
-fn knowledge_text(item:&V3KnowledgeItem)->String {
-    format!("{}\n{}\n{}\n{}",item.title,item.summary,
-        item.problem.as_deref().unwrap_or(""),item.content.chars().take(2400).collect::<String>())
+fn knowledge_text(item: &V3KnowledgeItem) -> String {
+    format!(
+        "{}\n{}\n{}\n{}",
+        item.title,
+        item.summary,
+        item.problem.as_deref().unwrap_or(""),
+        item.content.chars().take(2400).collect::<String>()
+    )
 }
-fn merge_item(target:&mut V3KnowledgeItem,other:&V3KnowledgeItem) {
+fn merge_item(target: &mut V3KnowledgeItem, other: &V3KnowledgeItem) {
     if !target.content.contains(other.content.trim()) {
         target.content.push_str("\n\n---\n\n");
         target.content.push_str(&other.content);
     }
     for tag in &other.tags {
-        if !target.tags.contains(tag) { target.tags.push(tag.clone()); }
+        if !target.tags.contains(tag) {
+            target.tags.push(tag.clone());
+        }
     }
     if !target.summary.contains(other.summary.trim()) && !other.summary.trim().is_empty() {
         target.summary.push_str("\n");
@@ -183,10 +226,14 @@ fn merge_item(target:&mut V3KnowledgeItem,other:&V3KnowledgeItem) {
         if let Some(values) = src {
             let current = dst.get_or_insert_with(Vec::new);
             for value in values {
-                if !current.contains(value) { current.push(value.clone()); }
+                if !current.contains(value) {
+                    current.push(value.clone());
+                }
             }
         }
     }
-    if target.problem.is_none() { target.problem = other.problem.clone(); }
-    target.confidence=target.confidence.max(other.confidence);
+    if target.problem.is_none() {
+        target.problem = other.problem.clone();
+    }
+    target.confidence = target.confidence.max(other.confidence);
 }
