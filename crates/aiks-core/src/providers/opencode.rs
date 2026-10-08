@@ -281,17 +281,29 @@ impl super::SessionProvider for OpenCodeProvider {
     async fn discover_sessions(&self) -> anyhow::Result<Vec<SessionSummary>> {
         let conn = self.open_readonly()?;
 
+        // Count message IDs in a single sequential scan.  A correlated
+        // COUNT(*) for each session can rescan the entire message table when
+        // the user's OpenCode database lacks an index on message.session_id.
+        // Avoid GROUP BY/ORDER BY here too: SQLite may spill large temporary
+        // B-trees (etilqs_* files) to disk on read-only upstream databases.
+        let mut message_counts: HashMap<String, usize> = HashMap::new();
+        {
+            let mut count_stmt = conn.prepare("SELECT session_id FROM message")?;
+            let ids = count_stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for id in ids {
+                *message_counts.entry(id?).or_default() += 1;
+            }
+        }
+
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.directory, s.time_created, s.time_updated, s.model,
-                    (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) as msg_count,
                     p.worktree, p.name
              FROM session s
              LEFT JOIN project p ON p.id = s.project_id
-             WHERE s.time_archived IS NULL
-             ORDER BY COALESCE(s.time_updated, s.time_created) DESC",
+             WHERE s.time_archived IS NULL",
         )?;
 
-        let summaries = stmt
+        let mut summaries: Vec<SessionSummary> = stmt
             .query_map([], |row| {
                 let id: String = row.get(0)?;
                 let title: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
@@ -299,9 +311,9 @@ impl super::SessionProvider for OpenCodeProvider {
                 let time_created: i64 = row.get(3)?;
                 let time_updated: Option<i64> = row.get(4)?;
                 let _model: Option<String> = row.get(5)?;
-                let msg_count: usize = row.get(6)?;
-                let worktree: Option<String> = row.get(7)?;
-                let project_name: Option<String> = row.get(8)?;
+                let worktree: Option<String> = row.get(6)?;
+                let project_name: Option<String> = row.get(7)?;
+                let msg_count = message_counts.get(&id).copied().unwrap_or(0);
 
                 let project_path = directory.or(worktree);
 
@@ -319,6 +331,13 @@ impl super::SessionProvider for OpenCodeProvider {
             })?
             .filter_map(|r| r.ok())
             .collect();
+        // Order only compact session metadata in memory instead of asking
+        // SQLite to build a disk-backed temporary sorting table.
+        summaries.sort_by(|a, b| {
+            b.updated_at
+                .or(b.started_at)
+                .cmp(&a.updated_at.or(a.started_at))
+        });
 
         Ok(summaries)
     }
@@ -344,27 +363,30 @@ impl super::SessionProvider for OpenCodeProvider {
         )?;
 
         // Load all parts grouped by message_id (avoid N+1)
-        let mut parts_map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut parts_map: HashMap<String, Vec<(i64, String)>> = HashMap::new();
         {
             let mut part_stmt = conn.prepare(
-                "SELECT message_id, data FROM part
-                 WHERE session_id = ?1 ORDER BY time_created ASC",
+                "SELECT message_id, data, time_created FROM part
+                 WHERE session_id = ?1",
             )?;
             let part_rows = part_stmt.query_map([session_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?;
             for row in part_rows.flatten() {
-                parts_map.entry(row.0).or_default().push(row.1);
+                parts_map.entry(row.0).or_default().push((row.2, row.1));
             }
+        }
+        for parts in parts_map.values_mut() {
+            parts.sort_by_key(|(time, _)| *time);
         }
 
         // Load messages
         let mut msg_stmt = conn.prepare(
             "SELECT id, data, time_created FROM message
-             WHERE session_id = ?1 ORDER BY time_created ASC",
+             WHERE session_id = ?1",
         )?;
 
-        let messages: Vec<NormalizedMessage> = msg_stmt
+        let mut raw_messages: Vec<(String, String, i64)> = msg_stmt
             .query_map([session_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -372,7 +394,10 @@ impl super::SessionProvider for OpenCodeProvider {
                     row.get::<_, i64>(2)?,
                 ))
             })?
-            .filter_map(|r| r.ok())
+            .collect::<Result<Vec<_>, _>>()?;
+        raw_messages.sort_by_key(|(_, _, time)| *time);
+        let messages: Vec<NormalizedMessage> = raw_messages
+            .into_iter()
             .map(|(msg_id, data_str, time_created)| {
                 let msg_data: serde_json::Value =
                     serde_json::from_str(&data_str).unwrap_or_default();
@@ -400,7 +425,7 @@ impl super::SessionProvider for OpenCodeProvider {
                     .map(|parts| {
                         parts
                             .iter()
-                            .flat_map(|data| Self::parse_part_data_multi(data))
+                            .flat_map(|(_, data)| Self::parse_part_data_multi(data))
                             .collect()
                     })
                     .unwrap_or_default();
