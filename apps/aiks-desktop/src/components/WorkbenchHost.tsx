@@ -132,7 +132,7 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
   return (
     <div
       ref={hostRef}
-      className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+      className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-white dark:bg-gray-800"
     >
       <div className="max-w-lg p-8 text-center">
         {loading ? (
