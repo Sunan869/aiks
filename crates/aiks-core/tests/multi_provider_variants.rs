@@ -262,6 +262,34 @@ async fn vscode_replays_set_append_delete_and_rejects_huge_indices() {
     assert!(p.discover_sessions().await.is_err());
 }
 #[tokio::test]
+async fn vscode_snapshot_recovers_lone_surrogates_without_modifying_source() {
+    let root = tempfile::tempdir().unwrap();
+    let path = "workspaceStorage/ws/chatSessions/surrogate.json";
+    let snapshot = r#"{
+        "sessionId":"surrogate",
+        "requests":[{
+            "message":{"text":"QUESTION \ud83d\ude00 literal \\ud83d"},
+            "response":[{"value":"ANSWER"}],
+            "result":{"metadata":{"renderedUserMessage":[{"text":"ignored \ud83d and \udcf8 metadata"}]}}
+        }]
+    }"#;
+    put(root.path(), path, snapshot);
+    let before = std::fs::read(root.path().join(path)).unwrap();
+
+    let session = one(&provider(SourceKind::GithubCopilot, root.path())).await;
+
+    assert_eq!(
+        texts(&session),
+        r"QUESTION 😀 literal \ud83d
+ANSWER"
+    );
+    assert_eq!(
+        session.metadata["unicode_replacement_count"],
+        serde_json::json!(2)
+    );
+    assert_eq!(before, std::fs::read(root.path().join(path)).unwrap());
+}
+#[tokio::test]
 async fn copilot_corrupt_flat_neighbor_does_not_poison_valid_sessions() {
     let root = tempfile::tempdir().unwrap();
     put(
