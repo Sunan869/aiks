@@ -136,9 +136,6 @@ impl SemanticDedup {
                 }
             }
         }
-        if relations.is_empty() {
-            return;
-        }
         // Store links by source session and item title until knowledge item IDs
         // are assigned. Never mutate the candidate's canonical knowledge data.
         let conn = db.conn();
@@ -155,6 +152,15 @@ impl SemanticDedup {
         )",
         ) {
             warn!(error=%e,"[DEDUP] relation table unavailable");
+            return;
+        }
+        // Old relations may no longer hold after a re-extraction.
+        // Replace this session's suggestions as a complete snapshot.
+        if let Err(e) = conn.execute(
+            "DELETE FROM semantic_knowledge_relation WHERE source_session_id = ?1",
+            params![session_id],
+        ) {
+            warn!(error = %e, "[DEDUP] relation cleanup failed");
             return;
         }
         for (idx, id, decision, score) in relations {
