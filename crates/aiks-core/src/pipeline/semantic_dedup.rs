@@ -77,8 +77,10 @@ impl SemanticDedup {
                 .filter(|(score,_)| *score >= 0.82).collect();
             scored.sort_by(|a,b| b.0.total_cmp(&a.0));
             let mut seen = HashSet::new();
+            let mut judged = 0usize;
             for (score,candidate) in scored.into_iter().take(12) {
                 if !seen.insert(candidate.knowledge_id.clone()) { continue; }
+                if judged >= 3 { break; }
                 let candidate_meta: Option<(String, String, String, String)> = {
                     let conn = db.conn();
                     conn.query_row(
@@ -96,6 +98,7 @@ impl SemanticDedup {
                     key_commands: None, key_files: None, decisions: None,
                     tags: vec![], confidence: 0.0,
                 };
+                judged += 1;
                 if let Ok(decision) = self.judge(item,&candidate_item).await {
                     if decision=="same" || decision=="related" {
                         relations.push((i,candidate.knowledge_id.clone(),decision.to_owned(),score));
@@ -157,5 +160,24 @@ fn merge_item(target:&mut V3KnowledgeItem,other:&V3KnowledgeItem) {
     for tag in &other.tags {
         if !target.tags.contains(tag) { target.tags.push(tag.clone()); }
     }
+    if !target.summary.contains(other.summary.trim()) && !other.summary.trim().is_empty() {
+        target.summary.push_str("\n");
+        target.summary.push_str(&other.summary);
+    }
+    for (dst, src) in [
+        (&mut target.root_causes, &other.root_causes),
+        (&mut target.solutions, &other.solutions),
+        (&mut target.key_commands, &other.key_commands),
+        (&mut target.key_files, &other.key_files),
+        (&mut target.decisions, &other.decisions),
+    ] {
+        if let Some(values) = src {
+            let current = dst.get_or_insert_with(Vec::new);
+            for value in values {
+                if !current.contains(value) { current.push(value.clone()); }
+            }
+        }
+    }
+    if target.problem.is_none() { target.problem = other.problem.clone(); }
     target.confidence=target.confidence.max(other.confidence);
 }
