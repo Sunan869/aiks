@@ -79,11 +79,19 @@ impl SemanticDedup {
             let mut seen = HashSet::new();
             for (score,candidate) in scored.into_iter().take(12) {
                 if !seen.insert(candidate.knowledge_id.clone()) { continue; }
+                let candidate_meta: Option<(String, String, String, String)> = {
+                    let conn = db.conn();
+                    conn.query_row(
+                        "SELECT category, title, summary, content FROM knowledge_item
+                         WHERE id = ?1 AND source_session_id != ?2
+                         AND status = 'active' AND category = ?3",
+                        params![candidate.knowledge_id, session_id, item.category],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    ).ok()
+                };
+                let Some((category,title,summary,content)) = candidate_meta else { continue; };
                 let candidate_item = V3KnowledgeItem {
-                    title: candidate.chunk_text.chars().take(100).collect(),
-                    category: item.category.clone(),
-                    summary: candidate.chunk_text.clone(),
-                    content: candidate.chunk_text.clone(),
+                    title, category, summary, content: content.chars().take(3000).collect(),
                     problem: None, root_causes: None, solutions: None,
                     key_commands: None, key_files: None, decisions: None,
                     tags: vec![], confidence: 0.0,
@@ -96,8 +104,8 @@ impl SemanticDedup {
             }
         }
         if relations.is_empty() { return; }
-        // Relations are staged by session and list index. A later store() matches
-        // persisted IDs by the current item ordering in knowledge_item.
+        // Store links by source session and item title until knowledge item IDs
+        // are assigned. Never mutate the candidate's canonical knowledge data.
         let conn=db.conn();
         if let Err(e)=conn.execute_batch("CREATE TABLE IF NOT EXISTS semantic_knowledge_relation (
             source_session_id INTEGER NOT NULL,
