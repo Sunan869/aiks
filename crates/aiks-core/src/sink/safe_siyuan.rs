@@ -329,30 +329,32 @@ fn volume_baseline(md: &str) -> String {
 /// Preserve every UTF-8 byte, preferring newline boundaries. A single huge
 /// line is split on character boundaries; no content is dropped.
 fn split_session_markdown(markdown: &str) -> Vec<String> {
-    if markdown.is_empty() { return vec![String::new()]; }
-    let mut volumes = Vec::new();
-    let mut current = String::new();
-    for line in markdown.split_inclusive('\n') {
-        if current.len() + line.len() <= TARGET_VOLUME_BYTES {
-            current.push_str(line);
-            continue;
-        }
-        if !current.is_empty() {
-            volumes.push(std::mem::take(&mut current));
-        }
-        if line.len() <= TARGET_VOLUME_BYTES {
-            current.push_str(line);
-            continue;
-        }
-        for ch in line.chars() {
-            if current.len() + ch.len_utf8() > TARGET_VOLUME_BYTES {
-                volumes.push(std::mem::take(&mut current));
-            }
-            current.push(ch);
-        }
+    if markdown.is_empty() {
+        return vec![String::new()];
     }
-    if !current.is_empty() { volumes.push(current); }
-    volumes
+    let mut parts = Vec::new();
+    let mut rest = markdown;
+    while rest.len() > TARGET_VOLUME_BYTES {
+        let mut limit = TARGET_VOLUME_BYTES;
+        while !rest.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        let prefix = &rest[..limit];
+        // Message headings are emitted by MarkdownRenderer at the start
+        // of each User/Assistant/Tool turn. Prefer a complete turn boundary.
+        let heading = prefix.rfind("\n## ").map(|at| at + 1);
+        let newline = prefix.rfind('\n').map(|at| at + 1);
+        let cut = heading
+            .filter(|&at| at >= TARGET_VOLUME_BYTES / 3)
+            .or_else(|| newline.filter(|&at| at >= TARGET_VOLUME_BYTES / 3))
+            .unwrap_or(limit);
+        parts.push(rest[..cut].to_string());
+        rest = &rest[cut..];
+    }
+    if !rest.is_empty() {
+        parts.push(rest.to_string());
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -367,6 +369,19 @@ mod volume_tests {
         assert!(parts.iter().all(|p| p.len() <= TARGET_VOLUME_BYTES));
         assert_eq!(parts.concat(), input);
     }
+    #[test]
+    fn prefers_complete_message_boundary() {
+        let markdown = format!(
+            "{}\n## 👤 用户 (User)\n\n{}",
+            "a".repeat(TARGET_VOLUME_BYTES - 500),
+            "b".repeat(1500),
+        );
+        let parts = split_session_markdown(&markdown);
+        assert_eq!(parts.len(), 2);
+        assert!(parts[1].starts_with("## 👤 用户 (User)"));
+        assert_eq!(parts.concat(), markdown);
+    }
+
     #[test]
     fn preserves_single_small_document() {
         assert_eq!(split_session_markdown("# hello\n"), vec!["# hello\n"]);
