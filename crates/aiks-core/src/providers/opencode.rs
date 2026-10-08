@@ -335,8 +335,9 @@ impl super::SessionProvider for OpenCodeProvider {
         // SQLite to build a disk-backed temporary sorting table.
         summaries.sort_by(|a, b| {
             b.updated_at
-                .or(b.started_at)
-                .cmp(&a.updated_at.or(a.started_at))
+                .as_ref()
+                .or(b.started_at.as_ref())
+                .cmp(&a.updated_at.as_ref().or(a.started_at.as_ref()))
         });
 
         Ok(summaries)
