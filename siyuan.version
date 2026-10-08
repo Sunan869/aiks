@@ -1,9 +1,9 @@
 version=3.8.3
 workbench_version=4.2.0
 release_repo=Sunan869/aiks-siyuan
-release_tag=aiks-runtime-v4.2.0-824c9ee6aacb
+release_tag=aiks-runtime-v4.2.0-e0cc48d5cf6e
 upstream_commit=8641553a1f07374001902d3ce773285db1292b2d
-fork_commit=824c9ee6aacbb209e40440da34f50113482d1dc0
+fork_commit=e0cc48d5cf6e8fcc76111f8051b802db91c6d07e
 profile=aiks-embedded
 bridge_protocol=1
 # desktop_revision=linux-gtk-fixed-1
