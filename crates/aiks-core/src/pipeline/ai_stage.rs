@@ -129,7 +129,7 @@ impl AiStage {
             parse_v3_result_typed(&response)?
         } else {
             // Multiple chunks: Map-Reduce
-            self.map_reduce(session_title, project_name, &chunks)
+            self.map_reduce(db, session_title, project_name, &chunks)
                 .await?
         };
 
@@ -198,12 +198,53 @@ impl AiStage {
     /// Keeping structured chunk candidates avoids that lossy bottleneck.
     async fn map_reduce(
         &self,
+        db: &StateDb,
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
     ) -> anyhow::Result<V3ExtractionResult> {
+        // Cache successful chunk extractions, not failed/incomplete responses.
+        // Changing the model, prompt version, project or chunk content
+        // invalidates the key automatically.
+        {
+            let conn = db.conn();
+            conn.execute_batch("CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
+                cache_key TEXT PRIMARY KEY,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );")?;
+        }
         let mut results = Vec::with_capacity(chunks.len());
         for (idx, (_, text)) in chunks.iter().enumerate() {
+            use sha2::{Digest, Sha256};
+            let key_material = format!(
+                "knowledge-chunk-v2\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}",
+                self.config.base_url, self.config.model,
+                self.config.temperature, self.config.max_tokens,
+                self.config.max_context_tokens, self.config.disable_thinking,
+                project_name.unwrap_or(""), text
+            );
+            let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
+            let cached: Option<String> = {
+                let conn = db.conn();
+                let found = conn.query_row(
+                    "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
+                    [&cache_key], |row| row.get(0)
+                );
+                match found {
+                    Ok(value) => Some(value),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            if let Some(value) = cached {
+                if let Ok(result) = serde_json::from_str::<V3ExtractionResult>(&value) {
+                    tracing::info!(chunk = idx + 1, total = chunks.len(), "[AI] Reused chunk extraction");
+                    results.push(result);
+                    continue;
+                }
+            }
+            let started = Instant::now();
             let sanitized = self.sanitizer.sanitize(text);
             let context = format!(
                 "会话：{}；项目：{}；片段：{}/{}\n{}",
@@ -217,7 +258,24 @@ impl AiStage {
             // Never silently ignore an unavailable chunk: that would lose
             // knowledge without any indication to the user.
             let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
-            results.push(parse_v3_result_typed(&response)?);
+            let result = parse_v3_result_typed(&response)?;
+            {
+                let conn = db.conn();
+                conn.execute(
+                    "INSERT OR REPLACE INTO ai_chunk_extract_cache(cache_key,result_json,created_at)
+                     VALUES (?1, ?2, ?3)",
+                    rusqlite::params![
+                        cache_key, serde_json::to_string(&result)?,
+                        chrono::Utc::now().to_rfc3339()
+                    ],
+                )?;
+            }
+            tracing::info!(
+                chunk = idx + 1, total = chunks.len(),
+                elapsed_ms = started.elapsed().as_millis(),
+                items = result.items.len(), "[AI] Chunk extraction completed"
+            );
+            results.push(result);
         }
         Ok(merge_chunk_knowledge(results))
     }
