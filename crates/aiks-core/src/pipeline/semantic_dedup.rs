@@ -59,6 +59,17 @@ impl SemanticDedup {
                 .filter(|(i,_)| !removed.contains(i))
                 .map(|(_,v)| v.clone()).collect();
         }
+        // Reuse the initial batch whenever no same-session item was merged.
+        // Only recompute once in a batch when merged content has changed.
+        let final_vectors = if removed.is_empty() {
+            vectors
+        } else {
+            match self.embed.embed_batch(result.items.iter().map(knowledge_text).collect()).await {
+                Ok(v) if v.len() == result.items.len() => v,
+                _ => return,
+            }
+        };
+
         // Cross-session candidates reuse canonical indexed knowledge embeddings.
         // Record semantic relations after saving; do not mutate another session's content.
         let candidates = match KnowledgeRepo::new(db).load_all_embeddings(&self.model) {
@@ -66,21 +77,18 @@ impl SemanticDedup {
             Err(e) => { warn!(error=%e, "[DEDUP] existing embeddings unavailable"); return; }
         };
         let mut relations = Vec::new();
+        let mut total_judgements = 0usize;
         for (i,item) in result.items.iter().enumerate() {
-            // Re-embed after same-session merges, so candidates reflect final content.
-            let vec = match self.embed.embed_batch(vec![knowledge_text(item)]).await {
-                Ok(mut v) if v.len()==1 && !v[0].is_empty() => v.remove(0),
-                _ => continue,
-            };
+            let Some(vec) = final_vectors.get(i) else { continue; };
             let mut scored: Vec<_> = candidates.iter()
-                .map(|v| (cosine_sim(&vec,&v.vector),v))
+                .map(|v| (cosine_sim(vec,&v.vector),v))
                 .filter(|(score,_)| *score >= 0.82).collect();
             scored.sort_by(|a,b| b.0.total_cmp(&a.0));
             let mut seen = HashSet::new();
             let mut judged = 0usize;
             for (score,candidate) in scored.into_iter().take(12) {
                 if !seen.insert(candidate.knowledge_id.clone()) { continue; }
-                if judged >= 3 { break; }
+                if judged >= 3 || total_judgements >= 24 { break; }
                 let candidate_meta: Option<(String, String, String, String)> = {
                     let conn = db.conn();
                     conn.query_row(
@@ -99,6 +107,7 @@ impl SemanticDedup {
                     tags: vec![], confidence: 0.0,
                 };
                 judged += 1;
+                total_judgements += 1;
                 if let Ok(decision) = self.judge(item,&candidate_item).await {
                     if decision=="same" || decision=="related" {
                         relations.push((i,candidate.knowledge_id.clone(),decision.to_owned(),score));
