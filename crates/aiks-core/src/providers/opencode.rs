@@ -329,8 +329,7 @@ impl super::SessionProvider for OpenCodeProvider {
                     message_count: msg_count,
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         // Order only compact session metadata in memory instead of asking
         // SQLite to build a disk-backed temporary sorting table.
         summaries.sort_by(|a, b| {
@@ -373,8 +372,9 @@ impl super::SessionProvider for OpenCodeProvider {
             let part_rows = part_stmt.query_map([session_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?;
-            for row in part_rows.flatten() {
-                parts_map.entry(row.0).or_default().push((row.2, row.1));
+            for row in part_rows {
+                let (message_id, data, time_created) = row?;
+                parts_map.entry(message_id).or_default().push((time_created, data));
             }
         }
         for parts in parts_map.values_mut() {
