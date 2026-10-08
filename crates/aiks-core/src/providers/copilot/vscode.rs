@@ -2,7 +2,87 @@ use crate::model::{ContentBlock, MessageRole, NormalizedSession, SourceKind};
 use crate::providers::{local_io::ScopedReader, message_parts::*};
 use anyhow::{bail, ensure, Context, Result};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
+
+fn unicode_escape(bytes: &[u8], start: usize) -> Option<u16> {
+    let hex = bytes.get(start + 2..start + 6)?;
+    if bytes.get(start..start + 2)? != b"\\u" {
+        return None;
+    }
+    let hex = std::str::from_utf8(hex).ok()?;
+    u16::from_str_radix(hex, 16).ok()
+}
+
+/// JavaScript can serialize lone UTF-16 surrogates as `\uXXXX`, while
+/// `serde_json` intentionally rejects them because they are not Unicode scalar
+/// values. Replace only unpaired escapes inside JSON strings; preserve valid
+/// surrogate pairs and escaped literal text such as `\\uD83D`.
+fn repair_lone_surrogates(input: &str) -> (Cow<'_, str>, usize) {
+    let bytes = input.as_bytes();
+    let mut output = String::new();
+    let mut copied_until = 0_usize;
+    let mut index = 0_usize;
+    let mut in_string = false;
+    let mut replacements = 0_usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                in_string = !in_string;
+                index += 1;
+            }
+            b'\\' if in_string => {
+                let Some(unit) = unicode_escape(bytes, index) else {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                    continue;
+                };
+                if (0xd800..=0xdbff).contains(&unit) {
+                    if unicode_escape(bytes, index + 6)
+                        .is_some_and(|next| (0xdc00..=0xdfff).contains(&next))
+                    {
+                        index += 12;
+                        continue;
+                    }
+                } else if !(0xdc00..=0xdfff).contains(&unit) {
+                    index += 6;
+                    continue;
+                }
+
+                if output.is_empty() {
+                    output.reserve(input.len());
+                }
+                output.push_str(&input[copied_until..index]);
+                output.push_str("\\uFFFD");
+                index += 6;
+                copied_until = index;
+                replacements += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    if replacements == 0 {
+        (Cow::Borrowed(input), 0)
+    } else {
+        output.push_str(&input[copied_until..]);
+        (Cow::Owned(output), replacements)
+    }
+}
+
+fn read_snapshot(io: &ScopedReader, relative: &Path) -> Result<(Value, usize)> {
+    let text = io.read_text(relative)?;
+    let text = text.trim_start_matches('\u{feff}');
+    let (repaired, replacements) = repair_lone_surrogates(text);
+    let value = serde_json::from_str(&repaired).map_err(|error| {
+        anyhow::anyhow!(
+            "invalid provider JSON at line {} column {}: {}",
+            error.line(),
+            error.column(),
+            error
+        )
+    })?;
+    Ok((value, replacements))
+}
 
 fn target<'a>(value: &'a mut Value, path: &[Value], growth: &mut usize) -> Result<&'a mut Value> {
     ensure!(path.len() <= 64, "VS Code patch path depth exceeded");
@@ -42,9 +122,10 @@ fn target<'a>(value: &'a mut Value, path: &[Value], growth: &mut usize) -> Resul
     }
     Ok(value)
 }
-fn state(io: &ScopedReader, relative: &Path, metadata_only: bool) -> Result<(Value, bool)> {
+fn state(io: &ScopedReader, relative: &Path, metadata_only: bool) -> Result<(Value, bool, usize)> {
     if relative.extension().and_then(|v| v.to_str()) == Some("json") {
-        return Ok((io.read_json(relative)?, true));
+        let (value, replacements) = read_snapshot(io, relative)?;
+        return Ok((value, true, replacements));
     }
     let mut snapshot = None;
     let mut growth = 0_usize;
@@ -127,14 +208,14 @@ fn state(io: &ScopedReader, relative: &Path, metadata_only: bool) -> Result<(Val
         && report.partial_tail
         && report.malformed_lines == 0
         && !report.source_changed;
-    Ok((snapshot, report.complete || safe_live_tail))
+    Ok((snapshot, report.complete || safe_live_tail, 0))
 }
 pub(crate) fn read(
     io: &ScopedReader,
     relative: &Path,
     metadata_only: bool,
 ) -> Result<(Vec<NormalizedSession>, bool)> {
-    let (value, complete_read) = state(io, relative, metadata_only)?;
+    let (value, complete_read, unicode_replacement_count) = state(io, relative, metadata_only)?;
     let upstream = string(&value, "sessionId").context("VS Code session ID missing")?;
     let workspace = relative
         .parent()
@@ -150,6 +231,17 @@ pub(crate) fn read(
         .insert("upstream_session_id".into(), upstream.into());
     s.metadata
         .insert("entrypoint".into(), "copilot-vscode".into());
+    if unicode_replacement_count > 0 {
+        tracing::warn!(
+            path = %relative.display(),
+            count = unicode_replacement_count,
+            "Replaced unpaired UTF-16 surrogates in VS Code chat snapshot"
+        );
+        s.metadata.insert(
+            "unicode_replacement_count".into(),
+            unicode_replacement_count.into(),
+        );
+    }
     s.title = string(&value, "customTitle").or_else(|| string(&value, "title"));
     s.started_at = value.get("creationDate").and_then(timestamp);
     let folder = workspace.join("workspace.json");
