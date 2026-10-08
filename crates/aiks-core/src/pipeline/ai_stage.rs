@@ -403,7 +403,7 @@ fn bigram_overlap(a: &str, b: &str) -> f32 {
     use std::collections::HashSet;
     let ngrams = |s: &str| -> HashSet<String> {
         let chars: Vec<char> = s.chars().collect();
-        chars.windows(2).map(|w| w.iter().collect()).collect()
+        chars.windows(2).map(|w| w.iter().copied().collect()).collect()
     };
     let x = ngrams(a);
     let y = ngrams(b);
@@ -1340,6 +1340,26 @@ mod tests {
         assert_eq!(result.items[0].summary, "条目缺摘要"); // falls back to title
         assert_eq!(result.items[1].content, "有摘要没内容"); // falls back to summary
     }
+    #[test]
+    fn near_duplicate_requires_same_problem_and_evidence() {
+        let make = |title: &str, problem: &str, cause: &str| -> V3KnowledgeItem {
+            serde_json::from_value(serde_json::json!({
+                "title": title, "category": "troubleshooting",
+                "summary": "排查总结", "content": "细节", "problem": problem,
+                "root_causes": [cause], "solutions": [], "key_commands": [],
+                "key_files": [], "decisions": [], "tags": [], "confidence": 0.8
+            })).unwrap()
+        };
+        let a = make("Redis连接池超时排查", "Redis连接池获取连接超时",
+                     "连接池最大连接数配置过低");
+        let b = make("Redis连接池超时问题", "Redis连接池获取连接超时",
+                     "连接池最大连接数配置过低");
+        let c = make("Redis连接池超时问题", "Redis连接池获取连接超时",
+                     "由于网络防火墙导致连接失败");
+        assert!(same_engineering_knowledge(&a, &b));
+        assert!(!same_engineering_knowledge(&a, &c));
+    }
+
     #[test]
     fn normalizes_safe_title_variants_without_merging_unrelated_topics() {
         assert_eq!(normalize_knowledge_title("Redis：连接异常"), normalize_knowledge_title("Redis-连接异常"));
