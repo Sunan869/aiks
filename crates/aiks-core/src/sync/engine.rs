@@ -410,22 +410,22 @@ impl SyncEngine {
         // content-hash verification at least once every 10 minutes to catch
         // providers which update parts without bumping session.time_updated.
         if source == "opencode" && !opts.overwrite && !opts.dry_run {
-            if let (Some(old), Some(source_time)) =
-                (existing.as_ref(), summary.updated_at.as_ref())
+            if let (Some(old), Some(source_time)) = (existing.as_ref(), summary.updated_at.as_ref())
             {
                 let source_stamp = source_time.to_rfc3339();
                 let verified_recently = chrono::DateTime::parse_from_rfc3339(&old.updated_at)
-                    .map(|checked| chrono::Utc::now().signed_duration_since(checked.with_timezone(&chrono::Utc))
-                        < chrono::Duration::minutes(10))
+                    .map(|checked| {
+                        chrono::Utc::now()
+                            .signed_duration_since(checked.with_timezone(&chrono::Utc))
+                            < chrono::Duration::minutes(10)
+                    })
                     .unwrap_or(false);
                 if verified_recently
                     && old.source_updated_at.as_deref() == Some(source_stamp.as_str())
                     && old.parser_version.as_deref() == Some("opencode-sqlite-v1")
                     && !old.is_missing
                 {
-                    if let Ok(Some(target)) =
-                        sync_target_repo.find(old.id, "siyuan")
-                    {
+                    if let Ok(Some(target)) = sync_target_repo.find(old.id, "siyuan") {
                         if matches!(target.status, SyncStatus::Synced | SyncStatus::Unchanged)
                             && target.synced_hash.as_deref() == old.content_hash.as_deref()
                             && old.content_hash.is_some()
