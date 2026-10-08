@@ -318,7 +318,14 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                 item.category.trim().to_lowercase(),
                 normalize_knowledge_title(&item.title),
             );
-            if let Some(&index) = keys.get(&key) {
+            // Near-duplicate detection deliberately requires corroborating
+            // evidence, not just similar titles. It is intra-session only:
+            // cross-session knowledge must preserve provenance and user edits.
+            let matching = keys.get(&key).copied().or_else(|| {
+                merged.items.iter().position(|existing|
+                    same_engineering_knowledge(existing, &item))
+            });
+            if let Some(index) = matching {
                 let existing: &mut V3KnowledgeItem = &mut merged.items[index];
                 if !item.content.trim().is_empty()
                     && !existing.content.contains(item.content.trim())
@@ -340,6 +347,7 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                 merge_optional_vec(&mut existing.key_files, item.key_files);
                 merge_optional_vec(&mut existing.decisions, item.decisions);
                 existing.confidence = existing.confidence.max(item.confidence);
+                keys.insert(key, index);
             } else {
                 keys.insert(key, merged.items.len());
                 merged.items.push(item);
@@ -349,6 +357,61 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
     merged.session_summary = summaries.join("；");
     merged.worth_extracting = !merged.items.is_empty();
     merged
+}
+
+/// A deliberately conservative content-aware duplicate rule. This is not
+/// an embedding substitute: only coalesce independently named items when
+/// their *problem and technical evidence* agree. Related but different
+/// failures should remain separate knowledge records.
+fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool {
+    if a.category != b.category {
+        return false;
+    }
+    let title_sim = bigram_overlap(&normalize_knowledge_title(&a.title),
+                                   &normalize_knowledge_title(&b.title));
+    if title_sim < 0.65 {
+        return false;
+    }
+    let problem_agrees = match (&a.problem, &b.problem) {
+        (Some(x), Some(y)) if !x.trim().is_empty() && !y.trim().is_empty() =>
+            bigram_overlap(&normalize_knowledge_title(x),
+                           &normalize_knowledge_title(y)) >= 0.80,
+        _ => false,
+    };
+    let evidence_agrees = shared_evidence(
+        a.root_causes.as_deref().unwrap_or(&[]),
+        b.root_causes.as_deref().unwrap_or(&[]),
+    ) || shared_evidence(
+        a.solutions.as_deref().unwrap_or(&[]),
+        b.solutions.as_deref().unwrap_or(&[]),
+    ) || shared_evidence(
+        a.key_commands.as_deref().unwrap_or(&[]),
+        b.key_commands.as_deref().unwrap_or(&[]),
+    );
+    problem_agrees && evidence_agrees
+}
+
+fn shared_evidence(a: &[String], b: &[String]) -> bool {
+    a.iter().any(|x| b.iter().any(|y|
+        x.chars().count() >= 8
+            && y.chars().count() >= 8
+            && bigram_overlap(&normalize_knowledge_title(x),
+                              &normalize_knowledge_title(y)) >= 0.85))
+}
+
+fn bigram_overlap(a: &str, b: &str) -> f32 {
+    use std::collections::HashSet;
+    let ngrams = |s: &str| -> HashSet<String> {
+        let chars: Vec<char> = s.chars().collect();
+        chars.windows(2).map(|w| w.iter().collect()).collect()
+    };
+    let x = ngrams(a);
+    let y = ngrams(b);
+    if x.is_empty() || y.is_empty() {
+        return 0.0;
+    }
+    let union = x.union(&y).count();
+    x.intersection(&y).count() as f32 / union as f32
 }
 
 /// Normalize spacing and ASCII/CJK punctuation without guessing semantic
