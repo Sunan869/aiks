@@ -218,11 +218,12 @@ impl AiStage {
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v2\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}\\0{}",
+                "knowledge-chunk-v2|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
                 self.config.base_url, self.config.model,
                 self.config.temperature, self.config.max_tokens,
                 self.config.max_context_tokens, self.config.disable_thinking,
-                project_name.unwrap_or(""), text
+                session_title.unwrap_or(""), project_name.unwrap_or(""),
+                idx, chunks.len(), text
             );
             let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
             let cached: Option<String> = {
