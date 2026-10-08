@@ -17,7 +17,7 @@ use tracing::info;
 use crate::ai::{
     config::AiModelConfig,
     prompts_v3::{
-        make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt, SYSTEM_PROMPT_V3,
+        make_v3_extraction_prompt, SYSTEM_PROMPT_V3,
     },
     schema_v3::{V3ExtractionResult, V3KnowledgeItem},
     AiClient,
@@ -192,32 +192,101 @@ impl AiStage {
         Ok(item_count)
     }
 
+    /// Extract actionable knowledge independently from every chunk. The old
+    /// chunk-summary -> final-prompt path lost specific commands and entire
+    /// topics when hundreds of summaries exceeded the final context budget.
+    /// Keeping structured chunk candidates avoids that lossy bottleneck.
     async fn map_reduce(
         &self,
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
     ) -> anyhow::Result<V3ExtractionResult> {
-        let total = chunks.len();
-        let mut chunk_summaries = Vec::new();
-
+        let mut results = Vec::with_capacity(chunks.len());
         for (idx, (_, text)) in chunks.iter().enumerate() {
             let sanitized = self.sanitizer.sanitize(text);
-            let prompt = self.fit_to_budget(&make_v3_chunk_prompt(&sanitized, idx, total));
-            // R10: a failed chunk means the map-reduce input is incomplete —
-            // propagate the error instead of fabricating a degraded summary.
-            let resp = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
-            chunk_summaries.push(resp);
+            let context = format!(
+                "会话：{}；项目：{}；片段：{}/{}\\n{}",
+                session_title.unwrap_or("未知会话"),
+                project_name.unwrap_or("未知"),
+                idx + 1,
+                chunks.len(),
+                sanitized
+            );
+            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
+            // Never silently ignore an unavailable chunk: that would lose
+            // knowledge without any indication to the user.
+            let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
+            results.push(parse_v3_result_typed(&response)?);
         }
+        Ok(merge_chunk_knowledge(results))
+    }
+}
 
-        let title = session_title.unwrap_or("未知会话");
-        // The final prompt concatenates every chunk summary — with hundreds of
-        // chunks this alone can exceed the window (observed: 175 summaries).
-        let final_prompt =
-            self.fit_to_budget(&make_v3_final_prompt(title, project_name, &chunk_summaries));
-        let response = self.client.chat(SYSTEM_PROMPT_V3, &final_prompt).await?;
-        // R10: final parse errors propagate as real failures.
-        parse_v3_result_typed(&response)
+/// Conservatively consolidate identical knowledge titles across chunks.
+///
+/// Keep separate titles separate rather than asking a second LLM to invent a
+/// compressed, potentially incomplete session-level rewrite. Preserve all
+/// distinct content/commands/evidence, including details from middle chunks.
+fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult {
+    use std::collections::HashMap;
+
+    let mut merged = V3ExtractionResult::skip("");
+    let mut summaries = Vec::new();
+    let mut keys: HashMap<(String, String), usize> = HashMap::new();
+
+    for result in results {
+        merged.knowledge_score = merged.knowledge_score.max(result.knowledge_score);
+        if !result.session_summary.trim().is_empty()
+            && !summaries.contains(&result.session_summary)
+        {
+            summaries.push(result.session_summary);
+        }
+        if !result.worth_extracting {
+            continue;
+        }
+        for item in result.items {
+            let key = (
+                item.category.trim().to_lowercase(),
+                item.title.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase(),
+            );
+            if let Some(&index) = keys.get(&key) {
+                let existing: &mut V3KnowledgeItem = &mut merged.items[index];
+                if !item.content.trim().is_empty()
+                    && !existing.content.contains(item.content.trim())
+                {
+                    existing.content.push_str("\\n\\n---\\n\\n");
+                    existing.content.push_str(&item.content);
+                }
+                merge_vec(&mut existing.tags, item.tags);
+                merge_vec(existing.root_causes.get_or_insert_with(Vec::new), item.root_causes.unwrap_or_default());
+                merge_vec(existing.solutions.get_or_insert_with(Vec::new), item.solutions.unwrap_or_default());
+                merge_optional_vec(&mut existing.key_commands, item.key_commands);
+                merge_optional_vec(&mut existing.key_files, item.key_files);
+                merge_optional_vec(&mut existing.decisions, item.decisions);
+                existing.confidence = existing.confidence.max(item.confidence);
+            } else {
+                keys.insert(key, merged.items.len());
+                merged.items.push(item);
+            }
+        }
+    }
+    merged.session_summary = summaries.join("；");
+    merged.worth_extracting = !merged.items.is_empty();
+    merged
+}
+
+fn merge_vec(target: &mut Vec<String>, incoming: Vec<String>) {
+    for value in incoming {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<String>>) {
+    if let Some(values) = incoming {
+        merge_vec(target.get_or_insert_with(Vec::new), values);
     }
 }
 
