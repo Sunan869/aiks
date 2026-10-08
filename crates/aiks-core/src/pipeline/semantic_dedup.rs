@@ -76,16 +76,24 @@ impl SemanticDedup {
             }
         }
         if !removed.is_empty() {
-            result.items = result.items.iter().enumerate()
-                .filter(|(i,_)| !removed.contains(i))
-                .map(|(_,v)| v.clone()).collect();
+            result.items = result
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !removed.contains(i))
+                .map(|(_, v)| v.clone())
+                .collect();
         }
         // Reuse the initial batch whenever no same-session item was merged.
         // Only recompute once in a batch when merged content has changed.
         let final_vectors = if removed.is_empty() {
             vectors
         } else {
-            match self.embed.embed_batch(result.items.iter().map(knowledge_text).collect()).await {
+            match self
+                .embed
+                .embed_batch(result.items.iter().map(knowledge_text).collect())
+                .await
+            {
                 Ok(v) if v.len() == result.items.len() => v,
                 _ => return,
             }
@@ -95,21 +103,32 @@ impl SemanticDedup {
         // Record semantic relations after saving; do not mutate another session's content.
         let candidates = match KnowledgeRepo::new(db).load_all_embeddings(&self.model) {
             Ok(v) => v,
-            Err(e) => { warn!(error=%e, "[DEDUP] existing embeddings unavailable"); return; }
+            Err(e) => {
+                warn!(error=%e, "[DEDUP] existing embeddings unavailable");
+                return;
+            }
         };
         let mut relations = Vec::new();
         let mut total_judgements = 0usize;
-        for (i,item) in result.items.iter().enumerate() {
-            let Some(vec) = final_vectors.get(i) else { continue; };
-            let mut scored: Vec<_> = candidates.iter()
-                .map(|v| (cosine_sim(vec,&v.vector),v))
-                .filter(|(score,_)| *score >= 0.82).collect();
-            scored.sort_by(|a,b| b.0.total_cmp(&a.0));
+        for (i, item) in result.items.iter().enumerate() {
+            let Some(vec) = final_vectors.get(i) else {
+                continue;
+            };
+            let mut scored: Vec<_> = candidates
+                .iter()
+                .map(|v| (cosine_sim(vec, &v.vector), v))
+                .filter(|(score, _)| *score >= 0.82)
+                .collect();
+            scored.sort_by(|a, b| b.0.total_cmp(&a.0));
             let mut seen = HashSet::new();
             let mut judged = 0usize;
-            for (score,candidate) in scored.into_iter().take(12) {
-                if !seen.insert(candidate.knowledge_id.clone()) { continue; }
-                if judged >= 3 || total_judgements >= 24 { break; }
+            for (score, candidate) in scored.into_iter().take(12) {
+                if !seen.insert(candidate.knowledge_id.clone()) {
+                    continue;
+                }
+                if judged >= 3 || total_judgements >= 24 {
+                    break;
+                }
                 let candidate_meta: Option<(String, String, String, String)> = {
                     let conn = db.conn();
                     conn.query_row(
@@ -117,21 +136,37 @@ impl SemanticDedup {
                          WHERE id = ?1 AND source_session_id != ?2
                          AND status = 'active' AND category = ?3",
                         params![candidate.knowledge_id, session_id, item.category],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                    ).ok()
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    )
+                    .ok()
                 };
-                let Some((category,title,summary,content)) = candidate_meta else { continue; };
+                let Some((category, title, summary, content)) = candidate_meta else {
+                    continue;
+                };
                 let candidate_item = V3KnowledgeItem {
-                    title, category, summary, content: content.chars().take(3000).collect(),
-                    problem: None, root_causes: None, solutions: None,
-                    key_commands: None, key_files: None, decisions: None,
-                    tags: vec![], confidence: 0.0,
+                    title,
+                    category,
+                    summary,
+                    content: content.chars().take(3000).collect(),
+                    problem: None,
+                    root_causes: None,
+                    solutions: None,
+                    key_commands: None,
+                    key_files: None,
+                    decisions: None,
+                    tags: vec![],
+                    confidence: 0.0,
                 };
                 judged += 1;
                 total_judgements += 1;
-                if let Ok(decision) = self.judge(item,&candidate_item).await {
-                    if decision=="same" || decision=="related" {
-                        relations.push((i,candidate.knowledge_id.clone(),decision.to_owned(),score));
+                if let Ok(decision) = self.judge(item, &candidate_item).await {
+                    if decision == "same" || decision == "related" {
+                        relations.push((
+                            i,
+                            candidate.knowledge_id.clone(),
+                            decision.to_owned(),
+                            score,
+                        ));
                     }
                 }
             }
