@@ -42,11 +42,11 @@ impl<'a> KnowledgeRepo<'a> {
         }
 
         fn normalize(value: &str) -> String {
-            value
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase()
+            value.chars()
+                .filter(|ch| !ch.is_whitespace()
+                    && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.'))
+                .flat_map(char::to_lowercase)
+                .collect()
         }
 
         fn key(category: &str, title: &str) -> String {
