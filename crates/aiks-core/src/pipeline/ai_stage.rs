@@ -206,7 +206,7 @@ impl AiStage {
         for (idx, (_, text)) in chunks.iter().enumerate() {
             let sanitized = self.sanitizer.sanitize(text);
             let context = format!(
-                "会话：{}；项目：{}；片段：{}/{}\\n{}",
+                "会话：{}；项目：{}；片段：{}/{}\n{}",
                 session_title.unwrap_or("未知会话"),
                 project_name.unwrap_or("未知"),
                 idx + 1,
@@ -255,7 +255,7 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                 if !item.content.trim().is_empty()
                     && !existing.content.contains(item.content.trim())
                 {
-                    existing.content.push_str("\\n\\n---\\n\\n");
+                    existing.content.push_str("\n\n---\n\n");
                     existing.content.push_str(&item.content);
                 }
                 merge_vec(&mut existing.tags, item.tags);
