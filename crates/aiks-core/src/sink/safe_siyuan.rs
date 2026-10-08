@@ -164,6 +164,122 @@ impl SiYuanSink {
         }
     }
 
+    /// True when a previous sync already used multi-document volumes. Keep
+    /// using the index even if the session later shrinks below the threshold.
+    pub fn has_session_volumes(db: &crate::storage::StateDb, session_id: i64) -> anyhow::Result<bool> {
+        let conn = db.conn();
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_volume')",
+            [], |row| row.get(0),
+        )?;
+        if exists == 0 { return Ok(false); }
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_volume WHERE session_id = ?1)",
+            [session_id], |row| row.get::<_, i64>(0),
+        )? != 0)
+    }
+
+    /// Write content volumes and return a small index document's Markdown.
+    /// Each volume has its own stable hpath, ID and remote hash baseline.
+    /// A failed attempt can resume without losing prior successful writes.
+    pub async fn sync_session_volumes(
+        &self,
+        db: &crate::storage::StateDb,
+        session_db_id: i64,
+        source: &str,
+        external_id: &str,
+        parser_version: &str,
+        notebook_id: &str,
+        base_path: &str,
+        markdown: &str,
+    ) -> anyhow::Result<String> {
+        use anyhow::Context;
+        use rusqlite::{params, OptionalExtension};
+        {
+            let conn = db.conn();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS session_volume (
+                    session_id INTEGER NOT NULL,
+                    volume_index INTEGER NOT NULL,
+                    doc_id TEXT NOT NULL,
+                    doc_path TEXT NOT NULL,
+                    remote_hash TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(session_id, volume_index)
+                );",
+            )?;
+        }
+        let volumes = split_session_markdown(markdown);
+        let mut entries = Vec::with_capacity(volumes.len());
+        for (index, body) in volumes.iter().enumerate() {
+            let volume_no = index + 1;
+            let path = format!("{base_path} - Part {volume_no:04}");
+            let volume_markdown = format!("# Session Part {volume_no}/{}\n\n{body}", volumes.len());
+            Self::ensure_safe_document_size(&volume_markdown)?;
+            let existing: Option<(String, String)> = {
+                let conn = db.conn();
+                conn.query_row(
+                    "SELECT doc_id, remote_hash FROM session_volume
+                     WHERE session_id = ?1 AND volume_index = ?2",
+                    params![session_db_id, volume_no as i64],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                ).optional()?
+            };
+            let doc_id = if let Some((id, baseline)) = existing {
+                let remote = self.inner.get_document_markdown(&id).await
+                    .with_context(|| format!("read volume {volume_no} ({id}) before update"))?;
+                let actual = volume_baseline(&remote);
+                anyhow::ensure!(
+                    actual == baseline,
+                    "SiYuan volume {volume_no} ({id}) was edited; refusing to overwrite"
+                );
+                if !Self::markdown_matches(&remote, &volume_markdown) {
+                    self.update_document(&id, &volume_markdown).await
+                        .with_context(|| format!("update volume {volume_no}"))?;
+                }
+                id
+            } else {
+                self.create_document(notebook_id, &path, &volume_markdown).await
+                    .with_context(|| format!("create volume {volume_no}"))?
+            };
+            // Capture the server's own Markdown representation after write,
+            // not the local payload, because SiYuan may normalize Markdown.
+            let remote = self.inner.get_document_markdown(&doc_id).await
+                .with_context(|| format!("capture volume {volume_no} remote baseline"))?;
+            let baseline = volume_baseline(&remote);
+            {
+                let conn = db.conn();
+                conn.execute(
+                    "INSERT INTO session_volume
+                     (session_id, volume_index, doc_id, doc_path, remote_hash, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(session_id, volume_index) DO UPDATE SET
+                       doc_id = excluded.doc_id,
+                       doc_path = excluded.doc_path,
+                       remote_hash = excluded.remote_hash,
+                       updated_at = excluded.updated_at",
+                    params![
+                        session_db_id, volume_no as i64, doc_id, path, baseline,
+                        chrono::Utc::now().to_rfc3339()
+                    ],
+                )?;
+            }
+            self.set_aiks_attrs(&doc_id, source, external_id, &baseline, parser_version)
+                .await.with_context(|| format!("set volume {volume_no} attributes"))?;
+            entries.push(format!("- [第 {volume_no} 部分](siyuan://blocks/{doc_id})"));
+        }
+        // Never blindly delete surplus older volumes after a session shrinks:
+        // those files could have been manually edited; leave unlinked for review.
+        let mut index = format!(
+            "# Session 分卷目录\n\n> 来源：{source}\n> Session ID：{external_id}\n> 分卷数：{}\n\n",
+            entries.len()
+        );
+        index.push_str(&entries.join("\n"));
+        index.push('\n');
+        Self::ensure_safe_document_size(&index)?;
+        Ok(index)
+    }
+
     /// Safe create used by all existing callers.
     pub async fn create_document(
         &self,
@@ -195,5 +311,60 @@ impl Deref for SiYuanSink {
 impl DerefMut for SiYuanSink {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+/// Four MiB leaves space for part headings and SiYuan's HTTP overhead.
+const TARGET_VOLUME_BYTES: usize = 4 * 1024 * 1024;
+
+fn volume_baseline(md: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("md:{}", hex::encode(Sha256::digest(md.as_bytes())))
+}
+
+/// Preserve every UTF-8 byte, preferring newline boundaries. A single huge
+/// line is split on character boundaries; no content is dropped.
+fn split_session_markdown(markdown: &str) -> Vec<String> {
+    if markdown.is_empty() { return vec![String::new()]; }
+    let mut volumes = Vec::new();
+    let mut current = String::new();
+    for line in markdown.split_inclusive('\n') {
+        if current.len() + line.len() <= TARGET_VOLUME_BYTES {
+            current.push_str(line);
+            continue;
+        }
+        if !current.is_empty() {
+            volumes.push(std::mem::take(&mut current));
+        }
+        if line.len() <= TARGET_VOLUME_BYTES {
+            current.push_str(line);
+            continue;
+        }
+        for ch in line.chars() {
+            if current.len() + ch.len_utf8() > TARGET_VOLUME_BYTES {
+                volumes.push(std::mem::take(&mut current));
+            }
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() { volumes.push(current); }
+    volumes
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::*;
+    #[test]
+    fn splits_large_markdown_without_losing_any_bytes() {
+        let input = format!("{}\n{}\n{}", "a".repeat(TARGET_VOLUME_BYTES),
+            "中".repeat(2_000_000), "TAIL");
+        let parts = split_session_markdown(&input);
+        assert!(parts.len() >= 3);
+        assert!(parts.iter().all(|p| p.len() <= TARGET_VOLUME_BYTES));
+        assert_eq!(parts.concat(), input);
+    }
+    #[test]
+    fn preserves_single_small_document() {
+        assert_eq!(split_session_markdown("# hello\n"), vec!["# hello\n"]);
     }
 }
