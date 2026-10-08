@@ -572,7 +572,7 @@ async fn run_pipeline(
 
     repo.update_status(run_id, "PROCESSING", Some("AI_EXTRACTED"), None, None)?;
 
-    let ai_stage = match AiStage::new(ai_config.clone()) {
+    let ai_stage = match AiStage::new_with_embedding(ai_config.clone(), embedding_config.clone()) {
         Ok(s) => s,
         Err(e) => {
             let msg = format!("AI init failed: {}", e);
