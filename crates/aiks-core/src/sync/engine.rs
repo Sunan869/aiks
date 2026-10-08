@@ -664,7 +664,7 @@ impl SyncEngine {
             }
         }
 
-        let markdown = context.renderer.render(&session);
+        let mut markdown = context.renderer.render(&session);
         let notebook_id = match context.notebook_id {
             Some(id) => id,
             None => {
@@ -680,6 +680,27 @@ impl SyncEngine {
             session.title.as_deref(),
             session.started_at.as_ref(),
         );
+
+        // Oversized Sessions must not be sent to one createDocWithMd request.
+        // Keep the original root mapping as an index and persist each page's
+        // remote ID/hash independently. Earlier volumes survive retries.
+        if markdown.len() > 5 * 1024 * 1024
+            || SiYuanSink::has_session_volumes(db, db_session_id).unwrap_or(false)
+        {
+            match sink.sync_session_volumes(
+                db, db_session_id, source, session_id, parser_version,
+                notebook_id, &doc_path, &markdown,
+            ).await {
+                Ok(index_markdown) => markdown = index_markdown,
+                Err(error) => {
+                    let message = format!("sync Session volumes: {error:#}");
+                    let _ = sync_target_repo.mark_failed(
+                        db_session_id, "siyuan", &message, true,
+                    );
+                    return SyncOutcome::Failed { error: message };
+                }
+            }
+        }
 
         let doc_id = if let Some(doc) = &existing_doc {
             if remote_missing {
