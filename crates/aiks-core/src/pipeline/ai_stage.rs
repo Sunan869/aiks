@@ -339,13 +339,10 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
                 item.category.trim().to_lowercase(),
                 normalize_knowledge_title(&item.title),
             );
-            // Near-duplicate detection deliberately requires corroborating
-            // evidence, not just similar titles. It is intra-session only:
-            // cross-session knowledge must preserve provenance and user edits.
-            let matching = keys.get(&key).copied().or_else(|| {
-                merged.items.iter().position(|existing|
-                    same_engineering_knowledge(existing, &item))
-            });
+            // Without an available embedding + LLM model, only exact
+            // normalized identity is safe to merge automatically.
+            // Semantic variants are handled by SemanticDedup::reconcile.
+            let matching = keys.get(&key).copied();
             if let Some(index) = matching {
                 let existing: &mut V3KnowledgeItem = &mut merged.items[index];
                 if !item.content.trim().is_empty()
@@ -384,6 +381,7 @@ fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult
 /// an embedding substitute: only coalesce independently named items when
 /// their *problem and technical evidence* agree. Related but different
 /// failures should remain separate knowledge records.
+#[cfg(test)]
 fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool {
     if a.category != b.category {
         return false;
@@ -412,6 +410,7 @@ fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool 
     problem_agrees && evidence_agrees
 }
 
+#[cfg(test)]
 fn shared_evidence(a: &[String], b: &[String]) -> bool {
     a.iter().any(|x| b.iter().any(|y|
         x.chars().count() >= 8
@@ -420,6 +419,7 @@ fn shared_evidence(a: &[String], b: &[String]) -> bool {
                               &normalize_knowledge_title(y)) >= 0.85))
 }
 
+#[cfg(test)]
 fn bigram_overlap(a: &str, b: &str) -> f32 {
     use std::collections::HashSet;
     let ngrams = |s: &str| -> HashSet<String> {
