@@ -218,12 +218,11 @@ impl AiStage {
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v2|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                "knowledge-chunk-v3|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
                 self.config.base_url, self.config.model,
                 self.config.temperature, self.config.max_tokens,
                 self.config.max_context_tokens, self.config.disable_thinking,
-                session_title.unwrap_or(""), project_name.unwrap_or(""),
-                idx, chunks.len(), text
+                session_title.unwrap_or(""), project_name.unwrap_or(""), text
             );
             let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
             let cached: Option<String> = {
@@ -248,11 +247,9 @@ impl AiStage {
             let started = Instant::now();
             let sanitized = self.sanitizer.sanitize(text);
             let context = format!(
-                "会话：{}；项目：{}；片段：{}/{}\n{}",
+                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
                 session_title.unwrap_or("未知会话"),
                 project_name.unwrap_or("未知"),
-                idx + 1,
-                chunks.len(),
                 sanitized
             );
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
@@ -270,6 +267,18 @@ impl AiStage {
                         chrono::Utc::now().to_rfc3339()
                     ],
                 )?;
+                // Bound persistent cache growth (oldest successful entries first).
+                // Run pruning infrequently, not after every generated chunk.
+                if idx % 32 == 0 {
+                    conn.execute(
+                        "DELETE FROM ai_chunk_extract_cache
+                         WHERE cache_key IN (
+                            SELECT cache_key FROM ai_chunk_extract_cache
+                            ORDER BY created_at DESC LIMIT -1 OFFSET 2000
+                         )",
+                        [],
+                    )?;
+                }
             }
             tracing::info!(
                 chunk = idx + 1, total = chunks.len(),
