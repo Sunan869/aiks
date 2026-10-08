@@ -16,14 +16,14 @@ use tracing::info;
 
 use crate::ai::{
     config::AiModelConfig,
-    prompts_v3::{
-        make_v3_chunk_prompt, make_v3_extraction_prompt, make_v3_final_prompt, SYSTEM_PROMPT_V3,
-    },
+    prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
     schema_v3::{V3ExtractionResult, V3KnowledgeItem},
     AiClient,
 };
+use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::knowledge_repo::KnowledgeRepo;
 use crate::pipeline::repo::PipelineRepo;
+use crate::pipeline::semantic_dedup::SemanticDedup;
 use crate::pipeline::session_chunker::load_chunks;
 use crate::storage::StateDb;
 use crate::util::SecretSanitizer;
@@ -32,6 +32,7 @@ pub struct AiStage {
     client: AiClient,
     sanitizer: SecretSanitizer,
     config: AiModelConfig,
+    embedding_config: Option<EmbeddingConfig>,
 }
 
 /// Conservative chars-per-token used ONLY for prompt budgeting. The chunker
@@ -51,7 +52,17 @@ impl AiStage {
             client,
             sanitizer: SecretSanitizer::new(),
             config,
+            embedding_config: None,
         })
+    }
+
+    pub fn new_with_embedding(
+        config: AiModelConfig,
+        embedding: EmbeddingConfig,
+    ) -> anyhow::Result<Self> {
+        let mut stage = Self::new(config)?;
+        stage.embedding_config = Some(embedding);
+        Ok(stage)
     }
 
     /// Max characters the variable part of a prompt may occupy so that
@@ -119,7 +130,7 @@ impl AiStage {
             "[AI] Starting extraction"
         );
 
-        let result = if chunks.len() == 1 {
+        let mut result = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
@@ -129,7 +140,7 @@ impl AiStage {
             parse_v3_result_typed(&response)?
         } else {
             // Multiple chunks: Map-Reduce
-            self.map_reduce(session_title, project_name, &chunks)
+            self.map_reduce(db, session_title, project_name, &chunks)
                 .await?
         };
 
@@ -167,6 +178,19 @@ impl AiStage {
             return Ok(0);
         }
 
+        // Optional semantic reconciliation: vector candidates then LLM decision.
+        // If either model is disabled or unavailable, retain deterministic
+        // same-session matching without ever deleting user-managed knowledge.
+        if let Some(embedding) = self.embedding_config.clone() {
+            match SemanticDedup::new(embedding, self.config.clone()) {
+                Ok(Some(service)) => service.reconcile(db, session_id, &mut result).await,
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(error = %error, "[DEDUP] falling back to deterministic dedup")
+                }
+            }
+        }
+
         let item_count = result.items.len();
         info!(
             session_id,
@@ -192,32 +216,323 @@ impl AiStage {
         Ok(item_count)
     }
 
+    /// Extract actionable knowledge independently from every chunk. The old
+    /// chunk-summary -> final-prompt path lost specific commands and entire
+    /// topics when hundreds of summaries exceeded the final context budget.
+    /// Keeping structured chunk candidates avoids that lossy bottleneck.
     async fn map_reduce(
         &self,
+        db: &StateDb,
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
     ) -> anyhow::Result<V3ExtractionResult> {
-        let total = chunks.len();
-        let mut chunk_summaries = Vec::new();
-
-        for (idx, (_, text)) in chunks.iter().enumerate() {
-            let sanitized = self.sanitizer.sanitize(text);
-            let prompt = self.fit_to_budget(&make_v3_chunk_prompt(&sanitized, idx, total));
-            // R10: a failed chunk means the map-reduce input is incomplete —
-            // propagate the error instead of fabricating a degraded summary.
-            let resp = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
-            chunk_summaries.push(resp);
+        // Cache successful chunk extractions, not failed/incomplete responses.
+        // Changing the model, prompt version, project or chunk content
+        // invalidates the key automatically.
+        {
+            let conn = db.conn();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
+                cache_key TEXT PRIMARY KEY,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );",
+            )?;
         }
+        // Cached results retain their original slot; uncached chunks are
+        // processed in bounded pairs to avoid queueing the entire session.
+        let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
+        let mut pending: Vec<(usize, String, String)> = Vec::new();
+        let mut cache_hits = 0usize;
+        for (idx, (_, text)) in chunks.iter().enumerate() {
+            use sha2::{Digest, Sha256};
+            let key_material = format!(
+                "knowledge-chunk-v4|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                crate::ai::prompts_v3::PROMPT_VERSION_V3,
+                self.config.base_url,
+                self.config.model,
+                self.config.temperature,
+                self.config.max_tokens,
+                self.config.max_context_tokens,
+                self.config.disable_thinking,
+                session_title.unwrap_or(""),
+                project_name.unwrap_or(""),
+                text
+            );
+            let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
+            let cached: Option<String> = {
+                let conn = db.conn();
+                match conn.query_row(
+                    "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
+                    [&cache_key],
+                    |row| row.get(0),
+                ) {
+                    Ok(value) => Some(value),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            if let Some(result) = cached.and_then(|v| serde_json::from_str(&v).ok()) {
+                cache_hits += 1;
+                results[idx] = Some(result);
+                continue;
+            }
+            let sanitized = self.sanitizer.sanitize(text);
+            let context = format!(
+                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\\n{}",
+                session_title.unwrap_or("未知会话"),
+                project_name.unwrap_or("未知"),
+                sanitized
+            );
+            pending.push((
+                idx,
+                cache_key,
+                self.fit_to_budget(&make_v3_extraction_prompt(&context)),
+            ));
+        }
+        tracing::info!(
+            total_chunks = chunks.len(),
+            cache_hits,
+            llm_calls = pending.len(),
+            "[AI] Chunk cache summary"
+        );
 
-        let title = session_title.unwrap_or("未知会话");
-        // The final prompt concatenates every chunk summary — with hundreds of
-        // chunks this alone can exceed the window (observed: 175 summaries).
-        let final_prompt =
-            self.fit_to_budget(&make_v3_final_prompt(title, project_name, &chunk_summaries));
-        let response = self.client.chat(SYSTEM_PROMPT_V3, &final_prompt).await?;
-        // R10: final parse errors propagate as real failures.
-        parse_v3_result_typed(&response)
+        // Concurrency is intentionally bounded at 2. Shared GPU backends
+        // may not support more concurrent generations; never fan out all jobs.
+        for batch in pending.chunks(2) {
+            let started = Instant::now();
+            let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
+            let responses = if batch.len() == 2 {
+                let second = self.client.chat(SYSTEM_PROMPT_V3, &batch[1].2);
+                let (a, b) = tokio::join!(first, second);
+                vec![a, b]
+            } else {
+                vec![first.await]
+            };
+            // Persist each successful result even if the other request failed,
+            // so the next pipeline retry does not repeat successful work.
+            let mut first_error = None;
+            for (request, response) in batch.iter().zip(responses) {
+                match response.and_then(|text| parse_v3_result_typed(&text)) {
+                    Ok(result) => {
+                        let conn = db.conn();
+                        conn.execute(
+                            "INSERT OR REPLACE INTO ai_chunk_extract_cache
+                             (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
+                            rusqlite::params![
+                                request.1,
+                                serde_json::to_string(&result)?,
+                                chrono::Utc::now().to_rfc3339()
+                            ],
+                        )?;
+                        tracing::info!(
+                            chunk = request.0 + 1,
+                            elapsed_ms = started.elapsed().as_millis(),
+                            items = result.items.len(),
+                            "[AI] Chunk extraction completed"
+                        );
+                        results[request.0] = Some(result);
+                    }
+                    Err(error) => {
+                        tracing::warn!(chunk=request.0+1, error=%error, "[AI] Chunk extraction failed");
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        {
+            let conn = db.conn();
+            conn.execute(
+                "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
+                 (SELECT cache_key FROM ai_chunk_extract_cache
+                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
+                [],
+            )?;
+        }
+        let results: Vec<V3ExtractionResult> = results
+            .into_iter()
+            .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(merge_chunk_knowledge(results))
+    }
+}
+
+/// Conservatively consolidate identical knowledge titles across chunks.
+///
+/// Keep separate titles separate rather than asking a second LLM to invent a
+/// compressed, potentially incomplete session-level rewrite. Preserve all
+/// distinct content/commands/evidence, including details from middle chunks.
+fn merge_chunk_knowledge(results: Vec<V3ExtractionResult>) -> V3ExtractionResult {
+    use std::collections::HashMap;
+
+    let mut merged = V3ExtractionResult::skip("");
+    let mut summaries = Vec::new();
+    let mut keys: HashMap<(String, String), usize> = HashMap::new();
+
+    for result in results {
+        merged.knowledge_score = merged.knowledge_score.max(result.knowledge_score);
+        if !result.session_summary.trim().is_empty() && !summaries.contains(&result.session_summary)
+        {
+            summaries.push(result.session_summary);
+        }
+        if !result.worth_extracting {
+            continue;
+        }
+        for item in result.items {
+            let key = (
+                item.category.trim().to_lowercase(),
+                normalize_knowledge_title(&item.title),
+            );
+            // Without an available embedding + LLM model, only exact
+            // normalized identity is safe to merge automatically.
+            // Semantic variants are handled by SemanticDedup::reconcile.
+            let matching = keys.get(&key).copied();
+            if let Some(index) = matching {
+                let existing: &mut V3KnowledgeItem = &mut merged.items[index];
+                if !item.content.trim().is_empty()
+                    && !existing.content.contains(item.content.trim())
+                {
+                    existing.content.push_str("\n\n---\n\n");
+                    existing.content.push_str(&item.content);
+                }
+                // Preserve distinct summaries and the problem statement too,
+                // not just the Markdown body and auxiliary array fields.
+                append_distinct_text(&mut existing.summary, &item.summary, "\n");
+                if let Some(problem) = item.problem.as_deref() {
+                    let existing_problem = existing.problem.get_or_insert_with(String::new);
+                    append_distinct_text(existing_problem, problem, "\n");
+                }
+                merge_vec(&mut existing.tags, item.tags);
+                merge_vec(
+                    existing.root_causes.get_or_insert_with(Vec::new),
+                    item.root_causes.unwrap_or_default(),
+                );
+                merge_vec(
+                    existing.solutions.get_or_insert_with(Vec::new),
+                    item.solutions.unwrap_or_default(),
+                );
+                merge_optional_vec(&mut existing.key_commands, item.key_commands);
+                merge_optional_vec(&mut existing.key_files, item.key_files);
+                merge_optional_vec(&mut existing.decisions, item.decisions);
+                existing.confidence = existing.confidence.max(item.confidence);
+                keys.insert(key, index);
+            } else {
+                keys.insert(key, merged.items.len());
+                merged.items.push(item);
+            }
+        }
+    }
+    merged.session_summary = summaries.join("；");
+    merged.worth_extracting = !merged.items.is_empty();
+    merged
+}
+
+/// A deliberately conservative content-aware duplicate rule. This is not
+/// an embedding substitute: only coalesce independently named items when
+/// their *problem and technical evidence* agree. Related but different
+/// failures should remain separate knowledge records.
+#[cfg(test)]
+fn same_engineering_knowledge(a: &V3KnowledgeItem, b: &V3KnowledgeItem) -> bool {
+    if a.category != b.category {
+        return false;
+    }
+    let title_sim = bigram_overlap(
+        &normalize_knowledge_title(&a.title),
+        &normalize_knowledge_title(&b.title),
+    );
+    if title_sim < 0.65 {
+        return false;
+    }
+    let problem_agrees = match (&a.problem, &b.problem) {
+        (Some(x), Some(y)) if !x.trim().is_empty() && !y.trim().is_empty() => {
+            bigram_overlap(&normalize_knowledge_title(x), &normalize_knowledge_title(y)) >= 0.80
+        }
+        _ => false,
+    };
+    let evidence_agrees = shared_evidence(
+        a.root_causes.as_deref().unwrap_or(&[]),
+        b.root_causes.as_deref().unwrap_or(&[]),
+    ) || shared_evidence(
+        a.solutions.as_deref().unwrap_or(&[]),
+        b.solutions.as_deref().unwrap_or(&[]),
+    ) || shared_evidence(
+        a.key_commands.as_deref().unwrap_or(&[]),
+        b.key_commands.as_deref().unwrap_or(&[]),
+    );
+    problem_agrees && evidence_agrees
+}
+
+#[cfg(test)]
+fn shared_evidence(a: &[String], b: &[String]) -> bool {
+    a.iter().any(|x| {
+        b.iter().any(|y| {
+            x.chars().count() >= 8
+                && y.chars().count() >= 8
+                && bigram_overlap(&normalize_knowledge_title(x), &normalize_knowledge_title(y))
+                    >= 0.85
+        })
+    })
+}
+
+#[cfg(test)]
+fn bigram_overlap(a: &str, b: &str) -> f32 {
+    use std::collections::HashSet;
+    let ngrams = |s: &str| -> HashSet<String> {
+        let chars: Vec<char> = s.chars().collect();
+        chars
+            .windows(2)
+            .map(|w| w.iter().copied().collect())
+            .collect()
+    };
+    let x = ngrams(a);
+    let y = ngrams(b);
+    if x.is_empty() || y.is_empty() {
+        return 0.0;
+    }
+    let union = x.union(&y).count();
+    x.intersection(&y).count() as f32 / union as f32
+}
+
+/// Normalize spacing and ASCII/CJK punctuation without guessing semantic
+/// equivalence. Semantic merging needs source-linked evidence and validation.
+fn normalize_knowledge_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|ch| {
+            !ch.is_whitespace() && !matches!(ch, ':' | '：' | '-' | '—' | '_' | '·' | '。' | '.')
+        })
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn append_distinct_text(existing: &mut String, extra: &str, separator: &str) {
+    let extra = extra.trim();
+    if extra.is_empty() || existing.contains(extra) {
+        return;
+    }
+    if !existing.is_empty() {
+        existing.push_str(separator);
+    }
+    existing.push_str(extra);
+}
+
+fn merge_vec(target: &mut Vec<String>, incoming: Vec<String>) {
+    for value in incoming {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<String>>) {
+    if let Some(values) = incoming {
+        merge_vec(target.get_or_insert_with(Vec::new), values);
     }
 }
 
@@ -1111,5 +1426,94 @@ mod tests {
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].summary, "条目缺摘要"); // falls back to title
         assert_eq!(result.items[1].content, "有摘要没内容"); // falls back to summary
+    }
+    #[test]
+    fn near_duplicate_requires_same_problem_and_evidence() {
+        let make = |title: &str, problem: &str, cause: &str| -> V3KnowledgeItem {
+            serde_json::from_value(serde_json::json!({
+                "title": title, "category": "troubleshooting",
+                "summary": "排查总结", "content": "细节", "problem": problem,
+                "root_causes": [cause], "solutions": [], "key_commands": [],
+                "key_files": [], "decisions": [], "tags": [], "confidence": 0.8
+            }))
+            .unwrap()
+        };
+        let a = make(
+            "Redis连接池超时排查",
+            "Redis连接池获取连接超时",
+            "连接池最大连接数配置过低",
+        );
+        let b = make(
+            "Redis连接池超时问题",
+            "Redis连接池获取连接超时",
+            "连接池最大连接数配置过低",
+        );
+        let c = make(
+            "Redis连接池超时问题",
+            "Redis连接池获取连接超时",
+            "由于网络防火墙导致连接失败",
+        );
+        assert!(same_engineering_knowledge(&a, &b));
+        assert!(!same_engineering_knowledge(&a, &c));
+    }
+
+    #[test]
+    fn normalizes_safe_title_variants_without_merging_unrelated_topics() {
+        assert_eq!(
+            normalize_knowledge_title("Redis：连接异常"),
+            normalize_knowledge_title("Redis-连接异常")
+        );
+        assert_ne!(
+            normalize_knowledge_title("Redis连接异常"),
+            normalize_knowledge_title("Redis连接池优化")
+        );
+    }
+
+    #[test]
+    fn chunk_merge_keeps_distinct_topics_and_middle_chunk_evidence() {
+        let make_item = |title: &str, content: &str, command: &str| {
+            serde_json::from_value::<V3KnowledgeItem>(serde_json::json!({
+                "title": title, "category": "troubleshooting",
+                "summary": content, "content": content, "problem": null,
+                "root_causes": [], "solutions": [],
+                "key_commands": [command], "key_files": [],
+                "decisions": [], "tags": ["Rust"], "confidence": 0.8
+            }))
+            .unwrap()
+        };
+        let result = merge_chunk_knowledge(vec![
+            V3ExtractionResult {
+                session_summary: "前段".into(),
+                knowledge_score: 0.8,
+                worth_extracting: true,
+                items: vec![make_item("数据库性能", "第一段证据", "EXPLAIN")],
+            },
+            V3ExtractionResult {
+                session_summary: "中段".into(),
+                knowledge_score: 0.9,
+                worth_extracting: true,
+                items: vec![
+                    make_item("数据库性能", "中段的重要 SQL", "ANALYZE"),
+                    make_item("缓存设计", "独立问题", "redis-cli"),
+                ],
+            },
+            V3ExtractionResult {
+                session_summary: "尾段".into(),
+                knowledge_score: 0.3,
+                worth_extracting: false,
+                items: vec![],
+            },
+        ]);
+        assert_eq!(result.items.len(), 2);
+        assert!(result.worth_extracting);
+        assert_eq!(result.knowledge_score, 0.9);
+        let first = &result.items[0];
+        assert!(first.content.contains("第一段证据"));
+        assert!(first.content.contains("中段的重要 SQL"));
+        assert_eq!(
+            first.key_commands.as_ref().unwrap(),
+            &vec!["EXPLAIN".to_string(), "ANALYZE".to_string()]
+        );
+        assert!(result.items[1].content.contains("独立问题"));
     }
 }

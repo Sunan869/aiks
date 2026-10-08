@@ -404,6 +404,39 @@ impl SyncEngine {
             }
         };
 
+        // OpenCode uses one shared SQLite file for every session. Fast-path
+        // unchanged, already-synced sessions BEFORE loading large part.data
+        // payloads. Only trust the timestamp when present, and force a full
+        // content-hash verification at least once every 10 minutes to catch
+        // providers which update parts without bumping session.time_updated.
+        if source == "opencode" && !opts.overwrite && !opts.dry_run {
+            if let (Some(old), Some(source_time)) = (existing.as_ref(), summary.updated_at.as_ref())
+            {
+                let source_stamp = source_time.to_rfc3339();
+                let verified_recently = chrono::DateTime::parse_from_rfc3339(&old.updated_at)
+                    .map(|checked| {
+                        chrono::Utc::now()
+                            .signed_duration_since(checked.with_timezone(&chrono::Utc))
+                            < chrono::Duration::minutes(10)
+                    })
+                    .unwrap_or(false);
+                if verified_recently
+                    && old.source_updated_at.as_deref() == Some(source_stamp.as_str())
+                    && old.parser_version.as_deref() == Some("opencode-sqlite-v1")
+                    && !old.is_missing
+                {
+                    if let Ok(Some(target)) = sync_target_repo.find(old.id, "siyuan") {
+                        if matches!(target.status, SyncStatus::Synced | SyncStatus::Unchanged)
+                            && target.synced_hash.as_deref() == old.content_hash.as_deref()
+                            && old.content_hash.is_some()
+                        {
+                            return SyncOutcome::Unchanged;
+                        }
+                    }
+                }
+            }
+        }
+
         let provider = match registry.get(summary.source) {
             Some(p) => p,
             None => {
@@ -631,7 +664,7 @@ impl SyncEngine {
             }
         }
 
-        let markdown = context.renderer.render(&session);
+        let mut markdown = context.renderer.render(&session);
         let notebook_id = match context.notebook_id {
             Some(id) => id,
             None => {
@@ -647,6 +680,45 @@ impl SyncEngine {
             session.title.as_deref(),
             session.started_at.as_ref(),
         );
+
+        // Oversized Sessions must not be sent to one createDocWithMd request.
+        // Keep the original root mapping as an index and persist each page's
+        // remote ID/hash independently. Earlier volumes survive retries.
+        let has_volumes = match SiYuanSink::has_session_volumes(db, db_session_id) {
+            Ok(value) => value,
+            Err(error) => {
+                return SyncOutcome::Failed {
+                    error: format!("check Session volumes: {error}"),
+                }
+            }
+        };
+        if markdown.len() > 5 * 1024 * 1024 || has_volumes {
+            match sink
+                .sync_session_volumes(
+                    db,
+                    db_session_id,
+                    source,
+                    session_id,
+                    parser_version,
+                    notebook_id,
+                    &doc_path,
+                    &markdown,
+                )
+                .await
+            {
+                Ok(index_markdown) => markdown = index_markdown,
+                Err(error) => {
+                    let message = format!("sync Session volumes: {error:#}");
+                    let _ = sync_target_repo.mark_failed(
+                        db_session_id,
+                        "siyuan",
+                        &message,
+                        SiYuanSink::is_retryable_write_error(&error),
+                    );
+                    return SyncOutcome::Failed { error: message };
+                }
+            }
+        }
 
         let doc_id = if let Some(doc) = &existing_doc {
             if remote_missing {

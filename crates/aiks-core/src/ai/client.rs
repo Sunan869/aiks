@@ -204,7 +204,17 @@ impl AiClient {
                 .json(&req)
                 .send()
                 .await
-                .context("AI HTTP request failed")?;
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "AI HTTP request failed (model={}, endpoint={}, timeout={}s, is_timeout={}, is_connect={}): {:#}",
+                        self.config.model,
+                        url,
+                        self.config.timeout_seconds,
+                        error.is_timeout(),
+                        error.is_connect(),
+                        error
+                    )
+                })?;
 
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
