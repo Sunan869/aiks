@@ -46,7 +46,7 @@ impl Default for AiModelConfig {
             // 15-20 KB of pure JSON; 4096 tokens truncated mid-array
             // (observed: "EOF while parsing a list at line 216").
             max_tokens: 8192,
-            timeout_seconds: 120,
+            timeout_seconds: 300,
             min_knowledge_score: 0.6,
             chunk_size_messages: 40,
             max_concurrent: 1,
