@@ -8,6 +8,7 @@ pub mod knowledge_repo;
 pub mod orchestrator;
 pub mod repo;
 pub mod search;
+pub mod semantic_dedup;
 pub mod session_chunker;
 pub mod status;
 pub mod worker;

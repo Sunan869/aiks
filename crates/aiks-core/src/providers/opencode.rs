@@ -370,11 +370,18 @@ impl super::SessionProvider for OpenCodeProvider {
                  WHERE session_id = ?1",
             )?;
             let part_rows = part_stmt.query_map([session_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
             })?;
             for row in part_rows {
                 let (message_id, data, time_created) = row?;
-                parts_map.entry(message_id).or_default().push((time_created, data));
+                parts_map
+                    .entry(message_id)
+                    .or_default()
+                    .push((time_created, data));
             }
         }
         for parts in parts_map.values_mut() {
