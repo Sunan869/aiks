@@ -1181,4 +1181,47 @@ mod tests {
         assert_eq!(result.items[0].summary, "条目缺摘要"); // falls back to title
         assert_eq!(result.items[1].content, "有摘要没内容"); // falls back to summary
     }
+    #[test]
+    fn chunk_merge_keeps_distinct_topics_and_middle_chunk_evidence() {
+        let make_item = |title: &str, content: &str, command: &str| {
+            serde_json::from_value::<V3KnowledgeItem>(serde_json::json!({
+                "title": title, "category": "troubleshooting",
+                "summary": content, "content": content, "problem": null,
+                "root_causes": [], "solutions": [],
+                "key_commands": [command], "key_files": [],
+                "decisions": [], "tags": ["Rust"], "confidence": 0.8
+            })).unwrap()
+        };
+        let result = merge_chunk_knowledge(vec![
+            V3ExtractionResult {
+                session_summary: "前段".into(), knowledge_score: 0.8,
+                worth_extracting: true,
+                items: vec![make_item("数据库性能", "第一段证据", "EXPLAIN")],
+            },
+            V3ExtractionResult {
+                session_summary: "中段".into(), knowledge_score: 0.9,
+                worth_extracting: true,
+                items: vec![
+                    make_item("数据库性能", "中段的重要 SQL", "ANALYZE"),
+                    make_item("缓存设计", "独立问题", "redis-cli"),
+                ],
+            },
+            V3ExtractionResult {
+                session_summary: "尾段".into(), knowledge_score: 0.3,
+                worth_extracting: false, items: vec![],
+            },
+        ]);
+        assert_eq!(result.items.len(), 2);
+        assert!(result.worth_extracting);
+        assert_eq!(result.knowledge_score, 0.9);
+        let first = &result.items[0];
+        assert!(first.content.contains("第一段证据"));
+        assert!(first.content.contains("中段的重要 SQL"));
+        assert_eq!(
+            first.key_commands.as_ref().unwrap(),
+            &vec!["EXPLAIN".to_string(), "ANALYZE".to_string()]
+        );
+        assert!(result.items[1].content.contains("独立问题"));
+    }
+
 }
