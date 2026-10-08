@@ -265,7 +265,8 @@ impl AiStage {
                 let conn = db.conn();
                 match conn.query_row(
                     "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
-                    [&cache_key], |row| row.get(0)
+                    [&cache_key],
+                    |row| row.get(0),
                 ) {
                     Ok(value) => Some(value),
                     Err(rusqlite::Error::QueryReturnedNoRows) => None,
@@ -284,10 +285,18 @@ impl AiStage {
                 project_name.unwrap_or("未知"),
                 sanitized
             );
-            pending.push((idx, cache_key, self.fit_to_budget(&make_v3_extraction_prompt(&context))));
+            pending.push((
+                idx,
+                cache_key,
+                self.fit_to_budget(&make_v3_extraction_prompt(&context)),
+            ));
         }
-        tracing::info!(total_chunks = chunks.len(), cache_hits, llm_calls = pending.len(),
-            "[AI] Chunk cache summary");
+        tracing::info!(
+            total_chunks = chunks.len(),
+            cache_hits,
+            llm_calls = pending.len(),
+            "[AI] Chunk cache summary"
+        );
 
         // Concurrency is intentionally bounded at 2. Shared GPU backends
         // may not support more concurrent generations; never fan out all jobs.
@@ -311,30 +320,43 @@ impl AiStage {
                         conn.execute(
                             "INSERT OR REPLACE INTO ai_chunk_extract_cache
                              (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
-                            rusqlite::params![request.1, serde_json::to_string(&result)?,
-                                chrono::Utc::now().to_rfc3339()],
+                            rusqlite::params![
+                                request.1,
+                                serde_json::to_string(&result)?,
+                                chrono::Utc::now().to_rfc3339()
+                            ],
                         )?;
-                        tracing::info!(chunk=request.0+1, elapsed_ms=started.elapsed().as_millis(),
-                            items=result.items.len(), "[AI] Chunk extraction completed");
+                        tracing::info!(
+                            chunk = request.0 + 1,
+                            elapsed_ms = started.elapsed().as_millis(),
+                            items = result.items.len(),
+                            "[AI] Chunk extraction completed"
+                        );
                         results[request.0] = Some(result);
                     }
                     Err(error) => {
                         tracing::warn!(chunk=request.0+1, error=%error, "[AI] Chunk extraction failed");
-                        if first_error.is_none() { first_error = Some(error); }
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
                     }
                 }
             }
-            if let Some(error) = first_error { return Err(error); }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
         }
         {
             let conn = db.conn();
             conn.execute(
                 "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
                  (SELECT cache_key FROM ai_chunk_extract_cache
-                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)", [],
+                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
+                [],
             )?;
         }
-        let results: Vec<V3ExtractionResult> = results.into_iter()
+        let results: Vec<V3ExtractionResult> = results
+            .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(merge_chunk_knowledge(results))
