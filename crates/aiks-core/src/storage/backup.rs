@@ -192,13 +192,29 @@ pub fn load_and_verify_backup(
     // Detect incomplete migrations, not merely the presence of table names.
     // Check the columns needed by the live synchronization and pipeline code.
     for (table, columns) in [
-        ("source_session", &["id", "source", "external_session_id", "content_hash"][..]),
+        (
+            "source_session",
+            &["id", "source", "external_session_id", "content_hash"][..],
+        ),
         ("sync_target", &["session_id", "sink", "status"][..]),
-        ("pipeline_run", &["id", "session_id", "status", "pipeline_version"][..]),
-        ("pipeline_job", &["id", "session_id", "pipeline_run_id", "status", "generation"][..]),
+        (
+            "pipeline_run",
+            &["id", "session_id", "status", "pipeline_version"][..],
+        ),
+        (
+            "pipeline_job",
+            &[
+                "id",
+                "session_id",
+                "pipeline_run_id",
+                "status",
+                "generation",
+            ][..],
+        ),
     ] {
         let mut query = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-        let actual = query.query_map([], |row| row.get::<_, String>(1))?
+        let actual = query
+            .query_map([], |row| row.get::<_, String>(1))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for column in columns {
             if !actual.iter().any(|name| name == column) {
@@ -208,11 +224,10 @@ pub fn load_and_verify_backup(
     }
     // Foreign-key validation uses a read-only transaction, so it does not
     // change the detached snapshot or attempt to migrate it.
-    let invalid: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_foreign_key_check",
-        [],
-        |row| row.get(0),
-    )?;
+    let invalid: i64 =
+        conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
     if invalid != 0 {
         bail!("backup has {invalid} foreign-key violations");
     }
@@ -380,7 +395,30 @@ mod tests {
         let manifest_path = dir.path().join("manifest.json");
         save_backup_manifest(&manifest_path, &manifest).unwrap();
         let error = load_and_verify_backup(&snapshot, &manifest_path).unwrap_err();
-        assert!(error.to_string().contains("source_session.external_session_id"));
+        assert!(error
+            .to_string()
+            .contains("source_session.external_session_id"));
+        verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[test]
+    fn incompatible_backup_with_broken_foreign_key_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = dir.path().join("invalid.sqlite");
+        let connection = Connection::open(&snapshot).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE parent (id INTEGER PRIMARY KEY);
+                 CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));
+                 INSERT INTO child(parent_id) VALUES (999);",
+            )
+            .unwrap();
+        drop(connection);
+        let manifest = inspect_sqlite_backup(&snapshot, "invalid.sqlite".to_string()).unwrap();
+        let file = dir.path().join("backup.json");
+        save_backup_manifest(&file, &manifest).unwrap();
+        let error = load_and_verify_backup(&snapshot, &file).unwrap_err();
+        assert!(error.to_string().contains("backup schema incompatible"));
         verify_sqlite_backup(&snapshot, &manifest).unwrap();
     }
 
