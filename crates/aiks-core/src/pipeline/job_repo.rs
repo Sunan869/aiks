@@ -319,3 +319,104 @@ impl<'a> PipelineJobRepo<'a> {
         Ok(changed)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    fn setup() -> (tempfile::TempDir, Arc<StateDb>, PipelineJob) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, content_hash, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'retry-race', 'hash-v1', 'now', 'now', 'now')
+                 RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, status, pipeline_version, created_at, updated_at)
+                 VALUES ('retry-run', ?1, 'FAILED', 'v3', 'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+        (
+            dir,
+            db,
+            PipelineJob {
+                pipeline_run_id: "retry-run".to_string(),
+                session_id: id,
+                session_external_id: "retry-race".to_string(),
+                source: "codex".to_string(),
+                session_title: None,
+                project_name: None,
+            },
+        )
+    }
+
+    #[test]
+    fn concurrent_submissions_create_exactly_one_active_job() {
+        let (_dir, db, job) = setup();
+        let barrier = Arc::new(Barrier::new(8));
+        let mut threads = Vec::new();
+        for _ in 0..8 {
+            let db = Arc::clone(&db);
+            let job = job.clone();
+            let barrier = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                PipelineJobRepo::new(&db).enqueue(&job).unwrap()
+            }));
+        }
+        let results: Vec<_> = threads.into_iter().map(|task| task.join().unwrap()).collect();
+        assert_eq!(results.iter().filter(|item| item.inserted).count(), 1);
+        assert!(results
+            .iter()
+            .all(|item| item.durable_job_id == results[0].durable_job_id));
+        let active: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_job
+                 WHERE session_id = ?1 AND status IN ('PENDING', 'RUNNING')",
+                params![job.session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, 1);
+    }
+
+    #[test]
+    fn completed_failure_can_be_retried_without_resurrecting_old_job() {
+        let (_dir, db, job) = setup();
+        let repo = PipelineJobRepo::new(&db);
+        let first = repo.enqueue(&job).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'FAILED' WHERE id = ?1",
+                params![first.durable_job_id],
+            )
+            .unwrap();
+        let second = repo.enqueue(&job).unwrap();
+        assert!(second.inserted);
+        assert_ne!(first.durable_job_id, second.durable_job_id);
+        assert!(!repo.enqueue(&job).unwrap().inserted);
+        let failed: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_job WHERE status = 'FAILED'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(failed, 1);
+    }
+}
