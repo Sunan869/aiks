@@ -130,7 +130,7 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                                 message = "temporary attrs failure";
                             }
                             Value::Null
-                        },
+                        }
                         _ => Value::Null,
                     };
                     json!({"code":code, "msg":message, "data":data}).to_string()
@@ -283,7 +283,9 @@ async fn shrinking_session_retains_previous_volumes_and_reports_them() {
     assert_eq!(remote.lock().unwrap().creates, created);
     assert_eq!(remote.lock().unwrap().documents.len(), created);
     assert_eq!(
-        sink.sync_session_volumes(request(&db, short)).await.unwrap(),
+        sink.sync_session_volumes(request(&db, short))
+            .await
+            .unwrap(),
         updated
     );
     server.abort();
