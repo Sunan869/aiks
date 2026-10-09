@@ -54,14 +54,21 @@ impl<'a> TaskCenterRepo<'a> {
                  AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
                 (SELECT COUNT(*) FROM sync_target WHERE sink = 'siyuan'
                  AND (status LIKE 'FAILED%' OR status = 'CONFLICT')),
-                (SELECT COUNT(*) FROM source_session ss WHERE EXISTS (
-                    SELECT 1 FROM pipeline_run pr WHERE pr.session_id = ss.id
-                    AND pr.pipeline_version = 'v3' AND pr.status = 'FAILED'
-                 ) OR EXISTS (
-                    SELECT 1 FROM pipeline_job pj WHERE pj.session_id = ss.id
-                    AND pj.status = 'FAILED'
-                    AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = ss.id)
-                 ))",
+                (SELECT COUNT(*) FROM source_session ss WHERE
+                    (EXISTS (
+                        SELECT 1 FROM pipeline_job pj WHERE pj.session_id = ss.id
+                        AND pj.status = 'FAILED'
+                        AND pj.generation = (
+                            SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = ss.id
+                        )
+                    ) OR (
+                        NOT EXISTS (
+                            SELECT 1 FROM pipeline_job pj WHERE pj.session_id = ss.id
+                        ) AND EXISTS (
+                            SELECT 1 FROM pipeline_run pr WHERE pr.session_id = ss.id
+                            AND pr.pipeline_version = 'v3' AND pr.status = 'FAILED'
+                        )
+                    )))",
             [],
             |row| {
                 Ok(TaskCenterStats {
@@ -144,6 +151,56 @@ mod tests {
         let repo = TaskCenterRepo::new(&db);
         assert_eq!(repo.list_recent(1).unwrap().len(), 1);
         assert_eq!(repo.stats().unwrap().total_sessions, 5);
+    }
+
+    #[test]
+    fn latest_generation_supersedes_old_failure_in_statistics() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'generation-stats', 'now', 'now', 'now') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, status, pipeline_version, created_at, updated_at)
+                 VALUES ('run-stats', ?1, 'FAILED', 'v3', 'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+        let repo = TaskCenterRepo::new(&db);
+        assert_eq!(repo.stats().unwrap().ai_issues, 1);
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_job
+                 (id, source, external_session_id, generation, status,
+                  created_at, updated_at, session_id, pipeline_run_id)
+                 VALUES ('old-failure', 'codex', 'generation-stats', 1, 'FAILED',
+                         'now', 'now', ?1, 'run-stats')",
+                params![id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_job
+                 (id, source, external_session_id, generation, status,
+                  created_at, updated_at, session_id, pipeline_run_id)
+                 VALUES ('new-queue', 'codex', 'generation-stats', 2, 'PENDING',
+                         'now', 'now', ?1, 'run-stats')",
+                params![id],
+            )
+            .unwrap();
+        let stats = repo.stats().unwrap();
+        assert_eq!(stats.ai_issues, 0);
+        assert_eq!(stats.pending, 1);
+        assert_eq!(stats.total_sessions, 1);
     }
 
     #[test]

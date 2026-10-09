@@ -69,6 +69,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -92,6 +93,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
       setTasks(t);
       setTaskStats(totals);
       setLoadError("");
+      setLastSuccessfulRefresh(new Date().toLocaleTimeString());
     } catch (error) {
       setLoadError("无法刷新任务状态：" + String(error));
     } finally {
@@ -164,6 +166,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
         {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
+        {lastSuccessfulRefresh && <p className="text-xs text-gray-400 mb-2">最近刷新：{lastSuccessfulRefresh}</p>}
         <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
           <span>总会话 {taskStats?.total_sessions ?? "—"}</span>
           <span>待处理 {taskStats?.pending ?? "—"}</span>
