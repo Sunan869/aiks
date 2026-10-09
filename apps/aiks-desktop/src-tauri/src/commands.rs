@@ -673,6 +673,19 @@ pub async fn retry_failed_ai_task(
         .map_err(|error| error.to_string())
 }
 
+/// Cancel only AI work waiting in the durable queue, never running workers.
+#[tauri::command]
+pub async fn cancel_pending_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::job_repo::PipelineJobRepo::new(&db)
+        .cancel_pending_for_session(session_id)
+        .map_err(|error| error.to_string())
+}
+
 // ===== V3 Pipeline Commands =====
 
 /// List pipeline runs for the Processing Center page

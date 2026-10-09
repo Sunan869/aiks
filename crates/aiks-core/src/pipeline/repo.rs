@@ -378,13 +378,15 @@ mod retry_tests {
                 "SELECT status, source_hash, error_message, error_stage, finished_at
                  FROM pipeline_run WHERE id = ?1",
                 params![run_id],
-                |row| Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                )),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .unwrap();
         assert_eq!(status, "DISCOVERED");

@@ -307,6 +307,23 @@ impl<'a> PipelineJobRepo<'a> {
         Ok(count > 0)
     }
 
+    /// Atomically cancel queued work; never cancel a claimed worker.
+    pub fn cancel_pending_for_session(&self, session_id: i64) -> anyhow::Result<bool> {
+        let conn = self.db.conn();
+        let changed = conn.execute(
+            "UPDATE pipeline_job
+             SET status = 'CANCELLED', available_at = NULL, lease_until = NULL,
+                 updated_at = ?1
+             WHERE session_id = ?2 AND status = 'PENDING'
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_job running
+                   WHERE running.session_id = ?2 AND running.status = 'RUNNING'
+               )",
+            params![Utc::now().to_rfc3339(), session_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn recover_expired_leases(&self) -> anyhow::Result<usize> {
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
@@ -439,4 +456,34 @@ mod tests {
             .unwrap();
         assert_eq!(current_status, "PENDING");
     }
+
+    #[test]
+    fn cancel_pending_preserves_running_work_and_history() {
+        let (_dir, db, job) = setup();
+        let repo = PipelineJobRepo::new(&db);
+        let first = repo.enqueue(&job).unwrap();
+        assert!(repo.cancel_pending_for_session(job.session_id).unwrap());
+        assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
+        let status: String = db.conn().query_row(
+            "SELECT status FROM pipeline_job WHERE id = ?1",
+            params![first.durable_job_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(status, "CANCELLED");
+        assert!(repo.claim_next().unwrap().is_none());
+        let second = repo.enqueue(&job).unwrap();
+        assert!(second.inserted);
+        db.conn().execute(
+            "UPDATE pipeline_job SET status = 'RUNNING' WHERE id = ?1",
+            params![second.durable_job_id],
+        ).unwrap();
+        assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
+        let running: String = db.conn().query_row(
+            "SELECT status FROM pipeline_job WHERE id = ?1",
+            params![second.durable_job_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(running, "RUNNING");
+    }
+
 }

@@ -35,6 +35,7 @@ export interface AiksApi {
   getPipelineStats(): Promise<PipelineStats>;
   getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
   retryFailedAiTask(sessionId: number): Promise<string>;
+  cancelPendingAiTask(sessionId: number): Promise<boolean>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
