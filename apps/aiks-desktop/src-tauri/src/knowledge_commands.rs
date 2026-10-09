@@ -273,3 +273,29 @@ pub async fn publish_knowledge(
     }
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn add_knowledge_feedback(
+    knowledge_id: String,
+    kind: String,
+    note: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeFeedback, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .add(&knowledge_id, &kind, &note)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_knowledge_feedback(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::KnowledgeFeedback>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .list(&knowledge_id)
+        .map_err(|error| error.to_string())
+}
