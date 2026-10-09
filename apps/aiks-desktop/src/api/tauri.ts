@@ -14,13 +14,13 @@ import type {
   TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  ProjectOverview,
+  ProjectMemorySnapshot,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
   KnowledgeRelation,
   KnowledgeRelationType,
   KnowledgeRelationStatus,
-  ProjectOverview,
-  ProjectMemorySnapshot,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -38,10 +38,6 @@ import type {
 } from "./types";
 
 export class TauriAiksApi implements AiksApi {
-  async getProjectsMemory(): Promise<ProjectOverview[]> { return invoke('list_project_memory'); }
-  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> { return invoke('get_project_memory', { projectId }); }
-  async createProjectReview(projectId: string, from: string, through: string): Promise<string> { return invoke('create_project_review', { projectId, from, through }); }
-  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> { return invoke('create_agent_context_pack', { projectId, maxTokens }); }
   async getOverview(): Promise<Overview> {
     const [fullStatus, aiStatus, pipelineStats] = await Promise.all([
       invoke<FullStatus>("get_full_status"),
@@ -132,6 +128,10 @@ export class TauriAiksApi implements AiksApi {
       offset: opts?.offset,
     });
   }
+  async getProjectMemories(): Promise<ProjectOverview[]> { return invoke("list_project_memory"); }
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> { return invoke("get_project_memory", { projectId }); }
+  async createProjectReview(projectId: string, from: string, through: string): Promise<string> { return invoke("create_project_review", { projectId, from, through }); }
+  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens }); }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
   async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }

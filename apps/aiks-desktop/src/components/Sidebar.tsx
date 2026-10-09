@@ -19,6 +19,7 @@ const icons: Record<Page, ElementType> = {
   overview: LayoutDashboard,
   sessions: FileText,
   knowledge: BookOpen,
+  projects: GitBranch,
   projects: Folder,
   processing: GitBranch,
   sources: Database,

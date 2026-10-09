@@ -208,6 +208,50 @@ export class MockAiksApi implements AiksApi {
     return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
   }
 
+  async getProjectMemories(): Promise<ProjectOverview[]> {
+    await delay();
+    const groups = new Map<string, ProjectOverview>();
+    for (const session of sessions) {
+      const key = session.project_path || "unresolved:" + session.source + ":" + session.session_id;
+      const project = groups.get(key) || {
+        id: key, title: session.project_name || session.title || session.session_id,
+        verified_path: Boolean(session.project_path), session_count: 0, knowledge_count: 0,
+        sources: [], last_updated_at: session.updated_at || "",
+      };
+      project.session_count++;
+      if (!project.sources.includes(session.source)) project.sources.push(session.source);
+      if ((session.updated_at || "") > project.last_updated_at) project.last_updated_at = session.updated_at || "";
+      groups.set(key, project);
+    }
+    for (const item of knowledge) {
+      const group = Array.from(groups.values()).find(value => value.title === item.project_name);
+      if (group) group.knowledge_count++;
+    }
+    return Array.from(groups.values()).sort((a,b) => b.last_updated_at.localeCompare(a.last_updated_at));
+  }
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> {
+    const project = (await this.getProjectMemories()).find(item => item.id === projectId);
+    if (!project) throw new Error("Project not found");
+    const entries = knowledge.filter(item => item.project_name === project.title).slice(0, 200).map(item => ({
+      knowledge_id: item.id, session_id: item.session_id ?? 0,
+      source: "codex", session_external_id: String(item.session_id ?? ""),
+      title: item.title, category: item.category, summary: item.summary,
+      updated_at: item.updated_at, feedback_status: null,
+    }));
+    return { project, entries, truncated: false };
+  }
+  async createProjectReview(projectId: string, from: string, through: string): Promise<string> {
+    const snapshot = await this.getProjectMemory(projectId);
+    if (from > through) throw new Error("Invalid date range");
+    const items = snapshot.entries.filter(item => item.updated_at.slice(0,10) >= from && item.updated_at.slice(0,10) <= through);
+    return "# " + snapshot.project.title + " · 工作回顾\\n\\n" + items.map(item => "- " + item.title + "（" + item.knowledge_id + "）").join("\\n");
+  }
+  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> {
+    const snapshot = await this.getProjectMemory(projectId);
+    const selected = snapshot.entries.filter(item => item.feedback_status !== "incorrect" && item.feedback_status !== "outdated");
+    return ("# " + snapshot.project.title + " · Agent 背景预览\\n\\n" + selected.map(item => "## " + item.title + "\\n" + item.summary + "\\n来源：" + item.knowledge_id).join("\\n\\n")).slice(0, Math.max(256, maxTokens) * 3);
+  }
+
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {
     await delay();
     const item = knowledge.find(k => k.id === knowledgeId);

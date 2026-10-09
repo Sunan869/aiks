@@ -9,13 +9,13 @@ import type {
   TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  ProjectOverview,
+  ProjectMemorySnapshot,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
   KnowledgeRelation,
   KnowledgeRelationType,
   KnowledgeRelationStatus,
-  ProjectOverview,
-  ProjectMemorySnapshot,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -36,10 +36,6 @@ import type { RagAnswer, RagAskRequest } from "./rag";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
-  getProjectsMemory(): Promise<ProjectOverview[]>;
-  getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
-  createProjectReview(projectId: string, from: string, through: string): Promise<string>;
-  createAgentContextPack(projectId: string, maxTokens: number): Promise<string>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
   importShareUrl(url: string): Promise<ShareImportResult>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
@@ -52,6 +48,10 @@ export interface AiksApi {
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
+  getProjectMemories(): Promise<ProjectOverview[]>;
+  getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
+  createProjectReview(projectId: string, from: string, through: string): Promise<string>;
+  createAgentContextPack(projectId: string, maxTokens: number): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
   getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
   getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;
