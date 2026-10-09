@@ -411,11 +411,13 @@ mod tests {
         // schema remains present so the FK checker, not the schema gate,
         // must detect the invalid reference.
         let connection = Connection::open(&snapshot).unwrap();
-        connection.execute_batch(
-            "PRAGMA foreign_keys=OFF;
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
              INSERT INTO sync_target(session_id, sink, status)
              VALUES (999999, 'siyuan', 'PENDING');",
-        ).unwrap();
+            )
+            .unwrap();
         drop(connection);
         let manifest = inspect_sqlite_backup(&snapshot, "invalid.sqlite".to_string()).unwrap();
         let file = dir.path().join("backup.json");
@@ -423,11 +425,25 @@ mod tests {
         let error = load_and_verify_backup(&snapshot, &file).unwrap_err();
         assert!(error.to_string().contains("foreign-key violations"));
         verify_sqlite_backup(&snapshot, &manifest).unwrap();
-        assert_eq!(db.conn().query_row(
-            "SELECT COUNT(*) FROM sync_target",
+        let snapshot_violations: i64 = Connection::open_with_flags(
+            &snapshot,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_check",
             [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap(), 0);
+            |row| row.get(0),
+        )
+        .unwrap();
+        assert_eq!(snapshot_violations, 1);
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM sync_target", [], |row| row
+                    .get::<_, i64>(0),)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
