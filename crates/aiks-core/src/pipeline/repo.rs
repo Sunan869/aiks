@@ -330,3 +330,67 @@ impl<'a> PipelineRepo<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn restarting_failed_pipeline_clears_stale_error_and_preserves_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let session_id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'retry-session', 'now', 'now', 'now') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let repo = PipelineRepo::new(&db);
+        let run_id = repo
+            .upsert_pipeline_run(session_id, Some("first-hash"), "v3")
+            .unwrap();
+        repo.update_status(
+            &run_id,
+            "FAILED",
+            Some("AI_EXTRACTED"),
+            Some("AI_EXTRACTED"),
+            Some("temporary failure"),
+        )
+        .unwrap();
+        repo.mark_finished(&run_id, "FAILED").unwrap();
+        let resumed = repo
+            .upsert_pipeline_run(session_id, Some("new-hash"), "v3")
+            .unwrap();
+        assert_eq!(resumed, run_id);
+        let (status, hash, error, stage, finished): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = db
+            .conn()
+            .query_row(
+                "SELECT status, source_hash, error_message, error_stage, finished_at
+                 FROM pipeline_run WHERE id = ?1",
+                params![run_id],
+                |row| Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                )),
+            )
+            .unwrap();
+        assert_eq!(status, "DISCOVERED");
+        assert_eq!(hash.as_deref(), Some("new-hash"));
+        assert!(error.is_none());
+        assert!(stage.is_none());
+        assert!(finished.is_none());
+    }
+}
