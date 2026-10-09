@@ -1,5 +1,4 @@
 use crate::app_state::AppState;
-use crate::app_state::AppState;
 use aiks_core::knowledge::{
     render_agent_context, render_project_review, ProjectMemoryService, ProjectMemorySnapshot,
     ProjectOverview,

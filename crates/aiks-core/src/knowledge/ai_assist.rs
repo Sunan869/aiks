@@ -15,6 +15,8 @@ pub enum AiAssistOperation {
     KeyConclusions,
     Structure,
     Rewrite,
+    Compare,
+    MergeDraft,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +101,12 @@ fn build_prompt(request: &AiAssistRequest) -> anyhow::Result<(String, String)> {
         AiAssistOperation::Rewrite => {
             "在保持事实、代码、数字、路径和技术含义不变的前提下润色全文。只填写 text。"
         }
+        AiAssistOperation::Compare => {
+            "比较输入中明确标识的多份知识来源，列出一致点、不同点、适用条件和各自证据。不得把矛盾内容强行合并，使用清晰 Markdown，只填写 text。"
+        }
+        AiAssistOperation::MergeDraft => {
+            "基于输入中多份明确标识的知识来源生成新的 Markdown 整理草稿，保留来源证据、差异和冲突说明，不得臆造验证结果或删除原始信息。只填写 text。"
+        }
     };
 
     let system = format!(
@@ -166,7 +174,9 @@ fn validate_suggestion(suggestion: &AiAssistSuggestion) -> anyhow::Result<()> {
         AiAssistOperation::Title => suggestion.title.is_some(),
         AiAssistOperation::KeyConclusions
         | AiAssistOperation::Structure
-        | AiAssistOperation::Rewrite => suggestion.text.is_some(),
+        | AiAssistOperation::Rewrite
+        | AiAssistOperation::Compare
+        | AiAssistOperation::MergeDraft => suggestion.text.is_some(),
     };
     if !valid {
         anyhow::bail!(
@@ -215,6 +225,31 @@ mod tests {
             "".into(),
         ]);
         assert_eq!(tags, vec!["Rust", "SQLite"]);
+    }
+
+    #[test]
+    fn multi_source_operations_are_draft_only_and_require_text() {
+        for operation in [AiAssistOperation::Compare, AiAssistOperation::MergeDraft] {
+            let request = AiAssistRequest {
+                operation: operation.clone(),
+                title: "跨会话知识".into(),
+                content: "来源 A 与来源 B 不同".into(),
+                existing_summary: None,
+                existing_tags: Vec::new(),
+                existing_category: None,
+            };
+            let (system, _user) = build_prompt(&request).unwrap();
+            assert!(system.contains("只填写 text"));
+            let output = AiAssistSuggestion {
+                operation,
+                title: None,
+                summary: None,
+                tags: vec![],
+                category: None,
+                text: Some("保留差异与出处".into()),
+            };
+            validate_suggestion(&output).unwrap();
+        }
     }
 
     #[test]

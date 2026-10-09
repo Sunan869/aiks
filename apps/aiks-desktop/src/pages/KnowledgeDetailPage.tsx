@@ -9,6 +9,7 @@ interface Props {
   knowledgeId: string;
   onBack: () => void;
   onViewSession: (sessionId: number) => void;
+  onOpenKnowledge?: (knowledgeId: string) => void;
 }
 
 function parseTags(tags: string): string[] {
@@ -20,7 +21,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   configuration: "配置管理", research: "技术探索", decision: "决策记录", general: "通用",
 };
 
-export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession }: Props) {
+export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession, onOpenKnowledge }: Props) {
   const [data, setData] = useState<KnowledgeDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -43,6 +44,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeBusy, setOrganizeBusy] = useState(false);
   const [organizeConfirmed, setOrganizeConfirmed] = useState(false);
   const [organizeError, setOrganizeError] = useState<string | null>(null);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
+  const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,24 +134,84 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
   const suggestOrganization = async () => {
     if (!data?.siyuan_doc_id) return;
+    if ((organizeOperation === "compare" || organizeOperation === "merge_draft") && selectedSources.length === 0) {
+      setOrganizeError("多来源对比或合并至少需要另外选中一条知识");
+      return;
+    }
     setOrganizeBusy(true);
     setOrganizeError(null);
     setOrganizeConfirmed(false);
     setOrganizeDraft("");
+    setCreatedKnowledgeId(null);
     try {
+      const others = await Promise.all(
+        selectedSources.slice(0, 4).map(id => getApi().getKnowledgeDetail(id))
+      );
+      const sources = [data, ...others];
+      const sourceIds = sources.map(item => item.id);
+      const sourceContext = sources.map(item => (
+        "## 资料：" + item.title + "（知识 ID：" + item.id + "）\n\n" + item.content
+      )).join("\n\n---\n\n");
       const suggestion = await getApi().assistKnowledge({
         siyuanDocId: data.siyuan_doc_id,
         operation: organizeOperation,
         title: data.title,
-        content: data.content,
+        content: sourceContext,
         existingSummary: data.summary,
         existingTags: parseTags(data.tags),
         existingCategory: data.category,
       });
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
+      setOrganizeSourceIds(sourceIds);
       setOrganizeDraft(suggestion.text);
     } catch (error) {
       setOrganizeError("生成建议失败：" + String(error));
+    } finally {
+      setOrganizeBusy(false);
+    }
+  };
+
+  const createDerivedKnowledge = async () => {
+    if (!data || !organizeConfirmed || !organizeDraft.trim() || organizeBusy) return;
+    setOrganizeBusy(true);
+    setOrganizeError(null);
+    try {
+      const sourceLinks = organizeSourceIds.map(id => "- AIKS 知识：" + id).join("\n");
+      const content = organizeDraft + "\n\n---\n\n来源（经用户确认的整理草稿，原知识未修改）：\n" + sourceLinks;
+      const labels: Record<string, string> = {
+        compare: "来源对比",
+        merge_draft: "多来源整理",
+        structure: "结构整理",
+        rewrite: "润色草稿",
+        key_conclusions: "关键结论",
+      };
+      const created = await getApi().createKnowledge({
+        title: data.title + " · " + (labels[organizeOperation] ?? "整理草稿"),
+        category: data.category,
+        project_name: data.project_name,
+        summary: "由用户确认的 AIKS 知识整理结果；请通过来源知识 ID 核验。",
+        tags: parseTags(data.tags),
+        content,
+      });
+      setCreatedKnowledgeId(created.id);
+      setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
+    } catch (error) {
+      setOrganizeError("创建独立知识失败：" + String(error));
+    } finally {
+      setOrganizeBusy(false);
+    }
+  };
+
+  const undoDerivedKnowledge = async () => {
+    if (!createdKnowledgeId || organizeBusy) return;
+    setOrganizeBusy(true);
+    setOrganizeError(null);
+    try {
+      await getApi().archiveKnowledge(createdKnowledgeId);
+      setMessage("已将本次生成的知识文档归档；来源知识仍保留。");
+      setCreatedKnowledgeId(null);
+    } catch (error) {
+      setOrganizeError("归档生成的知识失败：" + String(error));
     } finally {
       setOrganizeBusy(false);
     }
@@ -352,7 +416,25 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="structure">结构化整理</option>
             <option value="rewrite">语言润色</option>
             <option value="key_conclusions">提取关键结论</option>
+            <option value="compare">比较多份知识</option>
+            <option value="merge_draft">合并为新文档草稿</option>
           </select>
+          {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
+            <label className="flex flex-col gap-1 text-xs">
+              <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
+              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources}
+                onChange={event => {
+                  setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
+                  setOrganizeConfirmed(false);
+                  setOrganizeDraft("");
+                }}
+                className="w-full rounded border border-gray-200 bg-transparent p-2 dark:border-gray-700">
+                {relationCandidates.filter(item => item.id !== knowledgeId &&
+                  (!data.project_name || !item.project_name || data.project_name === item.project_name))
+                  .map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
+          )}
           <button type="button" disabled={organizeBusy || !data.siyuan_doc_id}
             onClick={() => void suggestOrganization()}
             className="rounded bg-indigo-600 px-3 py-2 text-xs text-white disabled:opacity-40">
@@ -385,6 +467,17 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               className="rounded border border-indigo-300 px-3 py-2 text-xs text-indigo-700 disabled:opacity-40">
               复制已审核的 Markdown
             </button>
+            <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim() || organizeBusy || Boolean(createdKnowledgeId)}
+              onClick={() => void createDerivedKnowledge()}
+              className="ml-2 rounded border border-emerald-300 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
+              创建为新的知识文档（不覆盖原文）
+            </button>
+            {createdKnowledgeId && (
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                {onOpenKnowledge && <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</button>}
+                <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>撤销本次整理（归档新知识）</button>
+              </div>
+            )}
           </div>
         )}
       </section>

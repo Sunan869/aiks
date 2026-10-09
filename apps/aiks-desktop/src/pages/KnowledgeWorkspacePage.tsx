@@ -136,6 +136,7 @@ export default function KnowledgeWorkspacePage({
               knowledgeId={knowledgeId}
               onBack={() => setMetadataOpen(false)}
               onViewSession={sessionId => onOpenSession?.(sessionId, null)}
+              onOpenKnowledge={onOpenKnowledge}
             />
           </div>
         ) : (

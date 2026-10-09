@@ -397,6 +397,8 @@ export class MockAiksApi implements AiksApi {
       case "key_conclusions": return { ...base, text: "- 关键结论一\n- 关键结论二" };
       case "structure": return { ...base, text: `# ${input.title}\n\n## 背景\n\n${input.content}` };
       case "rewrite": return { ...base, text: input.content };
+      case "compare": return { ...base, text: "## 来源差异对比\n\n" + input.content };
+      case "merge_draft": return { ...base, text: "## 多来源合并草稿\n\n" + input.content };
     }
   }
 

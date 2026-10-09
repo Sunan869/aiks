@@ -5,7 +5,9 @@ export type AiAssistOperation =
   | "title"
   | "key_conclusions"
   | "structure"
-  | "rewrite";
+  | "rewrite"
+  | "compare"
+  | "merge_draft";
 
 export interface AiAssistInput {
   siyuanDocId: string;

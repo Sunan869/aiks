@@ -160,7 +160,9 @@ impl AiStage {
             &self.config.model,
             &self.config.base_url,
             actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
-            actual_usage.as_ref().and_then(|usage| usage.completion_tokens),
+            actual_usage
+                .as_ref()
+                .and_then(|usage| usage.completion_tokens),
             latency_ms,
             true,
         );
