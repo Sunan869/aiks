@@ -203,7 +203,9 @@ impl RagAnswerService {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         anyhow::ensure!(
-            project.as_ref().is_none_or(|value| value.chars().count() <= 256),
+            project
+                .as_ref()
+                .is_none_or(|value| value.chars().count() <= 256),
             "project filter is too long"
         );
 
@@ -528,16 +530,13 @@ mod tests {
 
     #[test]
     fn rag_request_preserves_legacy_default_and_exact_project_scope() {
-        let legacy: RagAskRequest = serde_json::from_str(
-            r#"{"question":"Where is the fix?","history":[]}"#,
-        )
-        .unwrap();
+        let legacy: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","history":[]}"#).unwrap();
         assert!(legacy.project.is_none());
 
-        let scoped: RagAskRequest = serde_json::from_str(
-            r#"{"question":"Where is the fix?","project":"my-project"}"#,
-        )
-        .unwrap();
+        let scoped: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","project":"my-project"}"#)
+                .unwrap();
         assert_eq!(scoped.project.as_deref(), Some("my-project"));
     }
 
