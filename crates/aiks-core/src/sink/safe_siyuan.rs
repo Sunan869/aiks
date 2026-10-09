@@ -411,6 +411,35 @@ mod volume_tests {
     }
 
     #[test]
+    fn split_is_deterministic_and_preserves_multibyte_boundaries() {
+        let content = format!(
+            "{}\n## 🤖 助手 (Assistant)\n{}\n## 👤 用户 (User)\n{}",
+            "前言".repeat(850_000),
+            "中文🚀".repeat(330_000),
+            "结束".repeat(400_000),
+        );
+        let first = split_session_markdown(&content);
+        let second = split_session_markdown(&content);
+        assert_eq!(first, second, "retry must reuse the same boundaries");
+        assert_eq!(first.concat(), content, "no text may be lost or duplicated");
+        assert!(first.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+        assert!(first.len() > 1);
+        assert!(first.iter().all(|part| !part.is_empty()));
+    }
+
+    #[test]
+    fn split_preserves_content_when_session_grows() {
+        let head = format!("## 👤 用户 (User)\n{}\n", "a".repeat(TARGET_VOLUME_BYTES - 300));
+        let addition = format!("## 🤖 助手 (Assistant)\n{}\n", "b".repeat(1200));
+        let original = split_session_markdown(&head);
+        assert_eq!(original.concat(), head);
+        let expanded = split_session_markdown(&(head.clone() + &addition));
+        assert_eq!(expanded.concat(), head + &addition);
+        assert!(expanded.len() >= 2);
+        assert!(expanded.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+    }
+
+    #[test]
     fn preserves_single_small_document() {
         assert_eq!(split_session_markdown("# hello\n"), vec!["# hello\n"]);
     }
