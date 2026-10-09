@@ -105,6 +105,7 @@ export class TauriAiksApi implements AiksApi {
   async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
   async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
   async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
+  async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
     return invoke("list_knowledge_v4", {

@@ -48,6 +48,8 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
+  const [retryingTask, setRetryingTask] = useState<number | null>(null);
+  const [retryNotice, setRetryNotice] = useState("");
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -136,6 +138,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
       <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
+        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
           {([
             ["all", "全部"],
@@ -167,7 +170,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
               <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                 <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
                 <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
-                <th className="py-2 pr-3">任务</th><th className="py-2">错误</th>
+                <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
               </tr></thead>
               <tbody>
                 {tasks.filter(task =>
@@ -182,6 +185,28 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                     <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 pr-3">
+                      {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
+                      (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
+                      task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
+                        <button type="button" disabled={retryingTask !== null}
+                          className="text-blue-600 hover:underline disabled:opacity-50"
+                          onClick={async () => {
+                            setRetryingTask(task.session_id);
+                            setRetryNotice("");
+                            try {
+                              await getApi().retryFailedAiTask(task.session_id);
+                              setRetryNotice("已提交单条 AI 任务重试");
+                              await load(false);
+                            } catch (error) {
+                              setRetryNotice(`重试未提交：${String(error)}`);
+                            } finally {
+                              setRetryingTask(null);
+                            }
+                          }}
+                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</button>
+                      ) : "—"}
+                    </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
                       <details className="group max-w-64">
                         <summary className="cursor-pointer truncate list-none" title="展开错误诊断">{task.sync_error || task.pipeline_error || task.job_error || "—"}</summary>

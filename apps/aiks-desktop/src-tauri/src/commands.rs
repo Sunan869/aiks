@@ -626,6 +626,51 @@ pub async fn list_task_center_entries(
         .map_err(|error| error.to_string())
 }
 
+/// Manually retry one failed AI extraction. Never use this to bypass SiYuan
+/// conflict/permanent errors; use the existing durable queue for deduplication.
+#[tauri::command]
+pub async fn retry_failed_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let session = {
+        let conn = db.conn();
+        conn.query_row(
+            "SELECT ss.source, ss.external_session_id, ss.title, ss.project_name
+             FROM source_session ss
+             JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
+             WHERE ss.id = ?1 AND st.status IN ('SYNCED', 'UNCHANGED')
+               AND (EXISTS (
+                   SELECT 1 FROM pipeline_run pr
+                   WHERE pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+                     AND pr.status = 'FAILED'
+               ) OR EXISTS (
+                   SELECT 1 FROM pipeline_job pj
+                   WHERE pj.session_id = ss.id AND pj.status = 'FAILED'
+               ))
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_job active
+                   WHERE active.session_id = ss.id AND active.status IN ('PENDING', 'RUNNING')
+               )",
+            rusqlite::params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .map_err(|_| "该任务不满足安全重试条件：需同步成功、AI 失败且没有进行中的任务".to_string())?
+    };
+    engine
+        .enqueue_pipeline_for_session(session_id, session.1, session.0, session.2, session.3)
+        .map_err(|error| error.to_string())
+}
+
 // ===== V3 Pipeline Commands =====
 
 /// List pipeline runs for the Processing Center page
