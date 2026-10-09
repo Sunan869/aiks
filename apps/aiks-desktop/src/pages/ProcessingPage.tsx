@@ -48,6 +48,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
+  const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
@@ -130,11 +131,35 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         </div>
       </div>
 
+      {/* A task may fail sync independently from AI processing. */}
       {/* Raw synchronization status is separate from knowledge extraction. */}
       <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
-        {tasks.length === 0 ? (
+        <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
+          {([
+            ["all", "全部"],
+            ["sync_failed", "同步失败"],
+            ["ai_failed", "AI 失败"],
+            ["active", "处理中"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTaskFilter(value)}
+              aria-pressed={taskFilter === value}
+              className={`text-xs px-2.5 py-1 rounded border ${taskFilter === value
+                ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
+            >{label}</button>
+          ))}
+        </div>
+        {tasks.filter(task =>
+          taskFilter === "all" ||
+          (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+          (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+          (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
+        ).length === 0 ? (
           <p className="text-xs text-gray-400">暂无会话同步任务记录</p>
         ) : (
           <div className="overflow-x-auto max-h-72 overflow-y-auto">
@@ -145,7 +170,12 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                 <th className="py-2 pr-3">任务</th><th className="py-2">错误</th>
               </tr></thead>
               <tbody>
-                {tasks.map(task => (
+                {tasks.filter(task =>
+                  taskFilter === "all" ||
+                  (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+                  (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+                  (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
+                ).map(task => (
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
