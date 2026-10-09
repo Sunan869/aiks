@@ -91,8 +91,16 @@ impl<'a> TaskCenterRepo<'a> {
         let mut stmt = conn.prepare(
             "SELECT ss.id, ss.source, ss.external_session_id, ss.title,
                     st.status, st.last_error,
-                    pr.status, pr.current_stage, pr.error_message,
-                    pj.status, pj.attempt, pj.last_error,
+                    CASE WHEN pj.status = 'PENDING' THEN 'DISCOVERED'
+                         WHEN pj.status = 'RUNNING' THEN 'PROCESSING'
+                         ELSE pr.status END,
+                    CASE WHEN pj.status IN ('PENDING', 'RUNNING') THEN NULL
+                         ELSE pr.current_stage END,
+                    CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'DONE', 'CANCELLED') THEN NULL
+                         ELSE pr.error_message END,
+                    pj.status, pj.attempt,
+                    CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'DONE', 'CANCELLED') THEN NULL
+                         ELSE pj.last_error END,
                     (SELECT ps.latency_ms FROM pipeline_stage_run ps
                      WHERE ps.pipeline_run_id = pr.id AND ps.latency_ms IS NOT NULL
                      ORDER BY ps.finished_at DESC, ps.rowid DESC LIMIT 1),
@@ -201,6 +209,60 @@ mod tests {
         assert_eq!(stats.ai_issues, 0);
         assert_eq!(stats.pending, 1);
         assert_eq!(stats.total_sessions, 1);
+    }
+
+    #[test]
+    fn latest_queued_generation_hides_stale_failure_details() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'stale-errors', 'now', 'now', 'now') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, status, pipeline_version, error_message, current_stage,
+                  created_at, updated_at)
+                 VALUES ('run-stale', ?1, 'FAILED', 'v3', 'old failure', 'AI_EXTRACTED',
+                         'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_job
+                 (id, source, external_session_id, generation, status, last_error,
+                  created_at, updated_at, session_id, pipeline_run_id)
+                 VALUES ('job-old', 'codex', 'stale-errors', 1, 'FAILED', 'old job failure',
+                         'now', 'now', ?1, 'run-stale')",
+                params![id],
+            )
+            .unwrap();
+        let repo = TaskCenterRepo::new(&db);
+        assert_eq!(repo.list_recent(1).unwrap()[0].pipeline_error.as_deref(), Some("old failure"));
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_job
+                 (id, source, external_session_id, generation, status,
+                  created_at, updated_at, session_id, pipeline_run_id)
+                 VALUES ('job-new', 'codex', 'stale-errors', 2, 'PENDING',
+                         'now', 'now', ?1, 'run-stale')",
+                params![id],
+            )
+            .unwrap();
+        let entry = repo.list_recent(1).unwrap().remove(0);
+        assert_eq!(entry.job_status.as_deref(), Some("PENDING"));
+        assert_eq!(entry.pipeline_status.as_deref(), Some("DISCOVERED"));
+        assert!(entry.pipeline_error.is_none());
+        assert!(entry.job_error.is_none());
+        assert!(entry.current_stage.is_none());
     }
 
     #[test]
