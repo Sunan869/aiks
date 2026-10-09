@@ -367,3 +367,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - `1c875430446a9274e0c62c3e1010a0e5acfa8b92`：普通与 JSON-fallback 流式响应解析 OpenAI-compatible `usage`，仅在服务端实际报告时记录 Prompt/Completion/Total Token；未报告时维持未知，不用字符数量冒充真实 Token。含带 usage 与不带 usage 回归测试。
 - `7dba8099a04f440c4143f579515aa9e22a65e99f`：流式 Completion 对 HTTP 429/503 采用最多两次、250/500ms 有界退避，与非流式一致；不自动重试凭据/配置错误。
 - 新提交的 CI 和真实模型压力测试仍待验证。Token 指标目前在结构化日志中，尚未建立每 Session 的数据库聚合、UI 报表；真实质量基准和高负载验收未完成。
+
+### S2.2 本地知识反馈存储起步（2026-10-09）
+
+- 新增 `pipeline/feedback_repo.rs` 和 `FeedbackRepo` Core API，反馈类型为 useful/incorrect/duplicate/outdated/needs_detail，append-only 保留历史，不自动更改提炼知识的正文与 stable ID。
+- 反馈记录仅允许关联现有知识项，单条说明限定 4000 字符，非法种类和不存在知识 ID 均拒绝；新增真实 SQLite 负例回归。当前使用按需创建独立反馈表，后续需要纳入正式 migration、旧库升级验证、Desktop 命令及交互、关联溯源与再提炼持久性回归。
+- 这批实现是 **S2.2 Core 数据层第一步，尚未完整验收**；禁止将其宣称为有用户反馈 UI 的成品。此前 CI `37930183908` 在 Token usage 测试夹具格式上失败，已另行修正。
