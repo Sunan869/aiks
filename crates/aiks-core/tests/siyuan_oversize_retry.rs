@@ -142,7 +142,7 @@ async fn mock_siyuan() -> (
 }
 
 #[tokio::test]
-async fn oversized_session_is_permanent_and_unchanged_source_is_not_retried() {
+async fn oversized_session_uses_volume_path_and_remains_retryable_on_sink_failure() {
     let dir = tempfile::tempdir().unwrap();
     let db = StateDb::open(&dir.path().join("state.db")).unwrap();
     let mut config = Config::default();
@@ -166,13 +166,15 @@ async fn oversized_session_is_permanent_and_unchanged_source_is_not_retried() {
         .find(source.id, "siyuan")
         .unwrap()
         .unwrap();
-    assert_eq!(target.status, SyncStatus::FailedPermanent);
+    assert_ne!(target.status, SyncStatus::FailedPermanent);
     assert_eq!(target.retry_count, 1);
-    assert!(target
-        .last_error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("too large"));
+    assert!(
+        !target
+            .last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("exceeds the 5242880 byte safety limit")
+    );
 
     let second = engine
         .run_sync(&db, &registry, &sink, &SyncOptions::default())
@@ -180,18 +182,18 @@ async fn oversized_session_is_permanent_and_unchanged_source_is_not_retried() {
         .unwrap();
     server.abort();
 
-    assert_eq!(second.skipped_count, 1);
-    assert_eq!(second.failed_count, 0);
+    assert_eq!(second.skipped_count, 0);
+    assert_eq!(second.failed_count, 1);
     let target = SyncTargetRepo::new(&db)
         .find(source.id, "siyuan")
         .unwrap()
         .unwrap();
     assert_eq!(target.status, SyncStatus::FailedPermanent);
-    assert_eq!(target.retry_count, 1);
+    assert!(target.retry_count >= 2);
 
     let paths = seen.lock().unwrap();
     assert!(
-        !paths.iter().any(|path| path.contains("createDocWithMd")),
-        "oversized sessions must be rejected before any document write: {paths:?}"
+        paths.iter().any(|path| path.contains("query/sql")),
+        "volume creation should attempt safe document path reconciliation: {paths:?}"
     );
 }
