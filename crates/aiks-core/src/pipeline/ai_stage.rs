@@ -279,12 +279,7 @@ impl AiStage {
                 continue;
             }
             let sanitized = self.sanitizer.sanitize(text);
-            let context = format!(
-                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
-                session_title.unwrap_or("未知会话"),
-                project_name.unwrap_or("未知"),
-                sanitized
-            );
+            let context = chunk_context(session_title, project_name, &sanitized);
             pending.push((
                 idx,
                 cache_key,
@@ -364,6 +359,11 @@ impl AiStage {
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(merge_chunk_knowledge(results))
     }
+}
+
+fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> String {
+    format!("会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
+        title.unwrap_or("未知会话"), project.unwrap_or("未知"), chunk)
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
@@ -1077,6 +1077,14 @@ fn log_ai_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_context_preserves_real_line_breaks() {
+        let context = chunk_context(Some("A"), Some("B"), "line1\nline2");
+        assert!(context.contains("结果。\nline1\nline2"));
+        assert!(!context.contains(r"结果。\nline1"));
+    }
+
 
     #[test]
     fn parse_valid_v3_response() {
