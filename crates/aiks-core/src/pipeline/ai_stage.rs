@@ -1089,7 +1089,6 @@ mod tests {
         assert!(!context.contains(r"结果。\nline1"));
     }
 
-
     #[test]
     fn parse_valid_v3_response() {
         let json = r#"{
