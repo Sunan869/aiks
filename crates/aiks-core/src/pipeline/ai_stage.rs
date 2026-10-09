@@ -14,6 +14,7 @@ use std::time::Instant;
 
 use tracing::info;
 
+use crate::ai::client::ChatUsage;
 use crate::ai::{
     config::AiModelConfig,
     prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
@@ -130,14 +131,19 @@ impl AiStage {
             "[AI] Starting extraction"
         );
 
-        let (mut result, cache_hits, llm_calls) = if chunks.len() == 1 {
+        let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
-            let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
+            let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
-            (parse_v3_result_typed(&response)?, 0usize, 1usize)
+            (
+                parse_v3_result_typed(&response.content)?,
+                0usize,
+                1usize,
+                response.usage,
+            )
         } else {
             // Multiple chunks: Map-Reduce
             self.map_reduce(db, session_title, project_name, &chunks)
@@ -153,8 +159,8 @@ impl AiStage {
             "AI_EXTRACT",
             &self.config.model,
             &self.config.base_url,
-            chunks.len(),
-            result.items.len(),
+            actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
+            actual_usage.as_ref().and_then(|usage| usage.completion_tokens),
             latency_ms,
             true,
         );
@@ -177,7 +183,8 @@ impl AiStage {
                     "items": 0,
                     "cache_hits": cache_hits,
                     "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
-                    "llm_calls": llm_calls
+                    "llm_calls": llm_calls,
+                    "actual_usage": actual_usage
                 })),
                 None,
             )?;
@@ -220,7 +227,8 @@ impl AiStage {
                 "items": item_count,
                 "cache_hits": cache_hits,
                 "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
-                "llm_calls": llm_calls
+                "llm_calls": llm_calls,
+                "actual_usage": actual_usage
             })),
             None,
         )?;
@@ -238,7 +246,7 @@ impl AiStage {
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
-    ) -> anyhow::Result<(V3ExtractionResult, usize, usize)> {
+    ) -> anyhow::Result<(V3ExtractionResult, usize, usize, Option<ChatUsage>)> {
         // Cache successful chunk extractions, not failed/incomplete responses.
         // Changing the model, prompt version, project or chunk content
         // invalidates the key automatically.
@@ -257,6 +265,7 @@ impl AiStage {
         let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
         let mut pending: Vec<(usize, String, String)> = Vec::new();
         let mut cache_hits = 0usize;
+        let mut actual_usage: Option<ChatUsage> = None;
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
@@ -314,9 +323,9 @@ impl AiStage {
         let mut batch_latencies_ms = Vec::new();
         for batch in pending.chunks(batch_size) {
             let started = Instant::now();
-            let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
+            let first = self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2);
             let responses = if batch.len() == 2 {
-                let second = self.client.chat(SYSTEM_PROMPT_V3, &batch[1].2);
+                let second = self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2);
                 let (a, b) = tokio::join!(first, second);
                 vec![a, b]
             } else {
@@ -327,7 +336,14 @@ impl AiStage {
             // so the next pipeline retry does not repeat successful work.
             let mut first_error = None;
             for (request, response) in batch.iter().zip(responses) {
-                match response.and_then(|text| parse_v3_result_typed(&text)) {
+                match response.and_then(|output| {
+                    if let Some(usage) = output.usage.as_ref() {
+                        actual_usage
+                            .get_or_insert_with(ChatUsage::default)
+                            .accumulate(usage);
+                    }
+                    parse_v3_result_typed(&output.content)
+                }) {
                     Ok(result) => {
                         let conn = db.conn();
                         conn.execute(
@@ -378,7 +394,12 @@ impl AiStage {
             .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok((merge_chunk_knowledge(results), cache_hits, pending.len()))
+        Ok((
+            merge_chunk_knowledge(results),
+            cache_hits,
+            pending.len(),
+            actual_usage,
+        ))
     }
 }
 
@@ -1098,8 +1119,8 @@ fn log_ai_request(
     stage: &str,
     model: &str,
     endpoint: &str,
-    input_count: usize,
-    output_count: usize,
+    input_count: Option<u64>,
+    output_count: Option<u64>,
     latency_ms: i64,
     success: bool,
 ) {
@@ -1111,7 +1132,9 @@ fn log_ai_request(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             id, pipeline_run_id, stage, model, endpoint,
-            input_count as i64, output_count as i64, latency_ms, status, now
+            input_count.and_then(|n| i64::try_from(n).ok()),
+            output_count.and_then(|n| i64::try_from(n).ok()),
+            latency_ms, status, now
         ],
     );
 }

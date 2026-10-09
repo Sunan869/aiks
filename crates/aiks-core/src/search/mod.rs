@@ -144,7 +144,9 @@ impl<'a> UnifiedSearchService<'a> {
                 })
                 .await?
             }
-            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora, candidate_limit),
+            SearchDb::Borrowed(db) => {
+                recall_lexical(db, query, &terms, &filter, &corpora, candidate_limit)
+            }
         };
         let lexical_ms = started.elapsed().as_millis() as u64;
         on_lexical(&UnifiedSearchOutcome {
@@ -638,10 +640,7 @@ fn feedback_multiplier(kind: Option<&str>) -> f32 {
     }
 }
 
-fn apply_feedback_rerank(
-    db: &StateDb,
-    hits: &mut [UnifiedSearchHit],
-) -> anyhow::Result<()> {
+fn apply_feedback_rerank(db: &StateDb, hits: &mut [UnifiedSearchHit]) -> anyhow::Result<()> {
     use rusqlite::OptionalExtension;
 
     let conn = db.conn();

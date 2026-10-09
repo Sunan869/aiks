@@ -42,14 +42,34 @@ struct ChatResponse {
 
 /// Actual token usage reported by an OpenAI-compatible endpoint.
 /// Absent on some local model servers; never substitute guessed token counts.
-#[derive(Debug, Deserialize)]
-struct ChatUsage {
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ChatUsage {
     #[serde(default)]
-    prompt_tokens: Option<u64>,
+    pub prompt_tokens: Option<u64>,
     #[serde(default)]
-    completion_tokens: Option<u64>,
+    pub completion_tokens: Option<u64>,
     #[serde(default)]
-    total_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
+impl ChatUsage {
+    /// Add only metrics the endpoint actually reported; missing never means zero.
+    pub fn accumulate(&mut self, other: &Self) {
+        fn add(dst: &mut Option<u64>, incoming: Option<u64>) {
+            if let Some(value) = incoming {
+                *dst = Some(dst.unwrap_or(0).saturating_add(value));
+            }
+        }
+        add(&mut self.prompt_tokens, other.prompt_tokens);
+        add(&mut self.completion_tokens, other.completion_tokens);
+        add(&mut self.total_tokens, other.total_tokens);
+    }
+}
+
+#[derive(Debug)]
+pub struct ChatResult {
+    pub content: String,
+    pub usage: Option<ChatUsage>,
 }
 
 fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
@@ -192,12 +212,29 @@ impl AiClient {
             .await
     }
 
+    pub async fn chat_detailed(&self, system: &str, user: &str) -> anyhow::Result<ChatResult> {
+        self.chat_with_max_tokens_detailed(system, user, self.config.max_tokens)
+            .await
+    }
+
     pub async fn chat_with_max_tokens(
         &self,
         system: &str,
         user: &str,
         requested_max_tokens: u32,
     ) -> anyhow::Result<String> {
+        Ok(self
+            .chat_with_max_tokens_detailed(system, user, requested_max_tokens)
+            .await?
+            .content)
+    }
+
+    async fn chat_with_max_tokens_detailed(
+        &self,
+        system: &str,
+        user: &str,
+        requested_max_tokens: u32,
+    ) -> anyhow::Result<ChatResult> {
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
@@ -289,7 +326,10 @@ impl AiClient {
                 .map(|c| c.message.content)
                 .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
 
-            return Ok(content);
+            return Ok(ChatResult {
+                content,
+                usage: body.usage,
+            });
         }
     }
 
@@ -502,6 +542,24 @@ fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod stream_tests {
     use super::parse_stream_line;
+
+    #[test]
+    fn reported_token_usage_is_accumulated_without_guessing_missing_metrics() {
+        let mut total = super::ChatUsage::default();
+        total.accumulate(&super::ChatUsage {
+            prompt_tokens: Some(12),
+            completion_tokens: None,
+            total_tokens: Some(15),
+        });
+        total.accumulate(&super::ChatUsage {
+            prompt_tokens: None,
+            completion_tokens: Some(7),
+            total_tokens: Some(9),
+        });
+        assert_eq!(total.prompt_tokens, Some(12));
+        assert_eq!(total.completion_tokens, Some(7));
+        assert_eq!(total.total_tokens, Some(24));
+    }
 
     #[test]
     fn parses_actual_usage_and_handles_missing_usage() {
