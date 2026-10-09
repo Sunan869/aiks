@@ -1,7 +1,7 @@
 //! Safe, consistent snapshot of the local SQLite state database.
 //! This intentionally does not restore over the live database or copy SiYuan.
 use std::fs::{self, OpenOptions};
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -56,8 +56,20 @@ pub fn create_sqlite_backup(db: &StateDb, destination: &Path) -> Result<SqliteBa
 }
 
 pub fn inspect_sqlite_backup(path: &Path, file_name: String) -> Result<SqliteBackupManifest> {
-    let bytes = fs::read(path).with_context(|| format!("read backup: {}", path.display()))?;
-    let hash = hex::encode(Sha256::digest(&bytes));
+    // Hash in bounded memory even when the state database is several GiB.
+    let mut input = fs::File::open(path)
+        .with_context(|| format!("read backup: {}", path.display()))?;
+    let size = input.metadata()?.len();
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = input.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let hash = hex::encode(hasher.finalize());
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
@@ -66,7 +78,7 @@ pub fn inspect_sqlite_backup(path: &Path, file_name: String) -> Result<SqliteBac
     Ok(SqliteBackupManifest {
         format_version: 1,
         file_name,
-        byte_length: bytes.len() as u64,
+        byte_length: size,
         sha256: hash,
         integrity,
     })
@@ -137,10 +149,7 @@ pub fn restore_sqlite_backup_to_new_path(
 
 /// Store an explicit manifest next to the snapshot without overwriting a file.
 /// Caller controls the destination; no path is derived from untrusted JSON.
-pub fn save_backup_manifest(
-    path: &Path,
-    manifest: &SqliteBackupManifest,
-) -> Result<()> {
+pub fn save_backup_manifest(path: &Path, manifest: &SqliteBackupManifest) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(manifest)?;
     let mut output = OpenOptions::new()
         .write(true)
@@ -169,7 +178,12 @@ pub fn load_and_verify_backup(
     let manifest: SqliteBackupManifest = serde_json::from_reader(file)?;
     verify_sqlite_backup(snapshot, &manifest)?;
     let conn = Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    for table in ["source_session", "sync_target", "pipeline_run", "pipeline_job"] {
+    for table in [
+        "source_session",
+        "sync_target",
+        "pipeline_run",
+        "pipeline_job",
+    ] {
         let found: i64 = conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
             params![table],
@@ -252,6 +266,35 @@ mod tests {
         let mut wrong = loaded;
         wrong.format_version = 999;
         assert!(verify_sqlite_backup(&snapshot, &wrong).is_err());
+    }
+
+    #[test]
+    fn backup_verification_rejects_corrupt_json_and_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("backup.sqlite");
+        let manifest_path = dir.path().join("backup.json");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        fs::write(&manifest_path, b"not-json").unwrap();
+        assert!(load_and_verify_backup(&snapshot, &manifest_path).is_err());
+        fs::remove_file(&manifest_path).unwrap();
+        let mut incorrect = manifest.clone();
+        incorrect.byte_length += 1;
+        save_backup_manifest(&manifest_path, &incorrect).unwrap();
+        assert!(load_and_verify_backup(&snapshot, &manifest_path).is_err());
+        verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[test]
+    fn detached_restore_rejects_preexisting_file_without_modifying_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("backup.sqlite");
+        let dest = dir.path().join("existing.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        fs::write(&dest, b"do-not-replace").unwrap();
+        assert!(restore_sqlite_backup_to_new_path(&snapshot, &manifest, &dest).is_err());
+        assert_eq!(fs::read(&dest).unwrap(), b"do-not-replace");
     }
 
     #[test]
