@@ -1,8 +1,8 @@
 //! Read-only projection for the local sync and AI task center.
 //! Do not introduce a second state machine or task queue.
+use crate::storage::StateDb;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use crate::storage::StateDb;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TaskCenterEntry {
@@ -79,15 +79,58 @@ mod tests {
     }
 
     #[test]
+    fn displays_sync_failure_and_pipeline_status_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let id = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, title, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'rollout-error', 'Failed session', 'now', 'now', 'now')
+                 RETURNING id",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO sync_target (session_id, sink, status, last_error)
+                 VALUES (?1, 'siyuan', 'FAILED_RETRYABLE', 'remote unavailable')",
+                params![id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, pipeline_version, status, current_stage,
+                  error_message, created_at, updated_at)
+                 VALUES ('run-1', ?1, 'v3', 'PROCESSING', 'AI_EXTRACTED',
+                         NULL, 'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+        let rows = TaskCenterRepo::new(&db).list_recent(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].sync_status.as_deref(), Some("FAILED_RETRYABLE"));
+        assert_eq!(rows[0].sync_error.as_deref(), Some("remote unavailable"));
+        assert_eq!(rows[0].pipeline_status.as_deref(), Some("PROCESSING"));
+        assert_eq!(rows[0].current_stage.as_deref(), Some("AI_EXTRACTED"));
+        assert!(rows[0].job_status.is_none());
+    }
+
+    #[test]
     fn sessions_without_sync_or_ai_still_appear() {
         let dir = tempfile::tempdir().unwrap();
         let db = StateDb::open(&dir.path().join("state.db")).unwrap();
-        db.conn().execute(
-            "INSERT INTO source_session
+        db.conn()
+            .execute(
+                "INSERT INTO source_session
              (source, external_session_id, title, last_seen_at, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4, ?4)",
-            params!["codex", "rollout-demo", "Example", "2026-10-09"],
-        ).unwrap();
+                params!["codex", "rollout-demo", "Example", "2026-10-09"],
+            )
+            .unwrap();
         let rows = TaskCenterRepo::new(&db).list_recent(20).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].source, "codex");
