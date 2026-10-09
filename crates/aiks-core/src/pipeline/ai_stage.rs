@@ -383,11 +383,7 @@ fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> Str
 
 /// Integer cache hit ratio avoids division by zero on empty inputs.
 fn cache_hit_percent(hits: usize, total: usize) -> usize {
-    if total == 0 {
-        0
-    } else {
-        hits.saturating_mul(100) / total
-    }
+    hits.saturating_mul(100).checked_div(total).unwrap_or(0)
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
