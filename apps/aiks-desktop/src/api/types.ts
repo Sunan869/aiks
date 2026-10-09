@@ -319,3 +319,13 @@ export interface TaskCenterStats {
   sync_issues: number;
   ai_issues: number;
 }
+
+export type KnowledgeFeedbackKind = "useful" | "incorrect" | "duplicate" | "outdated" | "needs_detail";
+
+export interface KnowledgeFeedback {
+  id: string;
+  knowledge_id: string;
+  kind: KnowledgeFeedbackKind;
+  note: string;
+  created_at: string;
+}
