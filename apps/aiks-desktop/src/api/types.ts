@@ -329,3 +329,17 @@ export interface KnowledgeFeedback {
   note: string;
   created_at: string;
 }
+
+export type KnowledgeRelationType = "related" | "supplements" | "corrects" | "supersedes" | "resolved_by";
+export type KnowledgeRelationStatus = "suggested" | "confirmed" | "rejected";
+export interface KnowledgeRelation {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: KnowledgeRelationType;
+  status: KnowledgeRelationStatus;
+  evidence: string;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+}

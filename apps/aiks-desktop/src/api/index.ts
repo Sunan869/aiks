@@ -11,6 +11,9 @@ import type {
   KnowledgeDetail,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -45,6 +48,9 @@ export interface AiksApi {
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
   getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
+  getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;
+  suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation>;
+  reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, 'suggested'>): Promise<KnowledgeRelation>;
   addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback>;
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;

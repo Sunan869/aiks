@@ -16,6 +16,9 @@ import type {
   KnowledgeDetail,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -125,6 +128,9 @@ export class TauriAiksApi implements AiksApi {
   }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
+  async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }
+  async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> { return invoke("suggest_knowledge_relation", { sourceId, targetId, relationType, evidence }); }
+  async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> { return invoke("review_knowledge_relation", { relationId, decision }); }
   async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> { return invoke("add_knowledge_feedback", { knowledgeId, kind, note }); }
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> { return invoke("create_knowledge", { input }); }
   async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> { return invoke("update_knowledge", { knowledgeId, input }); }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind } from "../api/types";
+import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 
 interface Props {
@@ -30,6 +30,13 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [feedbackNote, setFeedbackNote] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [relations, setRelations] = useState<KnowledgeRelation[]>([]);
+  const [relationCandidates, setRelationCandidates] = useState<KnowledgeSummary[]>([]);
+  const [relationTarget, setRelationTarget] = useState("");
+  const [relationType, setRelationType] = useState<KnowledgeRelationType>("related");
+  const [relationEvidence, setRelationEvidence] = useState("");
+  const [relationBusy, setRelationBusy] = useState(false);
+  const [relationError, setRelationError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,6 +71,54 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setFeedbackError("反馈保存失败：" + String(error));
     } finally {
       setFeedbackBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    setRelations([]);
+    setRelationError(null);
+    void Promise.all([
+      getApi().getKnowledgeRelations(knowledgeId),
+      getApi().getKnowledge({ limit: 200 }),
+    ]).then(([items, page]) => {
+      if (active) {
+        setRelations(items);
+        setRelationCandidates(page.items);
+      }
+    }).catch(error => {
+      if (active) setRelationError("关系加载失败：" + String(error));
+    });
+    return () => { active = false; };
+  }, [knowledgeId]);
+
+  const suggestRelation = async () => {
+    setRelationBusy(true);
+    setRelationError(null);
+    try {
+      const newRelation = await getApi().suggestKnowledgeRelation(
+        knowledgeId, relationTarget.trim(), relationType, relationEvidence.trim()
+      );
+      setRelations(current => [newRelation, ...current]);
+      setRelationTarget("");
+      setRelationEvidence("");
+    } catch (error) {
+      setRelationError("创建关系失败：" + String(error));
+    } finally {
+      setRelationBusy(false);
+    }
+  };
+
+  const reviewRelation = async (id: string, decision: "confirmed" | "rejected") => {
+    setRelationBusy(true);
+    setRelationError(null);
+    try {
+      const updated = await getApi().reviewKnowledgeRelation(id, decision);
+      setRelations(current => current.map(item => item.id === id ? updated : item));
+    } catch (error) {
+      setRelationError("关系审核失败：" + String(error));
+    } finally {
+      setRelationBusy(false);
     }
   };
 
@@ -177,6 +232,46 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
         <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-700 dark:text-gray-300">{data.content}</pre>
       </div>
+
+      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
+        <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。</p>
+        <div className="flex flex-wrap gap-2">
+          <input aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+          <datalist id="knowledge-relation-candidates">
+            {relationCandidates.filter(item => item.id !== knowledgeId && (!data.project_name || !item.project_name || item.project_name === data.project_name)).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+          </datalist>
+          <select aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
+            <option value="related">相关</option>
+            <option value="supplements">补充</option>
+            <option value="corrects">纠正</option>
+            <option value="supersedes">替代</option>
+            <option value="resolved_by">由其解决</option>
+          </select>
+        </div>
+        <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+        <button type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</button>
+        {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
+        <div className="mt-3 space-y-2">
+          {relations.map(relation => {
+            const counterpartId = relation.source_id === knowledgeId ? relation.target_id : relation.source_id;
+            const counterpart = relationCandidates.find(item => item.id === counterpartId);
+            return (
+              <div key={relation.id} className="border-t border-gray-100 pt-2 text-xs dark:border-gray-700">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{relation.relation_type}</span>
+                  <span className="text-gray-500">{counterpart?.title ?? counterpartId}</span>
+                  <span className="text-gray-400">{relation.status === "suggested" ? "待确认" : relation.status === "confirmed" ? "已确认" : "已拒绝"}</span>
+                  <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString("zh-CN")}</span>
+                  {relation.status !== "confirmed" && <button type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "confirmed")} className="text-blue-600">确认</button>}
+                  {relation.status !== "rejected" && <button type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "rejected")} className="text-red-600">撤销/拒绝</button>}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-gray-600 dark:text-gray-300">{relation.evidence}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">知识质量反馈</h2>

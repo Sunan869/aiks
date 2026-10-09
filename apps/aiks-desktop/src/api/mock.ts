@@ -5,13 +5,14 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
 } from "./types";
 
 const feedbackHistory: KnowledgeFeedback[] = [];
+const knowledgeRelations: KnowledgeRelation[] = [];
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
 const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
@@ -188,6 +189,34 @@ export class MockAiksApi implements AiksApi {
     };
     feedbackHistory.push(entry);
     return entry;
+  }
+
+  async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> {
+    await delay();
+    return knowledgeRelations.filter(item => item.source_id === knowledgeId || item.target_id === knowledgeId);
+  }
+
+  async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> {
+    await delay();
+    if (sourceId === targetId || !evidence.trim() || evidence.length > 4000) throw new Error("Invalid knowledge relation");
+    const source = knowledge.find(item => item.id === sourceId);
+    const target = knowledge.find(item => item.id === targetId);
+    if (!source || !target) throw new Error("Knowledge item not found");
+    if (source.project_name && target.project_name && source.project_name !== target.project_name) throw new Error("Cross-project relation blocked");
+    if (knowledgeRelations.some(item => item.source_id === sourceId && item.target_id === targetId && item.relation_type === relationType)) throw new Error("Duplicate relation");
+    const now = new Date().toISOString();
+    const relation: KnowledgeRelation = { id: "rel_" + Date.now() + "_" + knowledgeRelations.length, source_id: sourceId, target_id: targetId, relation_type: relationType, status: "suggested", evidence: evidence.trim(), confidence: null, created_at: now, updated_at: now };
+    knowledgeRelations.push(relation);
+    return relation;
+  }
+
+  async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> {
+    await delay();
+    const relation = knowledgeRelations.find(item => item.id === relationId);
+    if (!relation) throw new Error("Knowledge relation not found");
+    relation.status = decision;
+    relation.updated_at = new Date().toISOString();
+    return { ...relation };
   }
 
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
