@@ -132,12 +132,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = StateDb::open(&dir.path().join("state.db")).unwrap();
         for i in 0..5 {
-            db.conn().execute(
-                "INSERT INTO source_session
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
                  (source, external_session_id, last_seen_at, created_at, updated_at)
                  VALUES ('codex', ?1, 'now', 'now', 'now')",
-                params![format!("s-{i}")],
-            ).unwrap();
+                    params![format!("s-{i}")],
+                )
+                .unwrap();
         }
         let repo = TaskCenterRepo::new(&db);
         assert_eq!(repo.list_recent(1).unwrap().len(), 1);

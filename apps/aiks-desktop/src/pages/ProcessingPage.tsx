@@ -50,6 +50,22 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
   const [showDiagnosticPreview, setShowDiagnosticPreview] = useState(false);
+  const [diagnosticNotice, setDiagnosticNotice] = useState("");
+  const diagnosticJson = JSON.stringify({
+    schema: "aiks-task-diagnostics-v1",
+    counts: taskStats,
+  }, null, 2);
+  const saveDiagnostic = () => {
+    if (!taskStats) return;
+    const blob = new Blob([diagnosticJson], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aiks-task-diagnostics.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    setDiagnosticNotice("已生成仅包含统计信息的诊断摘要");
+  };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -163,7 +179,22 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         {showDiagnosticPreview && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
             <p className="text-xs text-gray-500 mb-2">仅显示统计数据，不含 Session 正文、路径、错误内容或密钥。</p>
-            <pre className="text-xs whitespace-pre-wrap">{JSON.stringify({ schema: "aiks-task-diagnostics-v1", counts: taskStats }, null, 2)}</pre>
+            <pre className="text-xs whitespace-pre-wrap">{diagnosticJson}</pre>
+            <div className="flex items-center gap-3 mt-2">
+              <button type="button" disabled={!taskStats} onClick={saveDiagnostic}
+                className="text-xs text-blue-600 hover:underline disabled:opacity-50">导出 JSON 摘要</button>
+              <button type="button" disabled={!taskStats}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(diagnosticJson);
+                    setDiagnosticNotice("诊断摘要已复制");
+                  } catch {
+                    setDiagnosticNotice("复制失败，请使用导出 JSON");
+                  }
+                }}
+                className="text-xs text-blue-600 hover:underline disabled:opacity-50">复制摘要</button>
+            </div>
+            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
           </div>
         )}
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
