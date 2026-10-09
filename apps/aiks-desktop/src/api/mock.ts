@@ -5,11 +5,13 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
 } from "./types";
+
+const feedbackHistory: KnowledgeFeedback[] = [];
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
 const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
@@ -166,6 +168,26 @@ export class MockAiksApi implements AiksApi {
     const item = knowledge.find(k => k.id === knowledgeId);
     if (!item) throw new Error(`Knowledge not found: ${knowledgeId}`);
     return detailOf(item);
+  }
+
+  async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> {
+    await delay();
+    return feedbackHistory.filter(item => item.knowledge_id === knowledgeId).slice().reverse();
+  }
+
+  async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> {
+    await delay();
+    if (!knowledge.some(item => item.id === knowledgeId)) throw new Error("Knowledge item not found");
+    if (note.length > 4000) throw new Error("Feedback note exceeds 4000 characters");
+    const entry: KnowledgeFeedback = {
+      id: `feedback_${Date.now()}_${feedbackHistory.length}`,
+      knowledge_id: knowledgeId,
+      kind,
+      note,
+      created_at: new Date().toISOString(),
+    };
+    feedbackHistory.push(entry);
+    return entry;
   }
 
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
