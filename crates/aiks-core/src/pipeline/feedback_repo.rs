@@ -17,7 +17,13 @@ pub struct KnowledgeFeedback {
     pub created_at: String,
 }
 
-const KINDS: &[&str] = &["useful", "incorrect", "duplicate", "outdated", "needs_detail"];
+const KINDS: &[&str] = &[
+    "useful",
+    "incorrect",
+    "duplicate",
+    "outdated",
+    "needs_detail",
+];
 
 pub struct FeedbackRepo<'a> {
     db: &'a StateDb,
@@ -38,15 +44,20 @@ impl<'a> FeedbackRepo<'a> {
         }
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
-        self.db.conn().execute(
-            "INSERT INTO knowledge_feedback (id, knowledge_id, kind, note, created_at)
+        self.db
+            .conn()
+            .execute(
+                "INSERT INTO knowledge_feedback (id, knowledge_id, kind, note, created_at)
              SELECT ?1, id, ?3, ?4, ?5 FROM knowledge_item WHERE id = ?2",
-            params![id, knowledge_id, kind, note, created_at],
-        ).and_then(|count| {
-            if count == 1 { Ok(count) } else {
-                Err(rusqlite::Error::QueryReturnedNoRows)
-            }
-        })?;
+                params![id, knowledge_id, kind, note, created_at],
+            )
+            .and_then(|count| {
+                if count == 1 {
+                    Ok(count)
+                } else {
+                    Err(rusqlite::Error::QueryReturnedNoRows)
+                }
+            })?;
         Ok(KnowledgeFeedback {
             id,
             knowledge_id: knowledge_id.to_string(),
@@ -107,7 +118,10 @@ mod tests {
                 .unwrap();
             assert_eq!(repo.list("review-target").unwrap().len(), 2);
             db.conn()
-                .execute("DELETE FROM knowledge_item WHERE id = ?1", ["review-target"])
+                .execute(
+                    "DELETE FROM knowledge_item WHERE id = ?1",
+                    ["review-target"],
+                )
                 .unwrap();
             assert_eq!(repo.list("review-target").unwrap().len(), 2);
         }
@@ -125,9 +139,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let db = crate::storage::StateDb::open(&temp.path().join("feedback.db")).unwrap();
         let repo = super::FeedbackRepo::new(&db);
-        assert!(repo.add("missing-item", "incorrect", "needs verification").is_err());
+        assert!(repo
+            .add("missing-item", "incorrect", "needs verification")
+            .is_err());
         assert!(repo.add("missing-item", "delete", "").is_err());
-        assert!(repo.add("missing-item", "useful", &"x".repeat(4001)).is_err());
+        assert!(repo
+            .add("missing-item", "useful", &"x".repeat(4001))
+            .is_err());
         assert!(repo.list("missing-item").unwrap().is_empty());
     }
 }
