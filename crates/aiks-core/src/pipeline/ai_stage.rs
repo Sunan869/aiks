@@ -280,7 +280,7 @@ impl AiStage {
             }
             let sanitized = self.sanitizer.sanitize(text);
             let context = format!(
-                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\\n{}",
+                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
                 session_title.unwrap_or("未知会话"),
                 project_name.unwrap_or("未知"),
                 sanitized
