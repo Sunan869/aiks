@@ -246,7 +246,10 @@ mod tests {
             )
             .unwrap();
         let repo = TaskCenterRepo::new(&db);
-        assert_eq!(repo.list_recent(1).unwrap()[0].pipeline_error.as_deref(), Some("old failure"));
+        assert_eq!(
+            repo.list_recent(1).unwrap()[0].pipeline_error.as_deref(),
+            Some("old failure")
+        );
         db.conn()
             .execute(
                 "INSERT INTO pipeline_job
@@ -263,6 +266,34 @@ mod tests {
         assert!(entry.pipeline_error.is_none());
         assert!(entry.job_error.is_none());
         assert!(entry.current_stage.is_none());
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'RUNNING' WHERE id = 'job-new'",
+                [],
+            )
+            .unwrap();
+        let running = repo.list_recent(1).unwrap().remove(0);
+        assert_eq!(running.job_status.as_deref(), Some("RUNNING"));
+        assert_eq!(running.pipeline_status.as_deref(), Some("PROCESSING"));
+        assert!(running.pipeline_error.is_none());
+        assert!(running.current_stage.is_none());
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'DONE' WHERE id = 'job-new'",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE pipeline_run SET status = 'READY', error_message = NULL
+                 WHERE id = 'run-stale'",
+                [],
+            )
+            .unwrap();
+        let done = repo.list_recent(1).unwrap().remove(0);
+        assert_eq!(done.job_status.as_deref(), Some("DONE"));
+        assert_eq!(done.pipeline_status.as_deref(), Some("READY"));
+        assert!(done.pipeline_error.is_none());
     }
 
     #[test]
