@@ -172,7 +172,12 @@ impl AiStage {
                 Some(chunks.len() as i32),
                 Some(0),
                 Some(latency_ms),
-                Some(&serde_json::json!({"score": result.knowledge_score, "items": 0, "cache_hits": cache_hits, "llm_calls": llm_calls})),
+                Some(&serde_json::json!({
+                    "score": result.knowledge_score,
+                    "items": 0,
+                    "cache_hits": cache_hits,
+                    "llm_calls": llm_calls
+                })),
                 None,
             )?;
             return Ok(0);
@@ -209,7 +214,12 @@ impl AiStage {
             Some(chunks.len() as i32),
             Some(item_count as i32),
             Some(latency_ms),
-            Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count, "cache_hits": cache_hits, "llm_calls": llm_calls})),
+            Some(&serde_json::json!({
+                "score": result.knowledge_score,
+                "items": item_count,
+                "cache_hits": cache_hits,
+                "llm_calls": llm_calls
+            })),
             None,
         )?;
 
