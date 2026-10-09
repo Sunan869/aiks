@@ -87,7 +87,7 @@ impl<'a> FeedbackRepo<'a> {
                     created_at: row.get(4)?,
                 })
             })?
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(feedback)
     }
 }
