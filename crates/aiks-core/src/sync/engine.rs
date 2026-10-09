@@ -694,7 +694,7 @@ impl SyncEngine {
         };
         if markdown.len() > 5 * 1024 * 1024 || has_volumes {
             match sink
-                .sync_session_volumes(crate::sink::safe_siyuan::SessionVolumeRequest {
+                .sync_session_volumes(crate::sink::SessionVolumeRequest {
                     db,
                     session_db_id: db_session_id,
                     source,
