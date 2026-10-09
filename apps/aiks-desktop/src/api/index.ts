@@ -14,6 +14,8 @@ import type {
   KnowledgeRelation,
   KnowledgeRelationType,
   KnowledgeRelationStatus,
+  ProjectOverview,
+  ProjectMemorySnapshot,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -34,6 +36,10 @@ import type { RagAnswer, RagAskRequest } from "./rag";
 
 export interface AiksApi {
   getOverview(): Promise<Overview>;
+  getProjectsMemory(): Promise<ProjectOverview[]>;
+  getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
+  createProjectReview(projectId: string, from: string, through: string): Promise<string>;
+  createAgentContextPack(projectId: string, maxTokens: number): Promise<string>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
   importShareUrl(url: string): Promise<ShareImportResult>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;

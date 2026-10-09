@@ -5,7 +5,7 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -71,6 +71,50 @@ function detailOf(item: KnowledgeSummary): KnowledgeDetail {
 }
 
 export class MockAiksApi implements AiksApi {
+  async getProjectsMemory(): Promise<ProjectOverview[]> {
+    await delay();
+    return PROJECTS.map(project => ({
+      id: "mock-project:" + project,
+      title: project,
+      verified_path: true,
+      session_count: sessions.filter(session => session.project_name === project).length,
+      knowledge_count: knowledge.filter(item => item.project_name === project).length,
+      sources: Array.from(new Set(sessions.filter(session => session.project_name === project).map(session => session.source))),
+      last_updated_at: new Date().toISOString(),
+    }));
+  }
+
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> {
+    await delay();
+    const project = (await this.getProjectsMemory()).find(item => item.id === projectId);
+    if (!project) throw new Error("Project not found");
+    const entries = knowledge.filter(item => item.project_name === project.title).map(item => ({
+      knowledge_id: item.id,
+      session_id: item.session_id ?? 0,
+      source: "mock",
+      session_external_id: "mock:" + (item.session_id ?? 0),
+      title: item.title,
+      category: item.category,
+      summary: item.summary,
+      updated_at: item.updated_at,
+      feedback_status: feedbackHistory.filter(review => review.knowledge_id === item.id).slice(-1)[0]?.kind ?? null,
+    }));
+    return { project, entries, truncated: false };
+  }
+
+  async createProjectReview(projectId: string, from: string, through: string): Promise<string> {
+    if (from > through) throw new Error("Invalid reporting period");
+    const memory = await this.getProjectMemory(projectId);
+    const rows = memory.entries.filter(item => item.updated_at.slice(0, 10) >= from && item.updated_at.slice(0, 10) <= through);
+    return "# " + memory.project.title + " · 工作回顾\n\n" + rows.map(item => "- " + item.title + "（知识 " + item.knowledge_id + "）").join("\n");
+  }
+
+  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> {
+    const memory = await this.getProjectMemory(projectId);
+    const permitted = memory.entries.filter(item => item.feedback_status !== "incorrect" && item.feedback_status !== "outdated");
+    return ("# " + memory.project.title + " · AIKS Agent 上下文候选\n\n" + permitted.map(item => item.title + "\n来源：" + item.knowledge_id).join("\n\n")).slice(0, Math.max(256, maxTokens) * 3);
+  }
+
   async getOverview(): Promise<Overview> {
     await delay();
     return {

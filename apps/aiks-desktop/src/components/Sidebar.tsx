@@ -1,5 +1,5 @@
 import type { ElementType } from "react";
-import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch } from "lucide-react";
+import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch, Folder } from "lucide-react";
 import {
   BOTTOM_NAV_ITEMS,
   MAIN_NAV_ITEMS,
@@ -19,6 +19,7 @@ const icons: Record<Page, ElementType> = {
   overview: LayoutDashboard,
   sessions: FileText,
   knowledge: BookOpen,
+  projects: Folder,
   processing: GitBranch,
   sources: Database,
   settings: Settings,

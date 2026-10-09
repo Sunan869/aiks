@@ -343,3 +343,29 @@ export interface KnowledgeRelation {
   created_at: string;
   updated_at: string;
 }
+
+export interface ProjectOverview {
+  id: string;
+  title: string;
+  verified_path: boolean;
+  session_count: number;
+  knowledge_count: number;
+  sources: string[];
+  last_updated_at: string;
+}
+export interface ProjectMemoryEntry {
+  knowledge_id: string;
+  session_id: number;
+  source: string;
+  session_external_id: string;
+  title: string;
+  category: string;
+  summary: string;
+  updated_at: string;
+  feedback_status: string | null;
+}
+export interface ProjectMemorySnapshot {
+  project: ProjectOverview;
+  entries: ProjectMemoryEntry[];
+  truncated: boolean;
+}
