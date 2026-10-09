@@ -536,16 +536,45 @@ async fn repeated_provider_discovery_preserves_ids_and_reports_scan_baseline() {
 #[tokio::test]
 async fn provider_rescan_tracks_additions_and_removals_without_reassigning_ids() {
     let root = tempfile::tempdir().unwrap();
-    put(root.path(), "sessions/stable.json", &continue_session("stable"));
+    put(
+        root.path(),
+        "sessions/stable.json",
+        &continue_session("stable"),
+    );
     let reader = provider(SourceKind::Continue, root.path());
     let first = reader.discover_sessions().await.unwrap();
     assert_eq!(first.len(), 1);
     let stable_id = first[0].external_session_id.clone();
 
-    put(root.path(), "sessions/added.json", &continue_session("added"));
+    let added = json!({
+        "sessionId": "new-session-id",
+        "title": "added",
+        "history": [
+            {"message": {"role": "user", "content": "added"}},
+            {"message": {"role": "assistant", "content": "answer"}}
+        ]
+    });
+    put(root.path(), "sessions/added.json", &added.to_string());
     let second = reader.discover_sessions().await.unwrap();
     assert_eq!(second.len(), 2);
-    assert!(second.iter().any(|item| item.external_session_id == stable_id));
+    assert!(second
+        .iter()
+        .any(|item| item.external_session_id == stable_id));
+
+    // Rewriting the same source with more messages must not reassign identity.
+    let mut revised: Value = serde_json::from_str(&continue_session("stable")).unwrap();
+    revised["history"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"message": {"role": "user", "content": "follow-up"}}));
+    put(root.path(), "sessions/stable.json", &revised.to_string());
+    let updated = reader.discover_sessions().await.unwrap();
+    assert_eq!(updated.len(), 2);
+    let stable = updated
+        .iter()
+        .find(|item| item.external_session_id == stable_id)
+        .unwrap();
+    assert_eq!(reader.load_session(stable).await.unwrap().messages.len(), 3);
 
     std::fs::remove_file(root.path().join("sessions/added.json")).unwrap();
     let third = reader.discover_sessions().await.unwrap();
@@ -553,4 +582,5 @@ async fn provider_rescan_tracks_additions_and_removals_without_reassigning_ids()
     assert_eq!(third[0].external_session_id, stable_id);
     let loaded = reader.load_session(&third[0]).await.unwrap();
     assert_eq!(loaded.external_session_id, stable_id);
+    assert_eq!(loaded.messages.len(), 3);
 }

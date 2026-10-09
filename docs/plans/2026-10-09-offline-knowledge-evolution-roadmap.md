@@ -326,3 +326,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 补充 NativeProvider 增量重扫：首次发现单个 Session、随后添加第二个来源、再移除新增来源，验证原 Session 的稳定标识不会被重编排；重新加载保留的 Session 仍成功。
 - 保持输入只读，测试只操作临时构造数据；不会让 AIKS 删除真实 Provider 文件。
 - 该合成测试不替代 Windows 真实环境多版本 Provider 文件布局验收。
+
+### S1.4 真实 Windows 契约测试反馈（2026-10-09）
+
+- `37921141948` Windows Provider Contracts 暴露新增测试夹具使用相同 `sessionId` 的错误；NativeProvider 正确以 `ambiguous_session_identity` 拒绝模棱两可的来源，而非静默合并。
+- 改为两个不同的 Session 身份，增加在第二个 Session 存在时追加原 Session 消息的回归验证：Session ID 稳定、内容增量可见；移除第二个 Session 后原 ID 和追加内容仍保留。
+- Linux CI `37921141959` 的两处 `rustfmt` 差异一并修正；新测试结果待后续 CI 验证。
