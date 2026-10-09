@@ -8,7 +8,6 @@ import SessionsPage from "./pages/SessionsPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
 import KnowledgeWorkspacePage from "./pages/KnowledgeWorkspacePage";
 import ProjectMemoryPage from "./pages/ProjectMemoryPage";
-import ProjectMemoryPage from "./pages/ProjectMemoryPage";
 import ProcessingPage from "./pages/ProcessingPage";
 import ProcessingDetailPage from "./pages/ProcessingDetailPage";
 import SourcesPage from "./pages/SourcesPage";
@@ -179,7 +178,7 @@ export default function App() {
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
-      case "projects": return <ProjectMemoryPage onOpenKnowledge={viewKnowledgeDetail} />;
+
       case "projects": return <ProjectMemoryPage onOpenKnowledge={viewKnowledgeDetail} onOpenSession={viewSessionDetail} />;
       case "knowledge": return (
         <KnowledgeWorkspacePage
