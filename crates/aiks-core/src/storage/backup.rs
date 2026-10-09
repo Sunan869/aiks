@@ -57,6 +57,18 @@ pub fn create_sqlite_backup(db: &StateDb, destination: &Path) -> Result<SqliteBa
 
 pub fn inspect_sqlite_backup(path: &Path, file_name: String) -> Result<SqliteBackupManifest> {
     // Hash in bounded memory even when the state database is several GiB.
+    // FTS5's integrity checker needs a writable connection even when it
+    // only validates the index. This is a detached backup, never the live DB.
+    // Verify its digest AFTER SQLite closes so any unexpected mutation cannot
+    // pass against a previously calculated digest.
+    {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let integrity: String =
+            connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            bail!("SQLite backup integrity check failed: {integrity}");
+        }
+    }
     let mut input =
         fs::File::open(path).with_context(|| format!("read backup: {}", path.display()))?;
     let size = input.metadata()?.len();
@@ -70,11 +82,7 @@ pub fn inspect_sqlite_backup(path: &Path, file_name: String) -> Result<SqliteBac
         hasher.update(&buffer[..read]);
     }
     let hash = hex::encode(hasher.finalize());
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
-    if integrity != "ok" {
-        bail!("SQLite backup integrity check failed: {integrity}");
-    }
+    let integrity = "ok".to_string();
     Ok(SqliteBackupManifest {
         format_version: 1,
         file_name,
@@ -220,6 +228,7 @@ mod tests {
         assert_eq!(manifest.integrity, "ok");
         assert_eq!(manifest.sha256.len(), 64);
         verify_sqlite_backup(&path, &manifest).unwrap();
+        assert_eq!(manifest.sha256, inspect_sqlite_backup(&path, manifest.file_name.clone()).unwrap().sha256);
         assert!(create_sqlite_backup(&db, &path).is_err());
         let copy = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let count: i64 = copy
