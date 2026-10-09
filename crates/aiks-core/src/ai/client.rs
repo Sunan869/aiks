@@ -308,6 +308,7 @@ impl AiClient {
             self.config.base_url.trim_end_matches('/')
         );
         let mut max_tokens = requested_max_tokens.max(1);
+        let mut overload_retries = 0usize;
 
         loop {
             let request_started = Instant::now();
@@ -346,6 +347,18 @@ impl AiClient {
                 .context("AI streaming HTTP request failed")?;
 
             let status = resp.status();
+            if is_model_overloaded(status.as_u16()) && overload_retries < 2 {
+                overload_retries += 1;
+                let delay_ms = 250_u64 * (1_u64 << (overload_retries - 1));
+                tracing::warn!(
+                    status = %status,
+                    attempt = overload_retries,
+                    delay_ms,
+                    "AI streaming model busy; retrying after bounded backoff"
+                );
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                continue;
+            }
             if !status.is_success() {
                 let body_text = resp.text().await.unwrap_or_default();
                 if status.as_u16() == 400
