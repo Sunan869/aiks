@@ -362,8 +362,12 @@ impl AiStage {
 }
 
 fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> String {
-    format!("会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
-        title.unwrap_or("未知会话"), project.unwrap_or("未知"), chunk)
+    format!(
+        "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
+        title.unwrap_or("未知会话"),
+        project.unwrap_or("未知"),
+        chunk
+    )
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
