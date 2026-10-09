@@ -50,6 +50,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
@@ -70,6 +71,9 @@ export default function ProcessingPage({ onViewDetail }: Props) {
       setRuns(r);
       setStats(s);
       setTasks(t);
+      setLoadError("");
+    } catch (error) {
+      setLoadError("无法刷新任务状态：" + String(error));
     } finally {
       inFlightRef.current = false;
       if (showLoading) setLoading(false);
@@ -139,6 +143,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
         <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
           <span>总会话 {tasks.length}</span>
           <span>待处理 {tasks.filter(t => t.job_status === "PENDING").length}</span>
@@ -178,7 +183,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
               <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                 <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
                 <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
-                <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
+                <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">最近阶段</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
               </tr></thead>
               <tbody>
                 {tasks.filter(task =>
@@ -193,6 +198,9 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                     <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 pr-3" title={task.last_task_update || ""}>
+                      {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
+                    </td>
                     <td className="py-2 pr-3">
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&

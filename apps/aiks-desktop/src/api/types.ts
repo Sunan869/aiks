@@ -306,4 +306,6 @@ export interface TaskCenterEntry {
   job_status: string | null;
   attempts: number | null;
   job_error: string | null;
+  stage_latency_ms: number | null;
+  last_task_update: string | null;
 }

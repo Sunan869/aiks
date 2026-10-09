@@ -18,6 +18,8 @@ pub struct TaskCenterEntry {
     pub job_status: Option<String>,
     pub attempts: Option<i64>,
     pub job_error: Option<String>,
+    pub stage_latency_ms: Option<i64>,
+    pub last_task_update: Option<String>,
 }
 
 pub struct TaskCenterRepo<'a> {
@@ -37,7 +39,11 @@ impl<'a> TaskCenterRepo<'a> {
             "SELECT ss.id, ss.source, ss.external_session_id, ss.title,
                     st.status, st.last_error,
                     pr.status, pr.current_stage, pr.error_message,
-                    pj.status, pj.attempt, pj.last_error
+                    pj.status, pj.attempt, pj.last_error,
+                    (SELECT ps.latency_ms FROM pipeline_stage_run ps
+                     WHERE ps.pipeline_run_id = pr.id AND ps.latency_ms IS NOT NULL
+                     ORDER BY ps.finished_at DESC, ps.rowid DESC LIMIT 1),
+                    COALESCE(pj.updated_at, pr.updated_at, ss.updated_at)
              FROM source_session ss
              LEFT JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
              LEFT JOIN pipeline_run pr ON pr.session_id = ss.id
@@ -63,6 +69,8 @@ impl<'a> TaskCenterRepo<'a> {
                 job_status: row.get(9)?,
                 attempts: row.get(10)?,
                 job_error: row.get(11)?,
+                stage_latency_ms: row.get(12)?,
+                last_task_update: row.get(13)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
