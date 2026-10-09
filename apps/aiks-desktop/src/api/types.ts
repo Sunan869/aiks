@@ -305,4 +305,5 @@ export interface TaskCenterEntry {
   pipeline_error: string | null;
   job_status: string | null;
   attempts: number | null;
+  job_error: string | null;
 }

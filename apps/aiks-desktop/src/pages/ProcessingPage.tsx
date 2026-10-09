@@ -182,7 +182,19 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                     <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
-                    <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || ""}>{task.sync_error || task.pipeline_error || "—"}</td>
+                    <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
+                      <details className="group max-w-64">
+                        <summary className="cursor-pointer truncate list-none" title="展开错误诊断">{task.sync_error || task.pipeline_error || task.job_error || "—"}</summary>
+                        <div className="mt-2 max-w-sm whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300 space-y-1">
+                          <div>原始同步：{task.sync_status || "未开始"}</div>
+                          <div>AI 提炼：{task.pipeline_status || "未开始"}</div>
+                          <div>持久任务：{task.job_status || "无"}</div>
+                          {task.sync_error && <div className="text-red-500">同步错误：{task.sync_error}</div>}
+                          {task.pipeline_error && <div className="text-red-500">提炼错误：{task.pipeline_error}</div>}
+                          {task.job_error && <div className="text-red-500">队列错误：{task.job_error}</div>}
+                        </div>
+                      </details>
+                    </td>
                   </tr>
                 ))}
               </tbody>
