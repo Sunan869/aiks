@@ -1,8 +1,14 @@
 //! End-to-end volume lifecycle against an in-memory SiYuan HTTP test double.
 //! No external SiYuan installation or model server is required.
-use std::{collections::HashMap, sync::{Arc, Mutex}};
-use aiks_core::{sink::{SessionVolumeRequest, SiYuanSink}, storage::StateDb};
+use aiks_core::{
+    sink::{SessionVolumeRequest, SiYuanSink},
+    storage::StateDb,
+};
 use serde_json::{json, Value};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Default)]
@@ -19,7 +25,9 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
     let shared = Arc::clone(&state);
     let task = tokio::spawn(async move {
         loop {
-            let Ok((mut socket, _)) = listener.accept().await else { break };
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
             let shared = Arc::clone(&shared);
             tokio::spawn(async move {
                 let mut bytes = Vec::new();
@@ -27,21 +35,31 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                 let mut content_length = 0;
                 loop {
                     let mut buf = [0u8; 16384];
-                    let Ok(n) = socket.read(&mut buf).await else { return };
-                    if n == 0 { return; }
+                    let Ok(n) = socket.read(&mut buf).await else {
+                        return;
+                    };
+                    if n == 0 {
+                        return;
+                    }
                     bytes.extend_from_slice(&buf[..n]);
                     if header_end.is_none() {
                         if let Some(at) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
                             let header = String::from_utf8_lossy(&bytes[..at]);
-                            content_length = header.lines().find_map(|line| {
-                                line.to_ascii_lowercase().strip_prefix("content-length:")
-                                    .and_then(|value| value.trim().parse::<usize>().ok())
-                            }).unwrap_or(0);
+                            content_length = header
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .and_then(|value| value.trim().parse::<usize>().ok())
+                                })
+                                .unwrap_or(0);
                             header_end = Some(at + 4);
                         }
                     }
                     if let Some(offset) = header_end {
-                        if bytes.len() >= offset + content_length { break; }
+                        if bytes.len() >= offset + content_length {
+                            break;
+                        }
                     }
                 }
                 let request = String::from_utf8_lossy(&bytes);
@@ -55,23 +73,35 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                         "/api/query/sql" => {
                             let sql = payload["stmt"].as_str().unwrap_or("");
                             if sql.contains("hpath = '") {
-                                let path = sql.split('\'').nth(5).unwrap_or("");
-                                json!(state.documents.iter().filter(|(_, (p, _))| p == path)
-                                    .map(|(id, _)| json!({"id": id})).collect::<Vec<_>>())
+                                let path = sql.split('\'').nth(3).unwrap_or("");
+                                json!(state
+                                    .documents
+                                    .iter()
+                                    .filter(|(_, (p, _))| p == path)
+                                    .map(|(id, _)| json!({"id": id}))
+                                    .collect::<Vec<_>>())
                             } else if sql.contains("WHERE id = '") {
                                 let id = sql.split('\'').nth(1).unwrap_or("");
-                                json!(state.documents.contains_key(id).then(|| json!([{"box":"box-1"}]))
+                                json!(state
+                                    .documents
+                                    .contains_key(id)
+                                    .then(|| json!([{"box":"box-1"}]))
                                     .unwrap_or_else(|| json!([])))
-                            } else { json!([]) }
+                            } else {
+                                json!([])
+                            }
                         }
                         "/api/filetree/createDocWithMd" => {
                             state.next_id += 1;
                             state.creates += 1;
                             let id = format!("20261009-test-{:06}", state.next_id);
-                            state.documents.insert(id.clone(), (
-                                payload["path"].as_str().unwrap().to_owned(),
-                                payload["markdown"].as_str().unwrap().to_owned(),
-                            ));
+                            state.documents.insert(
+                                id.clone(),
+                                (
+                                    payload["path"].as_str().unwrap().to_owned(),
+                                    payload["markdown"].as_str().unwrap().to_owned(),
+                                ),
+                            );
                             json!(id)
                         }
                         "/api/block/getBlockKramdown" => {
@@ -131,25 +161,49 @@ async fn volume_create_retry_conflict_and_confirmed_delete_recovery() {
     let created = remote.lock().unwrap().creates;
     assert!(created >= 2);
     assert_eq!(sink.sync_session_volumes(request()).await.unwrap(), index);
-    assert_eq!(remote.lock().unwrap().creates, created, "retry created duplicate volumes");
+    assert_eq!(
+        remote.lock().unwrap().creates,
+        created,
+        "retry created duplicate volumes"
+    );
 
     let first_id = {
         let state = remote.lock().unwrap();
-        state.documents.iter().find(|(_, (path, _))| path.ends_with("Part 0001"))
-            .unwrap().0.clone()
+        state
+            .documents
+            .iter()
+            .find(|(_, (path, _))| path.ends_with("Part 0001"))
+            .unwrap()
+            .0
+            .clone()
     };
     {
         let mut state = remote.lock().unwrap();
-        state.documents.get_mut(&first_id).unwrap().1.push_str("\nuser edit");
+        state
+            .documents
+            .get_mut(&first_id)
+            .unwrap()
+            .1
+            .push_str("\nuser edit");
     }
     let conflict = sink.sync_session_volumes(request()).await.unwrap_err();
     assert!(conflict.to_string().contains("edited"));
-    assert_eq!(remote.lock().unwrap().creates, created, "conflict wrote new documents");
+    assert_eq!(
+        remote.lock().unwrap().creates,
+        created,
+        "conflict wrote new documents"
+    );
 
     remote.lock().unwrap().documents.remove(&first_id);
     let recovered = sink.sync_session_volumes(request()).await.unwrap();
-    assert_ne!(recovered, index, "restored volume should reference its new document id");
+    assert_ne!(
+        recovered, index,
+        "restored volume should reference its new document id"
+    );
     assert_eq!(remote.lock().unwrap().creates, created + 1);
-    assert_eq!(sink.sync_session_volumes(request()).await.unwrap(), recovered);
+    assert_eq!(
+        sink.sync_session_volumes(request()).await.unwrap(),
+        recovered
+    );
     server.abort();
 }
