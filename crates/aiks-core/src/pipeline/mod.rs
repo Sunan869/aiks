@@ -11,6 +11,7 @@ pub mod search;
 pub mod semantic_dedup;
 pub mod session_chunker;
 pub mod status;
+pub mod task_center;
 pub mod worker;
 
 pub use embedding_client::EmbeddingConfig;
