@@ -311,6 +311,7 @@ impl AiStage {
         // justify increasing it. Zero is treated as sequential execution.
         // Never queue all requests to an unbounded local model backend.
         let batch_size = self.config.max_concurrent.clamp(1, 2);
+        let mut batch_latencies_ms = Vec::new();
         for batch in pending.chunks(batch_size) {
             let started = Instant::now();
             let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
@@ -321,6 +322,7 @@ impl AiStage {
             } else {
                 vec![first.await]
             };
+            batch_latencies_ms.push(started.elapsed().as_millis() as u64);
             // Persist each successful result even if the other request failed,
             // so the next pipeline retry does not repeat successful work.
             let mut first_error = None;
@@ -357,6 +359,12 @@ impl AiStage {
                 return Err(error);
             }
         }
+        tracing::info!(
+            batches = batch_latencies_ms.len(),
+            batch_p50_ms = latency_percentile(&batch_latencies_ms, 50),
+            batch_p95_ms = latency_percentile(&batch_latencies_ms, 95),
+            "AIKS_EXTRACTION_BATCH_LATENCY"
+        );
         {
             let conn = db.conn();
             conn.execute(
@@ -386,6 +394,18 @@ fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> Str
 /// Integer cache hit ratio avoids division by zero on empty inputs.
 fn cache_hit_percent(hits: usize, total: usize) -> usize {
     hits.saturating_mul(100).checked_div(total).unwrap_or(0)
+}
+
+/// Nearest-rank percentile of completed batch latency, in milliseconds.
+/// These are *batch* timings, not per-request latency or whole-session P95.
+fn latency_percentile(samples: &[u64], percent: usize) -> u64 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let rank = sorted.len().saturating_mul(percent.min(100)).div_ceil(100);
+    sorted[rank.max(1) - 1]
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
@@ -1099,6 +1119,14 @@ fn log_ai_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_latency_percentiles_use_nearest_rank() {
+        assert_eq!(latency_percentile(&[], 95), 0);
+        assert_eq!(latency_percentile(&[50], 95), 50);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 50), 30);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 95), 50);
+    }
 
     #[test]
     fn cache_hit_ratio_handles_empty_and_partial_batches() {
