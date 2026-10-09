@@ -36,6 +36,29 @@ struct ChatMessage<'a> {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+}
+
+/// Actual token usage reported by an OpenAI-compatible endpoint.
+/// Absent on some local model servers; never substitute guessed token counts.
+#[derive(Debug, Deserialize)]
+struct ChatUsage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    total_tokens: u64,
+}
+
+fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
+    if let Some(usage) = usage {
+        tracing::info!(
+            model,
+            prompt_tokens = usage.prompt_tokens,
+            completion_tokens = usage.completion_tokens,
+            total_tokens = usage.total_tokens,
+            "AIKS_MODEL_TOKEN_USAGE"
+        );
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,6 +278,7 @@ impl AiClient {
 
             let body: ChatResponse =
                 serde_json::from_str(&body_text).context("parse AI response")?;
+            log_token_usage(&self.config.model, body.usage.as_ref());
             let content = body
                 .choices
                 .into_iter()
@@ -352,6 +376,7 @@ impl AiClient {
                 let body_text = resp.text().await.unwrap_or_default();
                 let body: ChatResponse =
                     serde_json::from_str(&body_text).context("parse AI response")?;
+                log_token_usage(&self.config.model, body.usage.as_ref());
                 let content = body
                     .choices
                     .into_iter()
@@ -461,6 +486,20 @@ fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod stream_tests {
     use super::parse_stream_line;
+
+    #[test]
+    fn parses_actual_usage_and_handles_missing_usage() {
+        let with_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}"#;
+        let result: super::ChatResponse = serde_json::from_str(with_usage).unwrap();
+        let usage = result.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 12);
+        assert_eq!(usage.completion_tokens, 3);
+        assert_eq!(usage.total_tokens, 15);
+
+        let without_usage = r#"{"choices":[{"message":{"content":"OK"}}]}"#;
+        let result: super::ChatResponse = serde_json::from_str(without_usage).unwrap();
+        assert!(result.usage.is_none());
+    }
 
     #[test]
     fn retry_only_transient_capacity_errors() {
