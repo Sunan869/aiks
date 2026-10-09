@@ -186,7 +186,7 @@ export default function App() {
           externalOverlayOpen={askOpen}
         />
       );
-      case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
+      case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} onViewSession={viewSessionDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
       case "settings": return <><SettingsPage /><DataStorageSettingsSection /></>;
       case "diagnostics": return <DiagnosticsPage />;
