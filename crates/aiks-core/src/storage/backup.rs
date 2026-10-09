@@ -228,13 +228,32 @@ mod tests {
         assert_eq!(manifest.integrity, "ok");
         assert_eq!(manifest.sha256.len(), 64);
         verify_sqlite_backup(&path, &manifest).unwrap();
-        assert_eq!(manifest.sha256, inspect_sqlite_backup(&path, manifest.file_name.clone()).unwrap().sha256);
+        assert_eq!(
+            manifest.sha256,
+            inspect_sqlite_backup(&path, manifest.file_name.clone())
+                .unwrap()
+                .sha256
+        );
         assert!(create_sqlite_backup(&db, &path).is_err());
         let copy = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let count: i64 = copy
             .query_row("SELECT COUNT(*) FROM source_session", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn repeated_fts_integrity_checks_preserve_snapshot_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("snapshot.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        for _ in 0..3 {
+            verify_sqlite_backup(&snapshot, &manifest).unwrap();
+            let actual = inspect_sqlite_backup(&snapshot, manifest.file_name.clone()).unwrap();
+            assert_eq!(actual.sha256, manifest.sha256);
+            assert_eq!(actual.byte_length, manifest.byte_length);
+        }
     }
 
     #[test]
