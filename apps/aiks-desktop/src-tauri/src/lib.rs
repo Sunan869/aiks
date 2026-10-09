@@ -157,6 +157,8 @@ pub fn run() {
             // V4 Native Knowledge Workbench
             knowledge_commands::list_knowledge_v4,
             knowledge_commands::get_knowledge_detail_v4,
+            knowledge_commands::add_knowledge_feedback,
+            knowledge_commands::list_knowledge_feedback,
             knowledge_commands::create_knowledge,
             knowledge_commands::update_knowledge,
             knowledge_commands::set_knowledge_favorite,
