@@ -9,6 +9,8 @@ import type {
   TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  KnowledgeFeedback,
+  KnowledgeFeedbackKind,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -42,6 +44,8 @@ export interface AiksApi {
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
+  getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
+  addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback>;
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
   setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;
