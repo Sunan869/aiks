@@ -100,4 +100,15 @@ mod tests {
         assert!(super::KINDS.contains(&"needs_detail"));
         assert!(!super::KINDS.contains(&"delete"));
     }
+
+    #[test]
+    fn feedback_rejects_unknown_item_and_invalid_input_without_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = crate::storage::StateDb::open(&temp.path().join("feedback.db")).unwrap();
+        let repo = super::FeedbackRepo::new(&db);
+        assert!(repo.add("missing-item", "incorrect", "needs verification").is_err());
+        assert!(repo.add("missing-item", "delete", "").is_err());
+        assert!(repo.add("missing-item", "useful", &"x".repeat(4001)).is_err());
+        assert!(repo.list("missing-item").unwrap().is_empty());
+    }
 }
