@@ -177,6 +177,7 @@ impl AiClient {
             self.config.base_url.trim_end_matches('/')
         );
         let mut max_tokens = requested_max_tokens.max(1);
+        let mut overload_retries = 0usize;
         loop {
             let req = ChatRequest {
                 model: &self.config.model,
@@ -217,6 +218,20 @@ impl AiClient {
                 })?;
 
             let status = resp.status();
+            // Only retry explicit capacity/rate-limit responses. Retrying arbitrary
+            // 4xx responses hides configuration errors and wastes local GPU time.
+            if is_model_overloaded(status.as_u16()) && overload_retries < 2 {
+                overload_retries += 1;
+                let delay_ms = 250_u64 * (1_u64 << (overload_retries - 1));
+                tracing::warn!(
+                    status = %status,
+                    attempt = overload_retries,
+                    delay_ms,
+                    "AI model busy; retrying after bounded backoff"
+                );
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                continue;
+            }
             let body_text = resp.text().await.unwrap_or_default();
 
             if status.as_u16() == 400
@@ -417,6 +432,11 @@ impl AiClient {
     }
 }
 
+/// Transient capacity signals from OpenAI-compatible local model servers.
+fn is_model_overloaded(status: u16) -> bool {
+    matches!(status, 429 | 503)
+}
+
 fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
     let line = std::str::from_utf8(line)
         .context("AI stream returned invalid UTF-8")?
@@ -441,6 +461,15 @@ fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod stream_tests {
     use super::parse_stream_line;
+
+    #[test]
+    fn retry_only_transient_capacity_errors() {
+        assert!(super::is_model_overloaded(429));
+        assert!(super::is_model_overloaded(503));
+        for status in [400, 401, 403, 404, 408, 422, 500, 502] {
+            assert!(!super::is_model_overloaded(status));
+        }
+    }
 
     #[test]
     fn parses_openai_stream_delta_and_ignores_done() {
