@@ -188,7 +188,7 @@ async fn oversized_session_uses_volume_path_and_remains_retryable_on_sink_failur
         .find(source.id, "siyuan")
         .unwrap()
         .unwrap();
-    assert_eq!(target.status, SyncStatus::FailedPermanent);
+    assert_ne!(target.status, SyncStatus::FailedPermanent);
     assert!(target.retry_count >= 2);
 
     let paths = seen.lock().unwrap();
