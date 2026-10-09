@@ -130,14 +130,14 @@ impl AiStage {
             "[AI] Starting extraction"
         );
 
-        let mut result = if chunks.len() == 1 {
+        let (mut result, cache_hits, llm_calls) = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
             let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
-            parse_v3_result_typed(&response)?
+            (parse_v3_result_typed(&response)?, 0usize, 1usize)
         } else {
             // Multiple chunks: Map-Reduce
             self.map_reduce(db, session_title, project_name, &chunks)
@@ -172,7 +172,7 @@ impl AiStage {
                 Some(chunks.len() as i32),
                 Some(0),
                 Some(latency_ms),
-                Some(&serde_json::json!({"score": result.knowledge_score, "items": 0})),
+                Some(&serde_json::json!({"score": result.knowledge_score, "items": 0, "cache_hits": cache_hits, "llm_calls": llm_calls})),
                 None,
             )?;
             return Ok(0);
@@ -209,7 +209,7 @@ impl AiStage {
             Some(chunks.len() as i32),
             Some(item_count as i32),
             Some(latency_ms),
-            Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count})),
+            Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count, "cache_hits": cache_hits, "llm_calls": llm_calls})),
             None,
         )?;
 
@@ -226,7 +226,7 @@ impl AiStage {
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
-    ) -> anyhow::Result<V3ExtractionResult> {
+    ) -> anyhow::Result<(V3ExtractionResult, usize, usize)> {
         // Cache successful chunk extractions, not failed/incomplete responses.
         // Changing the model, prompt version, project or chunk content
         // invalidates the key automatically.
@@ -357,7 +357,7 @@ impl AiStage {
             .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(merge_chunk_knowledge(results))
+        Ok((merge_chunk_knowledge(results), cache_hits, pending.len()))
     }
 }
 
