@@ -57,8 +57,8 @@ pub fn create_sqlite_backup(db: &StateDb, destination: &Path) -> Result<SqliteBa
 
 pub fn inspect_sqlite_backup(path: &Path, file_name: String) -> Result<SqliteBackupManifest> {
     // Hash in bounded memory even when the state database is several GiB.
-    let mut input = fs::File::open(path)
-        .with_context(|| format!("read backup: {}", path.display()))?;
+    let mut input =
+        fs::File::open(path).with_context(|| format!("read backup: {}", path.display()))?;
     let size = input.metadata()?.len();
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
@@ -117,6 +117,9 @@ pub fn restore_sqlite_backup_to_new_path(
         .context("restore destination has no parent")?;
     if !parent.is_dir() {
         bail!("restore destination directory does not exist");
+    }
+    if destination == source {
+        bail!("restore destination must differ from the snapshot");
     }
     let mut output = OpenOptions::new()
         .write(true)
@@ -295,6 +298,30 @@ mod tests {
         fs::write(&dest, b"do-not-replace").unwrap();
         assert!(restore_sqlite_backup_to_new_path(&snapshot, &manifest, &dest).is_err());
         assert_eq!(fs::read(&dest).unwrap(), b"do-not-replace");
+    }
+
+    #[test]
+    fn restore_refuses_to_write_over_original_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("snapshot.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        assert!(restore_sqlite_backup_to_new_path(&snapshot, &manifest, &snapshot).is_err());
+        verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[test]
+    fn corrupt_snapshot_is_rejected_without_creating_restore_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("snapshot.sqlite");
+        let restored = dir.path().join("restored.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        let mut bytes = fs::read(&snapshot).unwrap();
+        bytes[0] ^= 0xff;
+        fs::write(&snapshot, bytes).unwrap();
+        assert!(restore_sqlite_backup_to_new_path(&snapshot, &manifest, &restored).is_err());
+        assert!(!restored.exists());
     }
 
     #[test]
