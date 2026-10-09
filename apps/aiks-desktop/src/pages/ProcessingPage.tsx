@@ -205,6 +205,23 @@ export default function ProcessingPage({ onViewDetail }: Props) {
                             }
                           }}
                         >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</button>
+                      ) : task.job_status === "PENDING" ? (
+                        <button type="button" disabled={retryingTask !== null}
+                          className="text-orange-600 hover:underline disabled:opacity-50"
+                          onClick={async () => {
+                            setRetryingTask(task.session_id);
+                            setRetryNotice("");
+                            try {
+                              const cancelled = await getApi().cancelPendingAiTask(task.session_id);
+                              setRetryNotice(cancelled ? "已取消排队中的 AI 任务" : "任务已开始运行或不再排队，未取消");
+                              await load(false);
+                            } catch (error) {
+                              setRetryNotice("取消失败：" + String(error));
+                            } finally {
+                              setRetryingTask(null);
+                            }
+                          }}
+                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</button>
                       ) : "—"}
                     </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
