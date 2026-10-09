@@ -299,6 +299,7 @@ impl AiStage {
         tracing::info!(
             total_chunks = chunks.len(),
             cache_hits,
+            cache_hit_percent = cache_hit_percent(cache_hits, chunks.len()),
             llm_calls = pending.len(),
             "[AI] Chunk cache summary"
         );
@@ -378,6 +379,15 @@ fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> Str
         project.unwrap_or("未知"),
         chunk
     )
+}
+
+/// Integer cache hit ratio avoids division by zero on empty inputs.
+fn cache_hit_percent(hits: usize, total: usize) -> usize {
+    if total == 0 {
+        0
+    } else {
+        hits.saturating_mul(100) / total
+    }
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
@@ -1091,6 +1101,14 @@ fn log_ai_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_hit_ratio_handles_empty_and_partial_batches() {
+        assert_eq!(cache_hit_percent(0, 0), 0);
+        assert_eq!(cache_hit_percent(0, 3), 0);
+        assert_eq!(cache_hit_percent(1, 3), 33);
+        assert_eq!(cache_hit_percent(3, 3), 100);
+    }
 
     #[test]
     fn chunk_context_preserves_real_line_breaks() {
