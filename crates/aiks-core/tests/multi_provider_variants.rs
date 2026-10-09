@@ -484,3 +484,45 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
     assert!(report.complete);
     assert_eq!(report.sessions.len(), 2);
 }
+
+#[tokio::test]
+async fn repeated_provider_discovery_preserves_ids_and_reports_scan_baseline() {
+    use std::time::Instant;
+
+    let root = tempfile::tempdir().unwrap();
+    let sessions = 160usize;
+    for index in 0..sessions {
+        let payload = json!({
+            "sessionId": format!("session-{index:04}"),
+            "title": format!("Synthetic project {index}"),
+            "history": [
+                {"message": {"role": "user", "content": "Question"}},
+                {"message": {"role": "assistant", "content": "Answer"}}
+            ]
+        });
+        put(
+            root.path(),
+            &format!("sessions/session-{index:04}.json"),
+            &payload.to_string(),
+        );
+    }
+    let reader = provider(SourceKind::Continue, root.path());
+    let first_started = Instant::now();
+    let first = reader.discover_sessions().await.unwrap();
+    let first_ms = first_started.elapsed().as_millis();
+    let second_started = Instant::now();
+    let second = reader.discover_sessions().await.unwrap();
+    let second_ms = second_started.elapsed().as_millis();
+    assert_eq!(first.len(), sessions);
+    assert_eq!(second.len(), sessions);
+    let mut first_ids: Vec<_> = first.into_iter().map(|item| item.external_session_id).collect();
+    let mut second_ids: Vec<_> = second.into_iter().map(|item| item.external_session_id).collect();
+    first_ids.sort();
+    second_ids.sort();
+    first_ids.dedup();
+    assert_eq!(first_ids.len(), sessions);
+    assert_eq!(first_ids, second_ids);
+    eprintln!(
+        "AIKS_PROVIDER_BASELINE provider=continue sessions={sessions} first_discovery_ms={first_ms} repeat_discovery_ms={second_ms}"
+    );
+}

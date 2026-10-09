@@ -314,3 +314,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 增加 SQLite WAL 并发写入读取测试：只读 Provider 连接在第一次查询后维持原有快照，作者连接追加记录不影响当前快照；重新打开连接才看到新增记录。
 - 增加目录扫描 `max_entries` 预算测试：超过预算时明确报错，文件保持原样，不出现「空结果即成功」的伪信号。
 - 这些是可复现的跨平台合成回归，不等同于用户 Windows 真实文件环境的 Provider 兼容性验收。
+
+### S1.4 端到端 Provider 发现基线（2026-10-09）
+
+- 增加 160 份不同身份的 Continue Session 合成输入，使用真实 NativeProvider discovery API，验证首次与重复发现结果身份一致且无重复。
+- CI 日志统一输出 `AIKS_PROVIDER_BASELINE provider=continue`、Session 数量和两轮耗时；不设共享 Runner 上不稳定的硬耗时门槛。
+- 该基线为合成环境接口级测试，不能推断 Windows 本机真实磁盘吞吐和真实 Provider 格式兼容性；仍需单独实测。
