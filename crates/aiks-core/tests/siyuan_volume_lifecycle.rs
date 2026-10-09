@@ -253,8 +253,9 @@ async fn shrinking_session_retains_previous_volumes_and_reports_them() {
     let sink = SiYuanSink::embedded(base, "AI Knowledge").unwrap();
     let content = "history\n".repeat(800_000);
 
-    let request = |markdown| SessionVolumeRequest {
-        db: &db,
+    fn request<'a>(db: &'a StateDb, markdown: &'a str) -> SessionVolumeRequest<'a> {
+        SessionVolumeRequest {
+        db,
         session_db_id: 702,
         source: "codex",
         external_id: "rollout-shrink",
@@ -262,18 +263,19 @@ async fn shrinking_session_retains_previous_volumes_and_reports_them() {
         notebook_id: "box-1",
         base_path: "/10 AI Sessions/Codex/2026/10/shrinking",
         markdown,
-    };
+        }
+    }
 
-    let original = sink.sync_session_volumes(request(&content)).await.unwrap();
+    let original = sink.sync_session_volumes(request(&db, &content)).await.unwrap();
     assert!(original.contains("第 2 部分"));
     let created = remote.lock().unwrap().creates;
     let short = "# shortened\n";
-    let updated = sink.sync_session_volumes(request(short)).await.unwrap();
+    let updated = sink.sync_session_volumes(request(&db, short)).await.unwrap();
     assert!(updated.contains("历史分卷"));
     assert!(updated.contains("第 1 部分"));
     assert!(!updated.contains("第 2 部分"));
     assert_eq!(remote.lock().unwrap().creates, created);
     assert_eq!(remote.lock().unwrap().documents.len(), created);
-    assert_eq!(sink.sync_session_volumes(request(short)).await.unwrap(), updated);
+    assert_eq!(sink.sync_session_volumes(request(&db, short)).await.unwrap(), updated);
     server.abort();
 }
