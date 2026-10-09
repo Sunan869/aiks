@@ -1,6 +1,8 @@
 //! Durable, local-only feedback on extracted knowledge.
 //! Feedback is append-only and deliberately separate from pipeline-managed rows,
 //! so re-extraction cannot erase a user's correction or review decision.
+//! Knowledge IDs are validated on write; history remains if a pipeline-owned
+//! knowledge row is later removed during re-extraction.
 use crate::storage::StateDb;
 use anyhow::{bail, Result};
 use rusqlite::params;
@@ -30,7 +32,7 @@ impl<'a> FeedbackRepo<'a> {
         self.db.conn().execute_batch(
             "CREATE TABLE IF NOT EXISTS knowledge_feedback (
                 id TEXT PRIMARY KEY,
-                knowledge_id TEXT NOT NULL REFERENCES knowledge_item(id) ON DELETE RESTRICT,
+                knowledge_id TEXT NOT NULL,
                 kind TEXT NOT NULL CHECK (kind IN ('useful','incorrect','duplicate','outdated','needs_detail')),
                 note TEXT NOT NULL,
                 created_at TEXT NOT NULL
