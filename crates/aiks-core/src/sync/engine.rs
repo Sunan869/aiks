@@ -693,6 +693,13 @@ impl SyncEngine {
             }
         };
         if markdown.len() > 5 * 1024 * 1024 || has_volumes {
+            // A volume write may fail before the root index is created.
+            // Persist the target first so failures remain visible and retryable.
+            if let Err(error) = sync_target_repo.upsert_pending(db_session_id, "siyuan") {
+                return SyncOutcome::Failed {
+                    error: format!("prepare Session volume target: {error}"),
+                };
+            }
             match sink
                 .sync_session_volumes(crate::sink::SessionVolumeRequest {
                     db,
