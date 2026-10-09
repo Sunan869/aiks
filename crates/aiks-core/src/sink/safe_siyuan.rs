@@ -28,6 +28,17 @@ enum SiYuanSafetyError {
 /// This wrapper reconciles by the deterministic notebook + hpath before and
 /// after create so a retry adopts the existing document instead of duplicating
 /// it.
+pub struct SessionVolumeRequest<'a> {
+    pub db: &'a crate::storage::StateDb,
+    pub session_db_id: i64,
+    pub source: &'a str,
+    pub external_id: &'a str,
+    pub parser_version: &'a str,
+    pub notebook_id: &'a str,
+    pub base_path: &'a str,
+    pub markdown: &'a str,
+}
+
 pub struct SiYuanSink {
     inner: siyuan::SiYuanSink,
 }
@@ -193,18 +204,11 @@ impl SiYuanSink {
     /// Write content volumes and return a small index document's Markdown.
     /// Each volume has its own stable hpath, ID and remote hash baseline.
     /// A failed attempt can resume without losing prior successful writes.
-    #[allow(clippy::too_many_arguments)] // Existing sync context will be grouped during S1.1 refactor.
-    pub async fn sync_session_volumes(
-        &self,
-        db: &crate::storage::StateDb,
-        session_db_id: i64,
-        source: &str,
-        external_id: &str,
-        parser_version: &str,
-        notebook_id: &str,
-        base_path: &str,
-        markdown: &str,
-    ) -> anyhow::Result<String> {
+    pub async fn sync_session_volumes(&self, request: SessionVolumeRequest<'_>) -> anyhow::Result<String> {
+        let SessionVolumeRequest {
+            db, session_db_id, source, external_id, parser_version,
+            notebook_id, base_path, markdown,
+        } = request;
         use anyhow::Context;
         use rusqlite::{params, OptionalExtension};
         {
@@ -320,14 +324,24 @@ impl SiYuanSink {
                 .with_context(|| format!("set volume {volume_no} attributes"))?;
             entries.push(format!("- [第 {volume_no} 部分](siyuan://blocks/{doc_id})"));
         }
-        // Never blindly delete surplus older volumes after a session shrinks:
-        // those files could have been manually edited; leave unlinked for review.
+        // Historical volumes after shrink are retained, never deleted automatically.
+        let stale_count: i64 = db.conn().query_row(
+            "SELECT count(*) FROM session_volume
+             WHERE session_id = ?1 AND volume_index > ?2",
+            rusqlite::params![session_db_id, volumes.len() as i64],
+            |row| row.get(0),
+        )?;
         let mut index = format!(
             "# Session 分卷目录\n\n> 来源：{source}\n> Session ID：{external_id}\n> 分卷数：{}\n\n",
             entries.len()
         );
         index.push_str(&entries.join("\n"));
         index.push('\n');
+        if stale_count > 0 {
+            index.push_str(&format!(
+                "\n> ⚠️ 会话缩短后仍保留 {stale_count} 个历史分卷，请人工核查后归档。\n"
+            ));
+        }
         Self::ensure_safe_document_size(&index)?;
         Ok(index)
     }

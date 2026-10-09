@@ -694,16 +694,16 @@ impl SyncEngine {
         };
         if markdown.len() > 5 * 1024 * 1024 || has_volumes {
             match sink
-                .sync_session_volumes(
+                .sync_session_volumes(crate::sink::safe_siyuan::SessionVolumeRequest {
                     db,
-                    db_session_id,
+                    session_db_id: db_session_id,
                     source,
-                    session_id,
+                    external_id: session_id,
                     parser_version,
                     notebook_id,
-                    &doc_path,
-                    &markdown,
-                )
+                    base_path: &doc_path,
+                    markdown: &markdown,
+                })
                 .await
             {
                 Ok(index_markdown) => markdown = index_markdown,
