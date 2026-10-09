@@ -123,6 +123,7 @@ impl<'a> UnifiedSearchService<'a> {
         }
         anyhow::ensure!(query.chars().count() <= 4096, "Search query is too long");
         let corpora = normalized_corpora(&filter.corpora);
+        let candidate_limit = limit.saturating_mul(4).min(256).max(limit);
         let terms = analyze_query(query);
         tracing::info!(
             query_chars = query.chars().count(),
@@ -139,11 +140,11 @@ impl<'a> UnifiedSearchService<'a> {
                 let filter = filter.clone();
                 let corpora = corpora.clone();
                 tokio::task::spawn_blocking(move || {
-                    recall_lexical(&db, &query, &terms, &filter, &corpora, limit)
+                    recall_lexical(&db, &query, &terms, &filter, &corpora, candidate_limit)
                 })
                 .await?
             }
-            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora, limit),
+            SearchDb::Borrowed(db) => recall_lexical(db, query, &terms, &filter, &corpora, candidate_limit),
         };
         let lexical_ms = started.elapsed().as_millis() as u64;
         on_lexical(&UnifiedSearchOutcome {
@@ -170,7 +171,9 @@ impl<'a> UnifiedSearchService<'a> {
             }
         };
         let fusion_started = Instant::now();
-        let hits = fuse_rrf(lexical, semantic, limit);
+        let mut hits = fuse_rrf(lexical, semantic, candidate_limit);
+        apply_feedback_rerank(&self.db, &mut hits)?;
+        hits.truncate(limit);
         tracing::info!(
             lexical_ms,
             fusion_ms = fusion_started.elapsed().as_millis() as u64,
@@ -622,6 +625,48 @@ fn fuse_rrf(
     hits
 }
 
+/// Review feedback is advisory: affected knowledge stays searchable and
+/// its provenance remains intact; only the displayed ordering is adjusted.
+fn feedback_multiplier(kind: Option<&str>) -> f32 {
+    match kind {
+        Some("useful") => 1.15,
+        Some("incorrect") => 0.30,
+        Some("outdated") => 0.50,
+        Some("duplicate") => 0.75,
+        Some("needs_detail") => 0.85,
+        _ => 1.0,
+    }
+}
+
+fn apply_feedback_rerank(
+    db: &StateDb,
+    hits: &mut [UnifiedSearchHit],
+) -> anyhow::Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT kind FROM knowledge_feedback WHERE knowledge_id = ?1
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )?;
+    for hit in hits.iter_mut() {
+        if hit.corpus != SearchCorpus::Knowledge {
+            continue;
+        }
+        let latest: Option<String> = stmt
+            .query_row([&hit.entity_id], |row| row.get(0))
+            .optional()?;
+        hit.score *= feedback_multiplier(latest.as_deref());
+    }
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.title.cmp(&b.title))
+    });
+    Ok(())
+}
+
 fn add_ranked_list(
     fused: &mut HashMap<(SearchCorpus, String), UnifiedSearchHit>,
     ranked: Vec<RankedCandidate>,
@@ -715,6 +760,49 @@ mod tests {
         assert_eq!(hits[0].entity_id, "shared");
         assert!(hits[0].match_types.contains(&"lexical".to_string()));
         assert!(hits[0].match_types.contains(&"semantic".to_string()));
+    }
+
+    #[test]
+    fn human_feedback_rerank_is_advisory_and_ordered() {
+        assert!(feedback_multiplier(Some("useful")) > 1.0);
+        assert!(feedback_multiplier(Some("incorrect")) > 0.0);
+        assert!(feedback_multiplier(Some("incorrect")) < feedback_multiplier(Some("outdated")));
+        assert_eq!(feedback_multiplier(None), 1.0);
+
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("ranking.db")).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO knowledge_feedback (id,knowledge_id,kind,note,created_at)
+                 VALUES (?1,?2,?3,'','2026-10-09')",
+                params!["feedback-a", "low-confidence", "incorrect"],
+            )
+            .unwrap();
+        let mut hits = vec![
+            UnifiedSearchHit {
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "low-confidence".into(),
+                chunk_id: None,
+                title: "A".into(),
+                snippet: "".into(),
+                score: 1.0,
+                match_types: vec![],
+                siyuan_doc_id: None,
+            },
+            UnifiedSearchHit {
+                corpus: SearchCorpus::Session,
+                entity_id: "raw-session".into(),
+                chunk_id: None,
+                title: "B".into(),
+                snippet: "".into(),
+                score: 0.8,
+                match_types: vec![],
+                siyuan_doc_id: None,
+            },
+        ];
+        apply_feedback_rerank(&db, &mut hits).unwrap();
+        assert_eq!(hits[0].entity_id, "raw-session");
+        assert_eq!(hits.len(), 2);
     }
 
     #[test]

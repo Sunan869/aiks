@@ -7,10 +7,7 @@ use chrono::NaiveDate;
 
 fn safe_inline(text: &str) -> String {
     let sanitizer = SecretSanitizer::new();
-    sanitizer
-        .sanitize(text)
-        .replace('\r', " ")
-        .replace('\n', " ")
+    sanitizer.sanitize(text).replace(['\r', '\n'], " ")
 }
 
 fn cite(item: &ProjectMemoryEntry) -> String {

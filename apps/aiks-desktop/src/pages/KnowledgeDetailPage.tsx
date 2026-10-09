@@ -3,6 +3,7 @@ import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, St
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
+import type { AiAssistOperation } from "../api/ai-assist";
 
 interface Props {
   knowledgeId: string;
@@ -37,6 +38,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [relationEvidence, setRelationEvidence] = useState("");
   const [relationBusy, setRelationBusy] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  const [organizeOperation, setOrganizeOperation] = useState<AiAssistOperation>("structure");
+  const [organizeDraft, setOrganizeDraft] = useState("");
+  const [organizeBusy, setOrganizeBusy] = useState(false);
+  const [organizeConfirmed, setOrganizeConfirmed] = useState(false);
+  const [organizeError, setOrganizeError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +125,41 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setRelationError("关系审核失败：" + String(error));
     } finally {
       setRelationBusy(false);
+    }
+  };
+
+  const suggestOrganization = async () => {
+    if (!data?.siyuan_doc_id) return;
+    setOrganizeBusy(true);
+    setOrganizeError(null);
+    setOrganizeConfirmed(false);
+    setOrganizeDraft("");
+    try {
+      const suggestion = await getApi().assistKnowledge({
+        siyuanDocId: data.siyuan_doc_id,
+        operation: organizeOperation,
+        title: data.title,
+        content: data.content,
+        existingSummary: data.summary,
+        existingTags: parseTags(data.tags),
+        existingCategory: data.category,
+      });
+      if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
+      setOrganizeDraft(suggestion.text);
+    } catch (error) {
+      setOrganizeError("生成建议失败：" + String(error));
+    } finally {
+      setOrganizeBusy(false);
+    }
+  };
+
+  const copyOrganizationDraft = async () => {
+    if (!organizeConfirmed || !organizeDraft.trim()) return;
+    try {
+      await navigator.clipboard.writeText(organizeDraft);
+      setMessage("已复制审核后的草稿。请在 SiYuan 中人工对比原文后编辑，AIKS 未自动写入。");
+    } catch (error) {
+      setOrganizeError("复制失败：" + String(error));
     }
   };
 
@@ -297,6 +338,55 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
+        <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；先对比原文，确认后仅复制草稿，由你在 SiYuan 中手工应用。</p>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="整理方式" value={organizeOperation} onChange={event => {
+            setOrganizeOperation(event.target.value as AiAssistOperation);
+            setOrganizeDraft("");
+            setOrganizeConfirmed(false);
+          }} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-700">
+            <option value="structure">结构化整理</option>
+            <option value="rewrite">语言润色</option>
+            <option value="key_conclusions">提取关键结论</option>
+          </select>
+          <button type="button" disabled={organizeBusy || !data.siyuan_doc_id}
+            onClick={() => void suggestOrganization()}
+            className="rounded bg-indigo-600 px-3 py-2 text-xs text-white disabled:opacity-40">
+            {organizeBusy ? "生成中..." : "生成整理建议"}
+          </button>
+        </div>
+        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-amber-600">该知识尚无 SiYuan 文档，暂不能调用整理助手。</p>}
+        {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
+        {organizeDraft && (
+          <div className="mt-3 space-y-3">
+            <div className="grid gap-2 lg:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium">当前正文（只读）</label>
+                <textarea aria-label="当前知识正文" value={data.content} readOnly rows={12}
+                  className="w-full rounded border bg-gray-50 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
+                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000}
+                  onChange={event => { setOrganizeDraft(event.target.value); setOrganizeConfirmed(false); }}
+                  rows={12} className="w-full rounded border bg-transparent p-2 font-mono text-xs dark:border-gray-700" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={organizeConfirmed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
+              我已经核对原文与草稿，理解复制不会修改 SiYuan 中的知识。
+            </label>
+            <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
+              onClick={() => void copyOrganizationDraft()}
+              className="rounded border border-indigo-300 px-3 py-2 text-xs text-indigo-700 disabled:opacity-40">
+              复制已审核的 Markdown
+            </button>
+          </div>
+        )}
       </section>
 
       <div className="flex gap-4 text-xs text-gray-400">
