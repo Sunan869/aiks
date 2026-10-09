@@ -332,3 +332,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - `37921141948` Windows Provider Contracts 暴露新增测试夹具使用相同 `sessionId` 的错误；NativeProvider 正确以 `ambiguous_session_identity` 拒绝模棱两可的来源，而非静默合并。
 - 改为两个不同的 Session 身份，增加在第二个 Session 存在时追加原 Session 消息的回归验证：Session ID 稳定、内容增量可见；移除第二个 Session 后原 ID 和追加内容仍保留。
 - Linux CI `37921141959` 的两处 `rustfmt` 差异一并修正；新测试结果待后续 CI 验证。
+
+### S2.1 提炼质量基线第一批（2026-10-09）
+
+- 新增 5 种脱敏合成样例：短会话修复、长会话块归纳、重复工具输出噪声、技术决策变化、中英文混合。
+- 使用 V3 实际提炼 JSON Schema 对固定结果做反序列化与约束断言，统计样本数、结构有效率、应跳过比例、预期关键术语命中及解析耗时；统一输出 `AIKS_EXTRACTION_BASELINE`。
+- 这是不依赖模型端点的确定性基线夹具，不代表真实模型达到相同质量。模型调用次数、Token、缓存命中率、P50/P95、人工知识遗漏标注和真实模型评估仍需实现。
