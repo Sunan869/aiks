@@ -464,26 +464,33 @@ mod tests {
         let first = repo.enqueue(&job).unwrap();
         assert!(repo.cancel_pending_for_session(job.session_id).unwrap());
         assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
-        let status: String = db.conn().query_row(
-            "SELECT status FROM pipeline_job WHERE id = ?1",
-            params![first.durable_job_id],
-            |row| row.get(0),
-        ).unwrap();
+        let status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![first.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(status, "CANCELLED");
         assert!(repo.claim_next().unwrap().is_none());
         let second = repo.enqueue(&job).unwrap();
         assert!(second.inserted);
-        db.conn().execute(
-            "UPDATE pipeline_job SET status = 'RUNNING' WHERE id = ?1",
-            params![second.durable_job_id],
-        ).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'RUNNING' WHERE id = ?1",
+                params![second.durable_job_id],
+            )
+            .unwrap();
         assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
-        let running: String = db.conn().query_row(
-            "SELECT status FROM pipeline_job WHERE id = ?1",
-            params![second.durable_job_id],
-            |row| row.get(0),
-        ).unwrap();
+        let running: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![second.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(running, "RUNNING");
     }
-
 }

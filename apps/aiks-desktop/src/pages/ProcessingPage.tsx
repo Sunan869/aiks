@@ -139,6 +139,14 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
+          <span>总会话 {tasks.length}</span>
+          <span>待处理 {tasks.filter(t => t.job_status === "PENDING").length}</span>
+          <span>运行中 {tasks.filter(t => t.job_status === "RUNNING").length}</span>
+          <span>已取消 {tasks.filter(t => t.job_status === "CANCELLED").length}</span>
+          <span>同步异常 {tasks.filter(t => t.sync_status?.startsWith("FAILED") || t.sync_status === "CONFLICT").length}</span>
+          <span>AI 异常 {tasks.filter(t => t.job_status === "FAILED" || t.pipeline_status === "FAILED").length}</span>
+        </div>
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
           {([
             ["all", "全部"],
