@@ -2,6 +2,8 @@ pub mod ai_assist;
 pub mod migration;
 pub mod model;
 pub mod publisher;
+pub mod project_memory;
+pub mod project_outputs;
 pub mod read_model;
 pub mod renderer;
 pub mod service;
@@ -11,6 +13,8 @@ pub mod workbench;
 pub use ai_assist::{AiAssistOperation, AiAssistRequest, AiAssistService, AiAssistSuggestion};
 pub use migration::{ContentMigrationService, ContentMigrationStats};
 pub use model::{ExtractionRecord, ExtractionStats, ExtractionStatus};
+pub use project_memory::{ProjectMemoryEntry, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview};
+pub use project_outputs::{render_agent_context, render_project_review};
 pub use publisher::{
     create_manual_knowledge_in_siyuan, publish_knowledge_to_siyuan, PublishKnowledgeResult,
 };

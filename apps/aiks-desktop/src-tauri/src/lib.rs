@@ -7,6 +7,7 @@ mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
 mod provider_commands;
+mod project_memory_commands;
 mod rag_commands;
 mod search_commands;
 pub mod session_workbench;
@@ -156,6 +157,10 @@ pub fn run() {
             commands::hybrid_search,
             // V4 Native Knowledge Workbench
             knowledge_commands::list_knowledge_v4,
+            project_memory_commands::list_project_memory,
+            project_memory_commands::get_project_memory,
+            project_memory_commands::create_project_review,
+            project_memory_commands::create_agent_context_pack,
             knowledge_commands::get_knowledge_detail_v4,
             knowledge_commands::add_knowledge_feedback,
             knowledge_commands::list_knowledge_feedback,
