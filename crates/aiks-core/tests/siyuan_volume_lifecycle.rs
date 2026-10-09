@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 struct Remote {
     next_id: usize,
     creates: usize,
+    fail_attrs_once: bool,
     documents: HashMap<String, (String, String)>, // id => (hpath, markdown)
 }
 
@@ -122,7 +123,14 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                             }
                             Value::Null
                         }
-                        "/api/attr/setBlockAttrs" => Value::Null,
+                        "/api/attr/setBlockAttrs" => {
+                            if state.fail_attrs_once {
+                                state.fail_attrs_once = false;
+                                code = -1;
+                                message = "temporary attrs failure";
+                            }
+                            Value::Null
+                        },
                         _ => Value::Null,
                     };
                     json!({"code":code, "msg":message, "data":data}).to_string()
@@ -205,5 +213,67 @@ async fn volume_create_retry_conflict_and_confirmed_delete_recovery() {
         sink.sync_session_volumes(request()).await.unwrap(),
         recovered
     );
+    server.abort();
+}
+
+#[tokio::test]
+async fn interrupted_attribute_write_resumes_without_duplicate_volume() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&temp.path().join("state.db")).unwrap();
+    let (base, remote, server) = serve_siyuan().await;
+    let sink = SiYuanSink::embedded(base, "AI Knowledge").unwrap();
+    let content = "# Session\n\nHello\n".to_string();
+    remote.lock().unwrap().fail_attrs_once = true;
+
+    let request = || SessionVolumeRequest {
+        db: &db,
+        session_db_id: 701,
+        source: "codex",
+        external_id: "rollout-interrupted",
+        parser_version: "codex-v1",
+        notebook_id: "box-1",
+        base_path: "/10 AI Sessions/Codex/2026/10/interrupted",
+        markdown: &content,
+    };
+
+    let error = sink.sync_session_volumes(request()).await.unwrap_err();
+    assert!(error.to_string().contains("attributes"));
+    assert_eq!(remote.lock().unwrap().creates, 1);
+    let index = sink.sync_session_volumes(request()).await.unwrap();
+    assert!(index.contains("第 1 部分"));
+    assert_eq!(remote.lock().unwrap().creates, 1);
+    server.abort();
+}
+
+#[tokio::test]
+async fn shrinking_session_retains_previous_volumes_and_reports_them() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = StateDb::open(&temp.path().join("state.db")).unwrap();
+    let (base, remote, server) = serve_siyuan().await;
+    let sink = SiYuanSink::embedded(base, "AI Knowledge").unwrap();
+    let content = "history\n".repeat(800_000);
+
+    let request = |markdown| SessionVolumeRequest {
+        db: &db,
+        session_db_id: 702,
+        source: "codex",
+        external_id: "rollout-shrink",
+        parser_version: "codex-v1",
+        notebook_id: "box-1",
+        base_path: "/10 AI Sessions/Codex/2026/10/shrinking",
+        markdown,
+    };
+
+    let original = sink.sync_session_volumes(request(&content)).await.unwrap();
+    assert!(original.contains("第 2 部分"));
+    let created = remote.lock().unwrap().creates;
+    let short = "# shortened\n";
+    let updated = sink.sync_session_volumes(request(short)).await.unwrap();
+    assert!(updated.contains("历史分卷"));
+    assert!(updated.contains("第 1 部分"));
+    assert!(!updated.contains("第 2 部分"));
+    assert_eq!(remote.lock().unwrap().creates, created);
+    assert_eq!(remote.lock().unwrap().documents.len(), created);
+    assert_eq!(sink.sync_session_volumes(request(short)).await.unwrap(), updated);
     server.abort();
 }
