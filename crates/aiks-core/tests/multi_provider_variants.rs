@@ -532,3 +532,25 @@ async fn repeated_provider_discovery_preserves_ids_and_reports_scan_baseline() {
         "AIKS_PROVIDER_BASELINE provider=continue sessions={sessions} first_discovery_ms={first_ms} repeat_discovery_ms={second_ms}"
     );
 }
+
+#[tokio::test]
+async fn provider_rescan_tracks_additions_and_removals_without_reassigning_ids() {
+    let root = tempfile::tempdir().unwrap();
+    put(root.path(), "sessions/stable.json", &continue_session("stable"));
+    let reader = provider(SourceKind::Continue, root.path());
+    let first = reader.discover_sessions().await.unwrap();
+    assert_eq!(first.len(), 1);
+    let stable_id = first[0].external_session_id.clone();
+
+    put(root.path(), "sessions/added.json", &continue_session("added"));
+    let second = reader.discover_sessions().await.unwrap();
+    assert_eq!(second.len(), 2);
+    assert!(second.iter().any(|item| item.external_session_id == stable_id));
+
+    std::fs::remove_file(root.path().join("sessions/added.json")).unwrap();
+    let third = reader.discover_sessions().await.unwrap();
+    assert_eq!(third.len(), 1);
+    assert_eq!(third[0].external_session_id, stable_id);
+    let loaded = reader.load_session(&third[0]).await.unwrap();
+    assert_eq!(loaded.external_session_id, stable_id);
+}

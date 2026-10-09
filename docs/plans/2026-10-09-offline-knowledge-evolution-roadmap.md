@@ -320,3 +320,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 增加 160 份不同身份的 Continue Session 合成输入，使用真实 NativeProvider discovery API，验证首次与重复发现结果身份一致且无重复。
 - CI 日志统一输出 `AIKS_PROVIDER_BASELINE provider=continue`、Session 数量和两轮耗时；不设共享 Runner 上不稳定的硬耗时门槛。
 - 该基线为合成环境接口级测试，不能推断 Windows 本机真实磁盘吞吐和真实 Provider 格式兼容性；仍需单独实测。
+
+### S1.4 重复发现的增删场景（2026-10-09）
+
+- 补充 NativeProvider 增量重扫：首次发现单个 Session、随后添加第二个来源、再移除新增来源，验证原 Session 的稳定标识不会被重编排；重新加载保留的 Session 仍成功。
+- 保持输入只读，测试只操作临时构造数据；不会让 AIKS 删除真实 Provider 文件。
+- 该合成测试不替代 Windows 真实环境多版本 Provider 文件布局验收。
