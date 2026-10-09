@@ -380,3 +380,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - S2.3 关系建议：related/supplements/corrects/supersedes/resolved_by，必须有证据、人工确认或拒绝、审核记录；阻止已知跨项目的错误关联及重复关系。提交 `8c7df9e405c4dad9ff1713240f77954f0edf9d78`，随后 `5169e3b3267ed105efdc1155c0e4b97a073371a1` 修复测试预期与格式，综合 CI `37932859731` 全部作业成功。尚缺自动安全关联与时间线级实机体验验收。
 - S2.4 原 RAG 已有可跳转知识/Session 证据引用，本轮只新增可选 project 精确检索范围、工作台“详情/反馈/演进”入口，以及把最新“错误/过时/需补充”人工标记作为模型证据的显式风险提示；不得将用户负面反馈解释为自动删除。此批仍待 CI 与真实查询验收。
 - 以上模块均未进行用户 Windows 实机验收，不能勾选完整完成；不涉及完整备份入口与团队服务端逻辑。
+
+### S1.4 与 S3.1 安全验收补充（2026-10-09）
+
+- 综合 CI `37937650955` 在 `d8a796ebce94ba50006b09f6cb94fa3593b25d8e` 对应四项作业均成功（Rust fmt/Clippy/tests、前端、Windows Desktop、卫生）；Windows Provider 契约独立校验已成功。
+- 增加 `scripts/windows-provider-baseline.ps1` 与 `docs/acceptance/windows-provider-baseline.md`，在 Windows 真机隔离 AIKS 状态目录运行只读 Provider scan，并只输出总耗时/退出状态；此脚本本身尚未在真实用户机器执行，不能当作通过验收。
+- 项目记忆身份只把绝对路径（Unix `/...`、Windows `C:/...` / UNC）视为可跨来源聚合的目录；相对路径按单 Session 隔离，避免同名不同工作区的知识错误合并。
+- 保留 S1.1/S1.2 实机验收缺口，S2/S3 的真实模型/SiYuan 人工体验仍须验收；完整备份仍最后处理，旧 SQLite 备份实验模块未开放。

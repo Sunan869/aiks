@@ -69,7 +69,7 @@ jobs:
       - name: Validate PowerShell syntax
         shell: pwsh
         run: |
-          foreach ($script in @("scripts/build-release.ps1", "scripts/reset-aiks-data.ps1")) {
+          foreach ($script in @("scripts/build-release.ps1", "scripts/reset-aiks-data.ps1", "scripts/windows-provider-baseline.ps1")) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(

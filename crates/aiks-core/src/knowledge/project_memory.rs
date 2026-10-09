@@ -45,9 +45,12 @@ fn project_identity(
     path: Option<&str>,
     name: Option<&str>,
 ) -> (String, String, bool) {
-    let path = path.unwrap_or("").trim().replace('\\', "/");
-    let path = path.trim_end_matches('/');
-    let (key, verified) = if !path.is_empty() {
+    let normalized_path = path.unwrap_or("").trim().replace('\\', "/");
+    let absolute = normalized_path.starts_with('/')
+        || (normalized_path.as_bytes().get(1) == Some(&b':')
+            && normalized_path.as_bytes().get(2) == Some(&b'/'));
+    let path = normalized_path.trim_end_matches('/');
+    let (key, verified) = if absolute && !path.is_empty() {
         let windows = path.as_bytes().get(1) == Some(&b':') || path.starts_with("//");
         let canonical = if windows {
             path.to_lowercase()
@@ -242,6 +245,13 @@ mod tests {
         let (unknown1, _, _) = project_identity("codex", "4", None, Some("App"));
         let (unknown2, _, _) = project_identity("claude", "5", None, Some("App"));
         assert_ne!(unknown1, unknown2);
+        let (relative_a, _, verified_a) =
+            project_identity("codex", "6", Some("workspace/app"), Some("App"));
+        let (relative_b, _, verified_b) =
+            project_identity("claude", "7", Some("workspace/app"), Some("App"));
+        assert_ne!(relative_a, relative_b);
+        assert!(!verified_a);
+        assert!(!verified_b);
     }
 
     #[test]
