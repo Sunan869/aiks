@@ -82,11 +82,11 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                                     .collect::<Vec<_>>())
                             } else if sql.contains("WHERE id = '") {
                                 let id = sql.split('\'').nth(1).unwrap_or("");
-                                json!(state
-                                    .documents
-                                    .contains_key(id)
-                                    .then(|| json!([{"box":"box-1"}]))
-                                    .unwrap_or_else(|| json!([])))
+                                if state.documents.contains_key(id) {
+                                    json!([{"box":"box-1"}])
+                                } else {
+                                    json!([])
+                                }
                             } else {
                                 json!([])
                             }
