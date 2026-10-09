@@ -664,7 +664,9 @@ pub async fn retry_failed_ai_task(
                 ))
             },
         )
-        .map_err(|_| "该任务不满足安全重试条件：需同步成功、AI 失败且没有进行中的任务".to_string())?
+        .map_err(|_| {
+            "该任务不满足安全重试条件：需同步成功、AI 失败且没有进行中的任务".to_string()
+        })?
     };
     engine
         .enqueue_pipeline_for_session(session_id, session.1, session.0, session.2, session.3)
