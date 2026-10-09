@@ -320,7 +320,6 @@ impl<'a> PipelineJobRepo<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,7 +376,10 @@ mod tests {
                 PipelineJobRepo::new(&db).enqueue(&job).unwrap()
             }));
         }
-        let results: Vec<_> = threads.into_iter().map(|task| task.join().unwrap()).collect();
+        let results: Vec<_> = threads
+            .into_iter()
+            .map(|task| task.join().unwrap())
+            .collect();
         assert_eq!(results.iter().filter(|item| item.inserted).count(), 1);
         assert!(results
             .iter()
@@ -418,5 +420,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!(failed, 1);
+        let old_status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![first.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_status, "FAILED");
+        let current_status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![second.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(current_status, "PENDING");
     }
 }
