@@ -298,9 +298,12 @@ impl AiStage {
             "[AI] Chunk cache summary"
         );
 
-        // Concurrency is intentionally bounded at 2. Shared GPU backends
-        // may not support more concurrent generations; never fan out all jobs.
-        for batch in pending.chunks(2) {
+        // Respect the configured extraction concurrency, but retain the
+        // validated two-request safety ceiling until model-load benchmarks
+        // justify increasing it. Zero is treated as sequential execution.
+        // Never queue all requests to an unbounded local model backend.
+        let batch_size = self.config.max_concurrent.clamp(1, 2);
+        for batch in pending.chunks(batch_size) {
             let started = Instant::now();
             let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
             let responses = if batch.len() == 2 {
