@@ -5,8 +5,8 @@ use std::time::Instant;
 
 #[test]
 fn extraction_baseline_has_diverse_reproducible_cases_and_valid_outputs() {
-    let fixture: Value = serde_json::from_str(include_str!("fixtures/extraction_quality_baseline.json"))
-        .unwrap();
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/extraction_quality_baseline.json")).unwrap();
     assert_eq!(fixture["version"], 1);
     let cases = fixture["cases"].as_array().unwrap();
     assert!(cases.len() >= 5);
@@ -21,8 +21,7 @@ fn extraction_baseline_has_diverse_reproducible_cases_and_valid_outputs() {
         let id = case["id"].as_str().unwrap();
         assert!(ids.insert(id), "duplicate benchmark case ID: {id}");
         scenarios.insert(case["scenario"].as_str().unwrap());
-        let extracted: V3ExtractionResult =
-            serde_json::from_value(case["output"].clone()).unwrap();
+        let extracted: V3ExtractionResult = serde_json::from_value(case["output"].clone()).unwrap();
         assert!(extracted.knowledge_score.is_finite());
         assert!((0.0..=1.0).contains(&extracted.knowledge_score));
         assert!(!extracted.session_summary.trim().is_empty());
@@ -65,4 +64,21 @@ fn extraction_baseline_has_diverse_reproducible_cases_and_valid_outputs() {
         term_total,
         started.elapsed().as_millis()
     );
+}
+
+#[test]
+fn extraction_quality_gate_rejects_invalid_confidence_and_missing_fields() {
+    let mut fixture: Value =
+        serde_json::from_str(include_str!("fixtures/extraction_quality_baseline.json")).unwrap();
+    let output = &mut fixture["cases"][0]["output"];
+    let valid: V3ExtractionResult = serde_json::from_value(output.clone()).unwrap();
+    assert!((0.0..=1.0).contains(&valid.items[0].confidence));
+
+    let mut missing = output.clone();
+    missing["items"][0].as_object_mut().unwrap().remove("content");
+    assert!(serde_json::from_value::<V3ExtractionResult>(missing).is_err());
+
+    output["items"][0]["confidence"] = serde_json::json!(1.5);
+    let out_of_range: V3ExtractionResult = serde_json::from_value(output.clone()).unwrap();
+    assert!(!(0.0..=1.0).contains(&out_of_range.items[0].confidence));
 }
