@@ -87,6 +87,40 @@ mod tests {
     }
 
     #[test]
+    fn feedback_history_survives_knowledge_removal_and_database_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("feedback-persist.db");
+        {
+            let db = crate::storage::StateDb::open(&db_path).unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id, title, content, source_type, managed_by, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, 'manual', 'user', ?4, ?4)",
+                    rusqlite::params!["review-target", "Target", "Body", "2026-01-01T00:00:00Z"],
+                )
+                .unwrap();
+            let repo = super::FeedbackRepo::new(&db);
+            repo.add("review-target", "incorrect", "Root cause was different")
+                .unwrap();
+            repo.add("review-target", "needs_detail", "Add source evidence")
+                .unwrap();
+            assert_eq!(repo.list("review-target").unwrap().len(), 2);
+            db.conn()
+                .execute("DELETE FROM knowledge_item WHERE id = ?1", ["review-target"])
+                .unwrap();
+            assert_eq!(repo.list("review-target").unwrap().len(), 2);
+        }
+        let reopened = crate::storage::StateDb::open(&db_path).unwrap();
+        let history = super::FeedbackRepo::new(&reopened)
+            .list("review-target")
+            .unwrap();
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().any(|item| item.kind == "incorrect"));
+        assert!(history.iter().any(|item| item.kind == "needs_detail"));
+    }
+
+    #[test]
     fn feedback_rejects_unknown_item_and_invalid_input_without_changes() {
         let temp = tempfile::tempdir().unwrap();
         let db = crate::storage::StateDb::open(&temp.path().join("feedback.db")).unwrap();
