@@ -49,6 +49,8 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                 let payload: Value = serde_json::from_slice(&bytes[header_end.unwrap()..]).unwrap();
                 let reply = {
                     let mut state = shared.lock().unwrap();
+                    let mut code = 0;
+                    let mut message = "";
                     let data = match endpoint.as_str() {
                         "/api/query/sql" => {
                             let sql = payload["stmt"].as_str().unwrap_or("");
@@ -77,10 +79,9 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                             match state.documents.get(id) {
                                 Some((_, md)) => json!({"kramdown": md}),
                                 None => {
-                                    let error = json!({"code": -1, "msg":"block not found", "data":null}).to_string();
-                                    let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", error.len(), error);
-                                    let _ = socket.write_all(response.as_bytes()).await;
-                                    return;
+                                    code = -1;
+                                    message = "block not found";
+                                    Value::Null
                                 }
                             }
                         }
@@ -94,7 +95,7 @@ async fn serve_siyuan() -> (String, Arc<Mutex<Remote>>, tokio::task::JoinHandle<
                         "/api/attr/setBlockAttrs" => Value::Null,
                         _ => Value::Null,
                     };
-                    json!({"code":0, "msg":"", "data":data}).to_string()
+                    json!({"code":code, "msg":message, "data":data}).to_string()
                 };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
