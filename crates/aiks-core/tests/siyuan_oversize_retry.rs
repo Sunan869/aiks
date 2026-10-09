@@ -168,13 +168,11 @@ async fn oversized_session_uses_volume_path_and_remains_retryable_on_sink_failur
         .unwrap();
     assert_ne!(target.status, SyncStatus::FailedPermanent);
     assert_eq!(target.retry_count, 1);
-    assert!(
-        !target
-            .last_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("exceeds the 5242880 byte safety limit")
-    );
+    assert!(!target
+        .last_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("exceeds the 5242880 byte safety limit"));
 
     let second = engine
         .run_sync(&db, &registry, &sink, &SyncOptions::default())

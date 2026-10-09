@@ -505,7 +505,9 @@ mod volume_tests {
         assert_eq!(short_parts.len(), 1);
         assert_eq!(full_parts.concat(), full);
         assert_eq!(short_parts.concat(), shortened);
-        assert!(full_parts.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+        assert!(full_parts
+            .iter()
+            .all(|part| part.len() <= TARGET_VOLUME_BYTES));
     }
 
     #[test]
