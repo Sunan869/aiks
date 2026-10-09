@@ -621,7 +621,7 @@ pub async fn list_task_center_entries(
     state: State<'_, AppState>,
 ) -> Result<Vec<aiks_core::pipeline::task_center::TaskCenterEntry>, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
-    aiks_core::pipeline::task_center::TaskCenterRepo::new(engine.db())
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
         .list_recent(limit.unwrap_or(200))
         .map_err(|error| error.to_string())
 }
