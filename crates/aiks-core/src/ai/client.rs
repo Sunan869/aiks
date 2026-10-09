@@ -44,9 +44,12 @@ struct ChatResponse {
 /// Absent on some local model servers; never substitute guessed token counts.
 #[derive(Debug, Deserialize)]
 struct ChatUsage {
-    prompt_tokens: u64,
-    completion_tokens: u64,
-    total_tokens: u64,
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
+    #[serde(default)]
+    total_tokens: Option<u64>,
 }
 
 fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
@@ -505,12 +508,25 @@ mod stream_tests {
         let with_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}"#;
         let result: super::ChatResponse = serde_json::from_str(with_usage).unwrap();
         let usage = result.usage.unwrap();
-        assert_eq!(usage.prompt_tokens, 12);
-        assert_eq!(usage.completion_tokens, 3);
-        assert_eq!(usage.total_tokens, 15);
+        assert_eq!(usage.prompt_tokens, Some(12));
+        assert_eq!(usage.completion_tokens, Some(3));
+        assert_eq!(usage.total_tokens, Some(15));
 
         let without_usage = r#"{"choices":[{"message":{"content":"OK"}}]}"#;
         let result: super::ChatResponse = serde_json::from_str(without_usage).unwrap();
+        assert!(result.usage.is_none());
+
+        // Partial usage metadata is common on OpenAI-compatible local gateways:
+        // successful text must not become a parse failure when totals are absent.
+        let partial = r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"completion_tokens":3}}"#;
+        let result: super::ChatResponse = serde_json::from_str(partial).unwrap();
+        let usage = result.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, None);
+        assert_eq!(usage.completion_tokens, Some(3));
+        assert_eq!(usage.total_tokens, None);
+
+        let null_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":null}"#;
+        let result: super::ChatResponse = serde_json::from_str(null_usage).unwrap();
         assert!(result.usage.is_none());
     }
 
