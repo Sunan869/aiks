@@ -361,3 +361,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 将 `cache_hit_percent` 写入现有 `AI_EXTRACTED` stage 详情 JSON（提交 `d152bba28d50d1dfe08b5cc4e5157d306f9b7b3c`），不新增数据库迁移。
 - 针对每个实际调用批次采集完成时间，输出最近一轮分块提炼批次 P50/P95 耗时及对应样本数量，添加 nearest-rank 分位数回归测试（提交 `21a85000f45af79b2d55005ee2ffbc94d4447058`）。零缓存批次记录 0 毫秒；这不是单请求 P95，也不代表质量提升。
 - Windows Provider CI `37928391127` 成功；最新实现仍须等待新的综合 CI 及 Rust 测试、Windows 实机验收。实际 Token usage、429 过载降级和固定样例真实模型评测仍未完成，S2.1 不勾选。
+
+### S2.1 模型用量与流式过载安全（2026-10-09）
+
+- `1c875430446a9274e0c62c3e1010a0e5acfa8b92`：普通与 JSON-fallback 流式响应解析 OpenAI-compatible `usage`，仅在服务端实际报告时记录 Prompt/Completion/Total Token；未报告时维持未知，不用字符数量冒充真实 Token。含带 usage 与不带 usage 回归测试。
+- `7dba8099a04f440c4143f579515aa9e22a65e99f`：流式 Completion 对 HTTP 429/503 采用最多两次、250/500ms 有界退避，与非流式一致；不自动重试凭据/配置错误。
+- 新提交的 CI 和真实模型压力测试仍待验证。Token 指标目前在结构化日志中，尚未建立每 Session 的数据库聚合、UI 报表；真实质量基准和高负载验收未完成。
