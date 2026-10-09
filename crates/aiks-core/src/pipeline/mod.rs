@@ -2,6 +2,7 @@ pub mod ai_stage;
 pub mod cleaner;
 pub mod embedding_client;
 pub mod embedding_stage;
+pub mod feedback_repo;
 pub mod job_repo;
 pub mod knowledge_repo;
 /// V3 Processing Pipeline
@@ -15,6 +16,7 @@ pub mod task_center;
 pub mod worker;
 
 pub use embedding_client::EmbeddingConfig;
+pub use feedback_repo::{FeedbackRepo, KnowledgeFeedback};
 pub use knowledge_repo::KnowledgeRepo;
 pub use orchestrator::PipelineOrchestrator;
 pub use search::hybrid_search;
