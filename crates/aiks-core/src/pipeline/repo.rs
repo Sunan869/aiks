@@ -42,6 +42,9 @@ impl<'a> PipelineRepo<'a> {
                 "UPDATE pipeline_run
                  SET source_hash = ?1,
                      status = CASE WHEN status = 'PROCESSING' THEN status ELSE 'DISCOVERED' END,
+                     error_stage = CASE WHEN status = 'PROCESSING' THEN error_stage ELSE NULL END,
+                     error_message = CASE WHEN status = 'PROCESSING' THEN error_message ELSE NULL END,
+                     finished_at = CASE WHEN status = 'PROCESSING' THEN finished_at ELSE NULL END,
                      updated_at = ?2
                  WHERE id = ?3",
                 params![source_hash, now, id],

@@ -500,8 +500,18 @@ impl AiksEngine {
         session_title: Option<String>,
         project_name: Option<String>,
     ) -> anyhow::Result<String> {
+        // Keep the pipeline baseline aligned with the canonical Session
+        // generation, including for manual retries from the task center.
+        let source_hash: Option<String> = {
+            let conn = self.db.conn();
+            conn.query_row(
+                "SELECT content_hash FROM source_session WHERE id = ?1",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )?
+        };
         let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
-        let run_id = orchestrator.enqueue(session_id, None)?;
+        let run_id = orchestrator.enqueue(session_id, source_hash.as_deref())?;
         self.pipeline_worker.submit(PipelineJob {
             pipeline_run_id: run_id.clone(),
             session_id,
