@@ -193,6 +193,7 @@ impl SiYuanSink {
     /// Write content volumes and return a small index document's Markdown.
     /// Each volume has its own stable hpath, ID and remote hash baseline.
     /// A failed attempt can resume without losing prior successful writes.
+    #[allow(clippy::too_many_arguments)] // Existing sync context will be grouped during S1.1 refactor.
     pub async fn sync_session_volumes(
         &self,
         db: &crate::storage::StateDb,
