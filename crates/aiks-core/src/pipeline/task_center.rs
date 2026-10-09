@@ -295,17 +295,48 @@ mod tests {
         assert_eq!(done.job_status.as_deref(), Some("DONE"));
         assert_eq!(done.pipeline_status.as_deref(), Some("READY"));
         assert!(done.pipeline_error.is_none());
-        db.conn()
-            .execute(
-                "UPDATE pipeline_job SET status = 'CANCELLED' WHERE id = 'job-new'",
-                [],
-            )
-            .unwrap();
-        let cancelled = repo.list_recent(1).unwrap().remove(0);
-        assert_eq!(cancelled.job_status.as_deref(), Some("CANCELLED"));
-        assert_eq!(cancelled.pipeline_status.as_deref(), Some("CANCELLED"));
-        assert!(cancelled.current_stage.is_none());
-        assert!(cancelled.pipeline_error.is_none());
+
+    }
+
+    #[test]
+    fn cancelling_a_queued_job_updates_projection_without_changing_pipeline_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let id: i64 = db.conn().query_row(
+            "INSERT INTO source_session
+             (source, external_session_id, last_seen_at, created_at, updated_at)
+             VALUES ('codex', 'cancel-test', 'now', 'now', 'now') RETURNING id",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        db.conn().execute(
+            "INSERT INTO pipeline_run
+             (id, session_id, status, pipeline_version, created_at, updated_at)
+             VALUES ('cancel-run', ?1, 'DISCOVERED', 'v3', 'now', 'now')",
+            params![id],
+        ).unwrap();
+        db.conn().execute(
+            "INSERT INTO pipeline_job
+             (id, source, external_session_id, generation, status,
+              created_at, updated_at, session_id, pipeline_run_id)
+             VALUES ('cancel-job', 'codex', 'cancel-test', 1, 'PENDING',
+                     'now', 'now', ?1, 'cancel-run')",
+            params![id],
+        ).unwrap();
+        assert!(crate::pipeline::job_repo::PipelineJobRepo::new(&db)
+            .cancel_pending_for_session(id)
+            .unwrap());
+        let row = TaskCenterRepo::new(&db).list_recent(1).unwrap().remove(0);
+        assert_eq!(row.job_status.as_deref(), Some("CANCELLED"));
+        assert_eq!(row.pipeline_status.as_deref(), Some("CANCELLED"));
+        assert!(row.current_stage.is_none());
+        assert_eq!(TaskCenterRepo::new(&db).stats().unwrap().cancelled, 1);
+        let original_run: String = db.conn().query_row(
+            "SELECT status FROM pipeline_run WHERE id = 'cancel-run'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(original_run, "DISCOVERED");
     }
 
     #[test]
