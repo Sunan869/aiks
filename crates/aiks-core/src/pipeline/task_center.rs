@@ -93,8 +93,9 @@ impl<'a> TaskCenterRepo<'a> {
                     st.status, st.last_error,
                     CASE WHEN pj.status = 'PENDING' THEN 'DISCOVERED'
                          WHEN pj.status = 'RUNNING' THEN 'PROCESSING'
+                         WHEN pj.status = 'CANCELLED' THEN 'CANCELLED'
                          ELSE pr.status END,
-                    CASE WHEN pj.status IN ('PENDING', 'RUNNING') THEN NULL
+                    CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'CANCELLED') THEN NULL
                          ELSE pr.current_stage END,
                     CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'DONE', 'CANCELLED') THEN NULL
                          ELSE pr.error_message END,
@@ -294,6 +295,17 @@ mod tests {
         assert_eq!(done.job_status.as_deref(), Some("DONE"));
         assert_eq!(done.pipeline_status.as_deref(), Some("READY"));
         assert!(done.pipeline_error.is_none());
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'CANCELLED' WHERE id = 'job-new'",
+                [],
+            )
+            .unwrap();
+        let cancelled = repo.list_recent(1).unwrap().remove(0);
+        assert_eq!(cancelled.job_status.as_deref(), Some("CANCELLED"));
+        assert_eq!(cancelled.pipeline_status.as_deref(), Some("CANCELLED"));
+        assert!(cancelled.current_stage.is_none());
+        assert!(cancelled.pipeline_error.is_none());
     }
 
     #[test]
