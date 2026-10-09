@@ -198,3 +198,62 @@ fn oversized_jsonl_line_fails_before_parsing_or_unbounded_allocation() {
         .unwrap_err();
     assert!(error.to_string().contains("byte budget exceeded"));
 }
+
+#[test]
+fn readonly_provider_sqlite_keeps_consistent_wal_snapshot_during_writer_append() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("provider.db");
+    let writer = rusqlite::Connection::open(&path).unwrap();
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA wal_autocheckpoint=0;
+             CREATE TABLE messages(id INTEGER PRIMARY KEY, body TEXT);
+             INSERT INTO messages(body) VALUES ('original');",
+        )
+        .unwrap();
+
+    let reader = ScopedReader::new(root.path().to_path_buf(), ReadLimits::default()).unwrap();
+    let snapshot = reader.open_readonly(Path::new("provider.db")).unwrap();
+    let before: i64 = snapshot
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(before, 1);
+
+    writer
+        .execute("INSERT INTO messages(body) VALUES ('appended')", [])
+        .unwrap();
+    let still_before: i64 = snapshot
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(still_before, 1);
+    drop(snapshot);
+
+    let reopened = reader.open_readonly(Path::new("provider.db")).unwrap();
+    let after: i64 = reopened
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(after, 2);
+    assert!(reopened
+        .execute("INSERT INTO messages(body) VALUES ('forbidden')", [])
+        .is_err());
+}
+
+#[test]
+fn bounded_provider_scans_reject_excessive_directory_entries() {
+    let root = tempfile::tempdir().unwrap();
+    for index in 0..4 {
+        std::fs::write(root.path().join(format!("session-{index}.json")), "{}").unwrap();
+    }
+    let reader = ScopedReader::new(
+        root.path().to_path_buf(),
+        ReadLimits {
+            max_entries: 3,
+            ..ReadLimits::default()
+        },
+    )
+    .unwrap();
+    let error = reader.children(Path::new(".")).unwrap_err();
+    assert!(error.to_string().contains("entry budget exceeded"));
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 4);
+}
