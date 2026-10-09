@@ -12,6 +12,8 @@ describe("knowledge evolution relations", () => {
       title: "Verified fix", content: "Verified fix content", tags: [],
       project_name: "relation-test-project",
     });
+    const originalFirst = (await api.getKnowledgeDetail(first.id)).content;
+    const originalSecond = (await api.getKnowledgeDetail(second.id)).content;
     await expect(api.suggestKnowledgeRelation(first.id, second.id, "corrects", ""))
       .rejects.toThrow();
     const proposed = await api.suggestKnowledgeRelation(
@@ -23,8 +25,8 @@ describe("knowledge evolution relations", () => {
     const verified = await api.reviewKnowledgeRelation(proposed.id, "confirmed");
     expect(verified.status).toBe("confirmed");
     expect((await api.getKnowledgeRelations(second.id))[0]?.id).toBe(proposed.id);
-    expect((await api.getKnowledgeDetail(first.id)).content).toBe("Original evidence");
-    expect((await api.getKnowledgeDetail(second.id)).content).toBe("Verified fix content");
+    expect((await api.getKnowledgeDetail(first.id)).content).toBe(originalFirst);
+    expect((await api.getKnowledgeDetail(second.id)).content).toBe(originalSecond);
   });
 
   it("blocks known cross-project relationships", async () => {

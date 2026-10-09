@@ -166,7 +166,13 @@ impl<'a> RelationRepo<'a> {
                     "INSERT INTO knowledge_relation_review
                      (id,relation_id,previous_status,next_status,created_at)
                      VALUES (?1,?2,?3,?4,?5)",
-                    params![uuid::Uuid::new_v4().to_string(), relation_id, previous, next_status, now],
+                    params![
+                        uuid::Uuid::new_v4().to_string(),
+                        relation_id,
+                        previous,
+                        next_status,
+                        now
+                    ],
                 )?;
             }
             tx.commit()?;
@@ -223,14 +229,28 @@ mod tests {
         add_knowledge(&db, "second", "alpha");
         add_knowledge(&db, "third", "beta");
         let repo = RelationRepo::new(&db);
-        assert!(repo.suggest("first", "first", "related", "evidence", None).is_err());
-        assert!(repo.suggest("first", "second", "corrects", "", None).is_err());
-        assert!(repo.suggest("first", "third", "corrects", "evidence", None).is_err());
+        assert!(repo
+            .suggest("first", "first", "related", "evidence", None)
+            .is_err());
+        assert!(repo
+            .suggest("first", "second", "corrects", "", None)
+            .is_err());
+        assert!(repo
+            .suggest("first", "third", "corrects", "evidence", None)
+            .is_err());
         let relation = repo
-            .suggest("first", "second", "corrects", "Source session confirms the fix", Some(0.8))
+            .suggest(
+                "first",
+                "second",
+                "corrects",
+                "Source session confirms the fix",
+                Some(0.8),
+            )
             .unwrap();
         assert_eq!(relation.status, "suggested");
-        assert!(repo.suggest("first", "second", "corrects", "duplicate", None).is_err());
+        assert!(repo
+            .suggest("first", "second", "corrects", "duplicate", None)
+            .is_err());
         let reviewed = repo.review(&relation.id, "confirmed").unwrap();
         assert_eq!(reviewed.status, "confirmed");
         assert_eq!(repo.list("first").unwrap().len(), 1);
@@ -244,7 +264,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
-        assert_eq!(repo.review(&relation.id, "rejected").unwrap().status, "rejected");
+        assert_eq!(
+            repo.review(&relation.id, "rejected").unwrap().status,
+            "rejected"
+        );
         assert!(repo.review(&relation.id, "suggested").is_err());
     }
 }
