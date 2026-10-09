@@ -189,20 +189,32 @@ pub fn load_and_verify_backup(
     let manifest: SqliteBackupManifest = serde_json::from_reader(file)?;
     verify_sqlite_backup(snapshot, &manifest)?;
     let conn = Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    for table in [
-        "source_session",
-        "sync_target",
-        "pipeline_run",
-        "pipeline_job",
+    // Detect incomplete migrations, not merely the presence of table names.
+    // Check the columns needed by the live synchronization and pipeline code.
+    for (table, columns) in [
+        ("source_session", &["id", "source", "external_session_id", "content_hash"][..]),
+        ("sync_target", &["session_id", "sink", "status"][..]),
+        ("pipeline_run", &["id", "session_id", "status", "pipeline_version"][..]),
+        ("pipeline_job", &["id", "session_id", "pipeline_run_id", "status", "generation"][..]),
     ] {
-        let found: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            params![table],
-            |row| row.get(0),
-        )?;
-        if found != 1 {
-            bail!("backup is missing required AIKS table: {table}");
+        let mut query = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let actual = query.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for column in columns {
+            if !actual.iter().any(|name| name == column) {
+                bail!("backup schema incompatible: missing {table}.{column}");
+            }
         }
+    }
+    // Foreign-key validation uses a read-only transaction, so it does not
+    // change the detached snapshot or attempt to migrate it.
+    let invalid: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        bail!("backup has {invalid} foreign-key violations");
     }
     Ok(manifest)
 }
@@ -350,6 +362,38 @@ mod tests {
         fs::write(&snapshot, bytes).unwrap();
         assert!(restore_sqlite_backup_to_new_path(&snapshot, &manifest, &restored).is_err());
         assert!(!restored.exists());
+    }
+
+    #[test]
+    fn restore_validation_rejects_incomplete_schema_without_mutating_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = dir.path().join("incomplete.sqlite");
+        let connection = Connection::open(&snapshot).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE source_session (id INTEGER PRIMARY KEY, source TEXT);
+             CREATE TABLE sync_target (session_id INTEGER, sink TEXT, status TEXT);
+             CREATE TABLE pipeline_run (id TEXT, session_id INTEGER, status TEXT, pipeline_version TEXT);
+             CREATE TABLE pipeline_job (id TEXT, session_id INTEGER, pipeline_run_id TEXT, status TEXT, generation INTEGER);",
+        ).unwrap();
+        drop(connection);
+        let manifest = inspect_sqlite_backup(&snapshot, "incomplete.sqlite".to_string()).unwrap();
+        let manifest_path = dir.path().join("manifest.json");
+        save_backup_manifest(&manifest_path, &manifest).unwrap();
+        let error = load_and_verify_backup(&snapshot, &manifest_path).unwrap_err();
+        assert!(error.to_string().contains("source_session.external_session_id"));
+        verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[test]
+    fn manifest_refuses_unsupported_version_even_for_valid_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("backup.sqlite");
+        let manifest_path = dir.path().join("manifest.json");
+        let mut manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        manifest.format_version = 2;
+        save_backup_manifest(&manifest_path, &manifest).unwrap();
+        assert!(load_and_verify_backup(&snapshot, &manifest_path).is_err());
     }
 
     #[test]
