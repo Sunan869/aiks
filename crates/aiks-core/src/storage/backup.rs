@@ -404,22 +404,30 @@ mod tests {
     #[test]
     fn incompatible_backup_with_broken_foreign_key_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
         let snapshot = dir.path().join("invalid.sqlite");
+        create_sqlite_backup(&db, &snapshot).unwrap();
+        // Deliberately corrupt only the detached snapshot. The full AIKS
+        // schema remains present so the FK checker, not the schema gate,
+        // must detect the invalid reference.
         let connection = Connection::open(&snapshot).unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE parent (id INTEGER PRIMARY KEY);
-                 CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));
-                 INSERT INTO child(parent_id) VALUES (999);",
-            )
-            .unwrap();
+        connection.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             INSERT INTO sync_target(session_id, sink, status)
+             VALUES (999999, 'siyuan', 'PENDING');",
+        ).unwrap();
         drop(connection);
         let manifest = inspect_sqlite_backup(&snapshot, "invalid.sqlite".to_string()).unwrap();
         let file = dir.path().join("backup.json");
         save_backup_manifest(&file, &manifest).unwrap();
         let error = load_and_verify_backup(&snapshot, &file).unwrap_err();
-        assert!(error.to_string().contains("backup schema incompatible"));
+        assert!(error.to_string().contains("foreign-key violations"));
         verify_sqlite_backup(&snapshot, &manifest).unwrap();
+        assert_eq!(db.conn().query_row(
+            "SELECT COUNT(*) FROM sync_target",
+            [],
+            |row| row.get::<_, i64>(0),
+        ).unwrap(), 0);
     }
 
     #[test]
