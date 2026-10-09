@@ -515,8 +515,14 @@ async fn repeated_provider_discovery_preserves_ids_and_reports_scan_baseline() {
     let second_ms = second_started.elapsed().as_millis();
     assert_eq!(first.len(), sessions);
     assert_eq!(second.len(), sessions);
-    let mut first_ids: Vec<_> = first.into_iter().map(|item| item.external_session_id).collect();
-    let mut second_ids: Vec<_> = second.into_iter().map(|item| item.external_session_id).collect();
+    let mut first_ids: Vec<_> = first
+        .into_iter()
+        .map(|item| item.external_session_id)
+        .collect();
+    let mut second_ids: Vec<_> = second
+        .into_iter()
+        .map(|item| item.external_session_id)
+        .collect();
     first_ids.sort();
     second_ids.sort();
     first_ids.dedup();
