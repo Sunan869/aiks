@@ -518,7 +518,8 @@ mod stream_tests {
 
         // Partial usage metadata is common on OpenAI-compatible local gateways:
         // successful text must not become a parse failure when totals are absent.
-        let partial = r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"completion_tokens":3}}"#;
+        let partial =
+            r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"completion_tokens":3}}"#;
         let result: super::ChatResponse = serde_json::from_str(partial).unwrap();
         let usage = result.usage.unwrap();
         assert_eq!(usage.prompt_tokens, None);
