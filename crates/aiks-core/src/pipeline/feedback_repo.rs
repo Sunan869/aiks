@@ -28,21 +28,6 @@ impl<'a> FeedbackRepo<'a> {
         Self { db }
     }
 
-    fn ensure_schema(&self) -> Result<()> {
-        self.db.conn().execute_batch(
-            "CREATE TABLE IF NOT EXISTS knowledge_feedback (
-                id TEXT PRIMARY KEY,
-                knowledge_id TEXT NOT NULL,
-                kind TEXT NOT NULL CHECK (kind IN ('useful','incorrect','duplicate','outdated','needs_detail')),
-                note TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_knowledge_feedback_item_time
-                ON knowledge_feedback(knowledge_id, created_at DESC);",
-        )?;
-        Ok(())
-    }
-
     /// Record feedback without overwriting the knowledge item or earlier reviews.
     pub fn add(&self, knowledge_id: &str, kind: &str, note: &str) -> Result<KnowledgeFeedback> {
         if !KINDS.contains(&kind) {
@@ -51,7 +36,6 @@ impl<'a> FeedbackRepo<'a> {
         if note.chars().count() > 4000 {
             bail!("Feedback note exceeds 4000 characters");
         }
-        self.ensure_schema()?;
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
         self.db.conn().execute(
@@ -73,7 +57,6 @@ impl<'a> FeedbackRepo<'a> {
     }
 
     pub fn list(&self, knowledge_id: &str) -> Result<Vec<KnowledgeFeedback>> {
-        self.ensure_schema()?;
         let conn = self.db.conn();
         let mut statement = conn.prepare(
             "SELECT id, knowledge_id, kind, note, created_at FROM knowledge_feedback
