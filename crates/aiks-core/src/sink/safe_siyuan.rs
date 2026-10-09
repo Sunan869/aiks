@@ -238,25 +238,48 @@ impl SiYuanSink {
                 .optional()?
             };
             let doc_id = if let Some((id, baseline)) = existing {
-                let remote = self
-                    .inner
-                    .get_document_markdown(&id)
-                    .await
-                    .with_context(|| format!("read volume {volume_no} ({id}) before update"))?;
-                let actual = volume_baseline(&remote);
-                if actual != baseline {
-                    return Err(SiYuanSafetyError::VolumeConflict {
-                        volume_no,
-                        doc_id: id,
+                match self.inner.get_document_markdown(&id).await {
+                    Ok(remote) => {
+                        let actual = volume_baseline(&remote);
+                        if actual != baseline {
+                            return Err(SiYuanSafetyError::VolumeConflict {
+                                volume_no,
+                                doc_id: id,
+                            }
+                            .into());
+                        }
+                        if !Self::markdown_matches(&remote, &volume_markdown) {
+                            self.update_document(&id, &volume_markdown)
+                                .await
+                                .with_context(|| format!("update volume {volume_no}"))?;
+                        }
+                        id
                     }
-                    .into());
+                    Err(read_error) => match self.inner.get_doc_notebook(&id).await {
+                        Ok(None) => {
+                            // The mapped block really was deleted. Reconcile by stable
+                            // hpath; an existing document is only adopted after
+                            // content validation by create_document_reconciled.
+                            self.create_document(notebook_id, &path, &volume_markdown)
+                                .await
+                                .with_context(|| {
+                                    format!("recreate confirmed missing volume {volume_no} ({id})")
+                                })?
+                        }
+                        Ok(Some(_)) => {
+                            return Err(read_error).with_context(|| {
+                                format!("volume {volume_no} ({id}) still exists but is unreadable")
+                            });
+                        }
+                        Err(probe_error) => {
+                            return Err(read_error).with_context(|| {
+                                format!(
+                                    "volume {volume_no} ({id}) read failed and existence is unknown: {probe_error}"
+                                )
+                            });
+                        }
+                    },
                 }
-                if !Self::markdown_matches(&remote, &volume_markdown) {
-                    self.update_document(&id, &volume_markdown)
-                        .await
-                        .with_context(|| format!("update volume {volume_no}"))?;
-                }
-                id
             } else {
                 self.create_document(notebook_id, &path, &volume_markdown)
                     .await
