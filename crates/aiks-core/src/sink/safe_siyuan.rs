@@ -204,10 +204,19 @@ impl SiYuanSink {
     /// Write content volumes and return a small index document's Markdown.
     /// Each volume has its own stable hpath, ID and remote hash baseline.
     /// A failed attempt can resume without losing prior successful writes.
-    pub async fn sync_session_volumes(&self, request: SessionVolumeRequest<'_>) -> anyhow::Result<String> {
+    pub async fn sync_session_volumes(
+        &self,
+        request: SessionVolumeRequest<'_>,
+    ) -> anyhow::Result<String> {
         let SessionVolumeRequest {
-            db, session_db_id, source, external_id, parser_version,
-            notebook_id, base_path, markdown,
+            db,
+            session_db_id,
+            source,
+            external_id,
+            parser_version,
+            notebook_id,
+            base_path,
+            markdown,
         } = request;
         use anyhow::Context;
         use rusqlite::{params, OptionalExtension};
@@ -480,6 +489,32 @@ mod volume_tests {
         assert!(expanded
             .iter()
             .all(|part| part.len() <= TARGET_VOLUME_BYTES));
+    }
+
+    #[test]
+    fn shrinking_session_keeps_deterministic_part_paths() {
+        let full = format!(
+            "{}\n## 🤖 助手 (Assistant)\n{}",
+            "a".repeat(TARGET_VOLUME_BYTES - 200),
+            "b".repeat(TARGET_VOLUME_BYTES),
+        );
+        let shortened = &full[..TARGET_VOLUME_BYTES / 2];
+        let full_parts = split_session_markdown(&full);
+        let short_parts = split_session_markdown(shortened);
+        assert!(full_parts.len() >= 2);
+        assert_eq!(short_parts.len(), 1);
+        assert_eq!(full_parts.concat(), full);
+        assert_eq!(short_parts.concat(), shortened);
+        assert!(full_parts.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+    }
+
+    #[test]
+    fn split_handles_single_line_larger_than_document_limit() {
+        let input = "🦀".repeat(MAX_SAFE_DOCUMENT_BYTES / 2);
+        let parts = split_session_markdown(&input);
+        assert!(parts.len() >= 2);
+        assert!(parts.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+        assert_eq!(parts.concat(), input);
     }
 
     #[test]
