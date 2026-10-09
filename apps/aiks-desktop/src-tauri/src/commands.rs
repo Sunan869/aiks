@@ -626,6 +626,16 @@ pub async fn list_task_center_entries(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn get_task_center_stats(
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::task_center::TaskCenterStats, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .stats()
+        .map_err(|error| error.to_string())
+}
+
 /// Manually retry one failed AI extraction. Never use this to bypass SiYuan
 /// conflict/permanent errors; use the existing durable queue for deduplication.
 #[tauri::command]

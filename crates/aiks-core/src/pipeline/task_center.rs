@@ -22,6 +22,16 @@ pub struct TaskCenterEntry {
     pub last_task_update: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskCenterStats {
+    pub total_sessions: i64,
+    pub pending: i64,
+    pub running: i64,
+    pub cancelled: i64,
+    pub sync_issues: i64,
+    pub ai_issues: i64,
+}
+
 pub struct TaskCenterRepo<'a> {
     db: &'a StateDb,
 }
@@ -29,6 +39,42 @@ pub struct TaskCenterRepo<'a> {
 impl<'a> TaskCenterRepo<'a> {
     pub fn new(db: &'a StateDb) -> Self {
         Self { db }
+    }
+
+    /// Global counts independent of the most recent task list limit.
+    pub fn stats(&self) -> anyhow::Result<TaskCenterStats> {
+        let conn = self.db.conn();
+        let result = conn.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM source_session),
+                (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'PENDING'
+                 AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
+                (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'RUNNING'),
+                (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'CANCELLED'
+                 AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
+                (SELECT COUNT(*) FROM sync_target WHERE sink = 'siyuan'
+                 AND (status LIKE 'FAILED%' OR status = 'CONFLICT')),
+                (SELECT COUNT(*) FROM source_session ss WHERE EXISTS (
+                    SELECT 1 FROM pipeline_run pr WHERE pr.session_id = ss.id
+                    AND pr.pipeline_version = 'v3' AND pr.status = 'FAILED'
+                 ) OR EXISTS (
+                    SELECT 1 FROM pipeline_job pj WHERE pj.session_id = ss.id
+                    AND pj.status = 'FAILED'
+                    AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = ss.id)
+                 ))",
+            [],
+            |row| {
+                Ok(TaskCenterStats {
+                    total_sessions: row.get(0)?,
+                    pending: row.get(1)?,
+                    running: row.get(2)?,
+                    cancelled: row.get(3)?,
+                    sync_issues: row.get(4)?,
+                    ai_issues: row.get(5)?,
+                })
+            },
+        )?;
+        Ok(result)
     }
 
     /// Bounded list of canonical sessions and their independent persisted states.
@@ -80,6 +126,23 @@ impl<'a> TaskCenterRepo<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stats_count_all_sessions_outside_recent_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        for i in 0..5 {
+            db.conn().execute(
+                "INSERT INTO source_session
+                 (source, external_session_id, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', ?1, 'now', 'now', 'now')",
+                params![format!("s-{i}")],
+            ).unwrap();
+        }
+        let repo = TaskCenterRepo::new(&db);
+        assert_eq!(repo.list_recent(1).unwrap().len(), 1);
+        assert_eq!(repo.stats().unwrap().total_sessions, 5);
+    }
 
     #[test]
     fn empty_database_has_no_tasks() {

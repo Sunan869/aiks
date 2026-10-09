@@ -6,6 +6,7 @@ import type {
   PipelineSummary,
   PipelineStats,
   TaskCenterEntry,
+  TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
   KnowledgeListOptions,
@@ -34,6 +35,7 @@ export interface AiksApi {
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
   getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
+  getTaskCenterStats(): Promise<TaskCenterStats>;
   retryFailedAiTask(sessionId: number): Promise<string>;
   cancelPendingAiTask(sessionId: number): Promise<boolean>;
 

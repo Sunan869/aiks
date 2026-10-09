@@ -309,3 +309,13 @@ export interface TaskCenterEntry {
   stage_latency_ms: number | null;
   last_task_update: string | null;
 }
+
+/** Database-wide statistics, not counts from the bounded task list. */
+export interface TaskCenterStats {
+  total_sessions: number;
+  pending: number;
+  running: number;
+  cancelled: number;
+  sync_issues: number;
+  ai_issues: number;
+}

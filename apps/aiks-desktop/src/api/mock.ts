@@ -4,7 +4,7 @@ import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
-  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry,
+  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
@@ -136,6 +136,7 @@ export class MockAiksApi implements AiksApi {
   }
 
   async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
+  async getTaskCenterStats(): Promise<TaskCenterStats> { await delay(); return { total_sessions: sessions.length, pending: 0, running: 0, cancelled: 0, sync_issues: 0, ai_issues: 0 }; }
   async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }
   async cancelPendingAiTask(): Promise<boolean> { throw new Error("Mock cancel is not available"); }
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }

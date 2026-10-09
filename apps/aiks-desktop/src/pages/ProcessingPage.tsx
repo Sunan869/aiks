@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
-import type { PipelineSummary, PipelineStats, TaskCenterEntry } from "../api/types";
+import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
@@ -48,6 +48,8 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
+  const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
+  const [showDiagnosticPreview, setShowDiagnosticPreview] = useState(false);
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -63,14 +65,16 @@ export default function ProcessingPage({ onViewDetail }: Props) {
     inFlightRef.current = true;
     if (showLoading) setLoading(true);
     try {
-      const [r, s, t] = await Promise.all([
+      const [r, s, t, totals] = await Promise.all([
         getApi().getPipelineRuns(300),
         getApi().getPipelineStats(),
         getApi().getTaskCenterEntries(200),
+        getApi().getTaskCenterStats(),
       ]);
       setRuns(r);
       setStats(s);
       setTasks(t);
+      setTaskStats(totals);
       setLoadError("");
     } catch (error) {
       setLoadError("无法刷新任务状态：" + String(error));
@@ -145,13 +149,23 @@ export default function ProcessingPage({ onViewDetail }: Props) {
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
         {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
         <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
-          <span>总会话 {tasks.length}</span>
-          <span>待处理 {tasks.filter(t => t.job_status === "PENDING").length}</span>
-          <span>运行中 {tasks.filter(t => t.job_status === "RUNNING").length}</span>
-          <span>已取消 {tasks.filter(t => t.job_status === "CANCELLED").length}</span>
-          <span>同步异常 {tasks.filter(t => t.sync_status?.startsWith("FAILED") || t.sync_status === "CONFLICT").length}</span>
-          <span>AI 异常 {tasks.filter(t => t.job_status === "FAILED" || t.pipeline_status === "FAILED").length}</span>
+          <span>总会话 {taskStats?.total_sessions ?? "—"}</span>
+          <span>待处理 {taskStats?.pending ?? "—"}</span>
+          <span>运行中 {taskStats?.running ?? "—"}</span>
+          <span>已取消 {taskStats?.cancelled ?? "—"}</span>
+          <span>同步异常 {taskStats?.sync_issues ?? "—"}</span>
+          <span>AI 异常 {taskStats?.ai_issues ?? "—"}</span>
         </div>
+        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline"
+          onClick={() => setShowDiagnosticPreview(value => !value)}>
+          {showDiagnosticPreview ? "收起诊断摘要" : "预览安全诊断摘要"}
+        </button>
+        {showDiagnosticPreview && (
+          <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
+            <p className="text-xs text-gray-500 mb-2">仅显示统计数据，不含 Session 正文、路径、错误内容或密钥。</p>
+            <pre className="text-xs whitespace-pre-wrap">{JSON.stringify({ schema: "aiks-task-diagnostics-v1", counts: taskStats }, null, 2)}</pre>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
           {([
             ["all", "全部"],
