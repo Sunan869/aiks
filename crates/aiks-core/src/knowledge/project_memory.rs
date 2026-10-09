@@ -1,11 +1,11 @@
 //! Read-only, evidence-linked project memory derived from canonical local data.
 //! Sessions with the same explicit directory can be grouped across providers.
 //! A missing path is *never* merged merely because project display names agree.
-use std::collections::{BTreeMap, HashMap};
+use crate::storage::StateDb;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use crate::storage::StateDb;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectOverview {
@@ -49,7 +49,11 @@ fn project_identity(
     let path = path.trim_end_matches('/');
     let (key, verified) = if !path.is_empty() {
         let windows = path.as_bytes().get(1) == Some(&b':') || path.starts_with("//");
-        let canonical = if windows { path.to_lowercase() } else { path.to_string() };
+        let canonical = if windows {
+            path.to_lowercase()
+        } else {
+            path.to_string()
+        };
         (format!("path:{canonical}"), true)
     } else {
         // Pathless sessions cannot be safely associated with each other.
@@ -59,7 +63,12 @@ fn project_identity(
     let title = name
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
-        .or_else(|| path.rsplit('/').next().filter(|value| !value.is_empty()).map(str::to_string))
+        .or_else(|| {
+            path.rsplit('/')
+                .next()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| format!("{source} · {external_id}"));
     (format!("project:{}", &digest[..24]), title, verified)
 }
@@ -121,9 +130,8 @@ impl<'a> ProjectMemoryService<'a> {
                  WHERE status = 'active' AND source_session_id IS NOT NULL
                  GROUP BY source_session_id",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows =
+                stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
             for row in rows {
                 let (session_id, count) = row?;
                 if let Some(group_id) = session_to_project.get(&session_id) {
@@ -138,13 +146,16 @@ impl<'a> ProjectMemoryService<'a> {
             project.sources.sort();
         }
         results.sort_by(|a, b| {
-            b.last_updated_at.cmp(&a.last_updated_at).then(a.id.cmp(&b.id))
+            b.last_updated_at
+                .cmp(&a.last_updated_at)
+                .then(a.id.cmp(&b.id))
         });
         Ok(results)
     }
 
     pub fn get(&self, project_id: &str, limit: usize) -> Result<ProjectMemorySnapshot> {
-        let project = self.list()?
+        let project = self
+            .list()?
             .into_iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| anyhow::anyhow!("Project identity not found"))?;
@@ -176,7 +187,19 @@ impl<'a> ProjectMemoryService<'a> {
             ))
         })?;
         for row in rows {
-            let (knowledge_id, title, category, summary, updated, session_id, source, external, path, name, feedback_status) = row?;
+            let (
+                knowledge_id,
+                title,
+                category,
+                summary,
+                updated,
+                session_id,
+                source,
+                external,
+                path,
+                name,
+                feedback_status,
+            ) = row?;
             let (id, _, _) = project_identity(&source, &external, path.as_deref(), name.as_deref());
             if id != project_id {
                 continue;
@@ -197,7 +220,11 @@ impl<'a> ProjectMemoryService<'a> {
                 feedback_status,
             });
         }
-        Ok(ProjectMemorySnapshot { project, entries, truncated })
+        Ok(ProjectMemorySnapshot {
+            project,
+            entries,
+            truncated,
+        })
     }
 }
 
@@ -236,7 +263,9 @@ mod tests {
         let service = ProjectMemoryService::new(&db);
         let projects = service.list().unwrap();
         assert_eq!(projects.len(), 2);
-        assert!(projects.iter().any(|p| p.session_count == 2 && p.sources.len() == 2));
+        assert!(projects
+            .iter()
+            .any(|p| p.session_count == 2 && p.sources.len() == 2));
         assert!(projects.iter().any(|p| p.session_count == 1));
         assert!(service.get(&projects[0].id, 50).unwrap().entries.is_empty());
     }

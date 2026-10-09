@@ -1,13 +1,16 @@
 //! Editable, evidence-linked local work reviews and read-only agent context packs.
 //! These functions never write to AGENTS.md, CLAUDE.md or provider project files.
-use anyhow::{bail, Result};
-use chrono::NaiveDate;
 use crate::knowledge::project_memory::{ProjectMemoryEntry, ProjectMemorySnapshot};
 use crate::util::SecretSanitizer;
+use anyhow::{bail, Result};
+use chrono::NaiveDate;
 
 fn safe_inline(text: &str) -> String {
     let sanitizer = SecretSanitizer::new();
-    sanitizer.sanitize(text).replace('\r', " ").replace('\n', " ")
+    sanitizer
+        .sanitize(text)
+        .replace('\r', " ")
+        .replace('\n', " ")
 }
 
 fn cite(item: &ProjectMemoryEntry) -> String {
@@ -32,7 +35,9 @@ pub fn render_project_review(
     let mut solutions = Vec::new();
     let mut other = Vec::new();
     for item in &snapshot.entries {
-        let Some(date) = item.updated_at.get(..10) else { continue; };
+        let Some(date) = item.updated_at.get(..10) else {
+            continue;
+        };
         if date < from || date > through {
             continue;
         }
@@ -50,8 +55,11 @@ pub fn render_project_review(
         }
     }
     let section = |header: &str, rows: &[String]| -> String {
-        if rows.is_empty() { format!("## {header}\n\n没有对应的可核实记录。\n\n") }
-        else { format!("## {header}\n\n{}\n\n", rows.join("\n")) }
+        if rows.is_empty() {
+            format!("## {header}\n\n没有对应的可核实记录。\n\n")
+        } else {
+            format!("## {header}\n\n{}\n\n", rows.join("\n"))
+        }
     };
     let mut result = format!(
         "# {} · 工作回顾\n\n期间：{} 至 {}\n\n说明：仅依据已采集的工作 Session 与知识，不把计划、建议或猜测误写成已完成的事实。\n\n",
@@ -113,7 +121,9 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::project_memory::{ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview};
+    use crate::knowledge::project_memory::{
+        ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview,
+    };
 
     fn snapshot() -> ProjectMemorySnapshot {
         ProjectMemorySnapshot {
