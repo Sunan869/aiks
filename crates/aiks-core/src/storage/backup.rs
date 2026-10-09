@@ -100,7 +100,9 @@ pub fn restore_sqlite_backup_to_new_path(
     destination: &Path,
 ) -> Result<()> {
     verify_sqlite_backup(source, manifest)?;
-    let parent = destination.parent().context("restore destination has no parent")?;
+    let parent = destination
+        .parent()
+        .context("restore destination has no parent")?;
     if !parent.is_dir() {
         bail!("restore destination directory does not exist");
     }
@@ -131,6 +133,53 @@ pub fn restore_sqlite_backup_to_new_path(
         let _ = fs::remove_file(destination);
     }
     result
+}
+
+/// Store an explicit manifest next to the snapshot without overwriting a file.
+/// Caller controls the destination; no path is derived from untrusted JSON.
+pub fn save_backup_manifest(
+    path: &Path,
+    manifest: &SqliteBackupManifest,
+) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(manifest)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .context("backup manifest already exists or cannot be created")?;
+    let result = (|| -> Result<()> {
+        use std::io::Write;
+        output.write_all(&bytes)?;
+        output.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(path);
+    }
+    result
+}
+
+/// Load a manifest, validate the snapshot, and reject missing or incompatible
+/// core schema tables before exposing the backup as a restoration candidate.
+pub fn load_and_verify_backup(
+    snapshot: &Path,
+    manifest_path: &Path,
+) -> Result<SqliteBackupManifest> {
+    let file = fs::File::open(manifest_path)?;
+    let manifest: SqliteBackupManifest = serde_json::from_reader(file)?;
+    verify_sqlite_backup(snapshot, &manifest)?;
+    let conn = Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    for table in ["source_session", "sync_target", "pipeline_run", "pipeline_job"] {
+        let found: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get(0),
+        )?;
+        if found != 1 {
+            bail!("backup is missing required AIKS table: {table}");
+        }
+    }
+    Ok(manifest)
 }
 
 #[cfg(test)]
@@ -186,6 +235,23 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[test]
+    fn manifest_round_trip_and_detached_restore_are_verified() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("backup.sqlite");
+        let manifest_path = dir.path().join("backup-manifest.json");
+        let restored = dir.path().join("restore.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        save_backup_manifest(&manifest_path, &manifest).unwrap();
+        assert!(save_backup_manifest(&manifest_path, &manifest).is_err());
+        let loaded = load_and_verify_backup(&snapshot, &manifest_path).unwrap();
+        restore_sqlite_backup_to_new_path(&snapshot, &loaded, &restored).unwrap();
+        let mut wrong = loaded;
+        wrong.format_version = 999;
+        assert!(verify_sqlite_backup(&snapshot, &wrong).is_err());
     }
 
     #[test]
