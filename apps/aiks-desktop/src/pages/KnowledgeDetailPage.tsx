@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail } from "../api/types";
+import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 
 interface Props {
@@ -25,6 +25,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [editing, setEditing] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<KnowledgeFeedback[]>([]);
+  const [feedbackKind, setFeedbackKind] = useState<KnowledgeFeedbackKind>("useful");
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,6 +41,31 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   }, [knowledgeId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    setFeedback([]);
+    setFeedbackError(null);
+    void getApi().getKnowledgeFeedback(knowledgeId).then(items => {
+      if (active) setFeedback(items);
+    }).catch(error => {
+      if (active) setFeedbackError("反馈加载失败：" + String(error));
+    });
+    return () => { active = false; };
+  }, [knowledgeId]);
+
+  const submitFeedback = async () => {
+    setFeedbackBusy(true);
+    setFeedbackError(null);
+    try {
+      const created = await getApi().addKnowledgeFeedback(knowledgeId, feedbackKind, feedbackNote.trim());
+      setFeedback(current => [created, ...current]);
+      setFeedbackNote("");
+    } catch (error) {
+      setFeedbackError("反馈保存失败：" + String(error));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
 
   const runAction = async (name: string, fn: () => Promise<KnowledgeDetail>) => {
     setAction(name);
@@ -147,6 +177,32 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
         <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-700 dark:text-gray-300">{data.content}</pre>
       </div>
+
+      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">知识质量反馈</h2>
+        <p className="mb-3 text-xs text-gray-500">反馈只保存在本地，不会自动删除知识或覆盖人工编辑。</p>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
+            <option value="useful">有用</option>
+            <option value="incorrect">错误</option>
+            <option value="duplicate">重复</option>
+            <option value="outdated">过时</option>
+            <option value="needs_detail">需补充</option>
+          </select>
+          <input aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
+          <button type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</button>
+        </div>
+        {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{feedbackError}</p>}
+        <div className="mt-3 space-y-2">
+          {feedback.map(item => (
+            <div key={item.id} className="border-t border-gray-100 pt-2 text-xs dark:border-gray-700">
+              <span className="font-medium">{({ useful: "有用", incorrect: "错误", duplicate: "重复", outdated: "过时", needs_detail: "需补充" } as Record<KnowledgeFeedbackKind, string>)[item.kind]}</span>
+              <span className="ml-2 text-gray-400">{new Date(item.created_at).toLocaleString("zh-CN")}</span>
+              {item.note && <p className="mt-1 whitespace-pre-wrap text-gray-600 dark:text-gray-300">{item.note}</p>}
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="flex gap-4 text-xs text-gray-400">
         <span>创建：{new Date(data.created_at).toLocaleString("zh-CN")}</span>
