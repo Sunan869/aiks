@@ -5,6 +5,7 @@ import type {
   SessionPage,
   PipelineSummary,
   PipelineStats,
+  TaskCenterEntry,
   KnowledgePage,
   KnowledgeDetail,
   KnowledgeListOptions,
@@ -32,6 +33,7 @@ export interface AiksApi {
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
+  getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;

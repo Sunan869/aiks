@@ -4,7 +4,7 @@ import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
-  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
+  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
@@ -135,6 +135,7 @@ export class MockAiksApi implements AiksApi {
     };
   }
 
+  async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> {
     throw new Error(`Mock pipeline detail not available: ${runId}`);

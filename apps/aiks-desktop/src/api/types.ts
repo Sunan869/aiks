@@ -291,3 +291,18 @@ export interface AiStatus {
     pending: number;
   };
 }
+
+/** Read-only projection of independent raw-sync and AI pipeline states. */
+export interface TaskCenterEntry {
+  session_id: number;
+  source: string;
+  external_session_id: string;
+  title: string | null;
+  sync_status: string | null;
+  sync_error: string | null;
+  pipeline_status: string | null;
+  current_stage: string | null;
+  pipeline_error: string | null;
+  job_status: string | null;
+  attempts: number | null;
+}

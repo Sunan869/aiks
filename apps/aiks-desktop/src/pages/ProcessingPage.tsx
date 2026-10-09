@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
-import type { PipelineSummary, PipelineStats } from "../api/types";
+import type { PipelineSummary, PipelineStats, TaskCenterEntry } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
@@ -47,6 +47,7 @@ export default function ProcessingPage({ onViewDetail }: Props) {
   const formatSourceName = useSourceName();
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
+  const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
@@ -58,12 +59,14 @@ export default function ProcessingPage({ onViewDetail }: Props) {
     inFlightRef.current = true;
     if (showLoading) setLoading(true);
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, t] = await Promise.all([
         getApi().getPipelineRuns(300),
         getApi().getPipelineStats(),
+        getApi().getTaskCenterEntries(200),
       ]);
       setRuns(r);
       setStats(s);
+      setTasks(t);
     } finally {
       inFlightRef.current = false;
       if (showLoading) setLoading(false);
@@ -126,6 +129,37 @@ export default function ProcessingPage({ onViewDetail }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Raw synchronization status is separate from knowledge extraction. */}
+      <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
+        <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
+        {tasks.length === 0 ? (
+          <p className="text-xs text-gray-400">暂无会话同步任务记录</p>
+        ) : (
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
+                <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
+                <th className="py-2 pr-3">任务</th><th className="py-2">错误</th>
+              </tr></thead>
+              <tbody>
+                {tasks.map(task => (
+                  <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
+                    <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
+                    <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
+                    <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
+                    <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || ""}>{task.sync_error || task.pipeline_error || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* Stats bar */}
       {stats && (

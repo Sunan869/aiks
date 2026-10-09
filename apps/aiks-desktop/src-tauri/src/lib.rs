@@ -138,6 +138,7 @@ pub fn run() {
             commands::open_knowledge_window,
             commands::get_full_status,
             commands::sync_and_extract,
+            commands::list_task_center_entries,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
