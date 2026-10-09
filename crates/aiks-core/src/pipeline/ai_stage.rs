@@ -176,6 +176,7 @@ impl AiStage {
                     "score": result.knowledge_score,
                     "items": 0,
                     "cache_hits": cache_hits,
+                    "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                     "llm_calls": llm_calls
                 })),
                 None,
@@ -218,6 +219,7 @@ impl AiStage {
                 "score": result.knowledge_score,
                 "items": item_count,
                 "cache_hits": cache_hits,
+                "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                 "llm_calls": llm_calls
             })),
             None,
