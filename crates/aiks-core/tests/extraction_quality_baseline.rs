@@ -75,10 +75,29 @@ fn extraction_quality_gate_rejects_invalid_confidence_and_missing_fields() {
     assert!((0.0..=1.0).contains(&valid.items[0].confidence));
 
     let mut missing = output.clone();
-    missing["items"][0].as_object_mut().unwrap().remove("content");
+    missing["items"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("content");
     assert!(serde_json::from_value::<V3ExtractionResult>(missing).is_err());
 
     output["items"][0]["confidence"] = serde_json::json!(1.5);
     let out_of_range: V3ExtractionResult = serde_json::from_value(output.clone()).unwrap();
     assert!(!(0.0..=1.0).contains(&out_of_range.items[0].confidence));
+}
+
+#[test]
+fn extraction_quality_baseline_explicitly_skips_tool_noise() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/extraction_quality_baseline.json")).unwrap();
+    let noise = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["scenario"] == "tool_noise")
+        .unwrap();
+    let result: V3ExtractionResult = serde_json::from_value(noise["output"].clone()).unwrap();
+    assert!(!result.worth_extracting);
+    assert!(result.items.is_empty());
+    assert!(result.knowledge_score < 0.5);
 }
