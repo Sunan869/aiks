@@ -150,7 +150,8 @@ impl AiStage {
         let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
+            let context = chunk_context(session_title, project_name, &sanitized);
+            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
             let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
@@ -1221,6 +1222,16 @@ mod tests {
         assert_eq!(cache_hit_percent(0, 3), 0);
         assert_eq!(cache_hit_percent(1, 3), 33);
         assert_eq!(cache_hit_percent(3, 3), 100);
+    }
+
+    #[test]
+    fn single_chunk_prompt_includes_project_and_session_context() {
+        let context = chunk_context(Some("Codex repair"), Some("AIKS"), "fixed login flow");
+        let prompt = make_v3_extraction_prompt(&context);
+        assert!(prompt.contains("Codex repair"));
+        assert!(prompt.contains("AIKS"));
+        assert!(prompt.contains("fixed login flow"));
+        assert!(context.contains("项目：AIKS"));
     }
 
     #[test]
