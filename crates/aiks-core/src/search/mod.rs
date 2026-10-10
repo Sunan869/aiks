@@ -808,6 +808,28 @@ mod tests {
     }
 
     #[test]
+    fn lexical_preview_reranks_before_applying_visible_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("preview-ranking.db")).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO knowledge_feedback (id,knowledge_id,kind,note,created_at)
+                 VALUES ('f1','k1','incorrect','','2026-10-10T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        let lexical = vec![
+            candidate(SearchCorpus::Knowledge, "k1", "A"),
+            candidate(SearchCorpus::Knowledge, "k2", "B"),
+        ];
+        let mut preview = fuse_rrf(lexical, Vec::new(), 2);
+        apply_feedback_rerank(&db, &mut preview).unwrap();
+        preview.truncate(1);
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].entity_id, "k2");
+    }
+
+    #[test]
     fn vector_decoder_rejects_corrupt_blob() {
         assert!(decode_vector(&[1, 2, 3]).is_err());
         let bytes: Vec<u8> = [1.0_f32, 2.0_f32]
