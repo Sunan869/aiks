@@ -18,6 +18,7 @@ describe("V4.2 real-machine UX regressions", () => {
     expect(embeddingCommandsSource).toContain("config.write_file(&path)");
     expect(embeddingCommandsSource).not.toContain("aiks.toml.embedding.tmp");
     expect(settingsSource).toContain("saveWarning");
+    expect(settingsSource).toContain("throw new Error(`语义搜索配置已保存，但桌面设置更新失败");
 
     const embeddingSave = settingsSource.indexOf('invoke("save_embedding_settings"');
     const appSave = settingsSource.indexOf('invoke<SaveSettingsResult>("save_settings"');
