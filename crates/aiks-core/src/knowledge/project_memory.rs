@@ -129,17 +129,29 @@ impl<'a> ProjectMemoryService<'a> {
         }
         {
             let mut stmt = conn.prepare(
-                "SELECT source_session_id, COUNT(*) FROM knowledge_item
+                "SELECT source_session_id, COUNT(*), MAX(updated_at) FROM knowledge_item
                  WHERE status = 'active' AND source_session_id IS NOT NULL
                  GROUP BY source_session_id",
             )?;
-            let rows =
-                stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
             for row in rows {
-                let (session_id, count) = row?;
+                let (session_id, count, knowledge_updated) = row?;
                 if let Some(group_id) = session_to_project.get(&session_id) {
                     if let Some(group) = groups.get_mut(group_id) {
                         group.knowledge_count += count as usize;
+                        // Manual review can update a KnowledgeItem long after
+                        // its source Session stopped changing.
+                        if let Some(updated) = knowledge_updated {
+                            if updated > group.last_updated_at {
+                                group.last_updated_at = updated;
+                            }
+                        }
                     }
                 }
             }
@@ -252,6 +264,66 @@ mod tests {
         assert_ne!(relative_a, relative_b);
         assert!(!verified_a);
         assert!(!verified_b);
+    }
+
+    #[test]
+    fn project_memory_tracks_latest_knowledge_and_keeps_cross_tool_evidence_isolated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("knowledge-timeline.db")).unwrap();
+        for (id, source, path) in [
+            (1, "codex", "C:/repo/alpha"),
+            (2, "claude", "c:/repo/alpha/"),
+            (3, "opencode", "D:/repo/alpha"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,?4,'alpha',
+                             '2026-01-01','2026-01-01','2026-01-01')",
+                    params![id, source, format!("tool-{id}"), path],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'alpha','Fix','troubleshooting','verified fix','details',
+                             'conversation','pipeline','active','2026-01-01',?3)",
+                    params![
+                        format!("knowledge-{id}"),
+                        id,
+                        if id == 1 { "2026-10-10" } else { "2026-01-02" }
+                    ],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let projects = service.list().unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].session_count, 2);
+        assert_eq!(projects[0].knowledge_count, 2);
+        assert_eq!(projects[0].sources, vec!["claude", "codex"]);
+        assert_eq!(projects[0].last_updated_at, "2026-10-10");
+        assert!(projects[0].verified_path);
+
+        let memory = service.get(&projects[0].id, 20).unwrap();
+        assert!(!memory.truncated);
+        assert_eq!(memory.entries.len(), 2);
+        assert!(memory.entries.iter().any(|entry| {
+            entry.source == "codex" && entry.session_external_id == "tool-1"
+        }));
+        assert!(memory.entries.iter().any(|entry| entry.source == "claude"));
+        assert!(!memory.entries.iter().any(|entry| entry.source == "opencode"));
+
+        let limited = service.get(&projects[0].id, 1).unwrap();
+        assert_eq!(limited.entries.len(), 1);
+        assert!(limited.truncated);
+        let other = service.get(&projects[1].id, 20).unwrap();
+        assert_eq!(other.entries.len(), 1);
+        assert_eq!(other.entries[0].source, "opencode");
     }
 
     #[test]
