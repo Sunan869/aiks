@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
 
 describe("knowledge organization review audit", () => {
+  it("prevents a second remote knowledge creation while the first write is pending", () => {
+    const gate = createOrganizationWriteGate();
+    expect(gate.tryBegin()).toBe(true);
+    expect(gate.tryBegin()).toBe(false);
+    gate.finish();
+    expect(gate.tryBegin()).toBe(true);
+    gate.finish();
+  });
+
   it("preserves the reviewed draft and links all selected sources", () => {
     const result = appendOrganizationAudit(
       "# Verified comparison", "merge_draft", ["knowledge-1", "knowledge-2"],
