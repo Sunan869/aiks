@@ -74,6 +74,9 @@ fn validate_request(request: &AiAssistRequest) -> anyhow::Result<()> {
     if request.content.trim().is_empty() {
         anyhow::bail!("AI Assist requires canonical document content");
     }
+    if request.content.len() > 1_000_000 {
+        anyhow::bail!("AI Assist input exceeds the 1 MiB safety budget");
+    }
     if request.title.trim().is_empty() && request.operation != AiAssistOperation::Title {
         anyhow::bail!("AI Assist requires a document title");
     }
@@ -250,6 +253,22 @@ mod tests {
             };
             validate_suggestion(&output).unwrap();
         }
+    }
+
+    #[test]
+    fn oversized_organization_context_is_rejected_before_model_request() {
+        let request = AiAssistRequest {
+            operation: AiAssistOperation::MergeDraft,
+            title: "Oversized".into(),
+            content: "a".repeat(1_000_001),
+            existing_summary: None,
+            existing_tags: vec![],
+            existing_category: None,
+        };
+        assert!(validate_request(&request).is_err());
+        let mut allowed = request;
+        allowed.content = "a".repeat(1_000_000);
+        validate_request(&allowed).unwrap();
     }
 
     #[test]
