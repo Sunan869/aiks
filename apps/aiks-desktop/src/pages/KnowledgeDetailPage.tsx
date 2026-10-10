@@ -50,6 +50,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
   const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
+  const [derivedArchived, setDerivedArchived] = useState(false);
   const organizationGeneration = useRef(0);
 
   const load = useCallback(async () => {
@@ -66,6 +67,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeDraft("");
     setOrganizeConfirmed(false);
     setCreatedKnowledgeId(null);
+    setDerivedArchived(false);
     setOrganizeBusy(false);
     setOrganizeSourceIds([]);
     setReviewedOperation(null);
@@ -160,6 +162,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeSourceIds([]);
     setReviewedOperation(null);
     setCreatedKnowledgeId(null);
+    setDerivedArchived(false);
     try {
       const others = await Promise.all(
         selectedSources.slice(0, 4).map(id => getApi().getKnowledgeDetail(id))
@@ -228,6 +231,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       });
       setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
+      setDerivedArchived(false);
       setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
     } catch (error) {
       setOrganizeError("创建独立知识失败：" + String(error));
@@ -243,9 +247,24 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       await getApi().archiveKnowledge(createdKnowledgeId);
       setMessage("已将本次生成的知识文档归档；来源知识仍保留。");
-      setCreatedKnowledgeId(null);
+      setDerivedArchived(true);
     } catch (error) {
       setOrganizeError("归档生成的知识失败：" + String(error));
+    } finally {
+      setOrganizeBusy(false);
+    }
+  };
+
+  const restoreDerivedKnowledge = async () => {
+    if (!createdKnowledgeId || !derivedArchived || organizeBusy) return;
+    setOrganizeBusy(true);
+    setOrganizeError(null);
+    try {
+      await getApi().restoreKnowledge(createdKnowledgeId);
+      setDerivedArchived(false);
+      setMessage("已恢复本次整理生成的知识；来源知识未修改。");
+    } catch (error) {
+      setOrganizeError("恢复生成的知识失败：" + String(error));
     } finally {
       setOrganizeBusy(false);
     }
@@ -548,7 +567,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             {createdKnowledgeId && (
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 {onOpenKnowledge && <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</button>}
-                <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>撤销本次整理（归档新知识）</button>
+                {derivedArchived ? (
+                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复本次整理生成的知识</button>
+                ) : (
+                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>撤销本次整理（归档新知识）</button>
+                )}
               </div>
             )}
           </div>
