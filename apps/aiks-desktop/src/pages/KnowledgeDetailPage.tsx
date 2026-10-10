@@ -4,6 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
+import { appendOrganizationAudit } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
@@ -190,16 +191,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
-      const sourceLinks = organizeSourceIds.map(id => "- AIKS 知识：" + id).join("\n");
-      const audit = [
-        "## AIKS 整理审核记录",
-        "操作：" + organizeOperation,
-        "人工确认时间（UTC）：" + new Date().toISOString(),
-        "原始知识未修改；此文档为可独立归档的人工确认副本。",
-        "来源知识：",
-        sourceLinks,
-      ].join("\n");
-      const content = organizeDraft + "\n\n---\n\n" + audit;
+      const content = appendOrganizationAudit(organizeDraft, organizeOperation, organizeSourceIds, new Date().toISOString());
       const labels: Record<string, string> = {
         compare: "来源对比",
         merge_draft: "多来源整理",
