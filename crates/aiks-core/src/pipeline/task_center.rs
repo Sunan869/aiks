@@ -49,7 +49,8 @@ impl<'a> TaskCenterRepo<'a> {
                 (SELECT COUNT(*) FROM source_session),
                 (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'PENDING'
                  AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
-                (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'RUNNING'),
+                (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'RUNNING'
+                 AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
                 (SELECT COUNT(*) FROM pipeline_job pj WHERE pj.status = 'CANCELLED'
                  AND pj.generation = (SELECT MAX(p.generation) FROM pipeline_job p WHERE p.session_id = pj.session_id)),
                 (SELECT COUNT(*) FROM sync_target WHERE sink = 'siyuan'
@@ -65,8 +66,12 @@ impl<'a> TaskCenterRepo<'a> {
                         NOT EXISTS (
                             SELECT 1 FROM pipeline_job pj WHERE pj.session_id = ss.id
                         ) AND EXISTS (
-                            SELECT 1 FROM pipeline_run pr WHERE pr.session_id = ss.id
-                            AND pr.pipeline_version = 'v3' AND pr.status = 'FAILED'
+                            SELECT 1 FROM pipeline_run pr WHERE pr.id = (
+                                SELECT p.id FROM pipeline_run p
+                                WHERE p.session_id = ss.id AND p.pipeline_version = 'v3'
+                                ORDER BY p.updated_at DESC, p.created_at DESC, p.rowid DESC
+                                LIMIT 1
+                            ) AND pr.status = 'FAILED'
                         )
                     )))",
             [],
@@ -268,6 +273,58 @@ mod tests {
         assert_eq!(stats.ai_issues, 0);
         assert_eq!(stats.pending, 1);
         assert_eq!(stats.total_sessions, 1);
+    }
+
+    #[test]
+    fn global_stats_ignore_superseded_running_jobs_and_old_pipeline_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'historical-errors', 'now', 'now', 'now') RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        for (run, status, updated) in [
+            ("previous-failure", "FAILED", "2026-10-01T00:00:00Z"),
+            ("latest-success", "READY", "2026-10-02T00:00:00Z"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO pipeline_run
+                     (id, session_id, pipeline_version, status, created_at, updated_at)
+                     VALUES (?1, ?2, 'v3', ?3, ?4, ?4)",
+                    params![run, id, status, updated],
+                )
+                .unwrap();
+        }
+        let tasks = TaskCenterRepo::new(&db);
+        assert_eq!(tasks.stats().unwrap().ai_issues, 0);
+        for (job, generation, status) in [
+            ("stale-running", 1, "RUNNING"),
+            ("latest-done", 2, "DONE"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO pipeline_job
+                     (id, source, external_session_id, generation, status,
+                      created_at, updated_at, session_id, pipeline_run_id)
+                     VALUES (?1, 'codex', 'historical-errors', ?2, ?3,
+                             'now', 'now', ?4, 'latest-success')",
+                    params![job, generation, status, id],
+                )
+                .unwrap();
+        }
+        assert_eq!(tasks.stats().unwrap().running, 0);
+        assert_eq!(tasks.stats().unwrap().ai_issues, 0);
+        assert_eq!(
+            tasks.list_recent(5).unwrap()[0].job_status.as_deref(),
+            Some("DONE")
+        );
     }
 
     #[test]
