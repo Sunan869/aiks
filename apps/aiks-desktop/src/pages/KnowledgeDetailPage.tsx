@@ -191,7 +191,15 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeError(null);
     try {
       const sourceLinks = organizeSourceIds.map(id => "- AIKS 知识：" + id).join("\n");
-      const content = organizeDraft + "\n\n---\n\n来源（经用户确认的整理草稿，原知识未修改）：\n" + sourceLinks;
+      const audit = [
+        "## AIKS 整理审核记录",
+        "操作：" + organizeOperation,
+        "人工确认时间（UTC）：" + new Date().toISOString(),
+        "原始知识未修改；此文档为可独立归档的人工确认副本。",
+        "来源知识：",
+        sourceLinks,
+      ].join("\n");
+      const content = organizeDraft + "\n\n---\n\n" + audit;
       const labels: Record<string, string> = {
         compare: "来源对比",
         merge_draft: "多来源整理",
@@ -207,6 +215,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         tags: parseTags(data.tags),
         content,
       });
+      setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
       setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
     } catch (error) {
