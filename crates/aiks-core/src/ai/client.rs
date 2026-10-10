@@ -387,7 +387,17 @@ impl AiClient {
                 .json(&req)
                 .send()
                 .await
-                .context("AI streaming HTTP request failed")?;
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "AI streaming HTTP request failed (model={}, endpoint={}, timeout={}s, is_timeout={}, is_connect={}): {:#}",
+                        self.config.model,
+                        url,
+                        self.config.timeout_seconds,
+                        error.is_timeout(),
+                        error.is_connect(),
+                        error
+                    )
+                })?;
 
             let status = resp.status();
             if is_model_overloaded(status.as_u16()) && overload_retries < 2 {
