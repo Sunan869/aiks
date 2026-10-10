@@ -48,8 +48,8 @@ export function appendOrganizationAudit(
 
 /** Recheck fetched source identities; UI filtering is not a trust boundary. */
 export function validateOrganizationSources(
-  primary: { id: string; project_name: string | null },
-  others: ReadonlyArray<{ id: string; project_name: string | null }>,
+  primary: { id: string; project_name: string | null; status?: string },
+  others: ReadonlyArray<{ id: string; project_name: string | null; status?: string }>,
 ): void {
   const sources = [primary, ...others];
   if (sources.length > 100) {
@@ -63,6 +63,9 @@ export function validateOrganizationSources(
   }
   if (new Set(sources.map(item => item.id)).size !== sources.length) {
     throw new Error("知识来源包含重复身份，请重新选择");
+  }
+  if (sources.some(item => item.status === "archived")) {
+    throw new Error("已归档知识不能作为新的整理来源，请先恢复后重新审核");
   }
   // A missing project on the primary item does not make conflicting known
   // projects among the additional sources safe to combine.
