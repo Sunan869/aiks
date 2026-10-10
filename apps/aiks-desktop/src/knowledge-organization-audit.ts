@@ -73,3 +73,21 @@ export function validateOrganizationSources(
     throw new Error("不能跨已知的不同项目合并知识，请重新选择来源");
   }
 }
+
+/** Snapshot the exact source metadata and text used to generate a reviewed draft. */
+export function organizationSourceSnapshot(
+  sources: ReadonlyArray<{
+    id: string;
+    title: string;
+    content: string;
+    summary: string | null;
+    project_name: string | null;
+    category: string;
+    tags: string;
+  }>,
+): string {
+  return JSON.stringify(sources.map(source => [
+    source.id, source.title, source.content, source.summary,
+    source.project_name, source.category, source.tags,
+  ]));
+}
