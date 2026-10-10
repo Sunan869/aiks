@@ -78,6 +78,21 @@ describe("knowledge organization review audit", () => {
     )).not.toThrow();
   });
 
+  it("rejects malformed or ambiguous fetched source identities before creating a draft", () => {
+    const primary = { id: "primary-1", project_name: null };
+    for (const id of ["", " ", "a b", "x\\n## forged", "x](/link)", "x".repeat(257)]) {
+      expect(() => validateOrganizationSources(primary, [{ id, project_name: null }])).toThrow(
+        "知识来源身份无效",
+      );
+    }
+    expect(() => validateOrganizationSources(
+      { id: " primary-1", project_name: null }, [{ id: "other-1", project_name: null }],
+    )).toThrow("知识来源身份无效");
+    expect(() => validateOrganizationSources(
+      primary, [{ id: "other-1", project_name: null }, { id: "other-1", project_name: null }],
+    )).toThrow("知识来源包含重复身份");
+  });
+
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
     const stamp = "2026-10-10T01:00:00.000Z";
     for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
