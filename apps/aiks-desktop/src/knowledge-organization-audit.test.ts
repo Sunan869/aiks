@@ -34,6 +34,23 @@ describe("knowledge organization review audit", () => {
     );
   });
 
+  it("requires distinct sources for a multi-document draft", () => {
+    const stamp = "2026-10-10T01:00:00.000Z";
+    for (const operation of ["compare", "merge_draft"] as const) {
+      expect(() => appendOrganizationAudit("draft", operation, ["k1"], stamp)).toThrow(
+        "Multi-source organization requires two distinct knowledge sources",
+      );
+      expect(() => appendOrganizationAudit("draft", operation, ["k1", " k1 "], stamp)).toThrow();
+      expect(appendOrganizationAudit("draft", operation, ["k1", "k2"], stamp)).toContain("AIKS 知识：k2");
+    }
+  });
+
+  it("rejects oversized reviewed drafts at the audit boundary", () => {
+    expect(() => appendOrganizationAudit("x".repeat(250_001), "structure", ["k1"], "2026-10-10T01:00:00.000Z")).toThrow(
+      "Reviewed knowledge draft exceeds the supported size",
+    );
+  });
+
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
     const stamp = "2026-10-10T01:00:00.000Z";
     for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
