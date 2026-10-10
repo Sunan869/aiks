@@ -16,6 +16,7 @@ describe("knowledge organization review audit", () => {
 
   it("rejects invalid review timestamps and deduplicates provenance", () => {
     expect(() => appendOrganizationAudit("draft", "structure", ["k1"], "not-an-instant")).toThrow();
+    expect(() => appendOrganizationAudit("draft", "structure", ["k1"], "2026-02-30T01:00:00.000Z")).toThrow();
     const result = appendOrganizationAudit("draft", "structure", ["k1", "k1", "k2"], "2026-10-10T01:00:00.000Z");
     expect(result.match(/AIKS 知识：k1/g)).toHaveLength(1);
     expect(result).toContain("AIKS 知识：k2");
@@ -76,6 +77,13 @@ describe("knowledge organization review audit", () => {
       { id: "k0", project_name: " project-one " },
       [{ id: "k2", project_name: "project-one" }],
     )).not.toThrow();
+  });
+
+  it("bounds the number of fetched sources before organization starts", () => {
+    const primary = { id: "primary", project_name: null };
+    const others = Array.from({ length: 100 }, (_, i) => ({ id: "k" + i, project_name: null }));
+    expect(() => validateOrganizationSources(primary, others)).toThrow("知识来源数量超过单次审核上限");
+    expect(() => validateOrganizationSources(primary, others.slice(0, 99))).not.toThrow();
   });
 
   it("rejects malformed or ambiguous fetched source identities before creating a draft", () => {
