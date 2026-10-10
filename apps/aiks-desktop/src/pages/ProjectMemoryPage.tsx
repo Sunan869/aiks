@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import type { ProjectMemorySnapshot, ProjectOverview } from "../api/types";
-import { summarizeProjectMemoryQuality } from "../project-memory-quality";
+import { reviewRequiredProjectKnowledge, summarizeProjectMemoryQuality } from "../project-memory-quality";
 
 interface Props {
   onOpenKnowledge: (knowledgeId: string) => void;
@@ -21,6 +21,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [previewType, setPreviewType] = useState<"review" | "agent" | "">("");
   const generation = useRef(0);
   const [notice, setNotice] = useState("");
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -43,6 +44,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setNotice("");
     setWorking(false);
     setDetail(null);
+    setOnlyFlagged(false);
     getApi().getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
@@ -129,8 +131,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 </p>
               ) : null;
             })()}
+            <label className="mt-3 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={onlyFlagged} onChange={event => setOnlyFlagged(event.target.checked)} />
+              仅查看需要人工复核的知识（基于用户反馈）
+            </label>
             <div className="mt-4 space-y-3">
-              {detail.entries.map(item => (
+              {(onlyFlagged ? reviewRequiredProjectKnowledge(detail.entries) : detail.entries).map(item => (
                 <article key={item.knowledge_id} className="rounded border p-3 dark:border-gray-700">
                   <div className="flex flex-wrap justify-between gap-2">
                     <strong>{item.title}</strong>
@@ -145,6 +151,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 </article>
               ))}
               {detail.entries.length === 0 && <p className="text-gray-500">暂无可追溯的结构化知识。</p>}
+              {onlyFlagged && reviewRequiredProjectKnowledge(detail.entries).length === 0 && <p className="text-gray-500">当前加载范围内没有用户标记为需复核的知识。</p>}
               {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史。</p>}
             </div>
           </section>
