@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectMemoryEntry } from "./api/types";
-import { summarizeProjectMemoryQuality } from "./project-memory-quality";
+import { reviewRequiredProjectKnowledge, summarizeProjectMemoryQuality } from "./project-memory-quality";
 
 const entry = (status: string | null): ProjectMemoryEntry => ({
   knowledge_id: "k", session_id: 1, source: "codex", session_external_id: "s",
@@ -15,6 +15,13 @@ describe("project memory feedback risk summary", () => {
       entry("duplicate"), entry("useful"), entry(null), entry("outdated"),
     ]);
     expect(result).toEqual({ incorrect: 1, outdated: 2, needsDetail: 1, duplicate: 1 });
+  });
+
+  it("filters flagged evidence without changing the original order", () => {
+    const entries = [entry(null), entry("outdated"), entry("useful"), entry("needs_detail"), entry("incorrect")];
+    const result = reviewRequiredProjectKnowledge(entries);
+    expect(result.map(item => item.feedback_status)).toEqual(["outdated", "needs_detail", "incorrect"]);
+    expect(entries).toHaveLength(5);
   });
 
   it("does not invent risks for unreviewed entries", () => {
