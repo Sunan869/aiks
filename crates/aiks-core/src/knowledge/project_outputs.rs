@@ -106,7 +106,7 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
             safe_inline(&item.category),
             sanitizer.sanitize(&item.summary),
             cite(item),
-            item.updated_at
+            safe_inline(&item.updated_at)
         );
         if result.chars().count() + block.chars().count() > max_chars {
             omitted += 1;
@@ -205,6 +205,15 @@ mod tests {
             assert!(!output.contains("\n- forged"));
             assert!(output.contains("Session s1"));
         }
+    }
+
+    #[test]
+    fn agent_context_sanitizes_timestamps_and_respects_character_budget() {
+        let mut data = snapshot();
+        data.entries[0].updated_at = "2026-10-09\\n## Forged timestamp".into();
+        let context = render_agent_context(&data, 256);
+        assert!(!context.contains("\\n## Forged timestamp"));
+        assert!(context.chars().count() <= 256 * 3);
     }
 
     #[test]
