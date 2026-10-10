@@ -39,7 +39,7 @@ pub struct ProjectMemorySnapshot {
 }
 
 /// A stable opaque ID; raw source paths never need to cross the UI boundary.
-fn project_identity(
+pub(crate) fn project_identity(
     source: &str,
     external_id: &str,
     path: Option<&str>,
