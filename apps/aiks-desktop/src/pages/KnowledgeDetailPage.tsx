@@ -58,7 +58,13 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     }
   }, [knowledgeId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    organizationGeneration.current += 1;
+    setOrganizeDraft("");
+    setOrganizeConfirmed(false);
+    setCreatedKnowledgeId(null);
+    void load();
+  }, [load]);
   useEffect(() => {
     let active = true;
     setFeedback([]);
@@ -168,9 +174,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setOrganizeSourceIds(sourceIds);
       setOrganizeDraft(suggestion.text);
     } catch (error) {
-      setOrganizeError("生成建议失败：" + String(error));
+      if (generation === organizationGeneration.current) setOrganizeError("生成建议失败：" + String(error));
     } finally {
-      setOrganizeBusy(false);
+      if (generation === organizationGeneration.current) setOrganizeBusy(false);
     }
   };
 
@@ -412,9 +418,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；先对比原文，确认后仅复制草稿，由你在 SiYuan 中手工应用。</p>
         <div className="flex flex-wrap gap-2">
           <select aria-label="整理方式" value={organizeOperation} onChange={event => {
+            organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
             setOrganizeConfirmed(false);
+            setOrganizeBusy(false);
           }} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-700">
             <option value="structure">结构化整理</option>
             <option value="rewrite">语言润色</option>
@@ -428,8 +436,10 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               <select multiple size={4} aria-label="多来源知识选择" value={selectedSources}
                 onChange={event => {
                   setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
+                  organizationGeneration.current += 1;
                   setOrganizeConfirmed(false);
                   setOrganizeDraft("");
+                  setOrganizeBusy(false);
                 }}
                 className="w-full rounded border border-gray-200 bg-transparent p-2 dark:border-gray-700">
                 {relationCandidates.filter(item => item.id !== knowledgeId &&
