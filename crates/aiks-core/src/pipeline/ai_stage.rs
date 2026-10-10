@@ -454,7 +454,12 @@ impl AiStage {
     }
 }
 
-fn chunk_context(sanitizer: &SecretSanitizer, title: Option<&str>, project: Option<&str>, chunk: &str) -> String {
+fn chunk_context(
+    sanitizer: &SecretSanitizer,
+    title: Option<&str>,
+    project: Option<&str>,
+    chunk: &str,
+) -> String {
     format!(
         "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
         sanitizer.sanitize(title.unwrap_or("未知会话")),
@@ -1226,7 +1231,12 @@ mod tests {
 
     #[test]
     fn single_chunk_prompt_includes_project_and_session_context() {
-        let context = chunk_context(&SecretSanitizer::new(), Some("Codex repair"), Some("AIKS"), "fixed login flow");
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Codex repair"),
+            Some("AIKS"),
+            "fixed login flow",
+        );
         let prompt = make_v3_extraction_prompt(&context);
         assert!(prompt.contains("Codex repair"));
         assert!(prompt.contains("AIKS"));
