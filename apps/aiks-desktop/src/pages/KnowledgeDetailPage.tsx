@@ -4,7 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
-import { appendOrganizationAudit, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
@@ -174,9 +174,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       validateOrganizationSources(data, others);
       const sources = [data, ...others];
       const sourceIds = sources.map(item => item.id);
-      const sourceContext = sources.map(item => (
-        "## 资料：" + item.title + "（知识 ID：" + item.id + "）\n\n" + item.content
-      )).join("\n\n---\n\n");
+      const sourceContext = buildOrganizationSourceContext(sources);
       const suggestion = await getApi().assistKnowledge({
         siyuanDocId: data.siyuan_doc_id ?? "",
         operation: organizeOperation,
