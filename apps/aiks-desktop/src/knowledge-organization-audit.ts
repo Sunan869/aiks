@@ -122,3 +122,17 @@ export function buildOrganizationSourceContext(
   }
   return text;
 }
+
+// Synchronous write gate: React state updates are asynchronous, so an ordinary
+// disabled button alone cannot prevent double-clicks from creating two docs.
+export function createOrganizationWriteGate() {
+  let active = false;
+  return {
+    tryBegin(): boolean {
+      if (active) return false;
+      active = true;
+      return true;
+    },
+    finish(): void { active = false; },
+  };
+}
