@@ -169,6 +169,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       const others = await Promise.all(
         selectedSources.slice(0, 4).map(id => getApi().getKnowledgeDetail(id))
       );
+      // Archived sources are rejected before the model receives their content.
       // The selection list is only a UI hint. Revalidate fetched records before
       // giving their contents to the model: a record can change while loading.
       validateOrganizationSources(data, others);
@@ -496,7 +497,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
-        <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；先对比原文，确认后仅复制草稿，由你在 SiYuan 中手工应用。</p>
+        <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；审核后可复制或另存独立知识，撤销时归档新知识并可恢复。来源已归档或审核期间发生变化时须重新生成。</p>
         <div className="flex flex-wrap gap-2">
           <select aria-label="整理方式" value={organizeOperation} onChange={event => {
             organizationGeneration.current += 1;
