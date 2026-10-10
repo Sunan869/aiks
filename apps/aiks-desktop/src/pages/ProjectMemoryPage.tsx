@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import type { ProjectMemorySnapshot, ProjectOverview } from "../api/types";
 
@@ -18,6 +18,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [tokenBudget, setTokenBudget] = useState(2000);
   const [preview, setPreview] = useState("");
   const [previewType, setPreviewType] = useState<"review" | "agent" | "">("");
+  const generation = useRef(0);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -34,7 +36,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     if (!selected) { setDetail(null); return; }
     let mounted = true;
     setError("");
+    generation.current += 1;
     setPreview("");
+    setPreviewType("");
+    setNotice("");
+    setWorking(false);
+    setDetail(null);
     getApi().getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
@@ -43,24 +50,49 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
 
   const generate = async (kind: "review" | "agent") => {
     if (!selected || working) return;
+    if (kind === "review" && (!from || !through || from > through)) {
+      setError("请选择有效的日期范围，开始日期不能晚于结束日期。");
+      return;
+    }
+    const requestId = ++generation.current;
     setError("");
+    setNotice("");
     setWorking(true);
     try {
       const output = kind === "review"
         ? await getApi().createProjectReview(selected, from, through)
         : await getApi().createAgentContextPack(selected, tokenBudget);
+      if (requestId !== generation.current) return;
       setPreviewType(kind);
       setPreview(output);
     } catch (reason) {
-      setError(String(reason));
+      if (requestId === generation.current) setError(String(reason));
     } finally {
-      setWorking(false);
+      if (requestId === generation.current) setWorking(false);
     }
   };
 
   const copyPreview = async () => {
-    try { await navigator.clipboard.writeText(preview); }
+    try { await navigator.clipboard.writeText(preview); setNotice("已复制当前审核后的 Markdown。"); }
     catch (reason) { setError("复制失败：" + String(reason)); }
+  };
+
+  const downloadPreview = () => {
+    if (!preview.trim() || !previewType) return;
+    const safeProject = (detail?.project.title || "project")
+      .replace(/[\\\\/:*?"<>|\\u0000-\\u001f]/g, "_").trim().slice(0, 60) || "project";
+    const suffix = previewType === "review" ? "review" : "agent-context";
+    const blob = new Blob([preview], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `AIKS-${safeProject}-${suffix}.md`;
+      anchor.click();
+      setNotice("已请求保存审核后的 Markdown 文件，未修改任何项目指令文件。");
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
   };
 
   return (
@@ -69,6 +101,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         <h1 className="text-xl font-semibold">项目长期记忆</h1>
         <p className="mt-2 text-xs text-gray-500">按已记录的项目路径归集不同 AI 工具的 Session。无法确认路径的会话不会仅凭同名自动合并。</p>
       </header>
+      {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{notice}</p>}
       {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
       <div className="flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
@@ -111,12 +144,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
               <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => setFrom(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => setThrough(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
-              <button disabled={working} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
+              <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
             </div>
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
               <label>上下文 Token 预算（估算）
                 <input aria-label="Token 预算" type="number" min={256} max={8192} value={tokenBudget}
-                  onChange={e => setTokenBudget(Number(e.target.value))} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
+                  onChange={e => setTokenBudget(Math.max(256, Math.min(8192, Number(e.target.value) || 256)))} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
               </label>
               <button disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</button>
             </div>
@@ -125,7 +158,10 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 <p className="text-xs text-gray-500">{previewType === "review" ? "回顾 Markdown" : "Agent Markdown"} · 可编辑预览</p>
                 <textarea aria-label="导出内容预览" value={preview} onChange={e => setPreview(e.target.value)} rows={15}
                   className="w-full rounded border bg-transparent p-3 font-mono text-xs dark:border-gray-700" />
-                <button onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs dark:border-gray-700">复制审核后的 Markdown</button>
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={!preview.trim()} onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">复制审核后的 Markdown</button>
+                  <button disabled={!preview.trim()} onClick={downloadPreview} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">保存审核后的 Markdown</button>
+                </div>
               </div>
             )}
           </section>
