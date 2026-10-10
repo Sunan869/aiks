@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
@@ -47,6 +47,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
+  const organizationGeneration = useRef(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,6 +139,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setOrganizeError("多来源对比或合并至少需要另外选中一条知识");
       return;
     }
+    const generation = ++organizationGeneration.current;
     setOrganizeBusy(true);
     setOrganizeError(null);
     setOrganizeConfirmed(false);
@@ -162,6 +164,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         existingCategory: data.category,
       });
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
+      if (generation !== organizationGeneration.current) return;
       setOrganizeSourceIds(sourceIds);
       setOrganizeDraft(suggestion.text);
     } catch (error) {
