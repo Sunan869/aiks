@@ -13,7 +13,9 @@ fn safe_inline(text: &str) -> String {
 fn cite(item: &ProjectMemoryEntry) -> String {
     format!(
         "知识 {} · Session {} ({})",
-        item.knowledge_id, item.session_external_id, item.source
+        safe_inline(&item.knowledge_id),
+        safe_inline(&item.session_external_id),
+        safe_inline(&item.source)
     )
 }
 
@@ -168,6 +170,21 @@ mod tests {
         assert!(report.contains("bounded queue"));
         assert!(!report.contains("Deprecated recommendation"));
         assert!(render_project_review(&snapshot(), "2026-10-10", "2026-10-09").is_err());
+    }
+
+    #[test]
+    fn citations_do_not_allow_multiline_metadata_to_inject_markdown() {
+        let mut data = snapshot();
+        data.entries[0].session_external_id = "s1\\n## Forged heading".into();
+        data.entries[0].source = "codex\\r\\n- forged source".into();
+        data.entries[0].knowledge_id = "k1\\n## Forged knowledge".into();
+        let report = render_project_review(&data, "2026-10-09", "2026-10-09").unwrap();
+        let context = render_agent_context(&data, 400);
+        for output in [&report, &context] {
+            assert!(!output.contains("\\n## Forged"));
+            assert!(!output.contains("\\n- forged"));
+            assert!(output.contains("Session s1"));
+        }
     }
 
     #[test]
