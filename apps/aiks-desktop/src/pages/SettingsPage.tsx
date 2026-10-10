@@ -23,6 +23,7 @@ interface Settings extends EmbeddingSettings {
   redact_secrets: boolean;
   ai_enabled: boolean;
   ai_auto_extract: boolean;
+  ai_max_concurrent: number;
   ai_base_url: string;
   ai_model: string;
 }
@@ -70,6 +71,7 @@ const MOCK_SETTINGS: Settings = {
   redact_secrets: true,
   ai_enabled: true,
   ai_auto_extract: true,
+  ai_max_concurrent: 1,
   ai_base_url: "http://localhost:11434/v1",
   ai_model: "Qwen3.8-27B",
   embedding_enabled: false,
@@ -225,6 +227,7 @@ export default function SettingsPage() {
           redact_secrets: settings.redact_secrets,
           ai_enabled: settings.ai_enabled,
           ai_auto_extract: settings.ai_auto_extract,
+          ai_max_concurrent: settings.ai_max_concurrent,
           ai_base_url: settings.ai_base_url,
           ai_model: settings.ai_model,
         };
@@ -318,6 +321,15 @@ export default function SettingsPage() {
       <Section title="AI 智能整理">
         <Toggle label="启用智能整理" desc="使用配置的 AI 服务自动提炼知识" value={settings.ai_enabled} onChange={value => update("ai_enabled", value)} />
         <Toggle label="自动整理新会话" desc="Raw Session 同步成功后自动进入处理队列" value={settings.ai_auto_extract} onChange={value => update("ai_auto_extract", value)} />
+        <div className="flex items-center justify-between py-3">
+          <div>
+            <div className="text-sm">提炼并发数</div>
+            <div className="text-xs text-gray-400">默认 1；本地模型负载高时请选择 1，重启后生效</div>
+          </div>
+          <select aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700">
+            {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value} 路</option>)}
+          </select>
+        </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
           <div className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">{settings.ai_model}</div>
