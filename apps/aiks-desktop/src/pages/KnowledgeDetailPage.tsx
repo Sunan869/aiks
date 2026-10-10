@@ -4,7 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
-import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
@@ -53,6 +53,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
   const [derivedArchived, setDerivedArchived] = useState(false);
   const organizationGeneration = useRef(0);
+  const organizationWriteGate = useRef(createOrganizationWriteGate());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -200,6 +201,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
   const createDerivedKnowledge = async () => {
     if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    if (!organizationWriteGate.current.tryBegin()) return;
     const generation = organizationGeneration.current;
     setOrganizeBusy(true);
     setOrganizeError(null);
@@ -238,6 +240,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         tags: parseTags(data.tags),
         content,
       });
+      // Navigation may have changed the current knowledge during this write.
+      // Never report the previous project's result on the newly shown page.
+      if (generation !== organizationGeneration.current) return;
       setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
       setDerivedArchived(false);
@@ -247,6 +252,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         setOrganizeError("创建独立知识失败：" + String(error));
       }
     } finally {
+      organizationWriteGate.current.finish();
       if (generation === organizationGeneration.current) setOrganizeBusy(false);
     }
   };
