@@ -660,9 +660,10 @@ pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResul
     let result = parse_v3_result_unchecked(response)?;
     if !result.knowledge_score.is_finite()
         || !(0.0..=1.0).contains(&result.knowledge_score)
-        || result.items.iter().any(|item| {
-            !item.confidence.is_finite() || !(0.0..=1.0).contains(&item.confidence)
-        })
+        || result
+            .items
+            .iter()
+            .any(|item| !item.confidence.is_finite() || !(0.0..=1.0).contains(&item.confidence))
     {
         anyhow::bail!("AI extraction response contains invalid score or confidence");
     }
@@ -1232,7 +1233,10 @@ mod tests {
     #[test]
     fn production_parser_rejects_out_of_range_model_scores() {
         let skip = r#"{"session_summary":"test","knowledge_score":1.5,"worth_extracting":false,"items":[]}"#;
-        assert!(parse_v3_result_typed(skip).unwrap_err().to_string().contains("invalid score"));
+        assert!(parse_v3_result_typed(skip)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid score"));
         let nan = r#"{"session_summary":"test","knowledge_score":-0.1,"worth_extracting":false,"items":[]}"#;
         assert!(parse_v3_result_typed(nan).is_err());
     }
