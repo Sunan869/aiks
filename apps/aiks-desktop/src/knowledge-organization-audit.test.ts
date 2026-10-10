@@ -14,6 +14,13 @@ describe("knowledge organization review audit", () => {
     expect(result).toContain("2026-10-10T01:00:00.000Z");
   });
 
+  it("rejects invalid review timestamps and deduplicates provenance", () => {
+    expect(() => appendOrganizationAudit("draft", "structure", ["k1"], "not-an-instant")).toThrow();
+    const result = appendOrganizationAudit("draft", "structure", ["k1", "k1", "k2"], "2026-10-10T01:00:00.000Z");
+    expect(result.match(/AIKS 知识：k1/g)).toHaveLength(1);
+    expect(result).toContain("AIKS 知识：k2");
+  });
+
   it("rejects empty source evidence and prevents metadata line injection", () => {
     expect(() => appendOrganizationAudit("draft", "structure", [], "2026-10-10")).toThrow();
     expect(() => appendOrganizationAudit(" ", "structure", ["k1"], "2026-10-10")).toThrow();
