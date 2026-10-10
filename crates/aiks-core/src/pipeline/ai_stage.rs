@@ -336,6 +336,12 @@ impl AiStage {
         // Default remains sequential; explicitly configured parallelism is
         // bounded so local model endpoints cannot receive unbounded load.
         let batch_size = extraction_batch_size(self.config.max_concurrent);
+        tracing::info!(
+            configured_concurrency = self.config.max_concurrent,
+            effective_concurrency = batch_size,
+            pending_chunks = pending.len(),
+            "[AI] Extraction concurrency budget"
+        );
         let mut batch_latencies_ms = Vec::new();
         for batch in pending.chunks(batch_size) {
             let started = Instant::now();
