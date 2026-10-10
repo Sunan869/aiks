@@ -847,6 +847,51 @@ mod tests {
     }
 
     #[test]
+    fn feedback_batch_rerank_uses_latest_review_and_preserves_unknown_items() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("batch-feedback.db")).unwrap();
+        for (id, knowledge_id, kind, timestamp) in [
+            ("f1", "reviewed", "incorrect", "2026-10-09T00:00:00Z"),
+            ("f2", "reviewed", "useful", "2026-10-10T00:00:00Z"),
+            ("f3", "other", "outdated", "2026-10-10T00:00:00Z"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_feedback (id,knowledge_id,kind,note,created_at)
+                     VALUES (?1,?2,?3,'',?4)",
+                    params![id, knowledge_id, kind, timestamp],
+                )
+                .unwrap();
+        }
+        let mut hits = vec![
+            UnifiedSearchHit {
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "reviewed".into(),
+                chunk_id: None,
+                title: "A".into(),
+                snippet: String::new(),
+                score: 1.0,
+                match_types: vec![],
+                siyuan_doc_id: None,
+            },
+            UnifiedSearchHit {
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "unreviewed".into(),
+                chunk_id: None,
+                title: "B".into(),
+                snippet: String::new(),
+                score: 1.0,
+                match_types: vec![],
+                siyuan_doc_id: None,
+            },
+        ];
+        apply_feedback_rerank(&db, &mut hits).unwrap();
+        assert_eq!(hits[0].entity_id, "reviewed");
+        assert!((hits[0].score - 1.15).abs() < 0.0001);
+        assert_eq!(hits[1].score, 1.0);
+    }
+
+    #[test]
     fn vector_decoder_rejects_corrupt_blob() {
         assert!(decode_vector(&[1, 2, 3]).is_err());
         let bytes: Vec<u8> = [1.0_f32, 2.0_f32]
