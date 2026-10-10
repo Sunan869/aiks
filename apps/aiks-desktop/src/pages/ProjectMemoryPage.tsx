@@ -125,7 +125,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               const flagged = quality.incorrect + quality.outdated + quality.needsDetail + quality.duplicate;
               return flagged > 0 ? (
                 <p role="status" className="mt-3 rounded border border-amber-300 p-2 text-xs text-amber-700">
-                  当前加载知识含用户质量标记：错误 {quality.incorrect}、过时 {quality.outdated}、需补充 {quality.needsDetail}、可能重复 {quality.duplicate}。请逐条核对来源；该统计不代表自动识别事实矛盾。
+                  当前加载的 {detail.entries.length} 条知识中，用户质量标记为：错误 {quality.incorrect}、过时 {quality.outdated}、需补充 {quality.needsDetail}、可能重复 {quality.duplicate}。{detail.truncated && "列表已截断，统计不覆盖全部项目知识。"}请逐条核对来源；该统计不代表自动识别事实矛盾。
                 </p>
               ) : null;
             })()}
