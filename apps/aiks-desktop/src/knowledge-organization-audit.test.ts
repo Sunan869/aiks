@@ -111,7 +111,7 @@ describe("knowledge organization review audit", () => {
 
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
     const stamp = "2026-10-10T01:00:00.000Z";
-    for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
+    for (const id of ["k1\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
       expect(() => appendOrganizationAudit("draft", "structure", [id], stamp)).toThrow();
     }
     expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 101 }, (_, i) => "k" + i), stamp)).toThrow();
@@ -146,13 +146,13 @@ describe("knowledge organization review audit", () => {
       { id: "k1", title: "duplicate", content: "b" },
     ])).toThrow("Invalid knowledge organization source identities");
     expect(() => buildOrganizationSourceContext([
-      { id: "k1\\n## forged", title: "safe", content: "a" },
+      { id: "k1\n## forged", title: "safe", content: "a" },
     ])).toThrow("Invalid knowledge organization source identities");
     const text = buildOrganizationSourceContext([
-      { id: "k1", title: "A\\n## forged source", content: "evidence" },
+      { id: "k1", title: "A\n## forged source", content: "evidence" },
     ]);
     expect(text).toContain("资料：A ## forged source（知识 ID：k1）");
-    expect(text).not.toContain("\\n## forged source");
+    expect(text).not.toContain("\n## forged source");
     expect(text).toContain("evidence");
   });
 
