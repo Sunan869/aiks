@@ -283,9 +283,8 @@ impl AiClient {
             let status = resp.status();
             // Only retry explicit capacity/rate-limit responses. Retrying arbitrary
             // 4xx responses hides configuration errors and wastes local GPU time.
-            if is_model_overloaded(status.as_u16()) && overload_retries < 2 {
+            if let Some(delay_ms) = overload_retry_delay_ms(status.as_u16(), overload_retries) {
                 overload_retries += 1;
-                let delay_ms = 250_u64 * (1_u64 << (overload_retries - 1));
                 tracing::warn!(
                     status = %status,
                     attempt = overload_retries,
@@ -400,9 +399,8 @@ impl AiClient {
                 })?;
 
             let status = resp.status();
-            if is_model_overloaded(status.as_u16()) && overload_retries < 2 {
+            if let Some(delay_ms) = overload_retry_delay_ms(status.as_u16(), overload_retries) {
                 overload_retries += 1;
-                let delay_ms = 250_u64 * (1_u64 << (overload_retries - 1));
                 tracing::warn!(
                     status = %status,
                     attempt = overload_retries,
@@ -528,6 +526,19 @@ fn is_model_overloaded(status: u16) -> bool {
     matches!(status, 429 | 503)
 }
 
+/// Retry at most twice for explicit rate/capacity errors, with a deterministic
+/// 250ms/500ms backoff. Streaming and non-streaming calls share this policy.
+fn overload_retry_delay_ms(status: u16, retries_so_far: usize) -> Option<u64> {
+    if !is_model_overloaded(status) {
+        return None;
+    }
+    match retries_so_far {
+        0 => Some(250),
+        1 => Some(500),
+        _ => None,
+    }
+}
+
 fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
     let line = std::str::from_utf8(line)
         .context("AI stream returned invalid UTF-8")?
@@ -605,6 +616,19 @@ mod stream_tests {
         assert!(super::is_model_overloaded(503));
         for status in [400, 401, 403, 404, 408, 422, 500, 502] {
             assert!(!super::is_model_overloaded(status));
+        }
+    }
+
+    #[test]
+    fn overloaded_model_backoff_is_bounded_and_excludes_configuration_errors() {
+        for status in [429, 503] {
+            assert_eq!(super::overload_retry_delay_ms(status, 0), Some(250));
+            assert_eq!(super::overload_retry_delay_ms(status, 1), Some(500));
+            assert_eq!(super::overload_retry_delay_ms(status, 2), None);
+            assert_eq!(super::overload_retry_delay_ms(status, usize::MAX), None);
+        }
+        for status in [400, 401, 403, 404, 408, 422, 500, 502, 504] {
+            assert_eq!(super::overload_retry_delay_ms(status, 0), None);
         }
     }
 
