@@ -50,6 +50,9 @@ export function validateOrganizationSources(
   others: ReadonlyArray<{ id: string; project_name: string | null }>,
 ): void {
   const sources = [primary, ...others];
+  if (sources.length > 100) {
+    throw new Error("知识来源数量超过单次审核上限");
+  }
   // Do not trust IDs returned by a stale view or injected client state.
   // The final audit is a durable document, so reject ambiguous identities
   // before invoking an AI operation or writing anything to SiYuan.
