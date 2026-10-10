@@ -104,10 +104,16 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
             omitted += 1;
             continue;
         }
+        let quality_notice = match item.feedback_status.as_deref() {
+            Some("duplicate") => "质量提醒：用户标记为可能重复，需核对来源。\n",
+            Some("needs_detail") => "质量提醒：用户标记为需补充，不能当作完整结论。\n",
+            _ => "",
+        };
         let block = format!(
-            "## {}\n类别：{}\n{}\n来源：{}\n更新：{}\n\n",
+            "## {}\n类别：{}\n{}{}\n来源：{}\n更新：{}\n\n",
             safe_inline(&item.title),
             safe_inline(&item.category),
+            quality_notice,
             sanitizer.sanitize(&item.summary),
             cite(item),
             safe_inline(&item.updated_at)
@@ -227,6 +233,17 @@ mod tests {
         let context = render_agent_context(&data, 256);
         assert!(context.chars().count() <= 256 * 3);
         assert!(!context.contains(&"A".repeat(121)));
+    }
+
+    #[test]
+    fn agent_context_flags_incomplete_and_duplicate_knowledge() {
+        let mut data = snapshot();
+        data.entries[0].feedback_status = Some("needs_detail".into());
+        data.entries[1].feedback_status = Some("duplicate".into());
+        let context = render_agent_context(&data, 2000);
+        assert!(context.contains("需补充，不能当作完整结论"));
+        assert!(context.contains("可能重复，需核对来源"));
+        assert!(context.contains("Deprecated recommendation"));
     }
 
     #[test]
