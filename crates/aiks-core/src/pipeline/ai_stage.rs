@@ -323,7 +323,7 @@ impl AiStage {
                 continue;
             }
             let sanitized = self.sanitizer.sanitize(text);
-            let context = chunk_context(session_title, project_name, &sanitized);
+            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
             pending.push((
                 idx,
                 cache_key,
