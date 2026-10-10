@@ -64,7 +64,10 @@ fn percentile(values: &[u64], percentage: usize) -> u64 {
     }
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
-    let rank = sorted.len().saturating_mul(percentage.min(100)).div_ceil(100);
+    let rank = sorted
+        .len()
+        .saturating_mul(percentage.min(100))
+        .div_ceil(100);
     sorted[rank.max(1) - 1]
 }
 
@@ -91,15 +94,12 @@ fn live_benchmark_cases_are_distinct_and_have_safe_evidence() {
 async fn real_model_quality_and_latency() {
     let mut config = AiModelConfig {
         enabled: true,
-        base_url: std::env::var("AIKS_BENCH_BASE_URL")
-            .expect("explicitly set AIKS_BENCH_BASE_URL"),
-        model: std::env::var("AIKS_BENCH_MODEL")
-            .expect("explicitly set AIKS_BENCH_MODEL"),
+        base_url: std::env::var("AIKS_BENCH_BASE_URL").expect("explicitly set AIKS_BENCH_BASE_URL"),
+        model: std::env::var("AIKS_BENCH_MODEL").expect("explicitly set AIKS_BENCH_MODEL"),
         ..AiModelConfig::default()
     };
     config.api_key = std::env::var("AIKS_BENCH_API_KEY").ok();
-    config.disable_thinking =
-        std::env::var("AIKS_BENCH_DISABLE_THINKING").as_deref() == Ok("1");
+    config.disable_thinking = std::env::var("AIKS_BENCH_DISABLE_THINKING").as_deref() == Ok("1");
     let model = config.model.clone();
     let client = AiClient::new(config).expect("initialize AI client");
 
@@ -182,5 +182,9 @@ async fn real_model_quality_and_latency() {
             }
         })
     );
-    assert_eq!(schema_valid, latencies_ms.len(), "model schema validation failed");
+    assert_eq!(
+        schema_valid,
+        latencies_ms.len(),
+        "model schema validation failed"
+    );
 }
