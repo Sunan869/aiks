@@ -245,7 +245,7 @@ export default function SettingsPage() {
           const result = await invoke<SaveSettingsResult>("save_settings", { settings: appSettings });
           if (result?.autostart_warning) setSaveWarning(result.autostart_warning);
         } catch (error) {
-          setSaveWarning(`语义搜索配置已保存；桌面设置更新失败：${String(error)}`);
+          throw new Error(`语义搜索配置已保存，但桌面设置更新失败：${String(error)}`);
         }
 
         if (restart) {
