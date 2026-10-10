@@ -1,6 +1,7 @@
 //! Auditable, conservative cross-session knowledge relations.
 //! This store never rewrites KnowledgeItem identity or deletes source evidence.
 //! Suggested relations require explicit human confirmation or rejection.
+use crate::knowledge::project_memory::project_identity;
 use crate::storage::StateDb;
 use anyhow::{bail, Result};
 use rusqlite::{params, OptionalExtension};
@@ -60,24 +61,47 @@ impl<'a> RelationRepo<'a> {
             }
         }
         let conn = self.db.conn();
-        let source_project: Option<Option<String>> = conn
-            .query_row(
-                "SELECT project_name FROM knowledge_item WHERE id = ?1",
-                [source_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let target_project: Option<Option<String>> = conn
-            .query_row(
-                "SELECT project_name FROM knowledge_item WHERE id = ?1",
-                [target_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let (Some(source_project), Some(target_project)) = (source_project, target_project) else {
+        // Display names are not unique project identities. If both knowledge
+        // items belong to sessions with verified absolute project paths,
+        // compare the same stable identity used by Project Memory.
+        let load_project = |knowledge_id: &str| -> Result<Option<(Option<String>, Option<String>)>> {
+            let endpoint: Option<(
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )> = conn
+                .query_row(
+                    "SELECT ki.project_name, ss.source, ss.external_session_id, ss.project_path
+                     FROM knowledge_item ki
+                     LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+                     WHERE ki.id = ?1",
+                    [knowledge_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+            Ok(endpoint.map(|(project, source, external, path)| {
+                let verified = match (source.as_deref(), external.as_deref(), path.as_deref()) {
+                    (Some(source), Some(external), Some(path)) => {
+                        let (id, _, is_verified) =
+                            project_identity(source, external, Some(path), None);
+                        is_verified.then_some(id)
+                    }
+                    _ => None,
+                };
+                (project, verified)
+            }))
+        };
+        let (Some((source_project, source_identity)), Some((target_project, target_identity))) =
+            (load_project(source_id)?, load_project(target_id)?)
+        else {
             bail!("Related knowledge item was not found");
         };
-        if let (Some(source), Some(target)) = (&source_project, &target_project) {
+        if let (Some(source), Some(target)) = (&source_identity, &target_identity) {
+            if source != target {
+                bail!("Cross-project relation is not allowed for different project paths");
+            }
+        } else if let (Some(source), Some(target)) = (&source_project, &target_project) {
             if !source.trim().is_empty() && !target.trim().is_empty() && source != target {
                 bail!("Cross-project relation needs an explicit project reassignment");
             }
@@ -219,6 +243,48 @@ mod tests {
                 params![id, project, id],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn relation_rejects_same_named_projects_in_different_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("path-relations.db")).unwrap();
+        for (sid, source, project_path, name) in [
+            (1, "codex", "C:/work/project-a", "Shared"),
+            (2, "claude", "D:/work/project-a", "Shared"),
+            (3, "opencode", "c:/work/project-a/", "Different display"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,?4,?5,
+                             '2026-01-01','2026-01-01','2026-01-01')",
+                    params![sid, source, format!("session-{sid}"), project_path, name],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,content,
+                      source_type,managed_by,created_at,updated_at)
+                     VALUES (?1,?2,?3,'Decision','Evidence',
+                             'conversation','pipeline','2026-01-01','2026-01-01')",
+                    params![format!("knowledge-{sid}"), sid, name],
+                )
+                .unwrap();
+        }
+        let relations = RelationRepo::new(&db);
+        assert!(relations
+            .suggest("knowledge-1", "knowledge-2", "related", "matching topic", None)
+            .is_err());
+        // Path identity wins over mutable display-name differences.
+        let same_project = relations
+            .suggest("knowledge-1", "knowledge-3", "related", "same absolute path", None)
+            .unwrap();
+        assert_eq!(same_project.status, "suggested");
+        assert_eq!(relations.list("knowledge-1").unwrap().len(), 1);
     }
 
     #[test]
