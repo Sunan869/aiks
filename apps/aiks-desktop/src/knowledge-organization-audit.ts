@@ -91,3 +91,20 @@ export function organizationSourceSnapshot(
     source.project_name, source.category, source.tags,
   ]));
 }
+
+/** Bound multi-source text before calling a user-configured model endpoint. */
+export function buildOrganizationSourceContext(
+  sources: ReadonlyArray<{ id: string; title: string; content: string }>,
+  maxChars = 250_000,
+): string {
+  if (!Number.isSafeInteger(maxChars) || maxChars < 1 || maxChars > 250_000) {
+    throw new Error("Invalid knowledge organization context limit");
+  }
+  const text = sources.map(item =>
+    "## 资料：" + item.title + "（知识 ID：" + item.id + "）\\n\\n" + item.content
+  ).join("\\n\\n---\\n\\n");
+  if (text.length > maxChars) {
+    throw new Error("知识来源内容过长，请减少来源或缩短文档后重新整理");
+  }
+  return text;
+}
