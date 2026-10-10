@@ -85,7 +85,8 @@ pub fn render_project_review(
 pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize) -> String {
     let sanitizer = SecretSanitizer::new();
     let max_chars = max_tokens.clamp(256, 8192).saturating_mul(3);
-    let title = safe_inline(&snapshot.project.title);
+    // Bound untrusted project titles independently of the requested context budget.
+    let title: String = safe_inline(&snapshot.project.title).chars().take(120).collect();
     let mut result = format!(
         "# {} · AIKS 项目背景候选\n\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
         title
@@ -214,6 +215,15 @@ mod tests {
         let context = render_agent_context(&data, 256);
         assert!(!context.contains("\n## Forged timestamp"));
         assert!(context.chars().count() <= 256 * 3);
+    }
+
+    #[test]
+    fn very_long_project_title_cannot_exceed_minimum_agent_budget() {
+        let mut data = snapshot();
+        data.project.title = "A".repeat(100_000);
+        let context = render_agent_context(&data, 256);
+        assert!(context.chars().count() <= 256 * 3);
+        assert!(!context.contains(&"A".repeat(121)));
     }
 
     #[test]
