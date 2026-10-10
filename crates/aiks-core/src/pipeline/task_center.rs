@@ -105,17 +105,25 @@ impl<'a> TaskCenterRepo<'a> {
                     (SELECT ps.latency_ms FROM pipeline_stage_run ps
                      WHERE ps.pipeline_run_id = pr.id AND ps.latency_ms IS NOT NULL
                      ORDER BY ps.finished_at DESC, ps.rowid DESC LIMIT 1),
-                    COALESCE(pj.updated_at, pr.updated_at, ss.updated_at)
+                    MAX(COALESCE(pj.updated_at, ''),
+                        COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, ''))
              FROM source_session ss
              LEFT JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
-             LEFT JOIN pipeline_run pr ON pr.session_id = ss.id
-               AND pr.pipeline_version = 'v3'
              LEFT JOIN pipeline_job pj ON pj.id = (
                 SELECT p.id FROM pipeline_job p
                 WHERE p.session_id = ss.id
                 ORDER BY p.generation DESC, p.created_at DESC LIMIT 1
              )
-             ORDER BY ss.id DESC LIMIT ?1",
+             LEFT JOIN pipeline_run pr ON pr.id = COALESCE(
+                pj.pipeline_run_id,
+                (SELECT p.id FROM pipeline_run p
+                 WHERE p.session_id = ss.id AND p.pipeline_version = 'v3'
+                 ORDER BY p.updated_at DESC, p.created_at DESC, p.rowid DESC
+                 LIMIT 1)
+             ) AND pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+             ORDER BY MAX(COALESCE(pj.updated_at, ''),
+                          COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, '')) DESC,
+                      ss.id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit.clamp(1, 500) as i64], |row| {
             Ok(TaskCenterEntry {
@@ -160,6 +168,56 @@ mod tests {
         let repo = TaskCenterRepo::new(&db);
         assert_eq!(repo.list_recent(1).unwrap().len(), 1);
         assert_eq!(repo.stats().unwrap().total_sessions, 5);
+    }
+
+    #[test]
+    fn recent_tasks_are_unique_and_follow_latest_activity_not_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        for (external, updated) in [
+            ("older-session", "2026-10-01T00:00:00Z"),
+            ("newer-session", "2026-10-03T00:00:00Z"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (source, external_session_id, last_seen_at, created_at, updated_at)
+                     VALUES ('codex', ?1, ?2, ?2, ?2)",
+                    params![external, updated],
+                )
+                .unwrap();
+        }
+        let older_id: i64 = db
+            .conn()
+            .query_row(
+                "SELECT id FROM source_session WHERE external_session_id = 'older-session'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        for (run, status, updated) in [
+            ("old-run", "FAILED", "2026-10-02T00:00:00Z"),
+            ("current-run", "READY", "2026-10-04T00:00:00Z"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO pipeline_run
+                     (id, session_id, pipeline_version, status, created_at, updated_at)
+                     VALUES (?1, ?2, 'v3', ?3, ?4, ?4)",
+                    params![run, older_id, status, updated],
+                )
+                .unwrap();
+        }
+        let recent = TaskCenterRepo::new(&db).list_recent(1).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].external_session_id, "older-session");
+        assert_eq!(recent[0].pipeline_status.as_deref(), Some("READY"));
+        assert_eq!(
+            recent[0].last_task_update.as_deref(),
+            Some("2026-10-04T00:00:00Z")
+        );
+        let all = TaskCenterRepo::new(&db).list_recent(10).unwrap();
+        assert_eq!(all.len(), 2, "multiple pipeline runs must not duplicate a session");
     }
 
     #[test]
