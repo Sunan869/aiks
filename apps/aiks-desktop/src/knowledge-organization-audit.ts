@@ -49,7 +49,14 @@ export function validateOrganizationSources(
   primary: { id: string; project_name: string | null },
   others: ReadonlyArray<{ id: string; project_name: string | null }>,
 ): void {
-  if (others.some(item => item.id === primary.id) || new Set(others.map(item => item.id)).size !== others.length) {
+  const sources = [primary, ...others];
+  // Do not trust IDs returned by a stale view or injected client state.
+  // The final audit is a durable document, so reject ambiguous identities
+  // before invoking an AI operation or writing anything to SiYuan.
+  if (sources.some(item => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(item.id))) {
+    throw new Error("知识来源身份无效，请重新选择");
+  }
+  if (new Set(sources.map(item => item.id)).size !== sources.length) {
     throw new Error("知识来源包含重复身份，请重新选择");
   }
   // A missing project on the primary item does not make conflicting known
