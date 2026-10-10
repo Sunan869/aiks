@@ -14,6 +14,12 @@ export function appendOrganizationAudit(
   if (!allowedOperations.includes(operation)) {
     throw new Error("Unsupported knowledge organization operation");
   }
+  if (draft.length > 250_000) {
+    throw new Error("Reviewed knowledge draft exceeds the supported size");
+  }
+  if ((operation === "compare" || operation === "merge_draft") && new Set(sourceIds.map(id => id.trim())).size < 2) {
+    throw new Error("Multi-source organization requires two distinct knowledge sources");
+  }
   if (!draft.trim() || sourceIds.length === 0 || sourceIds.some(id => !id.trim())) {
     throw new Error("A reviewed draft and explicit source identities are required");
   }
