@@ -86,7 +86,10 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
     let sanitizer = SecretSanitizer::new();
     let max_chars = max_tokens.clamp(256, 8192).saturating_mul(3);
     // Bound untrusted project titles independently of the requested context budget.
-    let title: String = safe_inline(&snapshot.project.title).chars().take(120).collect();
+    let title: String = safe_inline(&snapshot.project.title)
+        .chars()
+        .take(120)
+        .collect();
     let mut result = format!(
         "# {} · AIKS 项目背景候选\n\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
         title
