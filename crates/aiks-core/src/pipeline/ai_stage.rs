@@ -292,7 +292,7 @@ impl AiStage {
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v4|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
                 crate::ai::prompts_v3::PROMPT_VERSION_V3,
                 self.config.base_url,
                 self.config.model,
@@ -317,7 +317,9 @@ impl AiStage {
                     Err(error) => return Err(error.into()),
                 }
             };
-            if let Some(result) = cached.and_then(|v| serde_json::from_str(&v).ok()) {
+            // A persisted cache entry must satisfy the same score bounds as
+            // fresh model output. Invalid or old entries are cache misses.
+            if let Some(result) = cached.as_deref().and_then(parse_cached_v3_result) {
                 cache_hits += 1;
                 results[idx] = Some(result);
                 continue;
@@ -682,15 +684,24 @@ fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<Str
 /// This separates "no knowledge" (valid skip) from "AI output broken" (error).
 /// The error preview is cut on character boundaries (UTF-8 safe).
 /// Public for testing.
+fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
+    result.knowledge_score.is_finite()
+        && (0.0..=1.0).contains(&result.knowledge_score)
+        && result.items.iter().all(|item| {
+            item.confidence.is_finite() && (0.0..=1.0).contains(&item.confidence)
+        })
+}
+
+/// Accept only strictly serialized, score-valid cache entries. A damaged
+/// cache is a miss, never a silently accepted knowledge result.
+fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
+    let result: V3ExtractionResult = serde_json::from_str(text).ok()?;
+    extraction_scores_valid(&result).then_some(result)
+}
+
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let result = parse_v3_result_unchecked(response)?;
-    if !result.knowledge_score.is_finite()
-        || !(0.0..=1.0).contains(&result.knowledge_score)
-        || result
-            .items
-            .iter()
-            .any(|item| !item.confidence.is_finite() || !(0.0..=1.0).contains(&item.confidence))
-    {
+    if !extraction_scores_valid(&result) {
         anyhow::bail!("AI extraction response contains invalid score or confidence");
     }
     Ok(result)
@@ -1239,6 +1250,40 @@ mod tests {
         assert_eq!(latency_percentile(&[50], 95), 50);
         assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 50), 30);
         assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 95), 50);
+    }
+
+    #[test]
+    fn cached_extraction_obeys_production_score_validation() {
+        let valid = serde_json::json!({
+            "session_summary": "Cached decision",
+            "knowledge_score": 0.8,
+            "worth_extracting": true,
+            "items": [{
+                "title": "Bounded retry",
+                "category": "decision",
+                "summary": "Use bounded retry",
+                "content": "Limit retry attempts",
+                "problem": null,
+                "root_causes": null,
+                "solutions": null,
+                "key_commands": null,
+                "key_files": null,
+                "decisions": null,
+                "tags": ["retry"],
+                "confidence": 0.9
+            }]
+        });
+        assert!(parse_cached_v3_result(&valid.to_string()).is_some());
+
+        for (field, value) in [("knowledge_score", 1.5), ("knowledge_score", -0.1)] {
+            let mut corrupted = valid.clone();
+            corrupted[field] = serde_json::json!(value);
+            assert!(parse_cached_v3_result(&corrupted.to_string()).is_none());
+        }
+        let mut bad_confidence = valid.clone();
+        bad_confidence["items"][0]["confidence"] = serde_json::json!(1.2);
+        assert!(parse_cached_v3_result(&bad_confidence.to_string()).is_none());
+        assert!(parse_cached_v3_result("{not valid json").is_none());
     }
 
     #[test]
