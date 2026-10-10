@@ -295,10 +295,16 @@ mod tests {
             "tagSecret123",
             "categorySecret123",
         ] {
-            assert!(!user.contains(secret), "secret leaked into AI Assist prompt");
+            assert!(
+                !user.contains(secret),
+                "secret leaked into AI Assist prompt"
+            );
         }
         assert!(user.contains("[REDACTED]"));
-        assert_eq!(request.content, original, "sanitizing must not mutate source knowledge");
+        assert_eq!(
+            request.content, original,
+            "sanitizing must not mutate source knowledge"
+        );
     }
 
     #[test]
