@@ -149,8 +149,11 @@ impl<'a> UnifiedSearchService<'a> {
             }
         };
         let lexical_ms = started.elapsed().as_millis() as u64;
+        let mut preliminary_hits = fuse_rrf(lexical.clone(), Vec::new(), candidate_limit);
+        apply_feedback_rerank(&self.db, &mut preliminary_hits)?;
+        preliminary_hits.truncate(limit);
         on_lexical(&UnifiedSearchOutcome {
-            hits: fuse_rrf(lexical.clone(), Vec::new(), limit),
+            hits: preliminary_hits,
             degraded: !warnings.is_empty(),
             warnings: warnings.clone(),
         });
