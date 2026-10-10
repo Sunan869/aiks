@@ -4,7 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
-import { appendOrganizationAudit } from "../knowledge-organization-audit";
+import { appendOrganizationAudit, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
@@ -163,12 +163,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       );
       // The selection list is only a UI hint. Revalidate fetched records before
       // giving their contents to the model: a record can change while loading.
-      if (others.some(item => item.id === data.id) || new Set(others.map(item => item.id)).size !== others.length) {
-        throw new Error("知识来源包含重复身份，请重新选择");
-      }
-      if (others.some(item => data.project_name && item.project_name && item.project_name !== data.project_name)) {
-        throw new Error("不能跨已知的不同项目合并知识，请重新选择来源");
-      }
+      validateOrganizationSources(data, others);
       const sources = [data, ...others];
       const sourceIds = sources.map(item => item.id);
       const sourceContext = sources.map(item => (
