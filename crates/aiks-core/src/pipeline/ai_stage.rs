@@ -462,7 +462,13 @@ fn safe_extraction_label(sanitizer: &SecretSanitizer, value: &str) -> String {
         .sanitize(value)
         .chars()
         .take(160)
-        .map(|ch| if ch.is_control() || matches!(ch, '\u2028' | '\u2029') { ' ' } else { ch })
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                ch
+            }
+        })
         .collect::<String>()
         .trim()
         .to_string()
