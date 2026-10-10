@@ -64,34 +64,35 @@ impl<'a> RelationRepo<'a> {
         // Display names are not unique project identities. If both knowledge
         // items belong to sessions with verified absolute project paths,
         // compare the same stable identity used by Project Memory.
-        let load_project = |knowledge_id: &str| -> Result<Option<(Option<String>, Option<String>)>> {
-            let endpoint: Option<(
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            )> = conn
-                .query_row(
-                    "SELECT ki.project_name, ss.source, ss.external_session_id, ss.project_path
-                     FROM knowledge_item ki
-                     LEFT JOIN source_session ss ON ss.id = ki.source_session_id
-                     WHERE ki.id = ?1",
-                    [knowledge_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
-                .optional()?;
-            Ok(endpoint.map(|(project, source, external, path)| {
-                let verified = match (source.as_deref(), external.as_deref(), path.as_deref()) {
-                    (Some(source), Some(external), Some(path)) => {
-                        let (id, _, is_verified) =
-                            project_identity(source, external, Some(path), None);
-                        is_verified.then_some(id)
-                    }
-                    _ => None,
-                };
-                (project, verified)
-            }))
-        };
+        let load_project =
+            |knowledge_id: &str| -> Result<Option<(Option<String>, Option<String>)>> {
+                let endpoint: Option<(
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                )> = conn
+                    .query_row(
+                        "SELECT ki.project_name, ss.source, ss.external_session_id, ss.project_path
+                         FROM knowledge_item ki
+                         LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+                         WHERE ki.id = ?1",
+                        [knowledge_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    )
+                    .optional()?;
+                Ok(endpoint.map(|(project, source, external, path)| {
+                    let verified = match (source.as_deref(), external.as_deref(), path.as_deref()) {
+                        (Some(source), Some(external), Some(path)) => {
+                            let (id, _, is_verified) =
+                                project_identity(source, external, Some(path), None);
+                            is_verified.then_some(id)
+                        }
+                        _ => None,
+                    };
+                    (project, verified)
+                }))
+            };
         let (Some((source_project, source_identity)), Some((target_project, target_identity))) =
             (load_project(source_id)?, load_project(target_id)?)
         else {
@@ -277,11 +278,23 @@ mod tests {
         }
         let relations = RelationRepo::new(&db);
         assert!(relations
-            .suggest("knowledge-1", "knowledge-2", "related", "matching topic", None)
+            .suggest(
+                "knowledge-1",
+                "knowledge-2",
+                "related",
+                "matching topic",
+                None
+            )
             .is_err());
         // Path identity wins over mutable display-name differences.
         let same_project = relations
-            .suggest("knowledge-1", "knowledge-3", "related", "same absolute path", None)
+            .suggest(
+                "knowledge-1",
+                "knowledge-3",
+                "related",
+                "same absolute path",
+                None,
+            )
             .unwrap();
         assert_eq!(same_project.status, "suggested");
         assert_eq!(relations.list("knowledge-1").unwrap().len(), 1);
