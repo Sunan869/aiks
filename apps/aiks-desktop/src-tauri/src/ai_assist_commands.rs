@@ -37,9 +37,7 @@ pub async fn assist_knowledge_v42(
         existing_category,
     } = request;
 
-    if siyuan_doc_id.trim().is_empty() {
-        return Err("siyuan_doc_id must not be empty".to_string());
-    }
+    validate_document_scope(&siyuan_doc_id, &operation)?;
 
     let engine = state.engine().ok_or("Engine not initialized")?;
     let models = Arc::new(
@@ -62,4 +60,39 @@ pub async fn assist_knowledge_v42(
         .map_err(|error| error.to_string())?;
 
     serde_json::to_value(suggestion).map_err(|error| error.to_string())
+}
+
+fn validate_document_scope(doc_id: &str, operation: &AiAssistOperation) -> Result<(), String> {
+    if doc_id.trim().is_empty()
+        && !matches!(
+            operation,
+            AiAssistOperation::Structure
+                | AiAssistOperation::Rewrite
+                | AiAssistOperation::KeyConclusions
+                | AiAssistOperation::Compare
+                | AiAssistOperation::MergeDraft
+        )
+    {
+        return Err("siyuan_doc_id must not be empty for canonical metadata edits".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn draft_only_operations_can_use_local_knowledge_without_siyuan_doc() {
+        for operation in [
+            AiAssistOperation::Structure,
+            AiAssistOperation::Rewrite,
+            AiAssistOperation::KeyConclusions,
+            AiAssistOperation::Compare,
+            AiAssistOperation::MergeDraft,
+        ] {
+            assert!(validate_document_scope("", &operation).is_ok());
+        }
+        assert!(validate_document_scope("", &AiAssistOperation::Summary).is_err());
+    }
 }

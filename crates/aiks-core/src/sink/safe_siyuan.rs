@@ -28,6 +28,17 @@ enum SiYuanSafetyError {
 /// This wrapper reconciles by the deterministic notebook + hpath before and
 /// after create so a retry adopts the existing document instead of duplicating
 /// it.
+pub struct SessionVolumeRequest<'a> {
+    pub db: &'a crate::storage::StateDb,
+    pub session_db_id: i64,
+    pub source: &'a str,
+    pub external_id: &'a str,
+    pub parser_version: &'a str,
+    pub notebook_id: &'a str,
+    pub base_path: &'a str,
+    pub markdown: &'a str,
+}
+
 pub struct SiYuanSink {
     inner: siyuan::SiYuanSink,
 }
@@ -195,15 +206,18 @@ impl SiYuanSink {
     /// A failed attempt can resume without losing prior successful writes.
     pub async fn sync_session_volumes(
         &self,
-        db: &crate::storage::StateDb,
-        session_db_id: i64,
-        source: &str,
-        external_id: &str,
-        parser_version: &str,
-        notebook_id: &str,
-        base_path: &str,
-        markdown: &str,
+        request: SessionVolumeRequest<'_>,
     ) -> anyhow::Result<String> {
+        let SessionVolumeRequest {
+            db,
+            session_db_id,
+            source,
+            external_id,
+            parser_version,
+            notebook_id,
+            base_path,
+            markdown,
+        } = request;
         use anyhow::Context;
         use rusqlite::{params, OptionalExtension};
         {
@@ -238,25 +252,48 @@ impl SiYuanSink {
                 .optional()?
             };
             let doc_id = if let Some((id, baseline)) = existing {
-                let remote = self
-                    .inner
-                    .get_document_markdown(&id)
-                    .await
-                    .with_context(|| format!("read volume {volume_no} ({id}) before update"))?;
-                let actual = volume_baseline(&remote);
-                if actual != baseline {
-                    return Err(SiYuanSafetyError::VolumeConflict {
-                        volume_no,
-                        doc_id: id,
+                match self.inner.get_document_markdown(&id).await {
+                    Ok(remote) => {
+                        let actual = volume_baseline(&remote);
+                        if actual != baseline {
+                            return Err(SiYuanSafetyError::VolumeConflict {
+                                volume_no,
+                                doc_id: id,
+                            }
+                            .into());
+                        }
+                        if !Self::markdown_matches(&remote, &volume_markdown) {
+                            self.update_document(&id, &volume_markdown)
+                                .await
+                                .with_context(|| format!("update volume {volume_no}"))?;
+                        }
+                        id
                     }
-                    .into());
+                    Err(read_error) => match self.inner.get_doc_notebook(&id).await {
+                        Ok(None) => {
+                            // The mapped block really was deleted. Reconcile by stable
+                            // hpath; an existing document is only adopted after
+                            // content validation by create_document_reconciled.
+                            self.create_document(notebook_id, &path, &volume_markdown)
+                                .await
+                                .with_context(|| {
+                                    format!("recreate confirmed missing volume {volume_no} ({id})")
+                                })?
+                        }
+                        Ok(Some(_)) => {
+                            return Err(read_error).with_context(|| {
+                                format!("volume {volume_no} ({id}) still exists but is unreadable")
+                            });
+                        }
+                        Err(probe_error) => {
+                            return Err(read_error).with_context(|| {
+                                format!(
+                                    "volume {volume_no} ({id}) read failed and existence is unknown: {probe_error}"
+                                )
+                            });
+                        }
+                    },
                 }
-                if !Self::markdown_matches(&remote, &volume_markdown) {
-                    self.update_document(&id, &volume_markdown)
-                        .await
-                        .with_context(|| format!("update volume {volume_no}"))?;
-                }
-                id
             } else {
                 self.create_document(notebook_id, &path, &volume_markdown)
                     .await
@@ -296,14 +333,24 @@ impl SiYuanSink {
                 .with_context(|| format!("set volume {volume_no} attributes"))?;
             entries.push(format!("- [第 {volume_no} 部分](siyuan://blocks/{doc_id})"));
         }
-        // Never blindly delete surplus older volumes after a session shrinks:
-        // those files could have been manually edited; leave unlinked for review.
+        // Historical volumes after shrink are retained, never deleted automatically.
+        let stale_count: i64 = db.conn().query_row(
+            "SELECT count(*) FROM session_volume
+             WHERE session_id = ?1 AND volume_index > ?2",
+            rusqlite::params![session_db_id, volumes.len() as i64],
+            |row| row.get(0),
+        )?;
         let mut index = format!(
             "# Session 分卷目录\n\n> 来源：{source}\n> Session ID：{external_id}\n> 分卷数：{}\n\n",
             entries.len()
         );
         index.push_str(&entries.join("\n"));
         index.push('\n');
+        if stale_count > 0 {
+            index.push_str(&format!(
+                "\n> ⚠️ 会话缩短后仍保留 {stale_count} 个历史分卷，请人工核查后归档。\n"
+            ));
+        }
         Self::ensure_safe_document_size(&index)?;
         Ok(index)
     }
@@ -408,6 +455,68 @@ mod volume_tests {
         assert_eq!(parts.len(), 2);
         assert!(parts[1].starts_with("## 👤 用户 (User)"));
         assert_eq!(parts.concat(), markdown);
+    }
+
+    #[test]
+    fn split_is_deterministic_and_preserves_multibyte_boundaries() {
+        let content = format!(
+            "{}\n## 🤖 助手 (Assistant)\n{}\n## 👤 用户 (User)\n{}",
+            "前言".repeat(850_000),
+            "中文🚀".repeat(330_000),
+            "结束".repeat(400_000),
+        );
+        let first = split_session_markdown(&content);
+        let second = split_session_markdown(&content);
+        assert_eq!(first, second, "retry must reuse the same boundaries");
+        assert_eq!(first.concat(), content, "no text may be lost or duplicated");
+        assert!(first.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+        assert!(first.len() > 1);
+        assert!(first.iter().all(|part| !part.is_empty()));
+    }
+
+    #[test]
+    fn split_preserves_content_when_session_grows() {
+        let head = format!(
+            "## 👤 用户 (User)\n{}\n",
+            "a".repeat(TARGET_VOLUME_BYTES - 300)
+        );
+        let addition = format!("## 🤖 助手 (Assistant)\n{}\n", "b".repeat(1200));
+        let original = split_session_markdown(&head);
+        assert_eq!(original.concat(), head);
+        let expanded = split_session_markdown(&(head.clone() + &addition));
+        assert_eq!(expanded.concat(), head + &addition);
+        assert!(expanded.len() >= 2);
+        assert!(expanded
+            .iter()
+            .all(|part| part.len() <= TARGET_VOLUME_BYTES));
+    }
+
+    #[test]
+    fn shrinking_session_keeps_deterministic_part_paths() {
+        let full = format!(
+            "{}\n## 🤖 助手 (Assistant)\n{}",
+            "a".repeat(TARGET_VOLUME_BYTES - 200),
+            "b".repeat(TARGET_VOLUME_BYTES),
+        );
+        let shortened = &full[..TARGET_VOLUME_BYTES / 2];
+        let full_parts = split_session_markdown(&full);
+        let short_parts = split_session_markdown(shortened);
+        assert!(full_parts.len() >= 2);
+        assert_eq!(short_parts.len(), 1);
+        assert_eq!(full_parts.concat(), full);
+        assert_eq!(short_parts.concat(), shortened);
+        assert!(full_parts
+            .iter()
+            .all(|part| part.len() <= TARGET_VOLUME_BYTES));
+    }
+
+    #[test]
+    fn split_handles_single_line_larger_than_document_limit() {
+        let input = "🦀".repeat(MAX_SAFE_DOCUMENT_BYTES / 2);
+        let parts = split_session_markdown(&input);
+        assert!(parts.len() >= 2);
+        assert!(parts.iter().all(|part| part.len() <= TARGET_VOLUME_BYTES));
+        assert_eq!(parts.concat(), input);
     }
 
     #[test]

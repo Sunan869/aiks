@@ -273,3 +273,69 @@ pub async fn publish_knowledge(
     }
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn add_knowledge_feedback(
+    knowledge_id: String,
+    kind: String,
+    note: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeFeedback, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .add(&knowledge_id, &kind, &note)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_knowledge_feedback(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::KnowledgeFeedback>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .list(&knowledge_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn suggest_knowledge_relation(
+    source_id: String,
+    target_id: String,
+    relation_type: String,
+    evidence: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .suggest(&source_id, &target_id, &relation_type, &evidence, None)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_knowledge_relations(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::KnowledgeRelation>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .list(&knowledge_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn review_knowledge_relation(
+    relation_id: String,
+    decision: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .review(&relation_id, &decision)
+        .map_err(|error| error.to_string())
+}

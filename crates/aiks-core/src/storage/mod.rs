@@ -1,3 +1,5 @@
+// Full-backup prototype intentionally excluded until the final roadmap phase.
+// Its code remains in storage/backup.rs, but there is no public/runtime entry.
 pub mod db;
 pub mod repo;
 

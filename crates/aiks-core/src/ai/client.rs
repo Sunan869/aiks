@@ -36,6 +36,52 @@ struct ChatMessage<'a> {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+}
+
+/// Actual token usage reported by an OpenAI-compatible endpoint.
+/// Absent on some local model servers; never substitute guessed token counts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ChatUsage {
+    #[serde(default)]
+    pub prompt_tokens: Option<u64>,
+    #[serde(default)]
+    pub completion_tokens: Option<u64>,
+    #[serde(default)]
+    pub total_tokens: Option<u64>,
+}
+
+impl ChatUsage {
+    /// Add only metrics the endpoint actually reported; missing never means zero.
+    pub fn accumulate(&mut self, other: &Self) {
+        fn add(dst: &mut Option<u64>, incoming: Option<u64>) {
+            if let Some(value) = incoming {
+                *dst = Some(dst.unwrap_or(0).saturating_add(value));
+            }
+        }
+        add(&mut self.prompt_tokens, other.prompt_tokens);
+        add(&mut self.completion_tokens, other.completion_tokens);
+        add(&mut self.total_tokens, other.total_tokens);
+    }
+}
+
+#[derive(Debug)]
+pub struct ChatResult {
+    pub content: String,
+    pub usage: Option<ChatUsage>,
+}
+
+fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
+    if let Some(usage) = usage {
+        tracing::info!(
+            model,
+            prompt_tokens = usage.prompt_tokens,
+            completion_tokens = usage.completion_tokens,
+            total_tokens = usage.total_tokens,
+            "AIKS_MODEL_TOKEN_USAGE"
+        );
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,17 +212,35 @@ impl AiClient {
             .await
     }
 
+    pub async fn chat_detailed(&self, system: &str, user: &str) -> anyhow::Result<ChatResult> {
+        self.chat_with_max_tokens_detailed(system, user, self.config.max_tokens)
+            .await
+    }
+
     pub async fn chat_with_max_tokens(
         &self,
         system: &str,
         user: &str,
         requested_max_tokens: u32,
     ) -> anyhow::Result<String> {
+        Ok(self
+            .chat_with_max_tokens_detailed(system, user, requested_max_tokens)
+            .await?
+            .content)
+    }
+
+    async fn chat_with_max_tokens_detailed(
+        &self,
+        system: &str,
+        user: &str,
+        requested_max_tokens: u32,
+    ) -> anyhow::Result<ChatResult> {
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
         );
         let mut max_tokens = requested_max_tokens.max(1);
+        let mut overload_retries = 0usize;
         loop {
             let req = ChatRequest {
                 model: &self.config.model,
@@ -217,6 +281,19 @@ impl AiClient {
                 })?;
 
             let status = resp.status();
+            // Only retry explicit capacity/rate-limit responses. Retrying arbitrary
+            // 4xx responses hides configuration errors and wastes local GPU time.
+            if let Some(delay_ms) = overload_retry_delay_ms(status.as_u16(), overload_retries) {
+                overload_retries += 1;
+                tracing::warn!(
+                    status = %status,
+                    attempt = overload_retries,
+                    delay_ms,
+                    "AI model busy; retrying after bounded backoff"
+                );
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                continue;
+            }
             let body_text = resp.text().await.unwrap_or_default();
 
             if status.as_u16() == 400
@@ -240,6 +317,7 @@ impl AiClient {
 
             let body: ChatResponse =
                 serde_json::from_str(&body_text).context("parse AI response")?;
+            log_token_usage(&self.config.model, body.usage.as_ref());
             let content = body
                 .choices
                 .into_iter()
@@ -247,7 +325,10 @@ impl AiClient {
                 .map(|c| c.message.content)
                 .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
 
-            return Ok(content);
+            return Ok(ChatResult {
+                content,
+                usage: body.usage,
+            });
         }
     }
 
@@ -269,6 +350,7 @@ impl AiClient {
             self.config.base_url.trim_end_matches('/')
         );
         let mut max_tokens = requested_max_tokens.max(1);
+        let mut overload_retries = 0usize;
 
         loop {
             let request_started = Instant::now();
@@ -304,9 +386,30 @@ impl AiClient {
                 .json(&req)
                 .send()
                 .await
-                .context("AI streaming HTTP request failed")?;
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "AI streaming HTTP request failed (model={}, endpoint={}, timeout={}s, is_timeout={}, is_connect={}): {:#}",
+                        self.config.model,
+                        url,
+                        self.config.timeout_seconds,
+                        error.is_timeout(),
+                        error.is_connect(),
+                        error
+                    )
+                })?;
 
             let status = resp.status();
+            if let Some(delay_ms) = overload_retry_delay_ms(status.as_u16(), overload_retries) {
+                overload_retries += 1;
+                tracing::warn!(
+                    status = %status,
+                    attempt = overload_retries,
+                    delay_ms,
+                    "AI streaming model busy; retrying after bounded backoff"
+                );
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                continue;
+            }
             if !status.is_success() {
                 let body_text = resp.text().await.unwrap_or_default();
                 if status.as_u16() == 400
@@ -337,6 +440,7 @@ impl AiClient {
                 let body_text = resp.text().await.unwrap_or_default();
                 let body: ChatResponse =
                     serde_json::from_str(&body_text).context("parse AI response")?;
+                log_token_usage(&self.config.model, body.usage.as_ref());
                 let content = body
                     .choices
                     .into_iter()
@@ -417,6 +521,24 @@ impl AiClient {
     }
 }
 
+/// Transient capacity signals from OpenAI-compatible local model servers.
+fn is_model_overloaded(status: u16) -> bool {
+    matches!(status, 429 | 503)
+}
+
+/// Retry at most twice for explicit rate/capacity errors, with a deterministic
+/// 250ms/500ms backoff. Streaming and non-streaming calls share this policy.
+fn overload_retry_delay_ms(status: u16, retries_so_far: usize) -> Option<u64> {
+    if !is_model_overloaded(status) {
+        return None;
+    }
+    match retries_so_far {
+        0 => Some(250),
+        1 => Some(500),
+        _ => None,
+    }
+}
+
 fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
     let line = std::str::from_utf8(line)
         .context("AI stream returned invalid UTF-8")?
@@ -441,6 +563,74 @@ fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod stream_tests {
     use super::parse_stream_line;
+
+    #[test]
+    fn reported_token_usage_is_accumulated_without_guessing_missing_metrics() {
+        let mut total = super::ChatUsage::default();
+        total.accumulate(&super::ChatUsage {
+            prompt_tokens: Some(12),
+            completion_tokens: None,
+            total_tokens: Some(15),
+        });
+        total.accumulate(&super::ChatUsage {
+            prompt_tokens: None,
+            completion_tokens: Some(7),
+            total_tokens: Some(9),
+        });
+        assert_eq!(total.prompt_tokens, Some(12));
+        assert_eq!(total.completion_tokens, Some(7));
+        assert_eq!(total.total_tokens, Some(24));
+    }
+
+    #[test]
+    fn parses_actual_usage_and_handles_missing_usage() {
+        let with_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}"#;
+        let result: super::ChatResponse = serde_json::from_str(with_usage).unwrap();
+        let usage = result.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, Some(12));
+        assert_eq!(usage.completion_tokens, Some(3));
+        assert_eq!(usage.total_tokens, Some(15));
+
+        let without_usage = r#"{"choices":[{"message":{"content":"OK"}}]}"#;
+        let result: super::ChatResponse = serde_json::from_str(without_usage).unwrap();
+        assert!(result.usage.is_none());
+
+        // Partial usage metadata is common on OpenAI-compatible local gateways:
+        // successful text must not become a parse failure when totals are absent.
+        let partial =
+            r#"{"choices":[{"message":{"content":"OK"}}],"usage":{"completion_tokens":3}}"#;
+        let result: super::ChatResponse = serde_json::from_str(partial).unwrap();
+        let usage = result.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, None);
+        assert_eq!(usage.completion_tokens, Some(3));
+        assert_eq!(usage.total_tokens, None);
+
+        let null_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":null}"#;
+        let result: super::ChatResponse = serde_json::from_str(null_usage).unwrap();
+        assert!(result.usage.is_none());
+    }
+
+    #[test]
+    fn retry_only_transient_capacity_errors() {
+        assert!(super::is_model_overloaded(429));
+        assert!(super::is_model_overloaded(503));
+        for status in [400, 401, 403, 404, 408, 422, 500, 502] {
+            assert!(!super::is_model_overloaded(status));
+        }
+    }
+
+    #[test]
+    fn overloaded_model_backoff_is_bounded_and_excludes_configuration_errors() {
+        for status in [429, 503] {
+            assert_eq!(super::overload_retry_delay_ms(status, 0), Some(250));
+            assert_eq!(super::overload_retry_delay_ms(status, 1), Some(500));
+            assert_eq!(super::overload_retry_delay_ms(status, 2), None);
+            assert_eq!(super::overload_retry_delay_ms(status, usize::MAX), None);
+        }
+        for status in [400, 401, 403, 404, 408, 422, 500, 502, 504] {
+            assert_eq!(super::overload_retry_delay_ms(status, 0), None);
+        }
+    }
 
     #[test]
     fn parses_openai_stream_delta_and_ignores_done() {

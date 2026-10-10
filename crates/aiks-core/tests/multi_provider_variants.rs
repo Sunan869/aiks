@@ -484,3 +484,103 @@ async fn cursor_global_headers_wal_rename_and_workspace_fallback() {
     assert!(report.complete);
     assert_eq!(report.sessions.len(), 2);
 }
+
+#[tokio::test]
+async fn repeated_provider_discovery_preserves_ids_and_reports_scan_baseline() {
+    use std::time::Instant;
+
+    let root = tempfile::tempdir().unwrap();
+    let sessions = 160usize;
+    for index in 0..sessions {
+        let payload = json!({
+            "sessionId": format!("session-{index:04}"),
+            "title": format!("Synthetic project {index}"),
+            "history": [
+                {"message": {"role": "user", "content": "Question"}},
+                {"message": {"role": "assistant", "content": "Answer"}}
+            ]
+        });
+        put(
+            root.path(),
+            &format!("sessions/session-{index:04}.json"),
+            &payload.to_string(),
+        );
+    }
+    let reader = provider(SourceKind::Continue, root.path());
+    let first_started = Instant::now();
+    let first = reader.discover_sessions().await.unwrap();
+    let first_ms = first_started.elapsed().as_millis();
+    let second_started = Instant::now();
+    let second = reader.discover_sessions().await.unwrap();
+    let second_ms = second_started.elapsed().as_millis();
+    assert_eq!(first.len(), sessions);
+    assert_eq!(second.len(), sessions);
+    let mut first_ids: Vec<_> = first
+        .into_iter()
+        .map(|item| item.external_session_id)
+        .collect();
+    let mut second_ids: Vec<_> = second
+        .into_iter()
+        .map(|item| item.external_session_id)
+        .collect();
+    first_ids.sort();
+    second_ids.sort();
+    first_ids.dedup();
+    assert_eq!(first_ids.len(), sessions);
+    assert_eq!(first_ids, second_ids);
+    eprintln!(
+        "AIKS_PROVIDER_BASELINE provider=continue sessions={sessions} first_discovery_ms={first_ms} repeat_discovery_ms={second_ms}"
+    );
+}
+
+#[tokio::test]
+async fn provider_rescan_tracks_additions_and_removals_without_reassigning_ids() {
+    let root = tempfile::tempdir().unwrap();
+    put(
+        root.path(),
+        "sessions/stable.json",
+        &continue_session("stable"),
+    );
+    let reader = provider(SourceKind::Continue, root.path());
+    let first = reader.discover_sessions().await.unwrap();
+    assert_eq!(first.len(), 1);
+    let stable_id = first[0].external_session_id.clone();
+
+    let added = json!({
+        "sessionId": "new-session-id",
+        "title": "added",
+        "history": [
+            {"message": {"role": "user", "content": "added"}},
+            {"message": {"role": "assistant", "content": "answer"}}
+        ]
+    });
+    put(root.path(), "sessions/added.json", &added.to_string());
+    let second = reader.discover_sessions().await.unwrap();
+    assert_eq!(second.len(), 2);
+    assert!(second
+        .iter()
+        .any(|item| item.external_session_id == stable_id));
+
+    // Rewriting the same source with more messages must not reassign identity.
+    let mut revised: Value = serde_json::from_str(&continue_session("stable")).unwrap();
+    revised["history"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"message": {"role": "user", "content": "follow-up"}}));
+    put(root.path(), "sessions/stable.json", &revised.to_string());
+    let updated = reader.discover_sessions().await.unwrap();
+    assert_eq!(updated.len(), 2);
+    let stable = updated
+        .iter()
+        .find(|item| item.external_session_id == stable_id)
+        .unwrap();
+    assert_eq!(reader.load_session(stable).await.unwrap().messages.len(), 3);
+
+    std::fs::remove_file(root.path().join("sessions/added.json")).unwrap();
+    let third = reader.discover_sessions().await.unwrap();
+    assert_eq!(third.len(), 1);
+    assert_eq!(third[0].external_session_id, stable_id);
+    let loaded = reader.load_session(&third[0]).await.unwrap();
+    assert_eq!(loaded.external_session_id, stable_id);
+    assert_eq!(loaded.messages.len(), 3);
+}

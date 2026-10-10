@@ -2,20 +2,25 @@ pub mod ai_stage;
 pub mod cleaner;
 pub mod embedding_client;
 pub mod embedding_stage;
+pub mod feedback_repo;
 pub mod job_repo;
 pub mod knowledge_repo;
 /// V3 Processing Pipeline
 pub mod orchestrator;
+pub mod relation_repo;
 pub mod repo;
 pub mod search;
 pub mod semantic_dedup;
 pub mod session_chunker;
 pub mod status;
+pub mod task_center;
 pub mod worker;
 
 pub use embedding_client::EmbeddingConfig;
+pub use feedback_repo::{FeedbackRepo, KnowledgeFeedback};
 pub use knowledge_repo::KnowledgeRepo;
 pub use orchestrator::PipelineOrchestrator;
+pub use relation_repo::{KnowledgeRelation, RelationRepo};
 pub use search::hybrid_search;
 pub use status::{PipelineStatus, StageStatus};
 pub use worker::{recover_interrupted_runs, PipelineJob, PipelineWorker};

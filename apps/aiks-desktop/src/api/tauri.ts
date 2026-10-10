@@ -10,8 +10,17 @@ import type {
   SessionPage,
   PipelineSummary,
   PipelineStats,
+  TaskCenterEntry,
+  TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  ProjectOverview,
+  ProjectMemorySnapshot,
+  KnowledgeFeedback,
+  KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -103,6 +112,10 @@ export class TauriAiksApi implements AiksApi {
   async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> { return invoke("list_pipeline_runs", { limit }); }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
   async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
+  async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
+  async getTaskCenterStats(): Promise<TaskCenterStats> { return invoke("get_task_center_stats"); }
+  async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
+  async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
     return invoke("list_knowledge_v4", {
@@ -115,7 +128,16 @@ export class TauriAiksApi implements AiksApi {
       offset: opts?.offset,
     });
   }
+  async getProjectMemories(): Promise<ProjectOverview[]> { return invoke("list_project_memory"); }
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> { return invoke("get_project_memory", { projectId }); }
+  async createProjectReview(projectId: string, from: string, through: string): Promise<string> { return invoke("create_project_review", { projectId, from, through }); }
+  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens }); }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
+  async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
+  async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }
+  async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> { return invoke("suggest_knowledge_relation", { sourceId, targetId, relationType, evidence }); }
+  async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> { return invoke("review_knowledge_relation", { relationId, decision }); }
+  async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> { return invoke("add_knowledge_feedback", { knowledgeId, kind, note }); }
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> { return invoke("create_knowledge", { input }); }
   async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> { return invoke("update_knowledge", { knowledgeId, input }); }
   async setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail> { return invoke("set_knowledge_favorite", { knowledgeId, favorite }); }

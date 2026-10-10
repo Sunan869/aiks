@@ -8,6 +8,8 @@ export interface RagTurn {
 export interface RagAskRequest {
   question: string;
   history?: RagTurn[];
+  /** Exact project filter. Omit to search all projects. */
+  project?: string;
 }
 
 export interface RagCitation {

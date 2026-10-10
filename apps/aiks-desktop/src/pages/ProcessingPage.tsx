@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
-import type { PipelineSummary, PipelineStats } from "../api/types";
+import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
@@ -41,12 +41,36 @@ function StageCell({ stage, stageRuns }: { stage: string; stageRuns: { stage: st
   );
 }
 
-interface Props { onViewDetail?: (runId: string) => void; }
+interface Props { onViewDetail?: (runId: string) => void; onViewSession?: (sessionId: number) => void; }
 
-export default function ProcessingPage({ onViewDetail }: Props) {
+export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const formatSourceName = useSourceName();
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
+  const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
+  const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
+  const [showDiagnosticPreview, setShowDiagnosticPreview] = useState(false);
+  const [diagnosticNotice, setDiagnosticNotice] = useState("");
+  const diagnosticJson = JSON.stringify({
+    schema: "aiks-task-diagnostics-v1",
+    counts: taskStats,
+  }, null, 2);
+  const saveDiagnostic = () => {
+    if (!taskStats) return;
+    const blob = new Blob([diagnosticJson], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aiks-task-diagnostics.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    setDiagnosticNotice("已生成仅包含统计信息的诊断摘要");
+  };
+  const [retryingTask, setRetryingTask] = useState<number | null>(null);
+  const [retryNotice, setRetryNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<string | null>(null);
+  const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
@@ -58,12 +82,20 @@ export default function ProcessingPage({ onViewDetail }: Props) {
     inFlightRef.current = true;
     if (showLoading) setLoading(true);
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, t, totals] = await Promise.all([
         getApi().getPipelineRuns(300),
         getApi().getPipelineStats(),
+        getApi().getTaskCenterEntries(200),
+        getApi().getTaskCenterStats(),
       ]);
       setRuns(r);
       setStats(s);
+      setTasks(t);
+      setTaskStats(totals);
+      setLoadError("");
+      setLastSuccessfulRefresh(new Date().toLocaleTimeString());
+    } catch (error) {
+      setLoadError("无法刷新任务状态：" + String(error));
     } finally {
       inFlightRef.current = false;
       if (showLoading) setLoading(false);
@@ -126,6 +158,164 @@ export default function ProcessingPage({ onViewDetail }: Props) {
           </button>
         </div>
       </div>
+
+      {/* A task may fail sync independently from AI processing. */}
+      {/* Raw synchronization status is separate from knowledge extraction. */}
+      <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
+        <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
+        <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
+        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
+        {lastSuccessfulRefresh && <p className="text-xs text-gray-400 mb-2">最近刷新：{lastSuccessfulRefresh}</p>}
+        <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
+          <span>总会话 {taskStats?.total_sessions ?? "—"}</span>
+          <span>待处理 {taskStats?.pending ?? "—"}</span>
+          <span>运行中 {taskStats?.running ?? "—"}</span>
+          <span>已取消 {taskStats?.cancelled ?? "—"}</span>
+          <span>同步异常 {taskStats?.sync_issues ?? "—"}</span>
+          <span>AI 异常 {taskStats?.ai_issues ?? "—"}</span>
+        </div>
+        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline"
+          onClick={() => setShowDiagnosticPreview(value => !value)}>
+          {showDiagnosticPreview ? "收起诊断摘要" : "预览安全诊断摘要"}
+        </button>
+        {showDiagnosticPreview && (
+          <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
+            <p className="text-xs text-gray-500 mb-2">仅显示统计数据，不含 Session 正文、路径、错误内容或密钥。</p>
+            <pre className="text-xs whitespace-pre-wrap">{diagnosticJson}</pre>
+            <div className="flex items-center gap-3 mt-2">
+              <button type="button" disabled={!taskStats} onClick={saveDiagnostic}
+                className="text-xs text-blue-600 hover:underline disabled:opacity-50">导出 JSON 摘要</button>
+              <button type="button" disabled={!taskStats}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(diagnosticJson);
+                    setDiagnosticNotice("诊断摘要已复制");
+                  } catch {
+                    setDiagnosticNotice("复制失败，请使用导出 JSON");
+                  }
+                }}
+                className="text-xs text-blue-600 hover:underline disabled:opacity-50">复制摘要</button>
+            </div>
+            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
+          {([
+            ["all", "全部"],
+            ["sync_failed", "同步失败"],
+            ["ai_failed", "AI 失败"],
+            ["active", "处理中"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTaskFilter(value)}
+              aria-pressed={taskFilter === value}
+              className={`text-xs px-2.5 py-1 rounded border ${taskFilter === value
+                ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
+            >{label}</button>
+          ))}
+        </div>
+        {tasks.filter(task =>
+          taskFilter === "all" ||
+          (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+          (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+          (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
+        ).length === 0 ? (
+          <p className="text-xs text-gray-400">暂无会话同步任务记录</p>
+        ) : (
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
+                <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
+                <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">最近阶段</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
+              </tr></thead>
+              <tbody>
+                {tasks.filter(task =>
+                  taskFilter === "all" ||
+                  (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+                  (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+                  (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
+                ).map(task => (
+                  <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
+                    <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
+                    <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
+                    <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
+                    <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 pr-3" title={task.last_task_update || ""}>
+                      {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
+                      (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
+                      task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
+                        <button type="button" disabled={retryingTask !== null}
+                          className="text-blue-600 hover:underline disabled:opacity-50"
+                          onClick={async () => {
+                            setRetryingTask(task.session_id);
+                            setRetryNotice("");
+                            try {
+                              await getApi().retryFailedAiTask(task.session_id);
+                              setRetryNotice("已提交单条 AI 任务重试");
+                              await load(false);
+                            } catch (error) {
+                              setRetryNotice(`重试未提交：${String(error)}`);
+                            } finally {
+                              setRetryingTask(null);
+                            }
+                          }}
+                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</button>
+                      ) : task.sync_status === "CONFLICT" ? (
+                        <button type="button" className="text-amber-600 hover:underline"
+                          onClick={() => onViewSession?.(task.session_id)}
+                          disabled={!onViewSession}
+                          title="打开会话核查来源和目标，保留 SiYuan 用户改动；不会自动覆盖">
+                          人工核查冲突
+                        </button>
+                      ) : task.job_status === "PENDING" ? (
+                        <button type="button" disabled={retryingTask !== null}
+                          className="text-orange-600 hover:underline disabled:opacity-50"
+                          onClick={async () => {
+                            setRetryingTask(task.session_id);
+                            setRetryNotice("");
+                            try {
+                              const cancelled = await getApi().cancelPendingAiTask(task.session_id);
+                              setRetryNotice(cancelled ? "已取消排队中的 AI 任务" : "任务已开始运行或不再排队，未取消");
+                              await load(false);
+                            } catch (error) {
+                              setRetryNotice("取消失败：" + String(error));
+                            } finally {
+                              setRetryingTask(null);
+                            }
+                          }}
+                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</button>
+                      ) : "—"}
+                    </td>
+                    <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
+                      <details className="group max-w-64">
+                        <summary className="cursor-pointer truncate list-none" title="展开错误诊断">{task.sync_error || task.pipeline_error || task.job_error || "—"}</summary>
+                        <div className="mt-2 max-w-sm whitespace-pre-wrap break-all text-gray-600 dark:text-gray-300 space-y-1">
+                          <div>原始同步：{task.sync_status || "未开始"}</div>
+                          <div>AI 提炼：{task.pipeline_status || "未开始"}</div>
+                          <div>持久任务：{task.job_status || "无"}</div>
+                          {task.sync_error && <div className="text-red-500">同步错误：{task.sync_error}</div>}
+                          {task.pipeline_error && <div className="text-red-500">提炼错误：{task.pipeline_error}</div>}
+                          {task.job_error && <div className="text-red-500">队列错误：{task.job_error}</div>}
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* Stats bar */}
       {stats && (

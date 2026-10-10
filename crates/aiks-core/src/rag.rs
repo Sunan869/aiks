@@ -45,6 +45,9 @@ pub struct RagAskRequest {
     pub question: String,
     #[serde(default)]
     pub history: Vec<RagTurn>,
+    /// Exact project filter; omitted means search all projects.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +196,18 @@ impl RagAnswerService {
         let question = request.question.trim().to_string();
         anyhow::ensure!(!question.is_empty(), "question must not be empty");
         anyhow::ensure!(question.chars().count() <= 4096, "question is too long");
+        let project = request
+            .project
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        anyhow::ensure!(
+            project
+                .as_ref()
+                .is_none_or(|value| value.chars().count() <= 256),
+            "project filter is too long"
+        );
 
         let search = UnifiedSearchService::new(self.db.clone(), self.models.clone());
         let search_started = Instant::now();
@@ -202,7 +217,7 @@ impl RagAnswerService {
                 RETRIEVAL_LIMIT,
                 UnifiedSearchFilter {
                     corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
-                    project: None,
+                    project,
                     source: None,
                 },
             )
@@ -300,6 +315,22 @@ impl RagAnswerService {
             text = text.trim().to_string();
             if text.is_empty() {
                 continue;
+            }
+            if hit.corpus == SearchCorpus::Knowledge {
+                let status: Option<String> = self
+                    .db
+                    .conn()
+                    .query_row(
+                        "SELECT kind FROM knowledge_feedback
+                         WHERE knowledge_id = ?1
+                         ORDER BY created_at DESC, id DESC LIMIT 1",
+                        [&hit.entity_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(warning) = status.as_deref().and_then(disputed_feedback_label) {
+                    text = format!("【{warning}】\n{text}");
+                }
             }
 
             let remaining = MAX_EVIDENCE_CHARS.saturating_sub(total_chars);
@@ -402,6 +433,17 @@ impl RagAnswerService {
     }
 }
 
+/// Latest human review stays advisory; disputed material remains visible
+/// for traceability but is explicitly marked before being sent to the model.
+fn disputed_feedback_label(kind: &str) -> Option<&'static str> {
+    match kind {
+        "incorrect" => Some("用户标记为错误；未经人工核实不得作为可靠事实"),
+        "outdated" => Some("用户标记为过时；不得当作当前生效方案"),
+        "needs_detail" => Some("用户要求补充证据；需谨慎引用"),
+        _ => None,
+    }
+}
+
 fn estimate_tokens(chars: usize) -> usize {
     ((chars as f64) / CHARS_PER_TOKEN_ESTIMATE).ceil() as usize
 }
@@ -476,6 +518,27 @@ fn format_history(history: &[RagTurn]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_quality_flags_are_visible_in_rag_evidence_context() {
+        assert!(disputed_feedback_label("incorrect").is_some());
+        assert!(disputed_feedback_label("outdated").is_some());
+        assert!(disputed_feedback_label("needs_detail").is_some());
+        assert!(disputed_feedback_label("useful").is_none());
+        assert!(disputed_feedback_label("duplicate").is_none());
+    }
+
+    #[test]
+    fn rag_request_preserves_legacy_default_and_exact_project_scope() {
+        let legacy: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","history":[]}"#).unwrap();
+        assert!(legacy.project.is_none());
+
+        let scoped: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","project":"my-project"}"#)
+                .unwrap();
+        assert_eq!(scoped.project.as_deref(), Some("my-project"));
+    }
 
     #[test]
     fn evidence_anchor_prefers_longer_query_terms() {

@@ -291,3 +291,81 @@ export interface AiStatus {
     pending: number;
   };
 }
+
+/** Read-only projection of independent raw-sync and AI pipeline states. */
+export interface TaskCenterEntry {
+  session_id: number;
+  source: string;
+  external_session_id: string;
+  title: string | null;
+  sync_status: string | null;
+  sync_error: string | null;
+  pipeline_status: string | null;
+  current_stage: string | null;
+  pipeline_error: string | null;
+  job_status: string | null;
+  attempts: number | null;
+  job_error: string | null;
+  stage_latency_ms: number | null;
+  last_task_update: string | null;
+}
+
+/** Database-wide statistics, not counts from the bounded task list. */
+export interface TaskCenterStats {
+  total_sessions: number;
+  pending: number;
+  running: number;
+  cancelled: number;
+  sync_issues: number;
+  ai_issues: number;
+}
+
+export type KnowledgeFeedbackKind = "useful" | "incorrect" | "duplicate" | "outdated" | "needs_detail";
+
+export interface KnowledgeFeedback {
+  id: string;
+  knowledge_id: string;
+  kind: KnowledgeFeedbackKind;
+  note: string;
+  created_at: string;
+}
+
+export type KnowledgeRelationType = "related" | "supplements" | "corrects" | "supersedes" | "resolved_by";
+export type KnowledgeRelationStatus = "suggested" | "confirmed" | "rejected";
+export interface KnowledgeRelation {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: KnowledgeRelationType;
+  status: KnowledgeRelationStatus;
+  evidence: string;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectOverview {
+  id: string;
+  title: string;
+  verified_path: boolean;
+  session_count: number;
+  knowledge_count: number;
+  sources: string[];
+  last_updated_at: string;
+}
+export interface ProjectMemoryEntry {
+  knowledge_id: string;
+  session_id: number;
+  source: string;
+  session_external_id: string;
+  title: string;
+  category: string;
+  summary: string;
+  updated_at: string;
+  feedback_status: string | null;
+}
+export interface ProjectMemorySnapshot {
+  project: ProjectOverview;
+  entries: ProjectMemoryEntry[];
+  truncated: boolean;
+}

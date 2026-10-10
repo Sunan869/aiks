@@ -5,8 +5,17 @@ import type {
   SessionPage,
   PipelineSummary,
   PipelineStats,
+  TaskCenterEntry,
+  TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  ProjectOverview,
+  ProjectMemorySnapshot,
+  KnowledgeFeedback,
+  KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -32,10 +41,23 @@ export interface AiksApi {
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
+  getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
+  getTaskCenterStats(): Promise<TaskCenterStats>;
+  retryFailedAiTask(sessionId: number): Promise<string>;
+  cancelPendingAiTask(sessionId: number): Promise<boolean>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
+  getProjectMemories(): Promise<ProjectOverview[]>;
+  getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
+  createProjectReview(projectId: string, from: string, through: string): Promise<string>;
+  createAgentContextPack(projectId: string, maxTokens: number): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
+  getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
+  getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;
+  suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation>;
+  reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, 'suggested'>): Promise<KnowledgeRelation>;
+  addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback>;
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
   setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;

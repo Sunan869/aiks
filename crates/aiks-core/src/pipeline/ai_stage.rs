@@ -14,6 +14,7 @@ use std::time::Instant;
 
 use tracing::info;
 
+use crate::ai::client::ChatUsage;
 use crate::ai::{
     config::AiModelConfig,
     prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
@@ -44,6 +45,22 @@ pub struct AiStage {
 const BUDGET_CHARS_PER_TOKEN: f64 = 2.0;
 /// Tokens reserved for the system prompt + prompt frame + /no_think suffix.
 const PROMPT_OVERHEAD_TOKENS: usize = 2_000;
+
+/// A user may opt into modest parallelism; zero is treated as sequential.
+fn extraction_batch_size(configured: usize) -> usize {
+    configured.clamp(1, 4)
+}
+
+#[cfg(test)]
+#[test]
+fn extraction_concurrency_respects_explicit_bound_and_sequential_default() {
+    assert_eq!(extraction_batch_size(0), 1);
+    assert_eq!(extraction_batch_size(1), 1);
+    assert_eq!(extraction_batch_size(2), 2);
+    assert_eq!(extraction_batch_size(3), 3);
+    assert_eq!(extraction_batch_size(4), 4);
+    assert_eq!(extraction_batch_size(usize::MAX), 4);
+}
 
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
@@ -130,14 +147,20 @@ impl AiStage {
             "[AI] Starting extraction"
         );
 
-        let mut result = if chunks.len() == 1 {
+        let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
-            let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
+            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
+            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
+            let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
-            parse_v3_result_typed(&response)?
+            (
+                parse_v3_result_typed(&response.content)?,
+                0usize,
+                1usize,
+                response.usage,
+            )
         } else {
             // Multiple chunks: Map-Reduce
             self.map_reduce(db, session_title, project_name, &chunks)
@@ -153,8 +176,10 @@ impl AiStage {
             "AI_EXTRACT",
             &self.config.model,
             &self.config.base_url,
-            chunks.len(),
-            result.items.len(),
+            actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
+            actual_usage
+                .as_ref()
+                .and_then(|usage| usage.completion_tokens),
             latency_ms,
             true,
         );
@@ -172,7 +197,16 @@ impl AiStage {
                 Some(chunks.len() as i32),
                 Some(0),
                 Some(latency_ms),
-                Some(&serde_json::json!({"score": result.knowledge_score, "items": 0})),
+                Some(&serde_json::json!({
+                    "score": result.knowledge_score,
+                    "items": 0,
+                    "cache_hits": cache_hits,
+                    "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
+                    "llm_calls": llm_calls,
+                    "configured_concurrency": self.config.max_concurrent,
+                    "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
+                    "actual_usage": actual_usage
+                })),
                 None,
             )?;
             return Ok(0);
@@ -209,7 +243,16 @@ impl AiStage {
             Some(chunks.len() as i32),
             Some(item_count as i32),
             Some(latency_ms),
-            Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count})),
+            Some(&serde_json::json!({
+                "score": result.knowledge_score,
+                "items": item_count,
+                "cache_hits": cache_hits,
+                "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
+                "llm_calls": llm_calls,
+                "configured_concurrency": self.config.max_concurrent,
+                "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
+                "actual_usage": actual_usage
+            })),
             None,
         )?;
 
@@ -226,7 +269,7 @@ impl AiStage {
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
-    ) -> anyhow::Result<V3ExtractionResult> {
+    ) -> anyhow::Result<(V3ExtractionResult, usize, usize, Option<ChatUsage>)> {
         // Cache successful chunk extractions, not failed/incomplete responses.
         // Changing the model, prompt version, project or chunk content
         // invalidates the key automatically.
@@ -245,10 +288,11 @@ impl AiStage {
         let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
         let mut pending: Vec<(usize, String, String)> = Vec::new();
         let mut cache_hits = 0usize;
+        let mut actual_usage: Option<ChatUsage> = None;
         for (idx, (_, text)) in chunks.iter().enumerate() {
             use sha2::{Digest, Sha256};
             let key_material = format!(
-                "knowledge-chunk-v4|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
                 crate::ai::prompts_v3::PROMPT_VERSION_V3,
                 self.config.base_url,
                 self.config.model,
@@ -273,18 +317,15 @@ impl AiStage {
                     Err(error) => return Err(error.into()),
                 }
             };
-            if let Some(result) = cached.and_then(|v| serde_json::from_str(&v).ok()) {
+            // A persisted cache entry must satisfy the same score bounds as
+            // fresh model output. Invalid or old entries are cache misses.
+            if let Some(result) = cached.as_deref().and_then(parse_cached_v3_result) {
                 cache_hits += 1;
                 results[idx] = Some(result);
                 continue;
             }
             let sanitized = self.sanitizer.sanitize(text);
-            let context = format!(
-                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\\n{}",
-                session_title.unwrap_or("未知会话"),
-                project_name.unwrap_or("未知"),
-                sanitized
-            );
+            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
             pending.push((
                 idx,
                 cache_key,
@@ -294,27 +335,68 @@ impl AiStage {
         tracing::info!(
             total_chunks = chunks.len(),
             cache_hits,
+            cache_hit_percent = cache_hit_percent(cache_hits, chunks.len()),
             llm_calls = pending.len(),
             "[AI] Chunk cache summary"
         );
 
-        // Concurrency is intentionally bounded at 2. Shared GPU backends
-        // may not support more concurrent generations; never fan out all jobs.
-        for batch in pending.chunks(2) {
+        // Default remains sequential; explicitly configured parallelism is
+        // bounded so local model endpoints cannot receive unbounded load.
+        let batch_size = extraction_batch_size(self.config.max_concurrent);
+        tracing::info!(
+            configured_concurrency = self.config.max_concurrent,
+            effective_concurrency = batch_size,
+            pending_chunks = pending.len(),
+            "[AI] Extraction concurrency budget"
+        );
+        let mut batch_latencies_ms = Vec::new();
+        for batch in pending.chunks(batch_size) {
             let started = Instant::now();
-            let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
-            let responses = if batch.len() == 2 {
-                let second = self.client.chat(SYSTEM_PROMPT_V3, &batch[1].2);
-                let (a, b) = tokio::join!(first, second);
-                vec![a, b]
-            } else {
-                vec![first.await]
+            let responses = match batch.len() {
+                1 => vec![
+                    self.client
+                        .chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2)
+                        .await,
+                ],
+                2 => {
+                    let (a, b) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                    );
+                    vec![a, b]
+                }
+                3 => {
+                    let (a, b, c) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                    );
+                    vec![a, b, c]
+                }
+                4 => {
+                    let (a, b, c, d) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[3].2),
+                    );
+                    vec![a, b, c, d]
+                }
+                _ => unreachable!("extraction concurrency is bounded to four"),
             };
+            batch_latencies_ms.push(started.elapsed().as_millis() as u64);
             // Persist each successful result even if the other request failed,
             // so the next pipeline retry does not repeat successful work.
             let mut first_error = None;
             for (request, response) in batch.iter().zip(responses) {
-                match response.and_then(|text| parse_v3_result_typed(&text)) {
+                match response.and_then(|output| {
+                    if let Some(usage) = output.usage.as_ref() {
+                        actual_usage
+                            .get_or_insert_with(ChatUsage::default)
+                            .accumulate(usage);
+                    }
+                    parse_v3_result_typed(&output.content)
+                }) {
                     Ok(result) => {
                         let conn = db.conn();
                         conn.execute(
@@ -346,6 +428,12 @@ impl AiStage {
                 return Err(error);
             }
         }
+        tracing::info!(
+            batches = batch_latencies_ms.len(),
+            batch_p50_ms = latency_percentile(&batch_latencies_ms, 50),
+            batch_p95_ms = latency_percentile(&batch_latencies_ms, 95),
+            "AIKS_EXTRACTION_BATCH_LATENCY"
+        );
         {
             let conn = db.conn();
             conn.execute(
@@ -359,8 +447,64 @@ impl AiStage {
             .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(merge_chunk_knowledge(results))
+        Ok((
+            merge_chunk_knowledge(results),
+            cache_hits,
+            pending.len(),
+            actual_usage,
+        ))
     }
+}
+
+/// Keep caller-controlled metadata from masquerading as transcript lines or
+/// consuming the evidence budget. Redact before limiting length so secrets
+/// cannot become partially visible through truncation.
+fn safe_extraction_label(sanitizer: &SecretSanitizer, value: &str) -> String {
+    sanitizer
+        .sanitize(value)
+        .chars()
+        .take(160)
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn chunk_context(
+    sanitizer: &SecretSanitizer,
+    title: Option<&str>,
+    project: Option<&str>,
+    chunk: &str,
+) -> String {
+    format!(
+        "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
+        safe_extraction_label(sanitizer, title.unwrap_or("未知会话")),
+        safe_extraction_label(sanitizer, project.unwrap_or("未知")),
+        chunk
+    )
+}
+
+/// Integer cache hit ratio avoids division by zero on empty inputs.
+fn cache_hit_percent(hits: usize, total: usize) -> usize {
+    hits.saturating_mul(100).checked_div(total).unwrap_or(0)
+}
+
+/// Nearest-rank percentile of completed batch latency, in milliseconds.
+/// These are *batch* timings, not per-request latency or whole-session P95.
+fn latency_percentile(samples: &[u64], percent: usize) -> u64 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let rank = sorted.len().saturating_mul(percent.min(100)).div_ceil(100);
+    sorted[rank.max(1) - 1]
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
@@ -540,7 +684,31 @@ fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<Str
 /// This separates "no knowledge" (valid skip) from "AI output broken" (error).
 /// The error preview is cut on character boundaries (UTF-8 safe).
 /// Public for testing.
+fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
+    result.knowledge_score.is_finite()
+        && (0.0..=1.0).contains(&result.knowledge_score)
+        && result
+            .items
+            .iter()
+            .all(|item| item.confidence.is_finite() && (0.0..=1.0).contains(&item.confidence))
+}
+
+/// Accept only strictly serialized, score-valid cache entries. A damaged
+/// cache is a miss, never a silently accepted knowledge result.
+fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
+    let result: V3ExtractionResult = serde_json::from_str(text).ok()?;
+    extraction_scores_valid(&result).then_some(result)
+}
+
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
+    let result = parse_v3_result_unchecked(response)?;
+    if !extraction_scores_valid(&result) {
+        anyhow::bail!("AI extraction response contains invalid score or confidence");
+    }
+    Ok(result)
+}
+
+fn parse_v3_result_unchecked(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let clean = clean_json(response);
     if clean.is_empty() || (!clean.starts_with('{')) {
         anyhow::bail!(
@@ -1053,8 +1221,8 @@ fn log_ai_request(
     stage: &str,
     model: &str,
     endpoint: &str,
-    input_count: usize,
-    output_count: usize,
+    input_count: Option<u64>,
+    output_count: Option<u64>,
     latency_ms: i64,
     success: bool,
 ) {
@@ -1066,7 +1234,9 @@ fn log_ai_request(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             id, pipeline_run_id, stage, model, endpoint,
-            input_count as i64, output_count as i64, latency_ms, status, now
+            input_count.and_then(|n| i64::try_from(n).ok()),
+            output_count.and_then(|n| i64::try_from(n).ok()),
+            latency_ms, status, now
         ],
     );
 }
@@ -1074,6 +1244,124 @@ fn log_ai_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_latency_percentiles_use_nearest_rank() {
+        assert_eq!(latency_percentile(&[], 95), 0);
+        assert_eq!(latency_percentile(&[50], 95), 50);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 50), 30);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 95), 50);
+    }
+
+    #[test]
+    fn cached_extraction_obeys_production_score_validation() {
+        let valid = serde_json::json!({
+            "session_summary": "Cached decision",
+            "knowledge_score": 0.8,
+            "worth_extracting": true,
+            "items": [{
+                "title": "Bounded retry",
+                "category": "decision",
+                "summary": "Use bounded retry",
+                "content": "Limit retry attempts",
+                "problem": null,
+                "root_causes": null,
+                "solutions": null,
+                "key_commands": null,
+                "key_files": null,
+                "decisions": null,
+                "tags": ["retry"],
+                "confidence": 0.9
+            }]
+        });
+        assert!(parse_cached_v3_result(&valid.to_string()).is_some());
+
+        for (field, value) in [("knowledge_score", 1.5), ("knowledge_score", -0.1)] {
+            let mut corrupted = valid.clone();
+            corrupted[field] = serde_json::json!(value);
+            assert!(parse_cached_v3_result(&corrupted.to_string()).is_none());
+        }
+        let mut bad_confidence = valid.clone();
+        bad_confidence["items"][0]["confidence"] = serde_json::json!(1.2);
+        assert!(parse_cached_v3_result(&bad_confidence.to_string()).is_none());
+        assert!(parse_cached_v3_result("{not valid json").is_none());
+    }
+
+    #[test]
+    fn cache_hit_ratio_handles_empty_and_partial_batches() {
+        assert_eq!(cache_hit_percent(0, 0), 0);
+        assert_eq!(cache_hit_percent(0, 3), 0);
+        assert_eq!(cache_hit_percent(1, 3), 33);
+        assert_eq!(cache_hit_percent(3, 3), 100);
+    }
+
+    #[test]
+    fn single_chunk_prompt_includes_project_and_session_context() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Codex repair"),
+            Some("AIKS"),
+            "fixed login flow",
+        );
+        let prompt = make_v3_extraction_prompt(&context);
+        assert!(prompt.contains("Codex repair"));
+        assert!(prompt.contains("AIKS"));
+        assert!(prompt.contains("fixed login flow"));
+        assert!(context.contains("项目：AIKS"));
+    }
+
+    #[test]
+    fn extraction_metadata_is_sanitized_before_external_model_calls() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Bearer abcdefghijklmnopqrstuvwxyz"),
+            Some("API_KEY=secretvalue123"),
+            "safe session content",
+        );
+        assert!(!context.contains("abcdefghijklmnopqrstuvwxyz"));
+        assert!(!context.contains("secretvalue123"));
+        assert!(context.contains("safe session content"));
+        assert!(context.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn untrusted_extraction_metadata_cannot_inject_lines_or_evict_evidence() {
+        let long_project = "P".repeat(10_000);
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Ordinary title\n## Forged session"),
+            Some(&long_project),
+            "The original evidence must survive.\nsecond evidence line",
+        );
+        assert!(!context.contains("\n## Forged session"));
+        assert!(context.contains("Ordinary title ## Forged session"));
+        assert!(!context.contains(&"P".repeat(161)));
+        assert!(context.contains("The original evidence must survive.\nsecond evidence line"));
+        assert!(context.chars().count() < 600);
+    }
+
+    #[test]
+    fn chunk_context_preserves_real_line_breaks() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("A"),
+            Some("B"),
+            "line1\nline2",
+        );
+        assert!(context.contains("结果。\nline1\nline2"));
+        assert!(!context.contains(r"结果。\nline1"));
+    }
+
+    #[test]
+    fn production_parser_rejects_out_of_range_model_scores() {
+        let skip = r#"{"session_summary":"test","knowledge_score":1.5,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(skip)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid score"));
+        let nan = r#"{"session_summary":"test","knowledge_score":-0.1,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(nan).is_err());
+    }
 
     #[test]
     fn parse_valid_v3_response() {

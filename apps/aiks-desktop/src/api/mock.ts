@@ -4,12 +4,15 @@ import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
-  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeListOptions,
+  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
 } from "./types";
+
+const feedbackHistory: KnowledgeFeedback[] = [];
+const knowledgeRelations: KnowledgeRelation[] = [];
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
 const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
@@ -135,6 +138,10 @@ export class MockAiksApi implements AiksApi {
     };
   }
 
+  async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
+  async getTaskCenterStats(): Promise<TaskCenterStats> { await delay(); return { total_sessions: sessions.length, pending: 0, running: 0, cancelled: 0, sync_issues: 0, ai_issues: 0 }; }
+  async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }
+  async cancelPendingAiTask(): Promise<boolean> { throw new Error("Mock cancel is not available"); }
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> {
     throw new Error(`Mock pipeline detail not available: ${runId}`);
@@ -157,11 +164,103 @@ export class MockAiksApi implements AiksApi {
     return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
   }
 
+  async getProjectMemories(): Promise<ProjectOverview[]> {
+    await delay();
+    const groups = new Map<string, ProjectOverview>();
+    for (const session of sessions) {
+      const key = session.project_path || "unresolved:" + session.source + ":" + session.session_id;
+      const project = groups.get(key) || {
+        id: key, title: session.project_name || session.title || session.session_id,
+        verified_path: Boolean(session.project_path), session_count: 0, knowledge_count: 0,
+        sources: [], last_updated_at: session.updated_at || "",
+      };
+      project.session_count++;
+      if (!project.sources.includes(session.source)) project.sources.push(session.source);
+      if ((session.updated_at || "") > project.last_updated_at) project.last_updated_at = session.updated_at || "";
+      groups.set(key, project);
+    }
+    for (const item of knowledge) {
+      const group = Array.from(groups.values()).find(value => value.title === item.project_name);
+      if (group) group.knowledge_count++;
+    }
+    return Array.from(groups.values()).sort((a,b) => b.last_updated_at.localeCompare(a.last_updated_at));
+  }
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> {
+    const project = (await this.getProjectMemories()).find(item => item.id === projectId);
+    if (!project) throw new Error("Project not found");
+    const entries = knowledge.filter(item => item.project_name === project.title).slice(0, 200).map(item => ({
+      knowledge_id: item.id, session_id: item.session_id ?? 0,
+      source: "codex", session_external_id: String(item.session_id ?? ""),
+      title: item.title, category: item.category, summary: item.summary,
+      updated_at: item.updated_at, feedback_status: null,
+    }));
+    return { project, entries, truncated: false };
+  }
+  async createProjectReview(projectId: string, from: string, through: string): Promise<string> {
+    const snapshot = await this.getProjectMemory(projectId);
+    if (from > through) throw new Error("Invalid date range");
+    const items = snapshot.entries.filter(item => item.updated_at.slice(0,10) >= from && item.updated_at.slice(0,10) <= through);
+    return "# " + snapshot.project.title + " · 工作回顾\\n\\n" + items.map(item => "- " + item.title + "（" + item.knowledge_id + "）").join("\\n");
+  }
+  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> {
+    const snapshot = await this.getProjectMemory(projectId);
+    const selected = snapshot.entries.filter(item => item.feedback_status !== "incorrect" && item.feedback_status !== "outdated");
+    return ("# " + snapshot.project.title + " · Agent 背景预览\\n\\n" + selected.map(item => "## " + item.title + "\\n" + item.summary + "\\n来源：" + item.knowledge_id).join("\\n\\n")).slice(0, Math.max(256, maxTokens) * 3);
+  }
+
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {
     await delay();
     const item = knowledge.find(k => k.id === knowledgeId);
     if (!item) throw new Error(`Knowledge not found: ${knowledgeId}`);
     return detailOf(item);
+  }
+
+  async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> {
+    await delay();
+    return feedbackHistory.filter(item => item.knowledge_id === knowledgeId).slice().reverse();
+  }
+
+  async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> {
+    await delay();
+    if (!knowledge.some(item => item.id === knowledgeId)) throw new Error("Knowledge item not found");
+    if (note.length > 4000) throw new Error("Feedback note exceeds 4000 characters");
+    const entry: KnowledgeFeedback = {
+      id: `feedback_${Date.now()}_${feedbackHistory.length}`,
+      knowledge_id: knowledgeId,
+      kind,
+      note,
+      created_at: new Date().toISOString(),
+    };
+    feedbackHistory.push(entry);
+    return entry;
+  }
+
+  async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> {
+    await delay();
+    return knowledgeRelations.filter(item => item.source_id === knowledgeId || item.target_id === knowledgeId);
+  }
+
+  async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> {
+    await delay();
+    if (sourceId === targetId || !evidence.trim() || evidence.length > 4000) throw new Error("Invalid knowledge relation");
+    const source = knowledge.find(item => item.id === sourceId);
+    const target = knowledge.find(item => item.id === targetId);
+    if (!source || !target) throw new Error("Knowledge item not found");
+    if (source.project_name && target.project_name && source.project_name !== target.project_name) throw new Error("Cross-project relation blocked");
+    if (knowledgeRelations.some(item => item.source_id === sourceId && item.target_id === targetId && item.relation_type === relationType)) throw new Error("Duplicate relation");
+    const now = new Date().toISOString();
+    const relation: KnowledgeRelation = { id: "rel_" + Date.now() + "_" + knowledgeRelations.length, source_id: sourceId, target_id: targetId, relation_type: relationType, status: "suggested", evidence: evidence.trim(), confidence: null, created_at: now, updated_at: now };
+    knowledgeRelations.push(relation);
+    return relation;
+  }
+
+  async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> {
+    await delay();
+    const relation = knowledgeRelations.find(item => item.id === relationId);
+    if (!relation) throw new Error("Knowledge relation not found");
+    relation.status = decision;
+    relation.updated_at = new Date().toISOString();
+    return { ...relation };
   }
 
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
@@ -298,6 +397,8 @@ export class MockAiksApi implements AiksApi {
       case "key_conclusions": return { ...base, text: "- 关键结论一\n- 关键结论二" };
       case "structure": return { ...base, text: `# ${input.title}\n\n## 背景\n\n${input.content}` };
       case "rewrite": return { ...base, text: input.content };
+      case "compare": return { ...base, text: "## 来源差异对比\n\n" + input.content };
+      case "merge_draft": return { ...base, text: "## 多来源合并草稿\n\n" + input.content };
     }
   }
 

@@ -58,6 +58,7 @@ pub struct AppSettings {
     pub redact_secrets: bool,
     pub ai_enabled: bool,
     pub ai_auto_extract: bool,
+    pub ai_max_concurrent: usize,
     pub ai_base_url: String,
     pub ai_model: String,
 }
@@ -75,6 +76,7 @@ impl AppSettings {
             redact_secrets: config.security.redact_secrets,
             ai_enabled: config.ai.enabled,
             ai_auto_extract: config.ai.auto_extract,
+            ai_max_concurrent: config.ai.max_concurrent.clamp(1, 4),
             ai_base_url: config.ai.base_url.clone(),
             ai_model: config.ai.model.clone(),
         }
@@ -235,6 +237,7 @@ fn apply_settings_to_config(config: &mut aiks_core::Config, settings: &AppSettin
     config.desktop.close_to_tray = settings.close_to_tray;
     config.ai.enabled = settings.ai_enabled;
     config.ai.auto_extract = settings.ai_auto_extract;
+    config.ai.max_concurrent = settings.ai_max_concurrent;
     config.ai.base_url = settings
         .ai_base_url
         .trim()
@@ -300,6 +303,9 @@ pub async fn save_settings(
     if settings.ai_model.trim().is_empty() {
         return Err("AI 模型不能为空".to_string());
     }
+    if !(1..=4).contains(&settings.ai_max_concurrent) {
+        return Err("AI 提炼并发数必须为 1–4".to_string());
+    }
 
     let mut config = load_settings_config()?;
     apply_settings_to_config(&mut config, &settings);
@@ -337,11 +343,13 @@ mod settings_mapping_tests {
         let mut edited = defaults;
         edited.ai_base_url = "http://example.invalid/v1".to_string();
         edited.ai_model = "model-from-settings".to_string();
+        edited.ai_max_concurrent = 3;
         edited.close_to_tray = false;
         apply_settings_to_config(&mut config, &edited);
 
         assert_eq!(config.ai.base_url, "http://example.invalid/v1");
         assert_eq!(config.ai.model, "model-from-settings");
+        assert_eq!(config.ai.max_concurrent, 3);
         assert!(!config.desktop.close_to_tray);
         assert!(config.embedding.enabled);
         assert_eq!(config.ai.api_key.as_deref(), Some("preserve-me"));
@@ -611,6 +619,89 @@ pub async fn sync_and_extract(
         "failed_count": stats.failed_count,
         "extraction_queued": stats.extraction_candidates.len()
     }))
+}
+
+// ===== Unified Session Sync & AI Task Center =====
+
+#[tauri::command]
+pub async fn list_task_center_entries(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::task_center::TaskCenterEntry>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .list_recent(limit.unwrap_or(200))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_task_center_stats(
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::task_center::TaskCenterStats, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .stats()
+        .map_err(|error| error.to_string())
+}
+
+/// Manually retry one failed AI extraction. Never use this to bypass SiYuan
+/// conflict/permanent errors; use the existing durable queue for deduplication.
+#[tauri::command]
+pub async fn retry_failed_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let session = {
+        let conn = db.conn();
+        conn.query_row(
+            "SELECT ss.source, ss.external_session_id, ss.title, ss.project_name
+             FROM source_session ss
+             JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
+             WHERE ss.id = ?1 AND st.status IN ('SYNCED', 'UNCHANGED')
+               AND (EXISTS (
+                   SELECT 1 FROM pipeline_run pr
+                   WHERE pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+                     AND pr.status = 'FAILED'
+               ) OR EXISTS (
+                   SELECT 1 FROM pipeline_job pj
+                   WHERE pj.session_id = ss.id AND pj.status = 'FAILED'
+               ))
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_job active
+                   WHERE active.session_id = ss.id AND active.status IN ('PENDING', 'RUNNING')
+               )",
+            rusqlite::params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .map_err(|_| {
+            "该任务不满足安全重试条件：需同步成功、AI 失败且没有进行中的任务".to_string()
+        })?
+    };
+    engine
+        .enqueue_pipeline_for_session(session_id, session.1, session.0, session.2, session.3)
+        .map_err(|error| error.to_string())
+}
+
+/// Cancel only AI work waiting in the durable queue, never running workers.
+#[tauri::command]
+pub async fn cancel_pending_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::job_repo::PipelineJobRepo::new(&db)
+        .cancel_pending_for_session(session_id)
+        .map_err(|error| error.to_string())
 }
 
 // ===== V3 Pipeline Commands =====

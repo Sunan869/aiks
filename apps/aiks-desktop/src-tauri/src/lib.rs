@@ -6,6 +6,7 @@ mod diagnostics;
 mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
+mod project_memory_commands;
 mod provider_commands;
 mod rag_commands;
 mod search_commands;
@@ -138,6 +139,10 @@ pub fn run() {
             commands::open_knowledge_window,
             commands::get_full_status,
             commands::sync_and_extract,
+            commands::list_task_center_entries,
+            commands::get_task_center_stats,
+            commands::retry_failed_ai_task,
+            commands::cancel_pending_ai_task,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
@@ -152,7 +157,16 @@ pub fn run() {
             commands::hybrid_search,
             // V4 Native Knowledge Workbench
             knowledge_commands::list_knowledge_v4,
+            project_memory_commands::list_project_memory,
+            project_memory_commands::get_project_memory,
+            project_memory_commands::create_project_review,
+            project_memory_commands::create_agent_context_pack,
             knowledge_commands::get_knowledge_detail_v4,
+            knowledge_commands::add_knowledge_feedback,
+            knowledge_commands::list_knowledge_feedback,
+            knowledge_commands::suggest_knowledge_relation,
+            knowledge_commands::list_knowledge_relations,
+            knowledge_commands::review_knowledge_relation,
             knowledge_commands::create_knowledge,
             knowledge_commands::update_knowledge,
             knowledge_commands::set_knowledge_favorite,

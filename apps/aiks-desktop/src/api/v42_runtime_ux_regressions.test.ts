@@ -9,6 +9,8 @@ import embeddingCommandsSource from "../../src-tauri/src/embedding_commands.rs?r
 import desktopLibSource from "../../src-tauri/src/lib.rs?raw";
 import workbenchCommandsSource from "../../src-tauri/src/workbench/commands.rs?raw";
 import configSource from "../../../../crates/aiks-core/src/config/mod.rs?raw";
+import settingsCommandsSource from "../../src-tauri/src/commands.rs?raw";
+import aiConfigSource from "../../../../crates/aiks-core/src/ai/config.rs?raw";
 
 describe("V4.2 real-machine UX regressions", () => {
   it("persists embedding config before optional desktop integration and uses one reliable config writer", () => {
@@ -16,6 +18,7 @@ describe("V4.2 real-machine UX regressions", () => {
     expect(embeddingCommandsSource).toContain("config.write_file(&path)");
     expect(embeddingCommandsSource).not.toContain("aiks.toml.embedding.tmp");
     expect(settingsSource).toContain("saveWarning");
+    expect(settingsSource).toContain("throw new Error(`语义搜索配置已保存，但桌面设置更新失败");
 
     const embeddingSave = settingsSource.indexOf('invoke("save_embedding_settings"');
     const appSave = settingsSource.indexOf('invoke<SaveSettingsResult>("save_settings"');
@@ -38,4 +41,13 @@ describe("V4.2 real-machine UX regressions", () => {
     expect(appSource).toContain('if (page === "knowledge")');
     expect(appSource).toContain("getApi().reloadWorkbench()");
   });
+  it("exposes user-controlled extraction concurrency from desktop to core without lifting the safe default", () => {
+    expect(settingsSource).toContain('aria-label="提炼并发数"');
+    expect(settingsSource).toContain("ai_max_concurrent: settings.ai_max_concurrent");
+    expect(settingsSource).toContain("ai_max_concurrent: 1");
+    expect(settingsCommandsSource).toContain("config.ai.max_concurrent = settings.ai_max_concurrent;");
+    expect(settingsCommandsSource).toContain('if !(1..=4).contains(&settings.ai_max_concurrent)');
+    expect(aiConfigSource).toContain("max_concurrent: 1,");
+  });
+
 });

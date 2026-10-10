@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { askAiksProgressively } from "../api/rag-progress";
+import { getApi } from "../api/client";
 import type { RagCitation, RagTurn } from "../api/rag";
 
 interface Props {
@@ -51,8 +52,25 @@ export default function AskAiksPanel({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectChoices, setProjectChoices] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void getApi().getKnowledge({ limit: 200 }).then(page => {
+      if (!active) return;
+      const options = Array.from(new Set(
+        page.items.map(item => item.project_name).filter((name): name is string => Boolean(name))
+      )).sort();
+      setProjectChoices(options);
+    }).catch(() => {
+      if (active) setProjectChoices([]);
+    });
+    return () => { active = false; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -106,7 +124,7 @@ export default function AskAiksPanel({
 
     try {
       const result = await askAiksProgressively(
-        { question, history },
+        { question, history, project: selectedProject || undefined },
         {
           onDelta: delta => {
             setMessages(current => current.map(message => (
@@ -177,6 +195,24 @@ export default function AskAiksPanel({
             <X className="h-4 w-4" />
           </button>
         </header>
+        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2 text-xs dark:border-gray-800">
+          <label htmlFor="ask-aiks-project-filter" className="text-gray-500">检索范围</label>
+          <select
+            id="ask-aiks-project-filter"
+            aria-label="问 AIKS 项目范围"
+            value={selectedProject}
+            disabled={loading}
+            onChange={event => {
+              setSelectedProject(event.target.value);
+              setMessages([]);
+              setError(null);
+            }}
+            className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-1.5 text-xs dark:border-gray-700"
+          >
+            <option value="">所有项目</option>
+            {projectChoices.map(project => <option key={project} value={project}>{project}</option>)}
+          </select>
+        </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 dark:bg-gray-950/20">
           {messages.length === 0 ? (
