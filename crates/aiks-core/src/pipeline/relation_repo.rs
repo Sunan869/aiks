@@ -102,10 +102,7 @@ fn ensure_related_knowledge_is_current(
         source.project_name.as_deref(),
         target.project_name.as_deref(),
     ) {
-        if !left.trim().is_empty()
-            && !right.trim().is_empty()
-            && left.trim() != right.trim()
-        {
+        if !left.trim().is_empty() && !right.trim().is_empty() && left.trim() != right.trim() {
             bail!("Cross-project relation needs an explicit project reassignment");
         }
     }
@@ -398,8 +395,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(audit_count, 0, "failed confirmation must not write audit");
-        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
-        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
+        assert_eq!(
+            repo.review(&proposed.id, "rejected").unwrap().status,
+            "rejected"
+        );
+        assert_eq!(
+            repo.review(&proposed.id, "rejected").unwrap().status,
+            "rejected"
+        );
         let review_count: i64 = db
             .conn()
             .query_row(
@@ -418,7 +421,10 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert_eq!(repo.review(&proposed.id, "confirmed").unwrap().status, "confirmed");
+        assert_eq!(
+            repo.review(&proposed.id, "confirmed").unwrap().status,
+            "confirmed"
+        );
         let review_count: i64 = db
             .conn()
             .query_row(
@@ -451,7 +457,10 @@ mod tests {
             .suggest("first", "second", "corrects", "new evidence", None)
             .is_err());
         assert!(repo.review(&proposed.id, "confirmed").is_err());
-        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
+        assert_eq!(
+            repo.review(&proposed.id, "rejected").unwrap().status,
+            "rejected"
+        );
     }
 
     #[test]
