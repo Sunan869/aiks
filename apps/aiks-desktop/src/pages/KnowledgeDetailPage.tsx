@@ -161,6 +161,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       const others = await Promise.all(
         selectedSources.slice(0, 4).map(id => getApi().getKnowledgeDetail(id))
       );
+      // The selection list is only a UI hint. Revalidate fetched records before
+      // giving their contents to the model: a record can change while loading.
+      if (others.some(item => item.id === data.id) || new Set(others.map(item => item.id)).size !== others.length) {
+        throw new Error("知识来源包含重复身份，请重新选择");
+      }
+      if (others.some(item => data.project_name && item.project_name && item.project_name !== data.project_name)) {
+        throw new Error("不能跨已知的不同项目合并知识，请重新选择来源");
+      }
       const sources = [data, ...others];
       const sourceIds = sources.map(item => item.id);
       const sourceContext = sources.map(item => (
