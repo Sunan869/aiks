@@ -200,6 +200,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
   const createDerivedKnowledge = async () => {
     if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    const generation = organizationGeneration.current;
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
@@ -214,6 +215,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       validateOrganizationSources(currentSources[0], currentSources.slice(1));
       if (organizationSourceSnapshot(currentSources) !== organizeSourceSnapshot) {
         throw new Error("来源知识内容或元数据已变化，请重新生成并审核草稿");
+      }
+      if (generation !== organizationGeneration.current) {
+        throw new Error("整理上下文已经切换，请重新审核草稿");
       }
       if (currentSources[0].project_name !== data.project_name) {
         throw new Error("来源项目已变化，请重新生成并审核草稿");
@@ -239,9 +243,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setDerivedArchived(false);
       setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
     } catch (error) {
-      setOrganizeError("创建独立知识失败：" + String(error));
+      if (generation === organizationGeneration.current) {
+        setOrganizeError("创建独立知识失败：" + String(error));
+      }
     } finally {
-      setOrganizeBusy(false);
+      if (generation === organizationGeneration.current) setOrganizeBusy(false);
     }
   };
 
@@ -499,7 +505,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
         <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；审核后可复制或另存独立知识，撤销时归档新知识并可恢复。来源已归档或审核期间发生变化时须重新生成。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="整理方式" value={organizeOperation} onChange={event => {
+          <select aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
             organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
@@ -517,7 +523,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
-              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources}
+              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
                 onChange={event => {
                   setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
                   organizationGeneration.current += 1;
@@ -552,13 +558,13 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
-                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000}
+                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
                   onChange={event => { setOrganizeDraft(event.target.value); setOrganizeConfirmed(false); }}
                   rows={12} className="w-full rounded border bg-transparent p-2 font-mono text-xs dark:border-gray-700" />
               </div>
             </div>
             <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={organizeConfirmed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
+              <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy} onChange={event => setOrganizeConfirmed(event.target.checked)} />
               我已经核对原文与草稿，理解复制不会修改 SiYuan 中的知识。
             </label>
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
