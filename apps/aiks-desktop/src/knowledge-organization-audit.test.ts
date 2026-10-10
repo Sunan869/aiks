@@ -63,6 +63,19 @@ describe("knowledge organization review audit", () => {
     );
     expect(() => validateOrganizationSources(primary, [{ id: "k2", project_name: "project-one" }])).not.toThrow();
     expect(() => validateOrganizationSources(primary, [{ id: "k2", project_name: null }])).not.toThrow();
+    // A null primary does not justify joining sources from two known projects.
+    expect(() => validateOrganizationSources(
+      { id: "k0", project_name: null },
+      [{ id: "k2", project_name: "project-one" }, { id: "k3", project_name: "project-two" }],
+    )).toThrow("不能跨已知的不同项目合并知识");
+    expect(() => validateOrganizationSources(
+      { id: "k0", project_name: null },
+      [{ id: "k2", project_name: "project-one" }, { id: "k3", project_name: null }],
+    )).not.toThrow();
+    expect(() => validateOrganizationSources(
+      { id: "k0", project_name: " project-one " },
+      [{ id: "k2", project_name: "project-one" }],
+    )).not.toThrow();
   });
 
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
