@@ -63,6 +63,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeDraft("");
     setOrganizeConfirmed(false);
     setCreatedKnowledgeId(null);
+    setOrganizeBusy(false);
+    setOrganizeSourceIds([]);
+    setSelectedSources([]);
     void load();
   }, [load]);
   useEffect(() => {
@@ -150,6 +153,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeError(null);
     setOrganizeConfirmed(false);
     setOrganizeDraft("");
+    setOrganizeSourceIds([]);
     setCreatedKnowledgeId(null);
     try {
       const others = await Promise.all(
@@ -181,7 +185,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const createDerivedKnowledge = async () => {
-    if (!data || !organizeConfirmed || !organizeDraft.trim() || organizeBusy) return;
+    if (!data || !organizeConfirmed || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
@@ -227,7 +231,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const copyOrganizationDraft = async () => {
-    if (!organizeConfirmed || !organizeDraft.trim()) return;
+    if (!organizeConfirmed || !organizeDraft.trim() || organizeSourceIds[0] !== data?.id) return;
     try {
       await navigator.clipboard.writeText(organizeDraft);
       setMessage("已复制审核后的草稿。请在 SiYuan 中人工对比原文后编辑，AIKS 未自动写入。");
@@ -421,6 +425,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
+            setOrganizeSourceIds([]);
             setOrganizeConfirmed(false);
             setOrganizeBusy(false);
           }} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-700">
@@ -439,6 +444,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   organizationGeneration.current += 1;
                   setOrganizeConfirmed(false);
                   setOrganizeDraft("");
+                  setOrganizeSourceIds([]);
                   setOrganizeBusy(false);
                 }}
                 className="w-full rounded border border-gray-200 bg-transparent p-2 dark:border-gray-700">
