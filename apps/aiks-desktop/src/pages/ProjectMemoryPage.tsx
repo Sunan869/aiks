@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import type { ProjectMemorySnapshot, ProjectOverview } from "../api/types";
+import { summarizeProjectMemoryQuality } from "../project-memory-quality";
 
 interface Props {
   onOpenKnowledge: (knowledgeId: string) => void;
@@ -119,6 +120,15 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               {detail.project.session_count} 条会话 · {detail.project.knowledge_count} 条知识 · 来源：{detail.project.sources.join("、")}
               {!detail.project.verified_path && " · 路径未确认，独立归档"}
             </p>
+            {(() => {
+              const quality = summarizeProjectMemoryQuality(detail.entries);
+              const flagged = quality.incorrect + quality.outdated + quality.needsDetail + quality.duplicate;
+              return flagged > 0 ? (
+                <p role="status" className="mt-3 rounded border border-amber-300 p-2 text-xs text-amber-700">
+                  当前加载知识含用户质量标记：错误 {quality.incorrect}、过时 {quality.outdated}、需补充 {quality.needsDetail}、可能重复 {quality.duplicate}。请逐条核对来源；该统计不代表自动识别事实矛盾。
+                </p>
+              ) : null;
+            })()}
             <div className="mt-4 space-y-3">
               {detail.entries.map(item => (
                 <article key={item.knowledge_id} className="rounded border p-3 dark:border-gray-700">
