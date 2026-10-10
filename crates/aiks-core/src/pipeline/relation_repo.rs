@@ -28,6 +28,90 @@ pub struct KnowledgeRelation {
     pub updated_at: String,
 }
 
+/// Current project scope of a knowledge item, resolved from the same
+/// canonical Session identity used by Project Memory. We do not rely on
+/// mutable display names when both absolute paths are available.
+struct KnowledgeScope {
+    project_name: Option<String>,
+    verified_project_id: Option<String>,
+    status: String,
+}
+
+fn load_knowledge_scope(
+    conn: &rusqlite::Connection,
+    knowledge_id: &str,
+) -> Result<Option<KnowledgeScope>> {
+    let scope = conn
+        .query_row(
+            "SELECT ki.project_name, ki.status, ss.source,
+                    ss.external_session_id, ss.project_path
+             FROM knowledge_item ki
+             LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+             WHERE ki.id = ?1",
+            [knowledge_id],
+            |row| {
+                let project_name: Option<String> = row.get(0)?;
+                let status: String = row.get(1)?;
+                let source: Option<String> = row.get(2)?;
+                let external: Option<String> = row.get(3)?;
+                let path: Option<String> = row.get(4)?;
+                let verified_project_id =
+                    match (source.as_deref(), external.as_deref(), path.as_deref()) {
+                        (Some(source), Some(external), Some(path)) => {
+                            let (id, _, verified) =
+                                project_identity(source, external, Some(path), None);
+                            verified.then_some(id)
+                        }
+                        _ => None,
+                    };
+                Ok(KnowledgeScope {
+                    project_name,
+                    verified_project_id,
+                    status,
+                })
+            },
+        )
+        .optional()?;
+    Ok(scope)
+}
+
+/// Validation is run both when suggesting a relation and immediately before
+/// human confirmation. Project membership may have changed in between.
+fn ensure_related_knowledge_is_current(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    target_id: &str,
+) -> Result<()> {
+    let (Some(source), Some(target)) = (
+        load_knowledge_scope(conn, source_id)?,
+        load_knowledge_scope(conn, target_id)?,
+    ) else {
+        bail!("Related knowledge item was not found");
+    };
+    if source.status != "active" || target.status != "active" {
+        bail!("Archived or deleted knowledge cannot establish a new relation");
+    }
+    if let (Some(left), Some(right)) = (
+        source.verified_project_id.as_deref(),
+        target.verified_project_id.as_deref(),
+    ) {
+        if left != right {
+            bail!("Cross-project relation is not allowed for different project paths");
+        }
+    } else if let (Some(left), Some(right)) = (
+        source.project_name.as_deref(),
+        target.project_name.as_deref(),
+    ) {
+        if !left.trim().is_empty()
+            && !right.trim().is_empty()
+            && left.trim() != right.trim()
+        {
+            bail!("Cross-project relation needs an explicit project reassignment");
+        }
+    }
+    Ok(())
+}
+
 pub struct RelationRepo<'a> {
     db: &'a StateDb,
 }
@@ -61,52 +145,7 @@ impl<'a> RelationRepo<'a> {
             }
         }
         let conn = self.db.conn();
-        // Display names are not unique project identities. If both knowledge
-        // items belong to sessions with verified absolute project paths,
-        // compare the same stable identity used by Project Memory.
-        let load_project =
-            |knowledge_id: &str| -> Result<Option<(Option<String>, Option<String>)>> {
-                let endpoint: Option<(
-                    Option<String>,
-                    Option<String>,
-                    Option<String>,
-                    Option<String>,
-                )> = conn
-                    .query_row(
-                        "SELECT ki.project_name, ss.source, ss.external_session_id, ss.project_path
-                         FROM knowledge_item ki
-                         LEFT JOIN source_session ss ON ss.id = ki.source_session_id
-                         WHERE ki.id = ?1",
-                        [knowledge_id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                    )
-                    .optional()?;
-                Ok(endpoint.map(|(project, source, external, path)| {
-                    let verified = match (source.as_deref(), external.as_deref(), path.as_deref()) {
-                        (Some(source), Some(external), Some(path)) => {
-                            let (id, _, is_verified) =
-                                project_identity(source, external, Some(path), None);
-                            is_verified.then_some(id)
-                        }
-                        _ => None,
-                    };
-                    (project, verified)
-                }))
-            };
-        let (Some((source_project, source_identity)), Some((target_project, target_identity))) =
-            (load_project(source_id)?, load_project(target_id)?)
-        else {
-            bail!("Related knowledge item was not found");
-        };
-        if let (Some(source), Some(target)) = (&source_identity, &target_identity) {
-            if source != target {
-                bail!("Cross-project relation is not allowed for different project paths");
-            }
-        } else if let (Some(source), Some(target)) = (&source_project, &target_project) {
-            if !source.trim().is_empty() && !target.trim().is_empty() && source != target {
-                bail!("Cross-project relation needs an explicit project reassignment");
-            }
-        }
+        ensure_related_knowledge_is_current(&conn, source_id, target_id)?;
         let now = chrono::Utc::now().to_rfc3339();
         let relation = KnowledgeRelation {
             id: uuid::Uuid::new_v4().to_string(),
@@ -171,16 +210,22 @@ impl<'a> RelationRepo<'a> {
         {
             let mut conn = self.db.conn();
             let tx = conn.transaction()?;
-            let previous: Option<String> = tx
+            let relation: Option<(String, String, String)> = tx
                 .query_row(
-                    "SELECT status FROM knowledge_relation WHERE id = ?1",
+                    "SELECT status, source_id, target_id
+                     FROM knowledge_relation WHERE id = ?1",
                     [relation_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let Some(previous) = previous else {
+            let Some((previous, source_id, target_id)) = relation else {
                 bail!("Knowledge relation was not found");
             };
+            if next_status == "confirmed" && previous != "confirmed" {
+                // Recheck inside the transaction: source knowledge may have
+                // been archived or moved to a different project since review.
+                ensure_related_knowledge_is_current(&tx, &source_id, &target_id)?;
+            }
             if previous != next_status {
                 let now = chrono::Utc::now().to_rfc3339();
                 tx.execute(
@@ -298,6 +343,115 @@ mod tests {
             .unwrap();
         assert_eq!(same_project.status, "suggested");
         assert_eq!(relations.list("knowledge-1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn human_confirmation_rechecks_project_identity_without_losing_review_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("changing-project.db")).unwrap();
+        for (sid, source, path) in [
+            (1, "codex", "C:/workspace/app"),
+            (2, "claude", "c:/workspace/app/"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,?4,'App',
+                             '2026-01-01','2026-01-01','2026-01-01')",
+                    params![sid, source, format!("source-{sid}"), path],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,content,
+                      source_type,managed_by,created_at,updated_at)
+                     VALUES (?1,?2,'App','Fix','Evidence',
+                             'conversation','pipeline','2026-01-01','2026-01-01')",
+                    params![format!("item-{sid}"), sid],
+                )
+                .unwrap();
+        }
+
+        let repo = RelationRepo::new(&db);
+        let proposed = repo
+            .suggest("item-1", "item-2", "supersedes", "reviewed evidence", None)
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE source_session SET project_path = 'D:/workspace/app'
+                 WHERE id = 2",
+                [],
+            )
+            .unwrap();
+        assert!(repo.review(&proposed.id, "confirmed").is_err());
+        assert_eq!(repo.list("item-1").unwrap()[0].status, "suggested");
+        let audit_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_relation_review
+                 WHERE relation_id = ?1",
+                [&proposed.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 0, "failed confirmation must not write audit");
+        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
+        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
+        let review_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_relation_review
+                 WHERE relation_id = ?1",
+                [&proposed.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(review_count, 1, "repeat review must be idempotent");
+
+        db.conn()
+            .execute(
+                "UPDATE source_session SET project_path = 'C:/workspace/app'
+                 WHERE id = 2",
+                [],
+            )
+            .unwrap();
+        assert_eq!(repo.review(&proposed.id, "confirmed").unwrap().status, "confirmed");
+        let review_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_relation_review
+                 WHERE relation_id = ?1",
+                [&proposed.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(review_count, 2);
+    }
+
+    #[test]
+    fn archived_source_cannot_be_suggested_or_confirmed_but_can_be_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("archived-relations.db")).unwrap();
+        add_knowledge(&db, "first", "alpha");
+        add_knowledge(&db, "second", "alpha");
+        let repo = RelationRepo::new(&db);
+        let proposed = repo
+            .suggest("first", "second", "related", "source evidence", None)
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE knowledge_item SET status = 'archived' WHERE id = 'second'",
+                [],
+            )
+            .unwrap();
+        assert!(repo
+            .suggest("first", "second", "corrects", "new evidence", None)
+            .is_err());
+        assert!(repo.review(&proposed.id, "confirmed").is_err());
+        assert_eq!(repo.review(&proposed.id, "rejected").unwrap().status, "rejected");
     }
 
     #[test]
