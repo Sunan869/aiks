@@ -123,6 +123,8 @@ describe("knowledge organization review audit", () => {
       { content: "Use PostgreSQL" }, { title: "New decision" },
       { summary: "Revised" }, { project_name: "project-b" },
       { category: "architecture" }, { tags: '["updated"]' },
+      { status: "archived" }, { managed_by: "user" },
+      { siyuan_doc_id: "other-document" },
     ]) {
       expect(organizationSourceSnapshot([{ ...original, ...change }])).not.toBe(before);
     }
