@@ -46,6 +46,11 @@ const BUDGET_CHARS_PER_TOKEN: f64 = 2.0;
 /// Tokens reserved for the system prompt + prompt frame + /no_think suffix.
 const PROMPT_OVERHEAD_TOKENS: usize = 2_000;
 
+/// A user may opt into modest parallelism; zero is treated as sequential.
+fn extraction_batch_size(configured: usize) -> usize {
+    configured.clamp(1, 4)
+}
+
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
         let client = AiClient::new(config.clone())?;
@@ -317,21 +322,39 @@ impl AiStage {
             "[AI] Chunk cache summary"
         );
 
-        // Respect the configured extraction concurrency, but retain the
-        // validated two-request safety ceiling until model-load benchmarks
-        // justify increasing it. Zero is treated as sequential execution.
-        // Never queue all requests to an unbounded local model backend.
-        let batch_size = self.config.max_concurrent.clamp(1, 2);
+        // Default remains sequential; explicitly configured parallelism is
+        // bounded so local model endpoints cannot receive unbounded load.
+        let batch_size = extraction_batch_size(self.config.max_concurrent);
         let mut batch_latencies_ms = Vec::new();
         for batch in pending.chunks(batch_size) {
             let started = Instant::now();
-            let first = self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2);
-            let responses = if batch.len() == 2 {
-                let second = self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2);
-                let (a, b) = tokio::join!(first, second);
-                vec![a, b]
-            } else {
-                vec![first.await]
+            let responses = match batch.len() {
+                1 => vec![self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2).await],
+                2 => {
+                    let (a, b) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                    );
+                    vec![a, b]
+                }
+                3 => {
+                    let (a, b, c) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                    );
+                    vec![a, b, c]
+                }
+                4 => {
+                    let (a, b, c, d) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[3].2),
+                    );
+                    vec![a, b, c, d]
+                }
+                _ => unreachable!("extraction concurrency is bounded to four"),
             };
             batch_latencies_ms.push(started.elapsed().as_millis() as u64);
             // Persist each successful result even if the other request failed,
