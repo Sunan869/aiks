@@ -370,6 +370,39 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <button type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</button>
         {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
+        <div className="mt-4 rounded border border-gray-200 p-3 dark:border-gray-700">
+          <h3 className="text-xs font-semibold">知识演进时间线</h3>
+          <p className="mt-1 text-xs text-gray-500">按关系更新时间排序；仅“已确认”代表人工确认的关联，其他状态不作为确定的演进事实。</p>
+          <ol className="mt-3 space-y-3 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
+            {[...relations].sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id)).map(relation => {
+              const source = relationCandidates.find(item => item.id === relation.source_id);
+              const target = relationCandidates.find(item => item.id === relation.target_id);
+              const labels: Record<KnowledgeRelationType, string> = {
+                related: "相关", supplements: "补充", corrects: "纠正",
+                supersedes: "替代", resolved_by: "由其解决",
+              };
+              return (
+                <li key={relation.id} className="relative text-xs">
+                  <span aria-hidden="true" className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <time className="text-gray-500">{relation.updated_at.slice(0, 10)}</time>
+                    <span className="font-medium">{labels[relation.relation_type]}</span>
+                    <span className={relation.status === "confirmed" ? "text-green-700" : "text-amber-700"}>
+                      {relation.status === "confirmed" ? "已确认" : relation.status === "suggested" ? "待审核" : "已拒绝"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <button type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.source_id)} className="text-blue-600 disabled:text-gray-500">{source?.title ?? relation.source_id}</button>
+                    <span aria-hidden="true">→</span>
+                    <button type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.target_id)} className="text-blue-600 disabled:text-gray-500">{target?.title ?? relation.target_id}</button>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-gray-500">证据：{relation.evidence}</p>
+                </li>
+              );
+            })}
+          </ol>
+          {relations.length === 0 && <p className="mt-2 text-xs text-gray-500">暂无关系记录；添加证据后可提出演进关系建议。</p>}
+        </div>
         <div className="mt-3 space-y-2">
           {relations.map(relation => {
             const counterpartId = relation.source_id === knowledgeId ? relation.target_id : relation.source_id;
