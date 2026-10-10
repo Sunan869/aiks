@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendOrganizationAudit } from "./knowledge-organization-audit";
+import { appendOrganizationAudit, validateOrganizationSources } from "./knowledge-organization-audit";
 
 describe("knowledge organization review audit", () => {
   it("preserves the reviewed draft and links all selected sources", () => {
@@ -49,6 +49,20 @@ describe("knowledge organization review audit", () => {
     expect(() => appendOrganizationAudit("x".repeat(250_001), "structure", ["k1"], "2026-10-10T01:00:00.000Z")).toThrow(
       "Reviewed knowledge draft exceeds the supported size",
     );
+  });
+
+  it("rejects duplicate and cross-project sources after fetching them", () => {
+    const primary = { id: "k1", project_name: "project-one" };
+    expect(() => validateOrganizationSources(primary, [{ id: "k1", project_name: "project-one" }])).toThrow();
+    expect(() => validateOrganizationSources(primary, [
+      { id: "k2", project_name: "project-one" },
+      { id: "k2", project_name: "project-one" },
+    ])).toThrow();
+    expect(() => validateOrganizationSources(primary, [{ id: "k2", project_name: "project-two" }])).toThrow(
+      "不能跨已知的不同项目合并知识",
+    );
+    expect(() => validateOrganizationSources(primary, [{ id: "k2", project_name: "project-one" }])).not.toThrow();
+    expect(() => validateOrganizationSources(primary, [{ id: "k2", project_name: null }])).not.toThrow();
   });
 
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
