@@ -27,6 +27,13 @@ describe("knowledge organization review audit", () => {
     expect(() => appendOrganizationAudit("draft", "structure", ["k1\n## forged"], "2026-10-10T01:00:00.000Z")).toThrow();
   });
 
+  it("rejects unknown audit operations even from untyped persisted input", () => {
+    const stamp = "2026-10-10T01:00:00.000Z";
+    expect(() => appendOrganizationAudit("draft", "forged\\n## override" as never, ["k1"], stamp)).toThrow(
+      "Unsupported knowledge organization operation",
+    );
+  });
+
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
     const stamp = "2026-10-10T01:00:00.000Z";
     for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
