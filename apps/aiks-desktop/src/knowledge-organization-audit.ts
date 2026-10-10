@@ -115,7 +115,7 @@ export function buildOrganizationSourceContext(
     throw new Error("Invalid knowledge organization source identities");
   }
   const text = sources.map(item =>
-    "## 资料：" + item.title.replace(/[\\r\\n]+/g, " ") + "（知识 ID：" + item.id + "）\n\n" + item.content
+    "## 资料：" + item.title.replace(/[\r\n]+/g, " ") + "（知识 ID：" + item.id + "）\n\n" + item.content
   ).join("\n\n---\n\n");
   if (text.length > maxChars) {
     throw new Error("知识来源内容过长，请减少来源或缩短文档后重新整理");
