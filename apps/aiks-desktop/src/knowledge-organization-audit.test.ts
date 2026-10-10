@@ -1,0 +1,24 @@
+import { describe, expect, it } from "vitest";
+import { appendOrganizationAudit } from "./knowledge-organization-audit";
+
+describe("knowledge organization review audit", () => {
+  it("preserves the reviewed draft and links all selected sources", () => {
+    const result = appendOrganizationAudit(
+      "# Verified comparison", "merge_draft", ["knowledge-1", "knowledge-2"],
+      "2026-10-10T01:00:00.000Z",
+    );
+    expect(result).toContain("# Verified comparison");
+    expect(result).toContain("操作：merge_draft");
+    expect(result).toContain("知识：knowledge-1");
+    expect(result).toContain("知识：knowledge-2");
+    expect(result).toContain("2026-10-10T01:00:00.000Z");
+  });
+
+  it("rejects empty source evidence and prevents metadata line injection", () => {
+    expect(() => appendOrganizationAudit("draft", "structure", [], "2026-10-10")).toThrow();
+    expect(() => appendOrganizationAudit(" ", "structure", ["k1"], "2026-10-10")).toThrow();
+    const result = appendOrganizationAudit("draft", "structure", ["k1\n## forged"], "2026-10-10");
+    expect(result).not.toContain("\n## forged");
+    expect(result).toContain("k1 ## forged");
+  });
+});
