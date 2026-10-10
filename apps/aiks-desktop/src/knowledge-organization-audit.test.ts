@@ -79,6 +79,14 @@ describe("knowledge organization review audit", () => {
     )).not.toThrow();
   });
 
+  it("rejects archived sources before calling the model or creating knowledge", () => {
+    const active = { id: "k1", project_name: "project-a", status: "active" };
+    const archived = { id: "k2", project_name: "project-a", status: "archived" };
+    expect(() => validateOrganizationSources(active, [archived])).toThrow("已归档知识");
+    expect(() => validateOrganizationSources(archived, [active])).toThrow("已归档知识");
+    expect(() => validateOrganizationSources(active, [{ ...archived, status: "active" }])).not.toThrow();
+  });
+
   it("bounds the number of fetched sources before organization starts", () => {
     const primary = { id: "primary", project_name: null };
     const others = Array.from({ length: 100 }, (_, i) => ({ id: "k" + i, project_name: null }));
