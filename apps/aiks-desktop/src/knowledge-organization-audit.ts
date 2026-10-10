@@ -10,7 +10,10 @@ export function appendOrganizationAudit(
   if (!draft.trim() || sourceIds.length === 0 || sourceIds.some(id => !id.trim())) {
     throw new Error("A reviewed draft and explicit source identities are required");
   }
-  const evidence = sourceIds.map(id => "- AIKS 知识：" + id.replace(/[\r\n]/g, " ")).join("\n");
+  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(confirmedAt) || Number.isNaN(Date.parse(confirmedAt))) {
+    throw new Error("Review timestamp must be a valid UTC ISO instant");
+  }
+  const evidence = [...new Set(sourceIds)].map(id => "- AIKS 知识：" + id.replace(/[\r\n]/g, " ")).join("\n");
   return [
     draft, "", "---", "", "## AIKS 整理审核记录",
     "操作：" + operation,
