@@ -687,9 +687,10 @@ fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<Str
 fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
     result.knowledge_score.is_finite()
         && (0.0..=1.0).contains(&result.knowledge_score)
-        && result.items.iter().all(|item| {
-            item.confidence.is_finite() && (0.0..=1.0).contains(&item.confidence)
-        })
+        && result
+            .items
+            .iter()
+            .all(|item| item.confidence.is_finite() && (0.0..=1.0).contains(&item.confidence))
 }
 
 /// Accept only strictly serialized, score-valid cache entries. A damaged
