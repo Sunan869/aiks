@@ -241,7 +241,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
       setDerivedArchived(false);
-      setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
+      setMessage("已在 SiYuan 新建独立知识文档，原文保持不变。归档仅改变 AIKS 本地状态，不删除 SiYuan 文档。");
     } catch (error) {
       if (generation === organizationGeneration.current) {
         setOrganizeError("创建独立知识失败：" + String(error));
@@ -257,7 +257,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeError(null);
     try {
       await getApi().archiveKnowledge(createdKnowledgeId);
-      setMessage("已将本次生成的知识文档归档；来源知识仍保留。");
+      setMessage("已在 AIKS 本地归档新知识；来源知识和 SiYuan 文档仍保留。");
       setDerivedArchived(true);
     } catch (error) {
       setOrganizeError("归档生成的知识失败：" + String(error));
@@ -273,7 +273,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       await getApi().restoreKnowledge(createdKnowledgeId);
       setDerivedArchived(false);
-      setMessage("已恢复本次整理生成的知识；来源知识未修改。");
+      setMessage("已恢复 AIKS 本地知识状态；来源知识和 SiYuan 文档未修改。");
     } catch (error) {
       setOrganizeError("恢复生成的知识失败：" + String(error));
     } finally {
@@ -503,7 +503,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
-        <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；审核后可复制或另存独立知识，撤销时归档新知识并可恢复。来源已归档或审核期间发生变化时须重新生成。</p>
+        <p className="mb-3 text-xs text-gray-500">生成建议只预览、不写入；确认「创建」会在 SiYuan 新增独立文档，不覆盖原文。归档与恢复仅变更 AIKS 本地状态，不会删除 SiYuan 文档。来源变化后须重新审核。</p>
         <div className="flex flex-wrap gap-2">
           <select aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
             organizationGeneration.current += 1;
@@ -546,7 +546,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             {organizeBusy ? "生成中..." : "生成整理建议"}
           </button>
         </div>
-        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可生成只读整理草稿；不会自动创建或覆盖 SiYuan 文档。</p>}
+        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可先生成草稿；创建新知识需要 SiYuan 可用，并会新增独立 SiYuan 文档，原文不变。</p>}
         {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
@@ -565,7 +565,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             </div>
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy} onChange={event => setOrganizeConfirmed(event.target.checked)} />
-              我已经核对原文与草稿，理解复制不会修改 SiYuan 中的知识。
+              我已核对原文与草稿，理解复制不写入、确认创建会新增独立 SiYuan 文档。
             </label>
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
               onClick={() => void copyOrganizationDraft()}
@@ -575,15 +575,15 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim() || organizeBusy || Boolean(createdKnowledgeId)}
               onClick={() => void createDerivedKnowledge()}
               className="ml-2 rounded border border-emerald-300 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
-              创建为新的知识文档（不覆盖原文）
+              确认创建新的 SiYuan 知识文档（不覆盖原文）
             </button>
             {createdKnowledgeId && (
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 {onOpenKnowledge && <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</button>}
                 {derivedArchived ? (
-                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复本次整理生成的知识</button>
+                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复新知识（本地状态）</button>
                 ) : (
-                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>撤销本次整理（归档新知识）</button>
+                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>归档新知识（SiYuan 文档保留）</button>
                 )}
               </div>
             )}
