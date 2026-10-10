@@ -198,6 +198,18 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
+      // A draft may remain open while sources are edited or reclassified.
+      // Recheck their current existence and project scope before saving.
+      const currentSources = await Promise.all(
+        organizeSourceIds.map(id => getApi().getKnowledgeDetail(id))
+      );
+      if (currentSources.some((item, index) => item.id !== organizeSourceIds[index])) {
+        throw new Error("知识来源身份已变化，请重新生成并审核草稿");
+      }
+      validateOrganizationSources(currentSources[0], currentSources.slice(1));
+      if (currentSources[0].project_name !== data.project_name) {
+        throw new Error("来源项目已变化，请重新生成并审核草稿");
+      }
       const content = appendOrganizationAudit(organizeDraft, reviewedOperation, organizeSourceIds, new Date().toISOString());
       const labels: Record<string, string> = {
         compare: "来源对比",
