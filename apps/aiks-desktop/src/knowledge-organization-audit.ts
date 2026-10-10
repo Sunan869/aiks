@@ -84,11 +84,15 @@ export function organizationSourceSnapshot(
     project_name: string | null;
     category: string;
     tags: string;
+    status?: string;
+    managed_by?: string | null;
+    siyuan_doc_id?: string | null;
   }>,
 ): string {
   return JSON.stringify(sources.map(source => [
     source.id, source.title, source.content, source.summary,
     source.project_name, source.category, source.tags,
+    source.status ?? null, source.managed_by ?? null, source.siyuan_doc_id ?? null,
   ]));
 }
 
