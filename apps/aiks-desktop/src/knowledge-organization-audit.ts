@@ -7,6 +7,13 @@ export function appendOrganizationAudit(
   sourceIds: string[],
   confirmedAt: string,
 ): string {
+  // Validate at runtime too: imported callers and persisted drafts bypass TypeScript types.
+  const allowedOperations: readonly string[] = [
+    "structure", "rewrite", "key_conclusions", "compare", "merge_draft",
+  ];
+  if (!allowedOperations.includes(operation)) {
+    throw new Error("Unsupported knowledge organization operation");
+  }
   if (!draft.trim() || sourceIds.length === 0 || sourceIds.some(id => !id.trim())) {
     throw new Error("A reviewed draft and explicit source identities are required");
   }
