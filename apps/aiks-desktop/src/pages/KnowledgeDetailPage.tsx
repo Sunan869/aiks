@@ -48,6 +48,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeError, setOrganizeError] = useState<string | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
+  const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
   const organizationGeneration = useRef(0);
 
@@ -67,6 +68,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setCreatedKnowledgeId(null);
     setOrganizeBusy(false);
     setOrganizeSourceIds([]);
+    setReviewedOperation(null);
     setSelectedSources([]);
     void load();
   }, [load]);
@@ -156,6 +158,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeConfirmed(false);
     setOrganizeDraft("");
     setOrganizeSourceIds([]);
+    setReviewedOperation(null);
     setCreatedKnowledgeId(null);
     try {
       const others = await Promise.all(
@@ -181,6 +184,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
       if (generation !== organizationGeneration.current) return;
       setOrganizeSourceIds(sourceIds);
+      setReviewedOperation(organizeOperation);
       setOrganizeDraft(suggestion.text);
     } catch (error) {
       if (generation === organizationGeneration.current) setOrganizeError("生成建议失败：" + String(error));
@@ -190,11 +194,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const createDerivedKnowledge = async () => {
-    if (!data || !organizeConfirmed || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    if (!data || !organizeConfirmed || !reviewedOperation || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
-      const content = appendOrganizationAudit(organizeDraft, organizeOperation, organizeSourceIds, new Date().toISOString());
+      const content = appendOrganizationAudit(organizeDraft, reviewedOperation, organizeSourceIds, new Date().toISOString());
       const labels: Record<string, string> = {
         compare: "来源对比",
         merge_draft: "多来源整理",
@@ -203,7 +207,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         key_conclusions: "关键结论",
       };
       const created = await getApi().createKnowledge({
-        title: data.title + " · " + (labels[organizeOperation] ?? "整理草稿"),
+        title: data.title + " · " + (labels[reviewedOperation] ?? "整理草稿"),
         category: data.category,
         project_name: data.project_name,
         summary: "由用户确认的 AIKS 知识整理结果；请通过来源知识 ID 核验。",
