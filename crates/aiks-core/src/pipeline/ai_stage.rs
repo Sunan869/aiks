@@ -657,6 +657,19 @@ fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<Str
 /// The error preview is cut on character boundaries (UTF-8 safe).
 /// Public for testing.
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
+    let result = parse_v3_result_unchecked(response)?;
+    if !result.knowledge_score.is_finite()
+        || !(0.0..=1.0).contains(&result.knowledge_score)
+        || result.items.iter().any(|item| {
+            !item.confidence.is_finite() || !(0.0..=1.0).contains(&item.confidence)
+        })
+    {
+        anyhow::bail!("AI extraction response contains invalid score or confidence");
+    }
+    Ok(result)
+}
+
+fn parse_v3_result_unchecked(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let clean = clean_json(response);
     if clean.is_empty() || (!clean.starts_with('{')) {
         anyhow::bail!(
@@ -1214,6 +1227,14 @@ mod tests {
         let context = chunk_context(Some("A"), Some("B"), "line1\nline2");
         assert!(context.contains("结果。\nline1\nline2"));
         assert!(!context.contains(r"结果。\nline1"));
+    }
+
+    #[test]
+    fn production_parser_rejects_out_of_range_model_scores() {
+        let skip = r#"{"session_summary":"test","knowledge_score":1.5,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(skip).unwrap_err().to_string().contains("invalid score"));
+        let nan = r#"{"session_summary":"test","knowledge_score":-0.1,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(nan).is_err());
     }
 
     #[test]
