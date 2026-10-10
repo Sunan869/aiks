@@ -24,7 +24,7 @@ describe("knowledge organization review audit", () => {
   it("rejects empty source evidence and prevents metadata line injection", () => {
     expect(() => appendOrganizationAudit("draft", "structure", [], "2026-10-10")).toThrow();
     expect(() => appendOrganizationAudit(" ", "structure", ["k1"], "2026-10-10")).toThrow();
-    const result = appendOrganizationAudit("draft", "structure", ["k1\n## forged"], "2026-10-10");
+    const result = appendOrganizationAudit("draft", "structure", ["k1\n## forged"], "2026-10-10T01:00:00.000Z");
     expect(result).not.toContain("\n## forged");
     expect(result).toContain("k1 ## forged");
   });
