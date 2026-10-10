@@ -308,10 +308,9 @@ mod tests {
         }
         let tasks = TaskCenterRepo::new(&db);
         assert_eq!(tasks.stats().unwrap().ai_issues, 0);
-        for (job, generation, status) in [
-            ("stale-running", 1, "RUNNING"),
-            ("latest-done", 2, "DONE"),
-        ] {
+        for (job, generation, status) in
+            [("stale-running", 1, "RUNNING"), ("latest-done", 2, "DONE")]
+        {
             db.conn()
                 .execute(
                     "INSERT INTO pipeline_job
