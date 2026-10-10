@@ -150,7 +150,7 @@ impl AiStage {
         let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let context = chunk_context(session_title, project_name, &sanitized);
+            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
             let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
             let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
@@ -454,11 +454,11 @@ impl AiStage {
     }
 }
 
-fn chunk_context(title: Option<&str>, project: Option<&str>, chunk: &str) -> String {
+fn chunk_context(sanitizer: &SecretSanitizer, title: Option<&str>, project: Option<&str>, chunk: &str) -> String {
     format!(
         "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
-        title.unwrap_or("未知会话"),
-        project.unwrap_or("未知"),
+        sanitizer.sanitize(title.unwrap_or("未知会话")),
+        sanitizer.sanitize(project.unwrap_or("未知")),
         chunk
     )
 }
@@ -1226,7 +1226,7 @@ mod tests {
 
     #[test]
     fn single_chunk_prompt_includes_project_and_session_context() {
-        let context = chunk_context(Some("Codex repair"), Some("AIKS"), "fixed login flow");
+        let context = chunk_context(&SecretSanitizer::new(), Some("Codex repair"), Some("AIKS"), "fixed login flow");
         let prompt = make_v3_extraction_prompt(&context);
         assert!(prompt.contains("Codex repair"));
         assert!(prompt.contains("AIKS"));
@@ -1235,8 +1235,22 @@ mod tests {
     }
 
     #[test]
+    fn extraction_metadata_is_sanitized_before_external_model_calls() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Bearer abcdefghijklmnopqrstuvwxyz"),
+            Some("API_KEY=secretvalue123"),
+            "safe session content",
+        );
+        assert!(!context.contains("abcdefghijklmnopqrstuvwxyz"));
+        assert!(!context.contains("secretvalue123"));
+        assert!(context.contains("safe session content"));
+        assert!(context.contains("[REDACTED]"));
+    }
+
+    #[test]
     fn chunk_context_preserves_real_line_breaks() {
-        let context = chunk_context(Some("A"), Some("B"), "line1\nline2");
+        let context = chunk_context(&SecretSanitizer::new(), Some("A"), Some("B"), "line1\nline2");
         assert!(context.contains("结果。\nline1\nline2"));
         assert!(!context.contains(r"结果。\nline1"));
     }
