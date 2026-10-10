@@ -35,7 +35,10 @@ pub fn render_project_review(
     let mut other = Vec::new();
     for item in &snapshot.entries {
         // Reports must not present knowledge flagged as incorrect or outdated as verified work.
-        if matches!(item.feedback_status.as_deref(), Some("incorrect" | "outdated")) {
+        if matches!(
+            item.feedback_status.as_deref(),
+            Some("incorrect" | "outdated")
+        ) {
             continue;
         }
         let Some(date) = item.updated_at.get(..10) else {
