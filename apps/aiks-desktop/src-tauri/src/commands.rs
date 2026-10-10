@@ -58,6 +58,7 @@ pub struct AppSettings {
     pub redact_secrets: bool,
     pub ai_enabled: bool,
     pub ai_auto_extract: bool,
+    pub ai_max_concurrent: usize,
     pub ai_base_url: String,
     pub ai_model: String,
 }
@@ -75,6 +76,7 @@ impl AppSettings {
             redact_secrets: config.security.redact_secrets,
             ai_enabled: config.ai.enabled,
             ai_auto_extract: config.ai.auto_extract,
+            ai_max_concurrent: config.ai.max_concurrent.clamp(1, 4),
             ai_base_url: config.ai.base_url.clone(),
             ai_model: config.ai.model.clone(),
         }
@@ -235,6 +237,7 @@ fn apply_settings_to_config(config: &mut aiks_core::Config, settings: &AppSettin
     config.desktop.close_to_tray = settings.close_to_tray;
     config.ai.enabled = settings.ai_enabled;
     config.ai.auto_extract = settings.ai_auto_extract;
+    config.ai.max_concurrent = settings.ai_max_concurrent;
     config.ai.base_url = settings
         .ai_base_url
         .trim()
@@ -300,6 +303,9 @@ pub async fn save_settings(
     if settings.ai_model.trim().is_empty() {
         return Err("AI 模型不能为空".to_string());
     }
+    if !(1..=4).contains(&settings.ai_max_concurrent) {
+        return Err("AI 提炼并发数必须为 1–4".to_string());
+    }
 
     let mut config = load_settings_config()?;
     apply_settings_to_config(&mut config, &settings);
@@ -337,11 +343,13 @@ mod settings_mapping_tests {
         let mut edited = defaults;
         edited.ai_base_url = "http://example.invalid/v1".to_string();
         edited.ai_model = "model-from-settings".to_string();
+        edited.ai_max_concurrent = 3;
         edited.close_to_tray = false;
         apply_settings_to_config(&mut config, &edited);
 
         assert_eq!(config.ai.base_url, "http://example.invalid/v1");
         assert_eq!(config.ai.model, "model-from-settings");
+        assert_eq!(config.ai.max_concurrent, 3);
         assert!(!config.desktop.close_to_tray);
         assert!(config.embedding.enabled);
         assert_eq!(config.ai.api_key.as_deref(), Some("preserve-me"));
