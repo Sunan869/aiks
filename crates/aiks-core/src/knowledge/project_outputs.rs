@@ -210,9 +210,9 @@ mod tests {
     #[test]
     fn agent_context_sanitizes_timestamps_and_respects_character_budget() {
         let mut data = snapshot();
-        data.entries[0].updated_at = "2026-10-09\\n## Forged timestamp".into();
+        data.entries[0].updated_at = "2026-10-09\n## Forged timestamp".into();
         let context = render_agent_context(&data, 256);
-        assert!(!context.contains("\\n## Forged timestamp"));
+        assert!(!context.contains("\n## Forged timestamp"));
         assert!(context.chars().count() <= 256 * 3);
     }
 
