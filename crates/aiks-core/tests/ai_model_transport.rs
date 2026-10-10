@@ -50,7 +50,10 @@ fn scripted_server(statuses: &[u16]) -> (String, thread::JoinHandle<Vec<Value>>)
                 ),
                 401 => ("Unauthorized", r#"{"error":{"message":"bad credentials"}}"#),
                 429 => ("Too Many Requests", r#"{"error":{"message":"busy"}}"#),
-                503 => ("Service Unavailable", r#"{"error":{"message":"overloaded"}}"#),
+                503 => (
+                    "Service Unavailable",
+                    r#"{"error":{"message":"overloaded"}}"#,
+                ),
                 _ => panic!("unsupported scripted status: {status}"),
             };
             let response = format!(
@@ -78,7 +81,10 @@ fn client(url: String) -> AiClient {
 #[tokio::test]
 async fn overloaded_completion_recovers_after_two_bounded_retries() {
     let (url, server) = scripted_server(&[429, 503, 200]);
-    let result = client(url).chat_detailed("system", "question").await.unwrap();
+    let result = client(url)
+        .chat_detailed("system", "question")
+        .await
+        .unwrap();
     assert_eq!(result.content, "Recovered answer");
     let usage = result.usage.unwrap();
     assert_eq!(usage.prompt_tokens, Some(11));
