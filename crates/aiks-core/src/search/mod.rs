@@ -644,21 +644,38 @@ fn feedback_multiplier(kind: Option<&str>) -> f32 {
 }
 
 fn apply_feedback_rerank(db: &StateDb, hits: &mut [UnifiedSearchHit]) -> anyhow::Result<()> {
-    use rusqlite::OptionalExtension;
-
-    let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT kind FROM knowledge_feedback WHERE knowledge_id = ?1
-         ORDER BY created_at DESC, id DESC LIMIT 1",
-    )?;
-    for hit in hits.iter_mut() {
-        if hit.corpus != SearchCorpus::Knowledge {
-            continue;
+    let ids: Vec<&str> = hits
+        .iter()
+        .filter(|hit| hit.corpus == SearchCorpus::Knowledge)
+        .map(|hit| hit.entity_id.as_str())
+        .collect();
+    let mut latest = HashMap::new();
+    if !ids.is_empty() {
+        // One bounded query instead of one SQLite round-trip per search hit.
+        // Correlated LIMIT 1 preserves the existing created_at/id ordering.
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let sql = format!(
+            "SELECT DISTINCT knowledge_id,
+                (SELECT kind FROM knowledge_feedback AS newest
+                 WHERE newest.knowledge_id = base.knowledge_id
+                 ORDER BY newest.created_at DESC, newest.id DESC LIMIT 1)
+             FROM knowledge_feedback AS base
+             WHERE knowledge_id IN ({placeholders})"
+        );
+        let conn = db.conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(ids), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, kind) = row?;
+            latest.insert(id, kind);
         }
-        let latest: Option<String> = stmt
-            .query_row([&hit.entity_id], |row| row.get(0))
-            .optional()?;
-        hit.score *= feedback_multiplier(latest.as_deref());
+    }
+    for hit in hits.iter_mut() {
+        if hit.corpus == SearchCorpus::Knowledge {
+            hit.score *= feedback_multiplier(latest.get(&hit.entity_id).map(String::as_str));
+        }
     }
     hits.sort_by(|a, b| {
         b.score
