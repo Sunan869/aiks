@@ -340,7 +340,11 @@ impl AiStage {
         for batch in pending.chunks(batch_size) {
             let started = Instant::now();
             let responses = match batch.len() {
-                1 => vec![self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2).await],
+                1 => vec![
+                    self.client
+                        .chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2)
+                        .await,
+                ],
                 2 => {
                     let (a, b) = tokio::join!(
                         self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
