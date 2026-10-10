@@ -64,9 +64,14 @@ pub async fn assist_knowledge_v42(
 
 fn validate_document_scope(doc_id: &str, operation: &AiAssistOperation) -> Result<(), String> {
     if doc_id.trim().is_empty()
-        && !matches!(operation, AiAssistOperation::Structure | AiAssistOperation::Rewrite
-            | AiAssistOperation::KeyConclusions | AiAssistOperation::Compare
-            | AiAssistOperation::MergeDraft)
+        && !matches!(
+            operation,
+            AiAssistOperation::Structure
+                | AiAssistOperation::Rewrite
+                | AiAssistOperation::KeyConclusions
+                | AiAssistOperation::Compare
+                | AiAssistOperation::MergeDraft
+        )
     {
         return Err("siyuan_doc_id must not be empty for canonical metadata edits".to_string());
     }
@@ -79,9 +84,13 @@ mod tests {
 
     #[test]
     fn draft_only_operations_can_use_local_knowledge_without_siyuan_doc() {
-        for operation in [AiAssistOperation::Structure, AiAssistOperation::Rewrite,
-            AiAssistOperation::KeyConclusions, AiAssistOperation::Compare,
-            AiAssistOperation::MergeDraft] {
+        for operation in [
+            AiAssistOperation::Structure,
+            AiAssistOperation::Rewrite,
+            AiAssistOperation::KeyConclusions,
+            AiAssistOperation::Compare,
+            AiAssistOperation::MergeDraft,
+        ] {
             assert!(validate_document_scope("", &operation).is_ok());
         }
         assert!(validate_document_scope("", &AiAssistOperation::Summary).is_err());
