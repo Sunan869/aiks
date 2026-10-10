@@ -202,6 +202,8 @@ impl AiStage {
                     "cache_hits": cache_hits,
                     "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                     "llm_calls": llm_calls,
+                    "configured_concurrency": self.config.max_concurrent,
+                    "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
                     "actual_usage": actual_usage
                 })),
                 None,
@@ -246,6 +248,8 @@ impl AiStage {
                 "cache_hits": cache_hits,
                 "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                 "llm_calls": llm_calls,
+                "configured_concurrency": self.config.max_concurrent,
+                "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
                 "actual_usage": actual_usage
             })),
             None,
