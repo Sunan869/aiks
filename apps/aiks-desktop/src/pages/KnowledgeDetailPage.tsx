@@ -4,6 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
+import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
   knowledgeId: string;
@@ -374,7 +375,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <h3 className="text-xs font-semibold">知识演进时间线</h3>
           <p className="mt-1 text-xs text-gray-500">按关系更新时间排序；仅“已确认”代表人工确认的关联，其他状态不作为确定的演进事实。</p>
           <ol className="mt-3 space-y-3 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
-            {[...relations].sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id)).map(relation => {
+            {visibleEvolutionTimeline(relations).map(relation => {
               const source = relationCandidates.find(item => item.id === relation.source_id);
               const target = relationCandidates.find(item => item.id === relation.target_id);
               const labels: Record<KnowledgeRelationType, string> = {
@@ -401,7 +402,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               );
             })}
           </ol>
-          {relations.length === 0 && <p className="mt-2 text-xs text-gray-500">暂无关系记录；添加证据后可提出演进关系建议。</p>}
+          {visibleEvolutionTimeline(relations).length === 0 && <p className="mt-2 text-xs text-gray-500">暂无已确认的演进关系；未确认或已拒绝的关系保留在下方审核区。</p>}
         </div>
         <div className="mt-3 space-y-2">
           {relations.map(relation => {
