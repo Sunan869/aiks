@@ -28,4 +28,15 @@ describe("knowledge organization review audit", () => {
     expect(result).not.toContain("\n## forged");
     expect(result).toContain("k1 ## forged");
   });
+
+  it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
+    const stamp = "2026-10-10T01:00:00.000Z";
+    for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
+      expect(() => appendOrganizationAudit("draft", "structure", [id], stamp)).toThrow();
+    }
+    expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 101 }, (_, i) => "k" + i), stamp)).toThrow();
+    const safe = appendOrganizationAudit("draft", "structure", [" k1 ", "k1", "k2"], stamp);
+    expect(safe.match(/AIKS 知识：k1/g)).toHaveLength(1);
+  });
+
 });

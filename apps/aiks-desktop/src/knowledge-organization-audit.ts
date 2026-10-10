@@ -13,7 +13,15 @@ export function appendOrganizationAudit(
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(confirmedAt) || Number.isNaN(Date.parse(confirmedAt))) {
     throw new Error("Review timestamp must be a valid UTC ISO instant");
   }
-  const evidence = [...new Set(sourceIds)].map(id => "- AIKS 知识：" + id.replace(/[\r\n]/g, " ")).join("\n");
+  // Audit references are IDs, never free-form Markdown or injected headings.
+  if (sourceIds.length > 100) {
+    throw new Error("Too many source identities for one review");
+  }
+  const ids = sourceIds.map(id => id.trim());
+  if (ids.some(id => id.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id))) {
+    throw new Error("Invalid source knowledge identity");
+  }
+  const evidence = [...new Set(ids)].map(id => "- AIKS 知识：" + id).join("\n");
   return [
     draft, "", "---", "", "## AIKS 整理审核记录",
     "操作：" + operation,
