@@ -36,32 +36,50 @@ $sandbox = Join-Path $env:TEMP ("aiks-provider-acceptance-" + [guid]::NewGuid().
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $priorDataDir = [Environment]::GetEnvironmentVariable("AIKS_DATA_DIR", "Process")
 $records = New-Object System.Collections.Generic.List[object]
+$scanFailure = $null
 try {
     # Isolates persistent scan bookkeeping; Provider source directories stay untouched.
     [Environment]::SetEnvironmentVariable("AIKS_DATA_DIR", $sandbox, "Process")
     for ($i = 1; $i -le $Runs; $i++) {
         $watch = [Diagnostics.Stopwatch]::StartNew()
-        & $exe --config $resolvedConfig scan *> $null
-        $exit = $LASTEXITCODE
-        $watch.Stop()
+        $exit = -1
+        try {
+            # Redirect everything: source paths, tokens and raw transcripts must
+            # never enter the aggregate acceptance report.
+            & $exe --config $resolvedConfig scan *> $null
+            $exit = $LASTEXITCODE
+        }
+        catch {
+            # Native-process exceptions also yield a sanitized failed record.
+            $exit = -1
+        }
+        finally {
+            $watch.Stop()
+        }
         $records.Add([PSCustomObject]@{
             iteration = $i
             elapsed_ms = $watch.ElapsedMilliseconds
             exit_code = $exit
             success = ($exit -eq 0)
         })
-        if ($exit -ne 0) { throw "Scan iteration $i failed; no upstream files were changed." }
+        if ($exit -ne 0) {
+            $scanFailure = "Scan iteration $i failed (exit $exit); see local private logs for details."
+            break
+        }
     }
     $report = [PSCustomObject]@{
         schema_version = 1
         platform = "windows"
         measured_at_utc = [DateTime]::UtcNow.ToString("o")
-        run_count = $Runs
-        # Do not include configuration contents, paths, source transcripts or credentials.
+        requested_runs = $Runs
+        completed_runs = $records.Count
+        all_success = ($null -eq $scanFailure)
+        # No paths, configuration, stdout, stderr, tokens or source content.
         results = @($records.ToArray())
     }
     $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ReportPath -Encoding UTF8 -NoNewline
     Write-Host ("Saved aggregate Provider timing report: " + $ReportPath)
+    if ($null -ne $scanFailure) { throw $scanFailure }
 }
 finally {
     [Environment]::SetEnvironmentVariable("AIKS_DATA_DIR", $priorDataDir, "Process")
