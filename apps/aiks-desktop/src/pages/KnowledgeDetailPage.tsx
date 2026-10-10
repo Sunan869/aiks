@@ -143,7 +143,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const suggestOrganization = async () => {
-    if (!data?.siyuan_doc_id) return;
+    if (!data) return;
     if ((organizeOperation === "compare" || organizeOperation === "merge_draft") && selectedSources.length === 0) {
       setOrganizeError("多来源对比或合并至少需要另外选中一条知识");
       return;
@@ -165,7 +165,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         "## 资料：" + item.title + "（知识 ID：" + item.id + "）\n\n" + item.content
       )).join("\n\n---\n\n");
       const suggestion = await getApi().assistKnowledge({
-        siyuanDocId: data.siyuan_doc_id,
+        siyuanDocId: data.siyuan_doc_id ?? "",
         operation: organizeOperation,
         title: data.title,
         content: sourceContext,
@@ -454,13 +454,13 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               </select>
             </label>
           )}
-          <button type="button" disabled={organizeBusy || !data.siyuan_doc_id}
+          <button type="button" disabled={organizeBusy}
             onClick={() => void suggestOrganization()}
             className="rounded bg-indigo-600 px-3 py-2 text-xs text-white disabled:opacity-40">
             {organizeBusy ? "生成中..." : "生成整理建议"}
           </button>
         </div>
-        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-amber-600">该知识尚无 SiYuan 文档，暂不能调用整理助手。</p>}
+        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可生成只读整理草稿；不会自动创建或覆盖 SiYuan 文档。</p>}
         {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
