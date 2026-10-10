@@ -27,5 +27,10 @@ describe("controlled knowledge organization", () => {
     const archived = await api.archiveKnowledge(created.id);
     expect(archived.status).toBe("archived");
     expect((await api.getKnowledgeDetail(original.id)).status).toBe(original.status);
+    const restored = await api.restoreKnowledge(created.id);
+    expect(restored.id).toBe(created.id);
+    expect(restored.status).not.toBe("archived");
+    expect((await api.getKnowledgeDetail(original.id)).content).toBe(original.content);
+    expect((await api.getKnowledgeDetail(original.id)).status).toBe(original.status);
   });
 });
