@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendOrganizationAudit, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
 
 describe("knowledge organization review audit", () => {
   it("preserves the reviewed draft and links all selected sources", () => {
@@ -127,6 +127,17 @@ describe("knowledge organization review audit", () => {
       expect(organizationSourceSnapshot([{ ...original, ...change }])).not.toBe(before);
     }
     expect(organizationSourceSnapshot([original, { ...original, id: "k2" }])).not.toBe(before);
+  });
+
+  it("bounds model input without truncating source evidence", () => {
+    const sources = [{ id: "k1", title: "Note", content: "important evidence" }];
+    const context = buildOrganizationSourceContext(sources);
+    expect(context).toContain("important evidence");
+    expect(context).toContain("知识 ID：k1");
+    expect(() => buildOrganizationSourceContext(sources, context.length - 1)).toThrow("知识来源内容过长");
+    expect(() => buildOrganizationSourceContext(sources, context.length)).not.toThrow();
+    expect(() => buildOrganizationSourceContext(sources, 250_001)).toThrow();
+    expect(() => buildOrganizationSourceContext([{ ...sources[0], content: "x".repeat(250_000) }])).toThrow();
   });
 
 });
