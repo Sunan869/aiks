@@ -222,7 +222,11 @@ mod tests {
             Some("2026-10-04T00:00:00Z")
         );
         let all = TaskCenterRepo::new(&db).list_recent(10).unwrap();
-        assert_eq!(all.len(), 2, "multiple pipeline runs must not duplicate a session");
+        assert_eq!(
+            all.len(),
+            2,
+            "multiple pipeline runs must not duplicate a session"
+        );
     }
 
     #[test]
