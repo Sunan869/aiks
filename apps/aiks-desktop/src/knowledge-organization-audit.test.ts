@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendOrganizationAudit, validateOrganizationSources } from "./knowledge-organization-audit";
+import { appendOrganizationAudit, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
 
 describe("knowledge organization review audit", () => {
   it("preserves the reviewed draft and links all selected sources", () => {
@@ -109,6 +109,24 @@ describe("knowledge organization review audit", () => {
     expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 101 }, (_, i) => "k" + i), stamp)).toThrow();
     const safe = appendOrganizationAudit("draft", "structure", [" k1 ", "k1", "k2"], stamp);
     expect(safe.match(/AIKS 知识：k1/g)).toHaveLength(1);
+  });
+
+  it("detects source content and metadata edits before a reviewed draft is saved", () => {
+    const original = {
+      id: "k1", title: "Decision", content: "Use SQLite",
+      summary: "Database choice", project_name: "project-a",
+      category: "decision", tags: "[]",
+    };
+    const before = organizationSourceSnapshot([original]);
+    expect(organizationSourceSnapshot([{ ...original }])).toBe(before);
+    for (const change of [
+      { content: "Use PostgreSQL" }, { title: "New decision" },
+      { summary: "Revised" }, { project_name: "project-b" },
+      { category: "architecture" }, { tags: '["updated"]' },
+    ]) {
+      expect(organizationSourceSnapshot([{ ...original, ...change }])).not.toBe(before);
+    }
+    expect(organizationSourceSnapshot([original, { ...original, id: "k2" }])).not.toBe(before);
   });
 
 });
