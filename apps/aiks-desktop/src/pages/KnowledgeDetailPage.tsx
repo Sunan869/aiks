@@ -4,7 +4,7 @@ import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
-import { appendOrganizationAudit, validateOrganizationSources } from "../knowledge-organization-audit";
+import { appendOrganizationAudit, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 
 interface Props {
@@ -48,6 +48,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeError, setOrganizeError] = useState<string | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
+  const [organizeSourceSnapshot, setOrganizeSourceSnapshot] = useState<string | null>(null);
   const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
   const [derivedArchived, setDerivedArchived] = useState(false);
@@ -70,6 +71,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setDerivedArchived(false);
     setOrganizeBusy(false);
     setOrganizeSourceIds([]);
+    setOrganizeSourceSnapshot(null);
     setReviewedOperation(null);
     setSelectedSources([]);
     void load();
@@ -187,6 +189,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
       if (generation !== organizationGeneration.current) return;
       setOrganizeSourceIds(sourceIds);
+      setOrganizeSourceSnapshot(organizationSourceSnapshot(sources));
       setReviewedOperation(organizeOperation);
       setOrganizeDraft(suggestion.text);
     } catch (error) {
@@ -197,7 +200,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const createDerivedKnowledge = async () => {
-    if (!data || !organizeConfirmed || !reviewedOperation || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
@@ -210,6 +213,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         throw new Error("知识来源身份已变化，请重新生成并审核草稿");
       }
       validateOrganizationSources(currentSources[0], currentSources.slice(1));
+      if (organizationSourceSnapshot(currentSources) !== organizeSourceSnapshot) {
+        throw new Error("来源知识内容或元数据已变化，请重新生成并审核草稿");
+      }
       if (currentSources[0].project_name !== data.project_name) {
         throw new Error("来源项目已变化，请重新生成并审核草稿");
       }
@@ -499,6 +505,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
             setOrganizeSourceIds([]);
+            setOrganizeSourceSnapshot(null);
             setOrganizeConfirmed(false);
             setOrganizeBusy(false);
           }} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-700">
@@ -518,6 +525,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   setOrganizeConfirmed(false);
                   setOrganizeDraft("");
                   setOrganizeSourceIds([]);
+                  setOrganizeSourceSnapshot(null);
                   setOrganizeBusy(false);
                 }}
                 className="w-full rounded border border-gray-200 bg-transparent p-2 dark:border-gray-700">
