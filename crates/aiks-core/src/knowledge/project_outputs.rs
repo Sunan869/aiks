@@ -34,6 +34,10 @@ pub fn render_project_review(
     let mut solutions = Vec::new();
     let mut other = Vec::new();
     for item in &snapshot.entries {
+        // Reports must not present knowledge flagged as incorrect or outdated as verified work.
+        if matches!(item.feedback_status.as_deref(), Some("incorrect" | "outdated")) {
+            continue;
+        }
         let Some(date) = item.updated_at.get(..10) else {
             continue;
         };
@@ -170,6 +174,19 @@ mod tests {
         assert!(report.contains("bounded queue"));
         assert!(!report.contains("Deprecated recommendation"));
         assert!(render_project_review(&snapshot(), "2026-10-10", "2026-10-09").is_err());
+    }
+
+    #[test]
+    fn reviewed_reports_exclude_disputed_and_outdated_knowledge() {
+        let mut data = snapshot();
+        data.entries[1].updated_at = "2026-10-09".into();
+        let report = render_project_review(&data, "2026-10-09", "2026-10-09").unwrap();
+        assert!(report.contains("bounded queue"));
+        assert!(!report.contains("Deprecated recommendation"));
+        data.entries[0].feedback_status = Some("incorrect".into());
+        let report = render_project_review(&data, "2026-10-09", "2026-10-09").unwrap();
+        assert!(!report.contains("bounded queue"));
+        assert!(report.contains("没有对应的可核实记录"));
     }
 
     #[test]
