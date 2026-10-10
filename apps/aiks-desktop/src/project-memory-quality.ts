@@ -20,3 +20,11 @@ export function summarizeProjectMemoryQuality(entries: ProjectMemoryEntry[]): Pr
   }
   return result;
 }
+
+/** Preserve the original evidence order while locating items requiring review. */
+export function reviewRequiredProjectKnowledge<T extends ProjectMemoryEntry>(entries: T[]): T[] {
+  return entries.filter(item =>
+    item.feedback_status === "incorrect" || item.feedback_status === "outdated" ||
+    item.feedback_status === "needs_detail" || item.feedback_status === "duplicate"
+  );
+}
