@@ -359,7 +359,10 @@ async fn session_pipeline_does_not_write_knowledge_chunks_before_publication() {
 fn ai_defaults_match_managed_deployment() {
     let config = AiModelConfig::default();
 
-    assert!(!config.enabled, "AI must be opt-in for personal offline installs");
+    assert!(
+        !config.enabled,
+        "AI must be opt-in for personal offline installs"
+    );
     assert_eq!(config.base_url, "http://127.0.0.1:11434/v1");
     assert_eq!(config.model, "qwen3");
     assert!(
