@@ -43,3 +43,16 @@ export function appendOrganizationAudit(
     "来源知识：", evidence,
   ].join("\n");
 }
+
+/** Recheck fetched source identities; UI filtering is not a trust boundary. */
+export function validateOrganizationSources(
+  primary: { id: string; project_name: string | null },
+  others: ReadonlyArray<{ id: string; project_name: string | null }>,
+): void {
+  if (others.some(item => item.id === primary.id) || new Set(others.map(item => item.id)).size !== others.length) {
+    throw new Error("知识来源包含重复身份，请重新选择");
+  }
+  if (others.some(item => primary.project_name && item.project_name && item.project_name !== primary.project_name)) {
+    throw new Error("不能跨已知的不同项目合并知识，请重新选择来源");
+  }
+}
