@@ -51,6 +51,17 @@ fn extraction_batch_size(configured: usize) -> usize {
     configured.clamp(1, 4)
 }
 
+#[cfg(test)]
+#[test]
+fn extraction_concurrency_respects_explicit_bound_and_sequential_default() {
+    assert_eq!(extraction_batch_size(0), 1);
+    assert_eq!(extraction_batch_size(1), 1);
+    assert_eq!(extraction_batch_size(2), 2);
+    assert_eq!(extraction_batch_size(3), 3);
+    assert_eq!(extraction_batch_size(4), 4);
+    assert_eq!(extraction_batch_size(usize::MAX), 4);
+}
+
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
         let client = AiClient::new(config.clone())?;
