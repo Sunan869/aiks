@@ -21,10 +21,10 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "Rust Cargo is required for this read-only Provider acceptance script."
 }
 $exe = Join-Path $repoRoot "target\debug\aiks-cli.exe"
-if (-not (Test-Path -LiteralPath $exe)) {
-    & cargo build -p aiks-cli --manifest-path (Join-Path $repoRoot "Cargo.toml") | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed to build aiks-cli." }
-}
+# Always rebuild incrementally to test the currently checked-out source.
+# Reusing an existing debug executable can silently benchmark an older commit.
+& cargo build -p aiks-cli --manifest-path (Join-Path $repoRoot "Cargo.toml") | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Failed to build current aiks-cli sources." }
 if (-not (Test-Path -LiteralPath $exe)) { throw "aiks-cli.exe is unavailable." }
 
 if (-not $ReportPath) {
