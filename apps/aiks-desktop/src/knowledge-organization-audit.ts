@@ -52,7 +52,12 @@ export function validateOrganizationSources(
   if (others.some(item => item.id === primary.id) || new Set(others.map(item => item.id)).size !== others.length) {
     throw new Error("知识来源包含重复身份，请重新选择");
   }
-  if (others.some(item => primary.project_name && item.project_name && item.project_name !== primary.project_name)) {
+  // A missing project on the primary item does not make conflicting known
+  // projects among the additional sources safe to combine.
+  const knownProjects = new Set([primary, ...others]
+    .map(item => item.project_name?.trim())
+    .filter((name): name is string => Boolean(name)));
+  if (knownProjects.size > 1) {
     throw new Error("不能跨已知的不同项目合并知识，请重新选择来源");
   }
 }
