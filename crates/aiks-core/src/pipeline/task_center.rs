@@ -200,20 +200,31 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        for (run, status, updated) in [
-            ("old-run", "FAILED", "2026-10-02T00:00:00Z"),
-            ("current-run", "READY", "2026-10-04T00:00:00Z"),
-        ] {
-            db.conn()
-                .execute(
-                    "INSERT INTO pipeline_run
-                     (id, session_id, pipeline_version, status, created_at, updated_at)
-                     VALUES (?1, ?2, 'v3', ?3, ?4, ?4)",
-                    params![run, older_id, status, updated],
-                )
-                .unwrap();
-        }
-        let recent = TaskCenterRepo::new(&db).list_recent(1).unwrap();
+        // The schema allows one v3 pipeline_run per Session. Update its
+        // persisted status instead of inventing parallel historical runs.
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, pipeline_version, status, created_at, updated_at)
+                 VALUES ('current-run', ?1, 'v3', 'FAILED',
+                         '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z')",
+                params![older_id],
+            )
+            .unwrap();
+        let tasks = TaskCenterRepo::new(&db);
+        assert_eq!(
+            tasks.list_recent(1).unwrap()[0].external_session_id,
+            "newer-session"
+        );
+        db.conn()
+            .execute(
+                "UPDATE pipeline_run SET status = 'READY',
+                 updated_at = '2026-10-04T00:00:00Z'
+                 WHERE id = 'current-run'",
+                [],
+            )
+            .unwrap();
+        let recent = tasks.list_recent(1).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].external_session_id, "older-session");
         assert_eq!(recent[0].pipeline_status.as_deref(), Some("READY"));
@@ -293,20 +304,27 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        for (run, status, updated) in [
-            ("previous-failure", "FAILED", "2026-10-01T00:00:00Z"),
-            ("latest-success", "READY", "2026-10-02T00:00:00Z"),
-        ] {
-            db.conn()
-                .execute(
-                    "INSERT INTO pipeline_run
-                     (id, session_id, pipeline_version, status, created_at, updated_at)
-                     VALUES (?1, ?2, 'v3', ?3, ?4, ?4)",
-                    params![run, id, status, updated],
-                )
-                .unwrap();
-        }
+        // A pipeline is updated in place: (session_id, pipeline_version)
+        // is UNIQUE, so a failure and its later success share one run ID.
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, pipeline_version, status, created_at, updated_at)
+                 VALUES ('current-run', ?1, 'v3', 'FAILED',
+                         '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')",
+                params![id],
+            )
+            .unwrap();
         let tasks = TaskCenterRepo::new(&db);
+        assert_eq!(tasks.stats().unwrap().ai_issues, 1);
+        db.conn()
+            .execute(
+                "UPDATE pipeline_run SET status = 'READY',
+                 updated_at = '2026-10-02T00:00:00Z'
+                 WHERE id = 'current-run'",
+                [],
+            )
+            .unwrap();
         assert_eq!(tasks.stats().unwrap().ai_issues, 0);
         for (job, generation, status) in
             [("stale-running", 1, "RUNNING"), ("latest-done", 2, "DONE")]
@@ -317,7 +335,7 @@ mod tests {
                      (id, source, external_session_id, generation, status,
                       created_at, updated_at, session_id, pipeline_run_id)
                      VALUES (?1, 'codex', 'historical-errors', ?2, ?3,
-                             'now', 'now', ?4, 'latest-success')",
+                             'now', 'now', ?4, 'current-run')",
                     params![job, generation, status, id],
                 )
                 .unwrap();
