@@ -4,6 +4,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::ai::ModelService;
+use crate::util::SecretSanitizer;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -119,12 +120,16 @@ fn build_prompt(request: &AiAssistRequest) -> anyhow::Result<(String, String)> {
          未要求的字段必须返回 null 或空数组。不得编造输入中不存在的事实。"
     );
 
+    // AI Assist may target a user-configured remote model. Sanitize every
+    // user-controlled field at the external-send boundary, while keeping the
+    // original knowledge and the reviewed local draft unchanged.
+    let sanitizer = SecretSanitizer::new();
     let context = serde_json::json!({
-        "title": request.title,
-        "content": request.content,
-        "existing_summary": request.existing_summary,
-        "existing_tags": request.existing_tags,
-        "existing_category": request.existing_category,
+        "title": sanitizer.sanitize(&request.title),
+        "content": sanitizer.sanitize(&request.content),
+        "existing_summary": request.existing_summary.as_deref().map(|value| sanitizer.sanitize(value)),
+        "existing_tags": request.existing_tags.iter().map(|value| sanitizer.sanitize(value)).collect::<Vec<_>>(),
+        "existing_category": request.existing_category.as_deref().map(|value| sanitizer.sanitize(value)),
     });
     let user = format!(
         "请处理下面的知识文档上下文：\n{}",
@@ -269,6 +274,31 @@ mod tests {
         let mut allowed = request;
         allowed.content = "a".repeat(1_000_000);
         validate_request(&allowed).unwrap();
+    }
+
+    #[test]
+    fn ai_assist_sanitizes_all_fields_before_sending_to_model() {
+        let request = AiAssistRequest {
+            operation: AiAssistOperation::MergeDraft,
+            title: "API_KEY=titleSecret123".into(),
+            content: "Authorization: Bearer contentSecret123456789".into(),
+            existing_summary: Some("Bearer summarySecret123456789".into()),
+            existing_tags: vec!["token=tagSecret123".into()],
+            existing_category: Some("password=categorySecret123".into()),
+        };
+        let original = request.content.clone();
+        let (_system, user) = build_prompt(&request).unwrap();
+        for secret in [
+            "titleSecret123",
+            "contentSecret123456789",
+            "summarySecret123456789",
+            "tagSecret123",
+            "categorySecret123",
+        ] {
+            assert!(!user.contains(secret), "secret leaked into AI Assist prompt");
+        }
+        assert!(user.contains("[REDACTED]"));
+        assert_eq!(request.content, original, "sanitizing must not mutate source knowledge");
     }
 
     #[test]
