@@ -312,11 +312,15 @@ mod tests {
         let memory = service.get(&projects[0].id, 20).unwrap();
         assert!(!memory.truncated);
         assert_eq!(memory.entries.len(), 2);
-        assert!(memory.entries.iter().any(|entry| {
-            entry.source == "codex" && entry.session_external_id == "tool-1"
-        }));
+        assert!(memory
+            .entries
+            .iter()
+            .any(|entry| { entry.source == "codex" && entry.session_external_id == "tool-1" }));
         assert!(memory.entries.iter().any(|entry| entry.source == "claude"));
-        assert!(!memory.entries.iter().any(|entry| entry.source == "opencode"));
+        assert!(!memory
+            .entries
+            .iter()
+            .any(|entry| entry.source == "opencode"));
 
         let limited = service.get(&projects[0].id, 1).unwrap();
         assert_eq!(limited.entries.len(), 1);
