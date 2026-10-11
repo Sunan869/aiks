@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
+import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
 import type { ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview } from "../api/types";
 import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
 import { summarizeProjectMemoryQuality } from "../project-memory-quality";
@@ -46,6 +47,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [notice, setNotice] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [sourceFilter, setSourceFilter] = useState("");
+  const [agentFormat, setAgentFormat] = useState<AgentExportFormat>("markdown");
   const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
 
@@ -72,6 +74,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setDetail(null);
     setOnlyFlagged(false);
     setSourceFilter("");
+    setAgentFormat("markdown");
     setTopicFilter("all");
     setViewMode("list");
     getApi().getProjectMemory(selected).then(snapshot => {
@@ -79,6 +82,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     }).catch(reason => { if (mounted) setError(String(reason)); });
     return () => { mounted = false; };
   }, [selected]);
+
+  // Changing any export parameter invalidates old, potentially edited Markdown.
+  // It also invalidates responses from a request started under older settings.
+  const invalidatePreview = () => {
+    generation.current += 1;
+    setPreview("");
+    setPreviewType("");
+    setNotice("");
+    setWorking(false);
+  };
 
   const generate = async (kind: "review" | "agent") => {
     if (!selected || working) return;
@@ -96,7 +109,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         : await getApi().createAgentContextPack(selected, tokenBudget, sourceFilter || undefined);
       if (requestId !== generation.current) return;
       setPreviewType(kind);
-      setPreview(output);
+      setPreview(kind === "agent" ? renderAgentSuggestion(output, agentFormat) : output);
     } catch (reason) {
       if (requestId === generation.current) setError(String(reason));
     } finally {
@@ -111,15 +124,17 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
 
   const downloadPreview = () => {
     if (!preview.trim() || !previewType) return;
-    const safeProject = (detail?.project.title || "project")
-      .replace(/[\\\\/:*?"<>|\\u0000-\\u001f]/g, "_").trim().slice(0, 60) || "project";
-    const suffix = previewType === "review" ? "review" : "agent-context";
+    const filename = projectExportFileName(
+      detail?.project.title,
+      previewType === "review" ? "review" : "agent",
+      agentFormat,
+    );
     const blob = new Blob([preview], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     try {
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `AIKS-${safeProject}-${suffix}.md`;
+      anchor.download = filename;
       anchor.click();
       setNotice("已请求保存审核后的 Markdown 文件，未修改任何项目指令文件。");
     } finally {
@@ -228,32 +243,47 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               <select id="project-memory-source" value={sourceFilter}
                 className="rounded border bg-transparent p-2 dark:border-gray-700"
                 onChange={event => {
-                  generation.current += 1;
+                  invalidatePreview();
                   setSourceFilter(event.target.value);
-                  setPreview("");
-                  setPreviewType("");
-                  setNotice("");
-                  setWorking(false);
                 }}>
                 <option value="">全部来源</option>
                 {detail.project.sources.map(source => <option key={source} value={source}>{source}</option>)}
               </select>
             </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
-              <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => setFrom(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
-              <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => setThrough(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
+              <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => { invalidatePreview(); setFrom(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
+              <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => { invalidatePreview(); setThrough(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
+            </div>
+            <div className="mb-3 space-y-2 text-xs">
+              <label className="flex items-center gap-2">
+                Agent 导出格式
+                <select aria-label="Agent 导出格式" value={agentFormat}
+                  className="rounded border bg-transparent p-2 dark:border-gray-700"
+                  onChange={event => {
+                    invalidatePreview();
+                    setAgentFormat(event.target.value as AgentExportFormat);
+                  }}>
+                  {AGENT_EXPORT_FORMATS.map(format => (
+                    <option key={format.value} value={format.value}>{format.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-gray-500">
+                AGENTS.md / CLAUDE.md 仅生成可审核的引用建议片段，不自动读取、覆盖或合并已有文件。
+                切换来源、格式或预算会清空旧预览，避免错误导出。
+              </p>
             </div>
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
               <label>上下文 Token 预算（估算）
                 <input aria-label="Token 预算" type="number" min={256} max={8192} value={tokenBudget}
-                  onChange={e => setTokenBudget(Math.max(256, Math.min(8192, Number(e.target.value) || 256)))} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
+                  onChange={e => { invalidatePreview(); setTokenBudget(Math.max(256, Math.min(8192, Number(e.target.value) || 256))); }} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
               </label>
               <button disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</button>
             </div>
             {previewType && (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500">{previewType === "review" ? "回顾 Markdown" : "Agent Markdown"} · 可编辑预览</p>
+                <p className="text-xs text-gray-500">{previewType === "review" ? "回顾 Markdown" : agentFormat === "markdown" ? "Agent Markdown" : `${agentFormat === "agents" ? "AGENTS.md" : "CLAUDE.md"} 建议片段`} · 可编辑预览</p>
                 <textarea aria-label="导出内容预览" value={preview} onChange={e => setPreview(e.target.value)} rows={15}
                   className="w-full rounded border bg-transparent p-3 font-mono text-xs dark:border-gray-700" />
                 <div className="flex flex-wrap gap-2">
