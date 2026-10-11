@@ -61,6 +61,40 @@ function makeKnowledge(i: number): KnowledgeSummary {
 }
 
 const sessions = Array.from({ length: 60 }, (_, i) => makeSession(i + 1));
+/**
+ * Mirror the Rust relation trust boundary: two distinct Provider Sessions
+ * must share a verified canonical path (or a user-bound project path).
+ * Matching display names alone are NOT provenance. Manual/manual relations
+ * are explicit user annotations and keep their project-name requirement.
+ */
+function checkRelationScope(source: KnowledgeSummary, target: KnowledgeSummary): void {
+  if (source.status !== "active" || target.status !== "active") {
+    throw new Error("Archived or deleted knowledge cannot be linked");
+  }
+  const leftSession = sessions.find(item => item.id === source.session_id);
+  const rightSession = sessions.find(item => item.id === target.session_id);
+  if ((source.session_id !== null && !leftSession) ||
+      (target.session_id !== null && !rightSession)) {
+    throw new Error("Source Session is missing");
+  }
+  const leftPath = leftSession
+    ? (localProjectBindings.get(leftSession.id)?.project_id || leftSession.project_path)
+    : null;
+  const rightPath = rightSession
+    ? (localProjectBindings.get(rightSession.id)?.project_id || rightSession.project_path)
+    : null;
+  if (leftPath && rightPath) {
+    if (leftPath !== rightPath) throw new Error("Cross-project relation blocked");
+    return;
+  }
+  if (leftPath || rightPath) throw new Error("Mixed verified and unverified projects blocked");
+  if (leftSession && rightSession && leftSession.id === rightSession.id) return;
+  if (!leftSession && !rightSession &&
+      source.project_name?.trim() && source.project_name.trim() === target.project_name?.trim()) return;
+  throw new Error("Unverified cross-Session relation blocked");
+}
+
+
 let knowledge = Array.from({ length: 36 }, (_, i) => makeKnowledge(i + 1));
 let workbenchMode: WorkspaceMode = "knowledge";
 
@@ -326,7 +360,7 @@ export class MockAiksApi implements AiksApi {
     const source = knowledge.find(item => item.id === sourceId);
     const target = knowledge.find(item => item.id === targetId);
     if (!source || !target) throw new Error("Knowledge item not found");
-    if (source.project_name && target.project_name && source.project_name !== target.project_name) throw new Error("Cross-project relation blocked");
+    checkRelationScope(source, target);
     if (knowledgeRelations.some(item => item.source_id === sourceId && item.target_id === targetId && item.relation_type === relationType)) throw new Error("Duplicate relation");
     const now = new Date().toISOString();
     const relation: KnowledgeRelation = { id: "rel_" + Date.now() + "_" + knowledgeRelations.length, source_id: sourceId, target_id: targetId, relation_type: relationType, status: "suggested", evidence: evidence.trim(), confidence: null, created_at: now, updated_at: now };
@@ -338,6 +372,12 @@ export class MockAiksApi implements AiksApi {
     await delay();
     const relation = knowledgeRelations.find(item => item.id === relationId);
     if (!relation) throw new Error("Knowledge relation not found");
+    if (decision === "confirmed" && relation.status !== "confirmed") {
+      const source = knowledge.find(item => item.id === relation.source_id);
+      const target = knowledge.find(item => item.id === relation.target_id);
+      if (!source || !target) throw new Error("Knowledge relation source is missing");
+      checkRelationScope(source, target);
+    }
     relation.status = decision;
     relation.updated_at = new Date().toISOString();
     return { ...relation };

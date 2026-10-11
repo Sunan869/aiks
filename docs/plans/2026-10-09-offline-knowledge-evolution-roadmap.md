@@ -595,3 +595,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Rust Core 新增 `pipeline/first_run.rs` 只读检查：源 Session 必须仍在、SiYuan sync_target 是 SYNCED/UNCHANGED、没有 PENDING/RUNNING 持久任务，且不存在除明确 RAW_ONLY 外的现有 V3 Pipeline 记录；遗留 Tauri 命令改为调用该 Core 检查后再走原有 `enqueue_pipeline_for_session`，**不能通过直接 IPC 重放绕过验证**。另给 `retry_failed_ai_task` 加当前 READY/PROCESSING 的优先拒绝，即使数据库仍保留旧 FAILED job，也不得将已完成/当前进行中 Pipeline 当成失败重试。
 - 新增真实 SQLite Core 测试覆盖原文未同步/冲突、正确同步、缺失源、历史 FAILED/READY/PROCESSING/DISCOVERED、RAW_ONLY、持久队列 PENDING/RUNNING/CANCELLED；前端 Vitest 覆盖状态路由、错误传播和原生命令契约。无 SQLite 迁移，不创建第二套队列，不修改 Provider/SiYuan 原始数据；新增 `docs/acceptance/processing-detail-safe-retry.md` 作为后续 Windows、嵌入式 SiYuan 故障注入入口。
 - 本轮只解决代码边界与自动化测试，**不能把固定 SQLite/Mock 通过视为 Windows 真机连续同步或真实模型通过**；异步入队与用户真实环境的竞态仍需集中验收。S1.3 完整备份/恢复继续等所有其他代码级事项完成后最后开发，不合并 main、不发布 Release。
+
+### 2026-10-11 S2.3 关系来源隔离：阻止同名/无路径 Session 的错误关联
+
+- 基线 `396bd84f` 的综合 CI `38127158109`、Windows Provider `38127158018` 已成功。复核真实 SQLite 的 `RelationRepo::ensure_related_knowledge_is_current` 发现：如果关系的任意一端没有**已核实绝对路径**，旧代码回退为对比可变 `project_name`；不同的 Codex/Claude Code/OpenCode 会话即使都没有来源路径，只要项目显示名称相同就可提交乃至确认关系。若一个端点有可靠路径、另一个没有路径，同名时也会通过。另一个缺口是没有检查源 Session `is_missing`，可继续确认已缺失 Session 所属的旧关系。
+- 本批重新定义权威关系边界：两端都有可靠路径身份（含人工项目归属 `project_session_binding`）时必须相同；两端路径都无法核实时仅允许**确属同一 canonical Session** 的两条知识；两端皆为用户手动知识且明示相同非空项目名时，仍允许用户主动提出证据关系，保留原有手工工作流；**不同路径状态的混合、不同的无路径 Session 同名匹配、缺失源 Session 一律拒绝**。人工可以先使用 S3.1 已有本地项目归属修正显式归组，再重新提交。确认时在事务中再次校验当前范围，拒绝时保留原有审核证据而不要求来源可用。
+- Rust Core 补真实 SQLite 回归，覆盖同名无路径跨 Provider 拒绝、同 Session 无路径允许、人工归属之后允许、混合已验证/未验证拒绝、源 Session 丢失后禁止新增及确认但允许拒绝；保留现有人工手工同项目关系案例。Desktop Mock 建立同等建议/确认边界，避免前端测试误将显示名作为关系凭据；知识详情候选不再仅凭 mutable `project_name` 隐藏同路径跨 Provider 合法来源，说明候选列表本身不是授权结果。
+- `docs/acceptance/project-relation-source-isolation.md` 提供真实 Windows 三 Provider + SQLite/SiYuan 负例入口。**不将来源绑定/同路径关系推导为客观事实矛盾**，关系仍先建议、待用户确认；不修改来源知识、Provider、SiYuan 文档，也不新增 migration。新 HEAD 尚待独立 CI 和 Windows 真机人工确认，S1.3 完整备份恢复继续排在其他代码级功能之后。

@@ -489,11 +489,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
-        <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。</p>
+        <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。</p>
         <div className="flex flex-wrap gap-2">
           <input aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
           <datalist id="knowledge-relation-candidates">
-            {relationCandidates.filter(item => item.id !== knowledgeId && (!data.project_name || !item.project_name || item.project_name === data.project_name)).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+            {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
           <select aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
             <option value="related">相关</option>
@@ -503,6 +503,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="resolved_by">由其解决</option>
           </select>
         </div>
+        <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <button type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</button>
         {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}

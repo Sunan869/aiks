@@ -28,11 +28,12 @@ pub struct KnowledgeRelation {
     pub updated_at: String,
 }
 
-/// Current project scope of a knowledge item, resolved from the same
-/// canonical Session identity used by Project Memory. We do not rely on
-/// mutable display names when both absolute paths are available.
+/// Canonical knowledge provenance. An unknown Session path does not become
+/// a verified project just because two display names match.
 struct KnowledgeScope {
     project_name: Option<String>,
+    source_session_id: Option<i64>,
+    is_missing: bool,
     verified_project_id: Option<String>,
     status: String,
 }
@@ -43,8 +44,9 @@ fn load_knowledge_scope(
 ) -> Result<Option<KnowledgeScope>> {
     let scope = conn
         .query_row(
-            "SELECT ki.project_name, ki.status, ss.source,
-                    ss.external_session_id, COALESCE(pb.project_path,ss.project_path)
+            "SELECT ki.project_name,ki.status,ki.source_session_id,
+                    ss.is_missing,ss.source,ss.external_session_id,
+                    COALESCE(pb.project_path,ss.project_path)
              FROM knowledge_item ki
              LEFT JOIN source_session ss ON ss.id = ki.source_session_id
              LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
@@ -53,9 +55,11 @@ fn load_knowledge_scope(
             |row| {
                 let project_name: Option<String> = row.get(0)?;
                 let status: String = row.get(1)?;
-                let source: Option<String> = row.get(2)?;
-                let external: Option<String> = row.get(3)?;
-                let path: Option<String> = row.get(4)?;
+                let source_session_id: Option<i64> = row.get(2)?;
+                let missing_flag: Option<i64> = row.get(3)?;
+                let source: Option<String> = row.get(4)?;
+                let external: Option<String> = row.get(5)?;
+                let path: Option<String> = row.get(6)?;
                 let verified_project_id =
                     match (source.as_deref(), external.as_deref(), path.as_deref()) {
                         (Some(source), Some(external), Some(path)) => {
@@ -67,6 +71,8 @@ fn load_knowledge_scope(
                     };
                 Ok(KnowledgeScope {
                     project_name,
+                    source_session_id,
+                    is_missing: source_session_id.is_some() && missing_flag != Some(0),
                     verified_project_id,
                     status,
                 })
@@ -92,20 +98,44 @@ fn ensure_related_knowledge_is_current(
     if source.status != "active" || target.status != "active" {
         bail!("Archived or deleted knowledge cannot establish a new relation");
     }
-    if let (Some(left), Some(right)) = (
+    anyhow::ensure!(
+        !source.is_missing && !target.is_missing,
+        "Missing source Session cannot establish a knowledge relation"
+    );
+    match (
         source.verified_project_id.as_deref(),
         target.verified_project_id.as_deref(),
     ) {
-        if left != right {
-            bail!("Cross-project relation is not allowed for different project paths");
+        (Some(left), Some(right)) => {
+            anyhow::ensure!(
+                left == right,
+                "Cross-project relation is not allowed for different project paths"
+            );
         }
-    } else if let (Some(left), Some(right)) = (
-        source.project_name.as_deref(),
-        target.project_name.as_deref(),
-    ) {
-        if !left.trim().is_empty() && !right.trim().is_empty() && left.trim() != right.trim() {
-            bail!("Cross-project relation needs an explicit project reassignment");
+        (None, None) => {
+            let same_session = source.source_session_id.is_some()
+                && source.source_session_id == target.source_session_id;
+            // Manual-only Knowledge has no Provider Session; explicit manual
+            // project labels still permit a user-authored relation. Never
+            // treat the same name of TWO distinct provider Sessions as proof.
+            let both_manual = source.source_session_id.is_none()
+                && target.source_session_id.is_none();
+            let same_manual_project = both_manual
+                && match (
+                    source.project_name.as_deref(),
+                    target.project_name.as_deref(),
+                ) {
+                    (Some(left), Some(right)) => {
+                        !left.trim().is_empty() && left.trim() == right.trim()
+                    }
+                    _ => false,
+                };
+            anyhow::ensure!(
+                same_session || same_manual_project,
+                "Unverified source projects require the same Session or two explicit manual project labels"
+            );
         }
+        _ => bail!("Mixed verified and unverified projects need explicit source attribution"),
     }
     Ok(())
 }
@@ -462,6 +492,107 @@ mod tests {
             repo.review(&proposed.id, "rejected").unwrap().status,
             "rejected"
         );
+    }
+
+    #[test]
+    fn pathless_different_provider_sessions_cannot_be_linked_by_a_shared_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("pathless-relations.db")).unwrap();
+        for (sid, source, path) in [
+            (1, "codex", None),
+            (2, "claude_code", None),
+            (3, "opencode", Some("C:/repo/one")),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,?4,'same-display','now','now','now')",
+                    params![sid, source, format!("external-{sid}"), path],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,content,
+                      source_type,managed_by,created_at,updated_at)
+                     VALUES (?1,?2,'same-display','Evidence','Body',
+                             'conversation','pipeline','now','now')",
+                    params![format!("k{sid}"), sid],
+                )
+                .unwrap();
+        }
+        db.conn()
+            .execute(
+                "INSERT INTO knowledge_item
+                 (id,source_session_id,project_name,title,content,
+                  source_type,managed_by,created_at,updated_at)
+                 VALUES ('k4',1,'same-display','Other evidence','Body',
+                         'conversation','pipeline','now','now')",
+                [],
+            )
+            .unwrap();
+
+        add_knowledge(&db, "manual-only", "same-display");
+        let repo = RelationRepo::new(&db);
+        assert!(repo.suggest("k1", "k2", "corrects", "same display is insufficient", None).is_err());
+        assert!(repo.suggest("k3", "manual-only", "related", "mixed identity", None).is_err());
+        assert!(repo.suggest("k1", "k3", "corrects", "mixed identity", None).is_err());
+        let within_session = repo.suggest("k1", "k4", "related", "one source", None).unwrap();
+        assert_eq!(repo.review(&within_session.id, "confirmed").unwrap().status, "confirmed");
+
+        let manual = repo.suggest("k1", "k4", "related", "duplicate", None);
+        assert!(manual.is_err());
+        db.conn()
+            .execute(
+                "INSERT INTO project_session_binding(session_id,project_path,updated_at)
+                 VALUES (2,'C:/repo/one','now')",
+                [],
+            )
+            .unwrap();
+        assert!(repo.suggest("k2", "k3", "corrects", "same reviewed project", None).is_ok());
+        assert!(repo.suggest("k1", "k2", "corrects", "unverified vs bound", None).is_err());
+
+        db.conn()
+            .execute("UPDATE source_session SET is_missing = 1 WHERE id = 2", [])
+            .unwrap();
+        assert!(repo.suggest("k2", "k3", "corrects", "missing source", None).is_err());
+    }
+
+    #[test]
+    fn missing_source_after_proposal_blocks_confirmation_but_keeps_rejection() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&temp.path().join("missing-relation.db")).unwrap();
+        for sid in [1, 2] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,'codex',?2,'C:/repo/shared','shared','now','now','now')",
+                    params![sid, format!("ext-{sid}")],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,content,
+                      source_type,managed_by,created_at,updated_at)
+                     VALUES (?1,?2,'shared','Knowledge','Text',
+                             'conversation','pipeline','now','now')",
+                    params![format!("k{sid}"), sid],
+                )
+                .unwrap();
+        }
+        let repo = RelationRepo::new(&db);
+        let relation = repo.suggest("k1", "k2", "supersedes", "reviewed evidence", None).unwrap();
+        db.conn()
+            .execute("UPDATE source_session SET is_missing = 1 WHERE id = 2", [])
+            .unwrap();
+        assert!(repo.review(&relation.id, "confirmed").is_err());
+        assert_eq!(repo.list("k1").unwrap()[0].status, "suggested");
+        assert_eq!(repo.review(&relation.id, "rejected").unwrap().status, "rejected");
     }
 
     #[test]
