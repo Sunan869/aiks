@@ -497,3 +497,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 当前 HEAD `6408b295` 的 Windows Provider `38113198262` 已通过，综合 CI `38113198256` 因新增引用告警与测试两处 rustfmt 差异失败，Clippy/Rust tests 未运行。按 CI 原始格式 diff 一并修正。
 - 发现范围过滤只发生在 Unified Search 候选返回时，RAG 在单独读取全文片段阶段未复核对象当前状态；若两个阶段之间知识被归档、源 Session 被标为缺失或更换项目/Provider，存在陈旧证据被送进模型的 TOCTOU 风险。本批在读全文前按 Knowledge/Session 类型、当前 active/missing 状态、项目和来源精确过滤条件执行只读 SQLite EXISTS 校验，拒绝陈旧候选。
 - 新增真实 SQLite 状态变化负例回归，覆盖知识归档、Session 来源变化、项目变化、来源缺失和无效 ID，不修改数据库/Provider/SiYuan 原文；新 HEAD 的完整 CI 与真实 Windows/SiYuan 并发测试尚需独立验收。S1.3 备份/恢复仍最后实施。
+
+### 2026-10-11 S2.4 RAG 证据读时失效保护与 rustfmt 清障
+
+- HEAD `d88f5924`：Windows Provider `38115039027` 成功，综合 CI `38115039010` 在 `rag.rs` 三处测试 SQL 的格式检查失败，前端、仓库卫生、Windows Desktop 编译均成功；Clippy/Rust tests 因 fmt 未运行。本批一次修复三处 rustfmt 差异。
+- 同时排除残留的过期证据兜底问题：先前检索命中在读取真实 Knowledge/Session 内容时若已被删除、移动或清空，对 `None` 使用搜索阶段旧 snippet 兜底，可能绕过此前加入的实时身份复核。现在要求从 SQLite 当前实体/Chunk 确实读到非空原文才能纳入模型上下文；读取失败时忽略候选，不使用旧索引片段代替真实来源。
+- 保留原有检索阶段和模型提示词接口及受控证据数量/长度上限；此变更不写 Provider、不覆盖 SiYuan 编辑、不更改 SQLite migration。对应自动化仍需新 HEAD CI 验证；Windows 与真实模型人工证据准确性验收尚未完成。完整备份仍最后实施。

@@ -374,10 +374,13 @@ impl RagAnswerService {
                 continue;
             }
 
-            let mut text = self
-                .resolve_hit_text(question, &hit)?
-                .unwrap_or_else(|| hit.snippet.clone());
-            text = text.trim().to_string();
+            // Never fall back to the search snapshot snippet if canonical
+            // content disappeared after recall: stale snippets can belong to
+            // deleted/archived knowledge or a removed Session chunk.
+            let Some(text) = self.resolve_hit_text(question, &hit)? else {
+                continue;
+            };
+            let mut text = text.trim().to_string();
             if text.is_empty() {
                 continue;
             }
@@ -720,7 +723,10 @@ mod tests {
         assert!(!hit_is_currently_visible(&db, &missing_knowledge, &scope).unwrap());
 
         db.conn()
-            .execute("UPDATE source_session SET source = 'claude_code' WHERE id = 1", [])
+            .execute(
+                "UPDATE source_session SET source = 'claude_code' WHERE id = 1",
+                [],
+            )
             .unwrap();
         assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
         assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
@@ -733,7 +739,10 @@ mod tests {
         assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
         assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
         db.conn()
-            .execute("UPDATE knowledge_item SET status = 'archived' WHERE id = 'knowledge-1'", [])
+            .execute(
+                "UPDATE knowledge_item SET status = 'archived' WHERE id = 'knowledge-1'",
+                [],
+            )
             .unwrap();
         assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
         db.conn()
@@ -744,7 +753,10 @@ mod tests {
         // The source may disappear while its previously extracted knowledge
         // row still looks active. Do not send that stale evidence to the model.
         db.conn()
-            .execute("UPDATE knowledge_item SET status = 'active' WHERE id = 'knowledge-1'", [])
+            .execute(
+                "UPDATE knowledge_item SET status = 'active' WHERE id = 'knowledge-1'",
+                [],
+            )
             .unwrap();
         assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
     }
