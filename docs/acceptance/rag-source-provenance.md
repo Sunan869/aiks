@@ -37,3 +37,14 @@
 在隔离的 Windows + 本地 OpenAI-compatible 测试网关中，返回数千条 `data:` 单行不足 1 MiB 的有效 SSE event、空 `choices` usage event，以及 `:` 注释心跳。即使每条数据行合法，累计接收字节超过 16 MiB 时应返回带“safe transport-size limit”的明确失败，而不是把持续出现的心跳当作模型已答完。再持续返回真实 `delta.content`，当累计 UTF-8 正文超过 8 MiB，应在超限的增量文字显示之前出现“safe output-size limit”失败；普通非流式和不支持 SSE 的 `application/json` fallback 也必须拒绝解码后过长的正文。测试含中文文本以及边界值，确认按 UTF-8 字节而非 JavaScript 字符计数，且正常的小型回答、停止原因及来源引用不受影响。
 
 界面可能已经显示被允许的早期临时文字，出现失败后**不得将临时前缀记为回答成功或已核实的引用**。此限制不能替代请求超时、真实 token 管控或对非流式任意超大原始 HTTP body 的网络层截断保护。固定单元测试不等于真实网关、Windows 和模型质量验收。
+
+
+## S2.4 兼容网关非流式 HTTP 响应容量验收（2026-10-12）
+
+先在 Windows 隔离数据目录中用正常 OpenAI-compatible 本地模型分别测试「问 AIKS」流式 SSE、非流式 JSON，以及服务端忽略 `stream=true` 并返回 `application/json` 的兼容回退，确保短回答正文及引用跳转与上一版本相同。继续沿用必须正常结束（`stop` 或旧网关 `[DONE]`）、模型异常截断拒绝的已有验收。
+
+随后以**仅绑定 127.0.0.1、无真实敏感资料**的可控代理故障注入：非流式和 JSON fallback 返回 200 且 JSON 元数据/额外字段膨胀到 16 MiB 以上，即使最终 `choices[0].message.content` 很短，也必须在完整 JSON 反序列化之前报告 `safe body-size limit` 错误。再次构造无 `Content-Length` 的 chunked 超限响应，验证无法通过省略声明绕过逐块计数。带超大 `Content-Length` 的回包应尽早拒绝；正常 8 MiB 以下正文仍须另行通过现有独立上限。对成功 HTTP 200 但异常 UTF-8 的 JSON，也应明确失败，不能悄悄将无效字符替换成模型完成文本。
+
+模拟模型错误状态时，返回超过 32 KiB 的长 HTML 错误页，检查界面保留失败态且没有无限制读取；普通短 400 仍能够显示被安全截断的错误摘要、按既有上下文长度降级逻辑重试。模型探测接口返回极长 `/models` 列表时不能无界缓冲，但仅判定「服务可达」的既有健康检查行为不变。
+
+这部分是 HTTP 解码前的有限缓冲，不保证 reqwest 内部单个 chunk 完全不会瞬时分配超过预算，也不替代连接超时、响应中断处理和模型答案来源可信度检验。固定 Tokio loopback 测试与 CI 只验证协议门禁，真实 Windows、代理与模型验收仍需人工完成。Provider 原始文件只读、SiYuan 用户原文不自动覆写，S1.3 备份恢复仍最后实现。

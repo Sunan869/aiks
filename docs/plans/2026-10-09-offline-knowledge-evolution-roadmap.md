@@ -709,3 +709,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 审核 S2.4 最近引入的终止标记保护后发现真实运行资源缺口：SSE 原实现限制单条未终止数据行在 1 MiB 以下，但异常网关如果连续无限发送较小有效 SSE/heartbeat/usage-only 事件，将无限消耗下载流量和处理时间；如果连续产生普通输出，`content.push_str` 会无限增长，忽略配置 `max_tokens` 的端点有可能长时间增长内存并实时渲染过大页面。普通非流式与 JSON fallback 也不限制接收后的正文大小。
 - 增加独立的双重资源预算：每次流式请求累计原始 SSE 网络输入不超过 16 MiB（无论是否为被忽略的事件），流式/非流式/JSON fallback 的有效回答 UTF-8 字节长度不超过 8 MiB；使用 `checked_add` 防止极端整数溢出，**在调用 delta 回调前**先拒绝超额内容。网络长度上限只是整个 SSE body 的粗粒度防护，不代表上传／下载进度或真实 token 用量；非流式路径仍先由 HTTP 读取并反序列化，故不能声称已经对任意恶意超大完整 HTTP body 做零内存分配防护。既有 1 MiB 单事件门禁、`stop`/`[DONE]` 和 `finish_reason` 语义不变，拒绝时明确为错误而非完成回答。
 - 新增 Rust 回归覆盖有效预算边界、溢出、中文多字节、SSE 心跳／usage-only 消耗网络预算、普通 JSON 与 SSE 使用相同答案预算、不合规网关超大正文拒绝。没有 SQLite migration，也不写 Provider 或 SiYuan 用户文档；不合并 main、不发布 Release。只是客户端资源安全代码级保护，8 MiB/16 MiB 与真实模型输出质量无直接相关，Windows 大规模/断流/慢请求测试仍须在隔离机器上执行；完整 S1.3 继续最后实施。
+
+
+### 2026-10-12 S2.4 OpenAI-compatible HTTP JSON 响应读取上限（代码级，等待新 CI）
+
+- 基线远端 HEAD `d634d572` 的综合 CI `38170204736` 和 Windows Provider `38170204792` 均为 completed/success，且没有当前 HEAD 在运行的 Actions。此前 S2.4 已限定流式原始 SSE 16 MiB 和解码后回答正文 8 MiB；但非流式 `resp.text()` / 不支持 SSE 的 `application/json` 回退在**接收完整任意大小 body 之后**才检查正文长度，攻击性或失控的兼容网关可以在 UTF-8/JSON 解码前消耗过量内存。模型探测 `/models` 同样无界读取，超大错误页也可能先被完整缓冲。
+- 引入统一 `util/http_body.rs` 接收上限：先检查可信度不高但可提前拒绝的 `Content-Length`，然后按真实已接收 chunk 的长度逐块累加、进行 checked_add 和边界校验，再从有限缓冲转换 UTF-8 文本。对正常聊天完整 JSON 和 fallback 采用 16 MiB body 限额，对模型探测列表采用 2 MiB，对网关错误体仅允许 32 KiB；完整文本仍须通过原有 8 MiB 答案长度、finish_reason、结构和来源门禁。/models 解析仅作辅助诊断，超长列表不影响「HTTP 服务可达」这一原健康检测语义；错误体过大直接失败，不再回退为误导性的空错误。
+- 纯缓冲正反单测覆盖多 chunk 跨越 UTF-8 字符边界、准确上限、溢出/超限及无效编码；使用本地 loopback HTTP fixture 覆盖无 Content-Length 的 chunked 响应和显式超大 Content-Length 提前拒绝。未依赖真实互联网和模型，**不能**从单测推出 Windows 网关兼容性、模型质量、断流时序通过。读取上限无法保证 reqwest 内部的单个解压/网络 chunk 零拷贝，也不代表任意上传/模型响应都能精确控制峰值内存；仍依赖用户设置的 HTTP 总超时。
+- 审计发现相邻的 Embedding API 路径仍有 `resp.json()` 无界接收和批次索引/维度校验不足的问题，留作下一完整功能批次处理，不能冒充已覆盖所有模型端点。无迁移和 Provider/SiYuan 原文写入；不合并 main、不发布 Release，S1.3 完整备份与恢复最后实现。

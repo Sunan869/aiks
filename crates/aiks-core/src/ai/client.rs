@@ -186,16 +186,20 @@ impl AiClient {
         let models_url = format!("{}/models", self.config.base_url.trim_end_matches('/'));
         if let Ok(resp) = self.client.get(&models_url).send().await {
             if resp.status().is_success() {
-                if let Ok(body) = resp.json::<ModelsResponse>().await {
-                    let found = body.data.iter().any(|m| m.id == self.config.model);
-                    if found {
-                        return true;
+                // /models is advisory during health checks; do not
+                // deserialize an unbounded provider-controlled catalog.
+                if let Ok(body_text) =
+                    crate::util::read_bounded_http_text(resp, MAX_MODEL_LIST_RESPONSE_BYTES).await
+                {
+                    if let Ok(body) = serde_json::from_str::<ModelsResponse>(&body_text) {
+                        let found = body.data.iter().any(|m| m.id == self.config.model);
+                        if !found {
+                            debug!(
+                                "Model {} not in models list, but API is accessible",
+                                self.config.model
+                            );
+                        }
                     }
-                    debug!(
-                        "Model {} not in models list, but API is accessible",
-                        self.config.model
-                    );
-                    return true; // API accessible even if model not listed
                 }
                 return true;
             }
@@ -332,7 +336,16 @@ impl AiClient {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 continue;
             }
-            let body_text = resp.text().await.unwrap_or_default();
+            // Bound the transport body before JSON parsing. The 8 MiB
+            // accepted-answer cap cannot protect unbounded resp.text().
+            let limit = if status.is_success() {
+                MAX_CHAT_JSON_RESPONSE_BYTES
+            } else {
+                MAX_ERROR_RESPONSE_BYTES
+            };
+            let body_text = crate::util::read_bounded_http_text(resp, limit)
+                .await
+                .with_context(|| format!("read bounded AI response (HTTP {status})"))?;
 
             if status.as_u16() == 400
                 && body_text.contains("maximum context length")
@@ -439,7 +452,10 @@ impl AiClient {
                 continue;
             }
             if !status.is_success() {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text =
+                    crate::util::read_bounded_http_text(resp, MAX_ERROR_RESPONSE_BYTES)
+                        .await
+                        .with_context(|| format!("read bounded AI error (HTTP {status})"))?;
                 if status.as_u16() == 400
                     && body_text.contains("maximum context length")
                     && max_tokens > 1024
@@ -465,7 +481,10 @@ impl AiClient {
                 .to_ascii_lowercase();
 
             if content_type.contains("application/json") {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text =
+                    crate::util::read_bounded_http_text(resp, MAX_CHAT_JSON_RESPONSE_BYTES)
+                        .await
+                        .context("read bounded streaming JSON fallback")?;
                 let body: ChatResponse =
                     serde_json::from_str(&body_text).context("parse AI response")?;
                 let result = body.into_result()?;
@@ -567,6 +586,13 @@ impl AiClient {
     }
 }
 
+/// Bound the complete OpenAI-compatible JSON response (including usage
+/// metadata). Decoded accepted answer text is separately limited to 8 MiB.
+const MAX_CHAT_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// Error payloads are only needed for short diagnostics, not full buffering.
+const MAX_ERROR_RESPONSE_BYTES: usize = 32 * 1024;
+/// /models is optional for health checking; it may return a large catalog.
+const MAX_MODEL_LIST_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 /// Maximum bytes held for a single unterminated SSE event.
 const MAX_STREAM_EVENT_BYTES: usize = 1024 * 1024;
 /// A broken local gateway must not return an unbounded chat answer even if it
@@ -936,6 +962,13 @@ mod stream_tests {
         let ignored =
             parse_stream_line(br#"data: {"choices":[],"usage":{"total_tokens":42}}"#).unwrap();
         assert_eq!(ignored, super::StreamEvent::Ignored);
+    }
+
+    #[test]
+    fn json_transport_limits_are_distinct_from_decoded_answer_limits() {
+        assert!(super::MAX_CHAT_JSON_RESPONSE_BYTES > super::MAX_CHAT_OUTPUT_BYTES);
+        assert!(super::MAX_ERROR_RESPONSE_BYTES < super::MAX_CHAT_OUTPUT_BYTES);
+        assert!(super::MAX_MODEL_LIST_RESPONSE_BYTES < super::MAX_CHAT_JSON_RESPONSE_BYTES);
     }
 
     #[test]
