@@ -5,6 +5,43 @@ use crate::util::SecretSanitizer;
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
 
+/// Restrict exports to a real project source before rendering any evidence.
+fn scoped_snapshot(
+    snapshot: &ProjectMemorySnapshot,
+    source: Option<&str>,
+) -> Result<ProjectMemorySnapshot> {
+    let Some(source) = source.filter(|source| !source.is_empty()) else {
+        return Ok(snapshot.clone());
+    };
+    if !snapshot.project.sources.iter().any(|known| known == source) {
+        bail!("Selected source does not belong to the requested project");
+    }
+    let mut scoped = snapshot.clone();
+    scoped.entries.retain(|entry| entry.source == source);
+    scoped.project.sources.retain(|known| known == source);
+    // Incomplete global results remain incomplete when scoped.
+    Ok(scoped)
+}
+
+pub fn render_project_review_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    from: &str,
+    through: &str,
+    source: Option<&str>,
+) -> Result<String> {
+    let selected = scoped_snapshot(snapshot, source)?;
+    render_project_review(&selected, from, through)
+}
+
+pub fn render_agent_context_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+    source: Option<&str>,
+) -> Result<String> {
+    let selected = scoped_snapshot(snapshot, source)?;
+    Ok(render_agent_context(&selected, max_tokens))
+}
+
 fn safe_inline(text: &str) -> String {
     let sanitizer = SecretSanitizer::new();
     sanitizer.sanitize(text).replace(['\r', '\n'], " ")
@@ -68,8 +105,11 @@ pub fn render_project_review(
         }
     };
     let mut result = format!(
-        "# {} · 工作回顾\n\n期间：{} 至 {}\n\n说明：仅依据已采集的工作 Session 与知识，不把计划、建议或猜测误写成已完成的事实。\n\n",
-        title, from, through
+        "# {} · 工作回顾\n\n期间：{} 至 {}\n来源范围：{}\n\n说明：仅依据已采集的工作 Session 与知识，不把计划、建议或猜测误写成已完成的事实。\n\n",
+        title,
+        from,
+        through,
+        snapshot.project.sources.join("、")
     );
     result.push_str(&section("关键决策记录", &decision));
     result.push_str(&section("问题与解决方案记录", &solutions));
@@ -91,8 +131,9 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
         .take(120)
         .collect();
     let mut result = format!(
-        "# {} · AIKS 项目背景候选\n\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
-        title
+        "# {} · AIKS 项目背景候选\n\n来源范围：{}\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
+        title,
+        snapshot.project.sources.join("、")
     );
     let mut included = 0usize;
     let mut omitted = 0usize;
@@ -244,6 +285,66 @@ mod tests {
         assert!(context.contains("需补充，不能当作完整结论"));
         assert!(context.contains("可能重复，需核对来源"));
         assert!(context.contains("Deprecated recommendation"));
+    }
+
+    #[test]
+    fn provider_scoped_project_outputs_do_not_mix_evidence() {
+        let mut data = snapshot();
+        data.project.sources.push("claude_code".into());
+        let mut second = data.entries[0].clone();
+        second.knowledge_id = "k-claude".into();
+        second.source = "claude_code".into();
+        second.session_external_id = "s-claude".into();
+        second.summary = "Use bounded executor".into();
+        data.entries.push(second);
+
+        let report = render_project_review_scoped(
+            &data,
+            "2026-10-09",
+            "2026-10-09",
+            Some("claude_code"),
+        )
+        .unwrap();
+        assert!(report.contains("来源范围：claude_code"));
+        assert!(report.contains("bounded executor"));
+        assert!(!report.contains("bounded queue"));
+        assert!(!report.contains("Session s1"));
+        let pack = render_agent_context_scoped(&data, 1200, Some("codex")).unwrap();
+        assert!(pack.contains("来源范围：codex"));
+        assert!(pack.contains("bounded queue"));
+        assert!(!pack.contains("bounded executor"));
+        assert!(!pack.contains("s-claude"));
+        let combined = render_project_review_scoped(
+            &data,
+            "2026-10-09",
+            "2026-10-09",
+            None,
+        )
+        .unwrap();
+        assert!(combined.contains("bounded executor"));
+        assert!(combined.contains("bounded queue"));
+    }
+
+    #[test]
+    fn scoped_exports_reject_unknown_source_and_preserve_truncation() {
+        let mut data = snapshot();
+        assert!(render_project_review_scoped(
+            &data,
+            "2026-10-09",
+            "2026-10-09",
+            Some("unknown"),
+        )
+        .is_err());
+        assert!(render_agent_context_scoped(&data, 1200, Some("unknown")).is_err());
+        data.truncated = true;
+        let report = render_project_review_scoped(
+            &data,
+            "2026-10-09",
+            "2026-10-09",
+            Some("codex"),
+        )
+        .unwrap();
+        assert!(report.contains("仅包含当前加载的知识记录"));
     }
 
     #[test]

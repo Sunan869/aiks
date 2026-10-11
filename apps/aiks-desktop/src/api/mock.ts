@@ -190,22 +190,34 @@ export class MockAiksApi implements AiksApi {
     if (!project) throw new Error("Project not found");
     const entries = knowledge.filter(item => item.project_name === project.title).slice(0, 200).map(item => ({
       knowledge_id: item.id, session_id: item.session_id ?? 0,
-      source: "codex", session_external_id: String(item.session_id ?? ""),
+      source: sessions.find(session => session.id === item.session_id)?.source || "unknown", session_external_id: String(item.session_id ?? ""),
       title: item.title, category: item.category, summary: item.summary,
       updated_at: item.updated_at, feedback_status: null,
     }));
     return { project, entries, truncated: false };
   }
-  async createProjectReview(projectId: string, from: string, through: string): Promise<string> {
+  async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> {
     const snapshot = await this.getProjectMemory(projectId);
     if (from > through) throw new Error("Invalid date range");
-    const items = snapshot.entries.filter(item => item.updated_at.slice(0,10) >= from && item.updated_at.slice(0,10) <= through);
-    return "# " + snapshot.project.title + " · 工作回顾\\n\\n" + items.map(item => "- " + item.title + "（" + item.knowledge_id + "）").join("\\n");
+    if (source && !snapshot.project.sources.includes(source)) throw new Error("Unknown project source");
+    const items = snapshot.entries.filter(item =>
+      (!source || item.source === source) &&
+      item.updated_at.slice(0, 10) >= from && item.updated_at.slice(0, 10) <= through
+    );
+    return "# " + snapshot.project.title + " · 工作回顾\n\n来源范围：" +
+      (source || snapshot.project.sources.join("、")) + "\n\n" +
+      items.map(item => "- " + item.title + "（" + item.knowledge_id + "）").join("\n");
   }
-  async createAgentContextPack(projectId: string, maxTokens: number): Promise<string> {
+  async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> {
     const snapshot = await this.getProjectMemory(projectId);
-    const selected = snapshot.entries.filter(item => item.feedback_status !== "incorrect" && item.feedback_status !== "outdated");
-    return ("# " + snapshot.project.title + " · Agent 背景预览\\n\\n" + selected.map(item => "## " + item.title + "\\n" + item.summary + "\\n来源：" + item.knowledge_id).join("\\n\\n")).slice(0, Math.max(256, maxTokens) * 3);
+    if (source && !snapshot.project.sources.includes(source)) throw new Error("Unknown project source");
+    const selected = snapshot.entries.filter(item =>
+      (!source || item.source === source) &&
+      item.feedback_status !== "incorrect" && item.feedback_status !== "outdated"
+    );
+    return ("# " + snapshot.project.title + " · Agent 背景预览\n\n来源范围：" +
+      (source || snapshot.project.sources.join("、")) + "\n\n" +
+      selected.map(item => "## " + item.title + "\n" + item.summary + "\n来源：" + item.knowledge_id).join("\n\n")).slice(0, Math.max(256, maxTokens) * 3);
   }
 
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {

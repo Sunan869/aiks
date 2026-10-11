@@ -1,7 +1,7 @@
 use crate::app_state::AppState;
 use aiks_core::knowledge::{
-    render_agent_context, render_project_review, ProjectMemoryService, ProjectMemorySnapshot,
-    ProjectOverview,
+    render_agent_context_scoped, render_project_review_scoped, ProjectMemoryService,
+    ProjectMemorySnapshot, ProjectOverview,
 };
 use tauri::State;
 
@@ -33,6 +33,7 @@ pub async fn create_project_review(
     project_id: String,
     from: String,
     through: String,
+    source: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
@@ -40,13 +41,15 @@ pub async fn create_project_review(
     let snapshot = ProjectMemoryService::new(&db)
         .get(&project_id, 200)
         .map_err(|error| error.to_string())?;
-    render_project_review(&snapshot, &from, &through).map_err(|error| error.to_string())
+    render_project_review_scoped(&snapshot, &from, &through, source.as_deref())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn create_agent_context_pack(
     project_id: String,
     max_tokens: usize,
+    source: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
@@ -54,5 +57,6 @@ pub async fn create_agent_context_pack(
     let snapshot = ProjectMemoryService::new(&db)
         .get(&project_id, 200)
         .map_err(|error| error.to_string())?;
-    Ok(render_agent_context(&snapshot, max_tokens))
+    render_agent_context_scoped(&snapshot, max_tokens, source.as_deref())
+        .map_err(|error| error.to_string())
 }

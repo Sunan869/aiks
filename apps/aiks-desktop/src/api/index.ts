@@ -50,8 +50,8 @@ export interface AiksApi {
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
   getProjectMemories(): Promise<ProjectOverview[]>;
   getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
-  createProjectReview(projectId: string, from: string, through: string): Promise<string>;
-  createAgentContextPack(projectId: string, maxTokens: number): Promise<string>;
+  createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string>;
+  createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
   getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
   getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;

@@ -442,3 +442,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 检查 `a0440174` 的 `38105589829`：Windows Desktop、前端和仓库卫生均通过；Rust 质量任务在唯一一处 `cargo fmt --all --check` 代码换行失败，Clippy/Rust tests 被跳过；Windows Provider `38105589845` 成功。
 - 本次按 CI 的格式差异直接修复 `extraction_live_benchmark.rs`，保留上轮已经实现的正例空知识项拒绝逻辑及其回归断言。未来必须以新 HEAD 的完整 Rust 测试和 Clippy 结果判定是否合格。
 - 未执行真实模型或 Windows 实机评测；S1.3 完整备份与恢复仍待全部其他功能/优化后最后实施。
+
+### 2026-10-11 S3.2 / S3.3 项目报告与 Agent 知识包按来源筛选
+
+- 基线 HEAD `f662994c` 的综合 CI `38106036554` 与 Windows Provider `38106036564` 全部通过。根据尚未实现的「项目+来源」报告范围需求，在已有工作台新增按实际 Provider 来源筛选回顾和 Agent 上下文。切换来源时清空旧预览、作废未完成请求，避免用户将别的来源输出误作当前导出。
+- Rust Core 通过 `render_project_review_scoped` 与 `render_agent_context_scoped` 校验来源必须存在于当前项目，过滤原始证据后再渲染，拒绝伪造来源；保留旧函数和未指定来源的兼容行为。Markdown 输出注明来源范围；有界快照已截断时，筛选后仍保留不完整提醒。
+- Tauri 可选参数、TypeScript API、Mock 和回归覆盖此链路；不改 SQLite migration、不写 Provider 源、不自动修改 AGENTS.md/CLAUDE.md 或 SiYuan 原文。
+- 新提交尚需综合 CI，真实跨工具 Windows/SiYuan 质量与体验验收仍待集中进行；完整备份/恢复继续最后实施。

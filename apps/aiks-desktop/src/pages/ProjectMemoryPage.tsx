@@ -22,6 +22,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const generation = useRef(0);
   const [notice, setNotice] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -45,6 +46,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setWorking(false);
     setDetail(null);
     setOnlyFlagged(false);
+    setSourceFilter("");
     getApi().getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
@@ -63,8 +65,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setWorking(true);
     try {
       const output = kind === "review"
-        ? await getApi().createProjectReview(selected, from, through)
-        : await getApi().createAgentContextPack(selected, tokenBudget);
+        ? await getApi().createProjectReview(selected, from, through, sourceFilter || undefined)
+        : await getApi().createAgentContextPack(selected, tokenBudget, sourceFilter || undefined);
       if (requestId !== generation.current) return;
       setPreviewType(kind);
       setPreview(output);
@@ -158,6 +160,22 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
           <section className="rounded border p-4 dark:border-gray-700">
             <h2 className="font-semibold">工作回顾与 Agent 上下文</h2>
             <p className="mt-2 text-xs text-gray-500">先生成可编辑预览，再复制使用。不会自动写入项目文件或外部服务。</p>
+            <label htmlFor="project-memory-source" className="my-3 flex items-center gap-2 text-xs">
+              来源范围
+              <select id="project-memory-source" value={sourceFilter}
+                className="rounded border bg-transparent p-2 dark:border-gray-700"
+                onChange={event => {
+                  generation.current += 1;
+                  setSourceFilter(event.target.value);
+                  setPreview("");
+                  setPreviewType("");
+                  setNotice("");
+                  setWorking(false);
+                }}>
+                <option value="">全部来源</option>
+                {detail.project.sources.map(source => <option key={source} value={source}>{source}</option>)}
+              </select>
+            </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
               <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => setFrom(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => setThrough(e.target.value)} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
