@@ -180,6 +180,31 @@ impl<'a> ProjectMemoryService<'a> {
         limit: usize,
         source_filter: Option<&str>,
     ) -> Result<ProjectMemorySnapshot> {
+        self.get_filtered(project_id, limit, source_filter, None)
+    }
+
+    /// Restrict report evidence by dates and Provider before applying a limit.
+    pub fn get_review_scoped(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+        from: &str,
+        through: &str,
+    ) -> Result<ProjectMemorySnapshot> {
+        let first = chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d")?;
+        let last = chrono::NaiveDate::parse_from_str(through, "%Y-%m-%d")?;
+        anyhow::ensure!(first <= last, "Report start date must not be after the end date");
+        self.get_filtered(project_id, limit, source_filter, Some((from, through)))
+    }
+
+    fn get_filtered(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+        date_filter: Option<(&str, &str)>,
+    ) -> Result<ProjectMemorySnapshot> {
         let project = self
             .list()?
             .into_iter()
@@ -200,11 +225,17 @@ impl<'a> ProjectMemoryService<'a> {
              FROM knowledge_item ki JOIN source_session ss ON ss.id = ki.source_session_id
              WHERE ki.status = 'active' AND ss.is_missing = 0
                AND (?1 IS NULL OR ss.source = ?1)
+               AND (?2 IS NULL OR substr(ki.updated_at, 1, 10) >= ?2)
+               AND (?3 IS NULL OR substr(ki.updated_at, 1, 10) <= ?3)
              ORDER BY ki.updated_at DESC, ki.id DESC",
         )?;
         let mut entries = Vec::new();
         let mut truncated = false;
-        let rows = stmt.query_map([source_filter], |row| {
+        let (from, through) = match date_filter {
+            Some((from, through)) => (Some(from), Some(through)),
+            None => (None, None),
+        };
+        let rows = stmt.query_map(rusqlite::params![source_filter, from, through], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -382,17 +413,94 @@ mod tests {
         }
         let service = ProjectMemoryService::new(&db);
         let id = service.list().unwrap()[0].id.clone();
-        assert_eq!(service.get(&id, 1).unwrap().entries[0].knowledge_id, "codex-new");
+        assert_eq!(
+            service.get(&id, 1).unwrap().entries[0].knowledge_id,
+            "codex-new"
+        );
         let selected = service.get_scoped(&id, 1, Some("claude_code")).unwrap();
         assert!(selected.truncated);
         assert_eq!(selected.entries[0].knowledge_id, "claude-new");
         let source_all = service.get_scoped(&id, 200, Some("claude_code")).unwrap();
         assert_eq!(source_all.entries.len(), 2);
         assert!(!source_all.truncated);
-        assert!(source_all.entries.iter().all(|entry| entry.source == "claude_code"));
+        assert!(source_all
+            .entries
+            .iter()
+            .all(|entry| entry.source == "claude_code"));
         assert_eq!(service.get(&id, 200).unwrap().entries.len(), 3);
         assert!(service.get_scoped(&id, 200, Some("unknown")).is_err());
         assert!(service.get_scoped(&id, 200, Some("")).is_err());
+    }
+
+    #[test]
+    fn historical_review_filters_dates_before_limit_and_keeps_source_provenance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("review-memory.db")).unwrap();
+        for (id, source) in [(1, "codex"), (2, "claude_code")] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,'C:/repo/shared','shared',
+                             '2026-10-10','2026-10-10','2026-10-10')",
+                    params![id, source, format!("session-{id}")],
+                )
+                .unwrap();
+        }
+        for (id, sid, date) in [
+            ("recent-codex", 1, "2026-10-10T10:00:00"),
+            ("recent-claude", 2, "2026-10-10T09:00:00"),
+            ("historical-claude", 2, "2026-01-09T11:00:00"),
+            ("historical-codex", 1, "2026-01-09T10:00:00"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'Finding','decision',?1,'Detail',
+                             'conversation','pipeline','active','2026-01-09',?3)",
+                    params![id, sid, date],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let id = service.list().unwrap()[0].id.clone();
+        let current = service.get_scoped(&id, 1, Some("claude_code")).unwrap();
+        assert_eq!(current.entries[0].knowledge_id, "recent-claude");
+
+        let history = service
+            .get_review_scoped(&id, 1, Some("claude_code"), "2026-01-09", "2026-01-09")
+            .unwrap();
+        assert_eq!(history.entries[0].knowledge_id, "historical-claude");
+        assert!(!history.truncated);
+
+        let combined = service
+            .get_review_scoped(&id, 1, None, "2026-01-09", "2026-01-09")
+            .unwrap();
+        assert!(combined.truncated);
+        assert_eq!(combined.entries[0].knowledge_id, "historical-claude");
+
+        let report = crate::knowledge::render_project_review_scoped(
+            &history,
+            "2026-01-09",
+            "2026-01-09",
+            Some("claude_code"),
+        )
+        .unwrap();
+        assert!(report.contains("historical-claude"));
+        assert!(!report.contains("recent-claude"));
+        assert!(!report.contains("historical-codex"));
+        assert!(service
+            .get_review_scoped(&id, 10, None, "2026-01-10", "2026-01-09")
+            .is_err());
+        assert!(service
+            .get_review_scoped(&id, 10, None, "bad-date", "2026-01-09")
+            .is_err());
+        assert!(service
+            .get_review_scoped(&id, 10, Some("unknown"), "2026-01-09", "2026-01-09")
+            .is_err());
     }
 
     #[test]
