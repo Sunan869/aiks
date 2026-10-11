@@ -232,69 +232,75 @@ impl<'a> PipelineJobRepo<'a> {
         }))
     }
 
-    pub fn renew_lease(&self, durable_job_id: &str) -> anyhow::Result<bool> {
+    /// Extend a lease only for the still-active claim generation. A late worker
+    /// must never renew a lease obtained by another worker after recovery.
+    pub fn renew_lease(&self, durable_job_id: &str, attempt: i64) -> anyhow::Result<bool> {
         let now_dt = Utc::now();
         let lease_until = (now_dt + Duration::seconds(LEASE_SECONDS)).to_rfc3339();
         let now = now_dt.to_rfc3339();
         let conn = self.db.conn();
         let changed = conn.execute(
             "UPDATE pipeline_job SET lease_until = ?1, updated_at = ?2
-             WHERE id = ?3 AND status = 'RUNNING'",
-            params![lease_until, now, durable_job_id],
+             WHERE id = ?3 AND status = 'RUNNING' AND attempt = ?4
+               AND lease_until IS NOT NULL AND lease_until > ?2",
+            params![lease_until, now, durable_job_id, attempt],
         )?;
         Ok(changed == 1)
     }
 
-    pub fn mark_succeeded(&self, durable_job_id: &str) -> anyhow::Result<()> {
+    /// Reject completion from an expired or re-claimed attempt. Both ownership
+    /// checks and the status transition happen atomically in SQLite.
+    pub fn mark_succeeded(&self, durable_job_id: &str, attempt: i64) -> anyhow::Result<bool> {
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
-        conn.execute(
+        let changed = conn.execute(
             "UPDATE pipeline_job
              SET status = 'DONE', lease_until = NULL, available_at = NULL,
                  last_error = NULL, updated_at = ?1
-             WHERE id = ?2",
-            params![now, durable_job_id],
+             WHERE id = ?2 AND status = 'RUNNING' AND attempt = ?3
+               AND lease_until IS NOT NULL AND lease_until > ?1",
+            params![now, durable_job_id, attempt],
         )?;
-        Ok(())
+        Ok(changed == 1)
     }
 
+    /// None means this attempt no longer owns a live lease, so it cannot
+    /// reschedule, fail, or overwrite another worker's claim.
     pub fn mark_failed(
         &self,
         durable_job_id: &str,
+        attempt: i64,
         error: &str,
-    ) -> anyhow::Result<FailureDisposition> {
+    ) -> anyhow::Result<Option<FailureDisposition>> {
         let now_dt = Utc::now();
         let now = now_dt.to_rfc3339();
         let conn = self.db.conn();
-        let attempt: i64 = conn.query_row(
-            "SELECT attempt FROM pipeline_job WHERE id = ?1",
-            params![durable_job_id],
-            |row| row.get(0),
-        )?;
 
         if attempt >= MAX_ATTEMPTS {
-            conn.execute(
+            let changed = conn.execute(
                 "UPDATE pipeline_job
                  SET status = 'FAILED', lease_until = NULL, available_at = NULL,
                      last_error = ?1, updated_at = ?2
-                 WHERE id = ?3",
-                params![error, now, durable_job_id],
+                 WHERE id = ?3 AND status = 'RUNNING' AND attempt = ?4
+                   AND lease_until IS NOT NULL AND lease_until > ?2",
+                params![error, now, durable_job_id, attempt],
             )?;
-            return Ok(FailureDisposition::Terminal);
+            return Ok((changed == 1).then_some(FailureDisposition::Terminal));
         }
 
         let backoff_index =
             (attempt.saturating_sub(1) as usize).min(RETRY_BACKOFF_SECONDS.len().saturating_sub(1));
         let available_at =
             (now_dt + Duration::seconds(RETRY_BACKOFF_SECONDS[backoff_index])).to_rfc3339();
-        conn.execute(
+        let changed = conn.execute(
             "UPDATE pipeline_job
              SET status = 'PENDING', lease_until = NULL, available_at = ?1,
                  last_error = ?2, updated_at = ?3
-             WHERE id = ?4",
-            params![available_at, error, now, durable_job_id],
+             WHERE id = ?4 AND status = 'RUNNING' AND attempt = ?5
+               AND lease_until IS NOT NULL AND lease_until > ?3",
+            params![available_at, error, now, durable_job_id, attempt],
         )?;
-        Ok(FailureDisposition::Retry)
+        Ok((changed == 1).then_some(FailureDisposition::Retry))
     }
 
     pub fn has_any_job(&self, source: &str, external_session_id: &str) -> anyhow::Result<bool> {

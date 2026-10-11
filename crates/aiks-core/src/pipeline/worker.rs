@@ -304,6 +304,7 @@ async fn run_worker(
                 // crashed process stops heartbeating and the lease becomes
                 // claimable by the next worker after LEASE_SECONDS.
                 let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+                let (lease_lost_tx, mut lease_lost_rx) = oneshot::channel::<()>();
                 let lease_db = Arc::clone(&task_db);
                 let lease_job_id = durable_job_id.clone();
                 let heartbeat = tokio::spawn(async move {
@@ -314,34 +315,52 @@ async fn run_worker(
                         tokio::select! {
                             _ = &mut stop_rx => break,
                             _ = tick.tick() => {
-                                if let Err(e) = PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id) {
-                                    warn!(job_id = %lease_job_id, error = %e, "[PIPELINE] Lease renewal failed");
+                                match PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id, attempt) {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        warn!(job_id = %lease_job_id, attempt, "[PIPELINE] Lease lost; cancelling obsolete pipeline attempt");
+                                        let _ = lease_lost_tx.send(());
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        warn!(job_id = %lease_job_id, attempt, error = %e, "[PIPELINE] Lease renewal failed; cancelling attempt");
+                                        let _ = lease_lost_tx.send(());
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 });
 
-                let result = run_pipeline(
-                    &task_db,
-                    &task_registry,
-                    &task_discovery_cache,
-                    &task_ai,
-                    &task_embedding,
-                    &job,
-                )
-                .await;
+                // Dropping the pipeline future prevents further normal stage work
+                // after this worker detects that it no longer owns the lease.
+                let result = tokio::select! {
+                    result = run_pipeline(
+                        &task_db,
+                        &task_registry,
+                        &task_discovery_cache,
+                        &task_ai,
+                        &task_embedding,
+                        &job,
+                    ) => result,
+                    _ = &mut lease_lost_rx => Err(anyhow::anyhow!("Durable pipeline lease lost")),
+                };
 
                 let _ = stop_tx.send(());
                 let _ = heartbeat.await;
 
                 let durable_repo = PipelineJobRepo::new(&task_db);
                 match result {
-                    Ok(()) => {
-                        if let Err(e) = durable_repo.mark_succeeded(&durable_job_id) {
+                    Ok(()) => match durable_repo.mark_succeeded(&durable_job_id, attempt) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Stale completion ignored; lease no longer owned");
+                        }
+                        Err(e) => {
                             error!(job_id = %durable_job_id, error = %e, "[PIPELINE] Failed to mark durable job DONE");
                         }
-                    }
+                    },
                     Err(e) => {
                         error!(
                             run_id = %job.pipeline_run_id,
@@ -351,31 +370,38 @@ async fn run_worker(
                             "[PIPELINE] Job attempt failed"
                         );
 
-                        // Keep pipeline_run's accurate stage failure. run_pipeline
-                        // normally records it; this is a safety net for unexpected
-                        // errors outside a stage boundary.
-                        let pipeline_repo = PipelineRepo::new(&task_db);
-                        let already_failed = pipeline_repo
-                            .get_run_detail(&job.pipeline_run_id)
-                            .ok()
-                            .flatten()
-                            .map(|d| d.status == "FAILED")
-                            .unwrap_or(false);
-                        if !already_failed {
-                            let stage = extract_failed_stage(&e.to_string());
-                            let _ = pipeline_repo.mark_failed(
-                                &job.pipeline_run_id,
-                                stage,
-                                &e.to_string(),
-                            );
-                        }
+                        // Fence the durable transition before writing the
+                        // pipeline_run fallback: a stale attempt must not mark
+                        // another worker's active generation as failed.
+                        match durable_repo.mark_failed(&durable_job_id, attempt, &e.to_string()) {
+                            Ok(Some(disposition)) => {
+                                let pipeline_repo = PipelineRepo::new(&task_db);
+                                let already_failed = pipeline_repo
+                                    .get_run_detail(&job.pipeline_run_id)
+                                    .ok()
+                                    .flatten()
+                                    .map(|d| d.status == "FAILED")
+                                    .unwrap_or(false);
+                                if !already_failed {
+                                    let stage = extract_failed_stage(&e.to_string());
+                                    let _ = pipeline_repo.mark_failed(
+                                        &job.pipeline_run_id,
+                                        stage,
+                                        &e.to_string(),
+                                    );
+                                }
 
-                        match durable_repo.mark_failed(&durable_job_id, &e.to_string()) {
-                            Ok(FailureDisposition::Retry) => {
-                                info!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job scheduled for retry");
+                                match disposition {
+                                    FailureDisposition::Retry => {
+                                        info!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job scheduled for retry");
+                                    }
+                                    FailureDisposition::Terminal => {
+                                        warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job exhausted retry budget");
+                                    }
+                                }
                             }
-                            Ok(FailureDisposition::Terminal) => {
-                                warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job exhausted retry budget");
+                            Ok(None) => {
+                                warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Stale failure ignored; lease no longer owned");
                             }
                             Err(mark_err) => {
                                 error!(job_id = %durable_job_id, error = %mark_err, "[PIPELINE] Failed to persist retry state");
