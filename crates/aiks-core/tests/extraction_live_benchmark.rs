@@ -10,9 +10,10 @@
 //! endpoint URLs, credentials, or provider files.
 //! This tests model extraction output, not the end-to-end durable pipeline.
 
+use aiks_core::ai::client::ChatResult;
 use aiks_core::ai::prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3};
 use aiks_core::ai::{AiClient, AiModelConfig, V3ExtractionResult};
-use aiks_core::pipeline::ai_stage::parse_v3_result_typed;
+use aiks_core::pipeline::ai_stage::parse_completed_extraction_reply;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -99,6 +100,17 @@ fn observation(
     elapsed_ms: u64,
     reported_tokens: Option<u64>,
 ) -> CaseObservation {
+    observation_with_stop_reason(case, repetition, content, None, elapsed_ms, reported_tokens)
+}
+
+fn observation_with_stop_reason(
+    case: &Case,
+    repetition: usize,
+    content: Option<&str>,
+    finish_reason: Option<&str>,
+    elapsed_ms: u64,
+    reported_tokens: Option<u64>,
+) -> CaseObservation {
     let mut observed = CaseObservation {
         case_id: case.id,
         repetition,
@@ -117,7 +129,12 @@ fn observation(
     };
     observed.strict_json_valid = serde_json::from_str::<V3ExtractionResult>(content).is_ok();
 
-    if let Ok(result) = parse_v3_result_typed(content) {
+    let candidate = ChatResult {
+        content: content.to_owned(),
+        usage: None,
+        finish_reason: finish_reason.map(str::to_owned),
+    };
+    if let Ok(result) = parse_completed_extraction_reply(&candidate) {
         observed.production_schema_valid = true;
         observed.skip_match = result.worth_extracting == case.worth_extracting
             && (case.worth_extracting == !result.items.is_empty());
@@ -307,6 +324,31 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
     assert_eq!(partial.term_hits, 0);
     assert_eq!(partial.term_total, 2);
 
+    // HTTP 200 and syntactically valid JSON are not proof that the model
+    // finished: finish_reason=length must not count as a successful extraction.
+    let length_capped = observation_with_stop_reason(
+        &noise,
+        5,
+        Some(&good_skip),
+        Some("length"),
+        10,
+        Some(14),
+    );
+    assert!(length_capped.request_ok);
+    assert!(length_capped.strict_json_valid);
+    assert!(!length_capped.production_schema_valid);
+    assert!(!length_capped.skip_match);
+    let normally_stopped = observation_with_stop_reason(
+        &noise,
+        6,
+        Some(&good_skip),
+        Some("stop"),
+        10,
+        None,
+    );
+    assert!(normally_stopped.production_schema_valid);
+    assert!(normally_stopped.skip_match);
+
     let report = summarize("local-demo", 1, 4, vec![valid, wrong, invalid, missing]);
     assert_eq!(report.requests, 4);
     assert_eq!(report.request_errors, 1);
@@ -367,10 +409,11 @@ async fn real_model_quality_and_latency() {
             let row = match response {
                 Ok(response) => {
                     let tokens = response.usage.and_then(|usage| usage.total_tokens);
-                    observation(
+                    observation_with_stop_reason(
                         case,
                         repetition,
                         Some(&response.content),
+                        response.finish_reason.as_deref(),
                         elapsed_ms,
                         tokens,
                     )

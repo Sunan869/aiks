@@ -68,3 +68,12 @@ Rust 自动化只验证缓存身份、SQLite 持久性和失效规则，不连�
 再用完整 JSON、带额外推理前缀后有完整 JSON、合法可修复尾逗号 JSON、合法纯条目对象/数组分别调用，确保不会因新截断门禁拒绝完整输出。匿名化质量基准中的 `request_ok=true` 只代表 HTTP 响应成功；`production_schema_valid=false` 仍可能是部分 JSON 已含正确关键词的情况，不能统计为知识成功提取，也不应统计关键词命中。严禁使用固定 JSON 测试冒充真实模型结果。
 
 已写入的历史 `knowledge-chunk-v5` 旧缓存只保存反序列化结果、没有模型原始结束原因；无法从缓存本身倒推出当时是否丢了后续知识，保留合法旧缓存兼容，必要时应在独立测试目录通过明确更换模型参数导致缓存键失效后复测，不要覆盖用户原有 SiYuan 编辑或清理生产数据。
+
+
+## 模型返回完整 JSON 但 finish_reason 报告中断（2026-10-12，待 Windows 真机）
+
+在独立 AIKS 数据目录下，使用可控 OpenAI-compatible 假服务或测试网关，对同一合成单块 Session 返回 HTTP 200。设置 `choices[0].message.content` 为完整合法、包括至少一条知识项的 V3 JSON，首先设置 `choices[0].finish_reason="length"`。尽管 JSON 无语法错误，Pipeline 应明确失败，且不能标记 AI_EXTRACTED SUCCESS、写入新知识或持久缓存。换为 `finish_reason="stop"` 且相同正文时，应重新请求模型并成功处理；检查旧失败响应没有变成缓存命中。多块 Session 也应在任意一块 length 时整体不成功，但不丢弃其他已经正常完成的可复用缓存。
+
+分别注入 `content_filter`、`tool_calls`、`function_call`、`error`，这些非正常完成原因也应拒绝。省略 finish_reason 或设为 null 的老本地模型仍应兼容，但不能凭未提供原因推定模型没有截断。即使 stop，正文结构被截断也仍须由独立结构完整性门禁拒绝。
+
+在真实模型独立基准中（需用户主动执行 `--ignored`），观察 HTTP 成功且完整 JSON、但 finish_reason=length 时：request_ok=true、strict_json_valid=true、production_schema_valid=false、skip_match=false，关键词不计入成功。stop 的完整结果按真实正文评分。保留模型参数、实际请求数、结束状态和阶段日志用于人工核对；匿名报告仍不得保存原始响应、Session 正文、密钥和模型服务 URL。当前自动化测试只是固定模型响应模拟，不代表 Windows 真机或真实模型已经通过验收。历史 v5 缓存没有结束状态，不能自动认定旧缓存全部完整或任意清空已有生产知识。

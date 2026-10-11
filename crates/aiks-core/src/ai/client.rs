@@ -40,6 +40,21 @@ struct ChatResponse {
     usage: Option<ChatUsage>,
 }
 
+impl ChatResponse {
+    fn into_result(self) -> anyhow::Result<ChatResult> {
+        let choice = self
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
+        Ok(ChatResult {
+            content: choice.message.content,
+            usage: self.usage,
+            finish_reason: choice.finish_reason,
+        })
+    }
+}
+
 /// Actual token usage reported by an OpenAI-compatible endpoint.
 /// Absent on some local model servers; never substitute guessed token counts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -70,6 +85,9 @@ impl ChatUsage {
 pub struct ChatResult {
     pub content: String,
     pub usage: Option<ChatUsage>,
+    /// Provider-reported stop reason for the chosen completion. Optional for
+    /// older local OpenAI-compatible servers; never infer a reason from usage.
+    pub finish_reason: Option<String>,
 }
 
 fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
@@ -87,6 +105,8 @@ fn log_token_usage(model: &str, usage: Option<&ChatUsage>) {
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: AssistantMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -318,17 +338,7 @@ impl AiClient {
             let body: ChatResponse =
                 serde_json::from_str(&body_text).context("parse AI response")?;
             log_token_usage(&self.config.model, body.usage.as_ref());
-            let content = body
-                .choices
-                .into_iter()
-                .next()
-                .map(|c| c.message.content)
-                .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
-
-            return Ok(ChatResult {
-                content,
-                usage: body.usage,
-            });
+            return body.into_result();
         }
     }
 
@@ -608,6 +618,33 @@ mod stream_tests {
         let null_usage = r#"{"choices":[{"message":{"content":"OK"}}],"usage":null}"#;
         let result: super::ChatResponse = serde_json::from_str(null_usage).unwrap();
         assert!(result.usage.is_none());
+    }
+
+    #[test]
+    fn completion_stop_reason_survives_provider_parsing() {
+        for (reason, expected) in [
+            (r#""finish_reason":"stop""#, Some("stop")),
+            (r#""finish_reason":"length""#, Some("length")),
+            (r#""finish_reason":"content_filter""#, Some("content_filter")),
+            (r#""finish_reason":null"#, None),
+            ("", None),
+        ] {
+            let metadata = if reason.is_empty() {
+                String::new()
+            } else {
+                format!(",{reason}")
+            };
+            let response = format!(
+                r#"{{"choices":[{{"message":{{"content":"complete JSON"}}{metadata}}}],"usage":{{"completion_tokens":12}}}}"#
+            );
+            let result: super::ChatResponse = serde_json::from_str(&response).unwrap();
+            let result = result.into_result().unwrap();
+            assert_eq!(result.content, "complete JSON");
+            assert_eq!(result.finish_reason.as_deref(), expected);
+            assert_eq!(result.usage.unwrap().completion_tokens, Some(12));
+        }
+        let empty: super::ChatResponse = serde_json::from_str(r#"{"choices":[]}"#).unwrap();
+        assert!(empty.into_result().is_err());
     }
 
     #[test]

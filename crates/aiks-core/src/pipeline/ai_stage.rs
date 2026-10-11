@@ -15,7 +15,7 @@ use std::time::Instant;
 use sha2::{Digest, Sha256};
 use tracing::info;
 
-use crate::ai::client::ChatUsage;
+use crate::ai::client::{ChatResult, ChatUsage};
 use crate::ai::{
     config::AiModelConfig,
     prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
@@ -261,7 +261,7 @@ impl AiStage {
                     chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
                 let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
                 let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
-                let result = parse_v3_result_typed(&response.content)?;
+                let result = parse_completed_extraction_reply(&response)?;
                 store_cached_chunk_result(db, &cache_key, &result)?;
                 (result, 0usize, 1usize, response.usage)
             }
@@ -461,7 +461,7 @@ impl AiStage {
                             .get_or_insert_with(ChatUsage::default)
                             .accumulate(usage);
                     }
-                    parse_v3_result_typed(&output.content)
+                    parse_completed_extraction_reply(&output)
                 }) {
                     Ok(result) => {
                         store_cached_chunk_result(db, &request.1, &result)?;
@@ -746,6 +746,27 @@ fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
 fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
     let result: V3ExtractionResult = serde_json::from_str(text).ok()?;
     (extraction_scores_valid(&result) && cacheable_extraction(&result)).then_some(result)
+}
+
+/// The model's own finish_reason is a separate completeness signal from the
+/// syntax of the generated JSON. A model can emit a fully balanced but partial
+/// subset of the intended items before reaching max_tokens; the JSON parser
+/// alone cannot distinguish that case. Never publish or cache that subset.
+///
+/// Missing metadata is common with older local OpenAI-compatible servers; for
+/// those, continue using the structural completeness gate in the parser.
+pub fn parse_completed_extraction_reply(reply: &ChatResult) -> anyhow::Result<V3ExtractionResult> {
+    if let Some(reason) = reply.finish_reason.as_deref() {
+        match reason {
+            "length" | "content_filter" | "tool_calls" | "function_call" | "error" => {
+                anyhow::bail!(
+                    "AI extraction response did not finish normally (finish_reason={reason}); retry with a larger output budget, shorter input, or corrected model"
+                );
+            }
+            _ => {}
+        }
+    }
+    parse_v3_result_typed(&reply.content)
 }
 
 /// The lenient parser deliberately salvages JSON cut off by max_tokens, even
@@ -1375,6 +1396,48 @@ mod tests {
     }
 
     #[test]
+    fn finish_reason_prevents_even_balanced_partial_json_from_being_cached() {
+        let complete = serde_json::json!({
+            "session_summary": "Safe, but potentially incomplete",
+            "knowledge_score": 0.9,
+            "worth_extracting": true,
+            "items": [{
+                "title": "Decision", "category": "decision",
+                "summary": "Only one decision shown",
+                "content": "Set cache capacity",
+                "problem": null, "root_causes": null,
+                "solutions": null, "key_commands": null,
+                "key_files": null, "decisions": null,
+                "tags": ["capacity"], "confidence": 0.8
+            }]
+        })
+        .to_string();
+        let mut reply = ChatResult {
+            content: complete,
+            usage: None,
+            finish_reason: Some("stop".into()),
+        };
+        assert_eq!(parse_completed_extraction_reply(&reply).unwrap().items.len(), 1);
+        // At max_tokens the model may have closed a valid JSON object but still
+        // report truncated generation: its own signal overrides parse success.
+        for reason in ["length", "content_filter", "tool_calls", "function_call", "error"] {
+            reply.finish_reason = Some(reason.into());
+            let error = parse_completed_extraction_reply(&reply)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(reason));
+            assert!(error.contains("finish_reason"));
+        }
+        reply.finish_reason = None;
+        assert_eq!(parse_completed_extraction_reply(&reply).unwrap().items.len(), 1);
+
+        // Stop is not a bypass for the separate structural truncation guard.
+        reply.finish_reason = Some("stop".into());
+        assert_eq!(reply.content.pop(), Some('}'));
+        assert!(parse_completed_extraction_reply(&reply).is_err());
+    }
+
+    #[test]
     fn both_extraction_paths_use_content_and_model_sensitive_cache_identity() {
         let config = AiModelConfig::default();
         let key = chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧");
@@ -1409,8 +1472,8 @@ mod tests {
     #[test]
     fn existing_v5_map_reduce_cache_identity_is_unchanged_for_single_chunk_reuse() {
         let config = AiModelConfig::default();
-        let title = Some("Session");
-        let project = Some("Project");
+        let title = "Session";
+        let project = "Project";
         let text = "historical chunk cache key";
         // Legacy Map-Reduce v5 expression, retained as a byte-level contract
         // for shared old/new SQLite cache rows.
@@ -1423,11 +1486,11 @@ mod tests {
             config.max_tokens,
             config.max_context_tokens,
             config.disable_thinking,
-            title.unwrap_or(""),
-            project.unwrap_or(""),
+            title,
+            project,
             text
         );
-        let key = chunk_cache_key(&config, title, project, text);
+        let key = chunk_cache_key(&config, Some(title), Some(project), text);
         assert_eq!(key, hex::encode(Sha256::digest(legacy.as_bytes())));
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.db");

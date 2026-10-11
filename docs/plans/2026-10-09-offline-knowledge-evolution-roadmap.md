@@ -685,3 +685,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 本批增加**完整顶层 items 包裹结构**的判定：保留目前可诊断的 `parse_v3_result_unchecked` 片段回收能力，但生产 `parse_v3_result_typed` 不接受没有完整平衡包裹结构的 items 前缀。即使已有完整子项，也以可识别的模型截断/提高 max_tokens 提示失败、允许后续 Pipeline 正常重试；不会写入 SQLite 提炼缓存或新知识。结构完整但内容有可修复尾逗号的响应、带噪推理前缀后有完整 JSON、裸知识对象／对象列表等既有容错路径仍允许处理，不能把合法的非标准输出无差别判为截断。
 - 补 Rust 正反回归：末尾缺少数组／顶层闭合、截断但有 2 条完整前缀知识、负例跳过的截断、合法完整 Schema 修复、推理前缀污染与裸条目修复。同步修正 `extraction_live_benchmark.rs` **被此前 fmt 失败遮蔽的两个陈旧断言**：矛盾 JSON 即便严格 serde 通过，也不再满足生产业务门禁；真实模型统计须把此类响应与截断但含关键词前缀的样本计入无效生产输出，不得冒充知识命中。该修订不改变基准的匿名化/不存原文与端点规则。
 - 保持已有 `knowledge-chunk-v5` key、合法老缓存、SQLite schema 与个人离线兼容；不操作 Provider 文件，不覆盖 SiYuan 原文，不合并 main、不发 Release。此前已持久化的 v5 行**不含模型原始结束标记，不能仅凭缓存结果判断曾否截断**；本轮阻断新增截断成功与缓存，但不声称能够识别全部历史旧行。Windows/真实模型故障注入仍待用户集中验收；本批未运行真实模型或 Windows 真机，综合 CI 以新 HEAD 实测为准，其他优化/功能完成后再进行 S1.3 完整备份恢复。
+
+
+### 2026-10-12 S2.1 模型结束原因完整性门禁与 Clippy 修复（代码级，CI 待验证）
+
+- 基线 HEAD `1cad54f5`：Windows Provider #38155806610 成功；CI #38155806605 的前端、Windows Desktop 和仓库卫生成功，Rust Clippy 在 v5 缓存指纹对照测试的常量 Some(...).unwrap_or(...) 两处报错，导致 Rust tests 跳过。本轮修复冗余 Option 包装，保留旧缓存指纹 SHA256 和重启读回兼容测试，不禁用 Clippy。
+- 发现此前 JSON 结构完整性检查无法覆盖的遗漏风险：OpenAI-compatible 响应可以返回内容结构完好的完整 JSON，却同时标记 choices[0].finish_reason 为 length，表示模型因输出 Token 上限停止。旧客户端忽略结束原因，生产提炼会将可能缺项的完整 JSON 当作成功并永久缓存。现在保留可选结束原因，单块和 Map-Reduce 统一拒绝 length、content_filter、tool_calls、function_call、error，确保异常中止不写新知识或缓存；stop 正常通过原有结构、分数、items 一致性门禁，未上报结束原因的旧本地模型仍兼容。
+- 独立真实模型基准改为复用相同的最终产出门禁：HTTP 成功和严格 JSON 合法仍分别计数，但 finish_reason=length 时生产 schema、跳过匹配和关键词命中一律不可算通过。增加 API choice 元数据解析、合法/缺省/异常结束原因、结构完整但因长度中断、真实基准指标正反例回归；同步更新 Windows 故障注入验收指引。
+- 保持旧 v5 key、SQLite schema、local-first、Provider 只读、SiYuan 原文不覆盖及旧数据库兼容。既有缓存未储存历史结束原因，不能反推是否曾截断，不自动清除原有缓存。本次为代码级门禁和 fixture 回归，尚无 Windows 真机或真实模型验收结论；S1.3 完整备份/恢复仍最后实现，不合并 main、不发 Release。
