@@ -61,7 +61,7 @@ fn chunk_cache_key(
     text: &str,
 ) -> String {
     let key_material = format!(
-        "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
         crate::ai::prompts_v3::PROMPT_VERSION_V3,
         config.base_url,
         config.model,
@@ -247,18 +247,18 @@ impl AiStage {
         );
 
         let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
-            let cache_key = chunk_cache_key(
-                &self.config,
-                session_title,
-                project_name,
-                &chunks[0].1,
-            );
+            let cache_key =
+                chunk_cache_key(&self.config, session_title, project_name, &chunks[0].1);
             if let Some(cached) = read_cached_chunk_result(db, &cache_key)? {
-                info!(session_id, "[AI] Reusing validated single-chunk extraction cache");
+                info!(
+                    session_id,
+                    "[AI] Reusing validated single-chunk extraction cache"
+                );
                 (cached, 1usize, 0usize, None)
             } else {
                 let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-                let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
+                let context =
+                    chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
                 let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
                 let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
                 let result = parse_v3_result_typed(&response.content)?;
@@ -752,6 +752,14 @@ pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResul
     let result = parse_v3_result_unchecked(response)?;
     if !extraction_scores_valid(&result) {
         anyhow::bail!("AI extraction response contains invalid score or confidence");
+    }
+    // The lenient parser can recover a truncated top-level wrapper with zero
+    // complete items. That partial response must not silently become a
+    // successful pipeline stage or enter the persistent extraction cache.
+    if !cacheable_extraction(&result) {
+        anyhow::bail!(
+            "AI extraction response contradicts its own items: worth_extracting and non-empty items disagree; retry with a larger max_tokens or a corrected model"
+        );
     }
     Ok(result)
 }
@@ -1368,6 +1376,46 @@ mod tests {
     }
 
     #[test]
+    fn existing_v5_map_reduce_cache_identity_is_unchanged_for_single_chunk_reuse() {
+        let config = AiModelConfig::default();
+        let title = Some("Session");
+        let project = Some("Project");
+        let text = "historical chunk cache key";
+        // Legacy Map-Reduce v5 expression, retained as a byte-level contract
+        // for shared old/new SQLite cache rows.
+        let legacy = format!(
+            "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            crate::ai::prompts_v3::PROMPT_VERSION_V3,
+            config.base_url,
+            config.model,
+            config.temperature,
+            config.max_tokens,
+            config.max_context_tokens,
+            config.disable_thinking,
+            title.unwrap_or(""),
+            project.unwrap_or(""),
+            text
+        );
+        let key = chunk_cache_key(&config, title, project, text);
+        assert_eq!(key, hex::encode(Sha256::digest(legacy.as_bytes())));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        let db = StateDb::open(&path).unwrap();
+        ensure_chunk_cache_table(&db).unwrap();
+        let legacy_cache_result = V3ExtractionResult::skip("old cache");
+        store_cached_chunk_result(&db, &key, &legacy_cache_result).unwrap();
+        drop(db);
+        let reopened = StateDb::open(&path).unwrap();
+        assert_eq!(
+            read_cached_chunk_result(&reopened, &key)
+                .unwrap()
+                .unwrap()
+                .session_summary,
+            "old cache"
+        );
+    }
+
+    #[test]
     fn single_chunk_cache_survives_reopen_but_rejects_contradictory_model_output() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.db");
@@ -1403,12 +1451,16 @@ mod tests {
                     ],
                 )
                 .unwrap();
-            assert!(read_cached_chunk_result(&db, "bad-existing").unwrap().is_none());
+            assert!(read_cached_chunk_result(&db, "bad-existing")
+                .unwrap()
+                .is_none());
         }
         let reopened = StateDb::open(&path).unwrap();
         ensure_chunk_cache_table(&reopened).unwrap();
         assert!(read_cached_chunk_result(&reopened, key).unwrap().is_some());
-        assert!(read_cached_chunk_result(&reopened, "bad-new").unwrap().is_none());
+        assert!(read_cached_chunk_result(&reopened, "bad-new")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1485,6 +1537,41 @@ mod tests {
             .contains("invalid score"));
         let nan = r#"{"session_summary":"test","knowledge_score":-0.1,"worth_extracting":false,"items":[]}"#;
         assert!(parse_v3_result_typed(nan).is_err());
+    }
+
+    #[test]
+    fn production_parser_rejects_contradictory_model_verdicts_to_allow_retry() {
+        let positive_without_items =
+            r#"{"session_summary":"partial JSON","knowledge_score":0.9,"worth_extracting":true,"items":[]}"#;
+        assert!(parse_v3_result_typed(positive_without_items)
+            .unwrap_err()
+            .to_string()
+            .contains("worth_extracting"));
+        let mut contradictory = serde_json::json!({
+            "session_summary": "data exists",
+            "knowledge_score": 0.9,
+            "worth_extracting": true,
+            "items": [{
+                "title": "An actionable conclusion",
+                "category": "implementation",
+                "summary": "summary",
+                "content": "evidence",
+                "problem": null,
+                "root_causes": null,
+                "solutions": null,
+                "key_commands": null,
+                "key_files": null,
+                "decisions": null,
+                "tags": [],
+                "confidence": 0.8
+            }]
+        });
+        assert!(parse_v3_result_typed(&contradictory.to_string()).is_ok());
+        contradictory["worth_extracting"] = serde_json::json!(false);
+        assert!(parse_v3_result_typed(&contradictory.to_string()).is_err());
+        let valid_skip =
+            r#"{"session_summary":"valid skip","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(valid_skip).is_ok());
     }
 
     #[test]
@@ -1591,10 +1678,11 @@ mod tests {
     #[test]
     fn parse_repairs_unicode_keys_and_python_literals() {
         let json = "{session_summary:\"x\", knowledge_score:0.4, worth_extracting:True, items:[],}";
-        let result = parse_v3_result_typed(json).unwrap();
+        let result = parse_v3_result_unchecked(json).unwrap();
         assert_eq!(result.session_summary, "x");
         assert!(result.worth_extracting);
         assert!(result.items.is_empty());
+        assert!(parse_v3_result_typed(json).is_err());
     }
 
     /// A leading BOM must not break the parse.
@@ -1769,17 +1857,20 @@ mod tests {
     /// Truncation in the middle of a string value must also close cleanly.
     /// The half-emitted item cannot satisfy the item schema (missing later
     /// required fields), so the scan falls back to closing `"items":[]` —
-    /// top-level data survives and the run is no longer a total failure.
+    /// top-level data survives for diagnostics, but production must retry.
     #[test]
     fn parse_closes_truncated_inside_string() {
         let truncated = r#"{"session_summary":"对 dataset-eval 项目进行了全面的分析。","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"条目A","category":"architecture","summary":"内容到这里被截断"#;
-        let result = parse_v3_result_typed(truncated).unwrap();
+        let result = parse_v3_result_unchecked(truncated).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(
             result.session_summary,
             "对 dataset-eval 项目进行了全面的分析。"
         );
         assert!(result.items.is_empty());
+        // Salvage diagnostics remain inspectable; a truncated positive result
+        // without a complete item is not a successful production extraction.
+        assert!(parse_v3_result_typed(truncated).is_err());
     }
 
     /// Truncation after several complete items keeps every complete item —

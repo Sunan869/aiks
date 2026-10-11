@@ -670,3 +670,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 发现真实业务缺口：原有 `ai_chunk_extract_cache` 只在 Map-Reduce 多块提炼中生效，单块 Session 每次被处理时即使内容/配置不变也重新请求模型。重构统一 v5 内容与模型配置指纹、SQLite 读写和 2000 条有界清理，加入短会话缓存读写；旧的合规多块缓存无需迁移即可复用。纯缓存命中不再假记 `ai_request_log` 为一次新的实际模型调用，阶段缓存命中率、`llm_calls` 和服务端真实 usage 仍分别统计。
 - 模型声明值得提炼却返回空知识，或声明跳过但同时输出知识时，不会缓存这类自相矛盾结果；历史缓存里同类坏记录被忽略并允许后续重跑。加入缓存 key 配置失效、重启恢复、旧坏缓存过滤的 SQLite/Core 回归，以及 Windows 真实模型验证说明。
 - 未进行 Windows 真机和真实模型验收，不能凭本提交或固定自动化标记 S2.1 完成。没有新增 migration、不写 Provider、不覆盖用户 SiYuan 文档、不合并 main、不发布 Release。所有其他优化与功能完成后再实施 S1.3 完整备份与恢复。
+
+### 2026-10-11 S2.1 单块缓存编译阻断与矛盾模型返回值错误成功修复（待新 CI）
+
+- 已确认远端 HEAD 为 `54c61d3f`，CI `38149096378`、Windows Provider `38149096373` 均 completed/failure；无需重放旧成功 HEAD。Windows Core 与 Provider 均由 `ai_stage.rs:64` 同一个真实 Rust 编译错误阻断：`knowledge-chunk-v5` 缓存键 `format!` 含 11 个占位符却只有 10 个实参。该字符串会导致桌面程序无法编译，绝非「测试用例小问题」。恢复此前 Map-Reduce **10 参数原始 v5 文本格式**，并加入旧表达式逐字节 SHA256 指纹及 reopen SQLite 命中的兼容回归，确保已有用户持久 chunk 缓存不会因为本修复改版而失效。
+- CI Rust quality 同时在单块缓存路径的 3 处调用和 2 个断言处存在 rustfmt 差异；统一依据原始日志修正，避免未处理格式直接触发下一轮 CI。前端和仓库卫生在本 HEAD 已成功；没有证据说明其他跳过/被编译阻断的 Windows/Rust 检查成功。
+- 审核新增单块缓存实现发现另一个**真实业务安全缺口**：生产 `parse_v3_result_typed` 允许 schema 可解析却自相矛盾的结果进入 `run`，例如 `worth_extracting=true, items=[]`（模型超长 JSON 截断后容错解析可能生成），进而把该 Session 记为 `AI_EXTRACTED SUCCESS 0` 且丢弃值得提炼的内容；`worth_extracting=false` 但 items 非空也会被当正常无价值会话。虽然缓存层会避开这类结果，但**流水线成功语义本身不正确**，不能依赖再次运行碰运气。将正反一致性提升至生产结果验收条件：仍保留容错解析器的诊断恢复能力，但进入单块及 Map-Reduce 业务处理前明确失败，使持久 Pipeline 后续可以重试；并在真实模型测试入口明确要求故障注入核验。
+- Rust 测试补正常通过/跳过与两种自相矛盾、截断容错解析但不应成功、历史缓存兼容；同步补 `docs/acceptance/extraction-live-benchmark.md` Windows 实机测试步骤。固定测试不等于真实模型或 Windows 验收；仍保持个人离线、Provider 只读、SiYuan 原文禁止覆盖、迁移兼容、不合并 main、不发 Release，S1.3 最后实施。
