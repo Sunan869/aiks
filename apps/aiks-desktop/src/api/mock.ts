@@ -2,6 +2,7 @@ import type { SyncAndExtractResult } from "./types";
 // Mock API — provides realistic data for browser dev mode
 import type { AiksApi } from "./index";
 import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
+import { isReviewedOrganizationOperation } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
@@ -373,7 +374,7 @@ export class MockAiksApi implements AiksApi {
   async createOrganizedKnowledge(
     input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"],
   ): Promise<KnowledgeDetail> {
-    if (!["structure", "rewrite", "key_conclusions", "compare", "merge_draft"].includes(operation)) {
+    if (!isReviewedOrganizationOperation(operation)) {
       throw new Error("Invalid organization audit operation");
     }
     if ((operation === "compare" || operation === "merge_draft") && sourceKnowledgeIds.length < 2) {

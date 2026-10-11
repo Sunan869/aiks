@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(entries[0].derived_knowledge_id, derived);
         assert_eq!(entries[0].source_knowledge_ids, vec![first.clone(), second]);
         assert_eq!(entries[0].status, "active");
-        assert!(repo.record(&derived, "compare", &[first.clone()]).is_err());
+        assert!(repo.record(&derived, "compare", std::slice::from_ref(&first)).is_err());
         assert!(repo
             .record(&derived, "structure", std::slice::from_ref(&first))
             .is_err());

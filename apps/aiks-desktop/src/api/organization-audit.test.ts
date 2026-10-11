@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MockAiksApi } from "./mock";
+import { isReviewedOrganizationOperation } from "./ai-assist";
 import page from "../pages/KnowledgeDetailPage.tsx?raw";
 import tauri from "./tauri.ts?raw";
 import rustCommand from "../../src-tauri/src/knowledge_commands.rs?raw";
@@ -40,11 +41,21 @@ describe("S3.4 durable reviewed organization audit", () => {
     expect((await reopened.getKnowledgeDetail(source)).status).toBe("active");
   });
 
+  it("does not treat ordinary AI assistance operations as reviewed organization", () => {
+    expect(isReviewedOrganizationOperation("summary")).toBe(false);
+    expect(isReviewedOrganizationOperation("title")).toBe(false);
+    expect(isReviewedOrganizationOperation("tags")).toBe(false);
+    expect(isReviewedOrganizationOperation("category")).toBe(false);
+    for (const operation of ["structure", "rewrite", "key_conclusions", "compare", "merge_draft"] as const) {
+      expect(isReviewedOrganizationOperation(operation)).toBe(true);
+    }
+  });
+
   it("blocks invalid audit metadata before creating any document", async () => {
     const api = new MockAiksApi();
     const input = { title: "Forbidden audit title", content: "do not create", tags: [] };
     await expect(api.createOrganizedKnowledge(input, ["kn_0001"], "compare")).rejects.toThrow();
-    await expect(api.createOrganizedKnowledge(input, ["kn_0001"], "unknown" as never)).rejects.toThrow();
+    await expect(api.createOrganizedKnowledge(input, ["kn_0001"], "summary")).rejects.toThrow();
     await expect(api.createOrganizedKnowledge(input, [], "structure")).rejects.toThrow();
     expect((await api.getKnowledge({ limit: 200 })).items.some(item =>
       item.title === "Forbidden audit title"

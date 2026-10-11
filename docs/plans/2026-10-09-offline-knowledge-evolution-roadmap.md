@@ -564,3 +564,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Tauri `create_organized_knowledge` 在请求 SiYuan 前校验操作和来源；新建成功后记录本地不可覆盖的审核关系。若远端文档**已经创建**、但本地审核写入失败，明确返回新文档 ID 与「不要重试」说明，防止前端重试生成重复 SiYuan 文档。新增 `list_organization_audit` 只读查询；普通 `create_knowledge` 不受审核条件影响。
 - Desktop 知识详情展示当前知识相关的最近最多 100 条持久整理记录，提供重新打开独立知识、人工归档、恢复当前状态入口；旧的当次创建后归档仍兼容，新增审核记录变更时刷新查询。经用户确认的归档只改变 AIKS 本地新知识状态，不自动删除 SiYuan 文件或其他原始知识。前端 Mock/接口及 Rust/TS 回归含数据库重开、来源次序、重复拒绝、归档恢复、无效操作与新命令门禁。
 - 已补充 `docs/acceptance/organization-persistent-audit.md` 真实 Windows + SiYuan 故障注入入口。本批没有运行真实模型或 Windows 用户环境；新 HEAD CI 及跨 HTTP 不确定提交情况仍须验证。**当前方案不能保证 SiYuan HTTP 写入与 SQLite 审计原子提交**，更高等级的异常中断/跨机一致性仍需真实验收和后续恢复策略复核。S1.3 完整备份恢复仍最后实施。
+
+### 2026-10-11 S3.4 V16 审核记录 CI Clippy/TypeScript 修复
+
+- 上一 HEAD `04bb4943`：Windows Provider `38123961195` 成功，综合 CI `38123961198` 失败。**Windows Desktop 编译、仓库卫生、Rust 格式、前端 152 项测试成功**，但前端 TypeScript 构建因 `AiAssistOperation`（含 `summary/title/tags/category`）被赋值给只允许 5 种「整理操作」的持久审计字段而失败；Rust Clippy（`-D warnings`）拒绝一处单元素 `[first.clone()]`，Rust tests 因 Clippy 失败未运行。两项均来自工作流原始日志，而非推断。
+- 一次批次修复两个独立 CI 阻塞点：新增 `ReviewedOrganizationOperation` 编译期受限类型及运行时收窄判别函数，**只有** `structure/rewrite/key_conclusions/compare/merge_draft` 可以进入已审核的整理审计；普通 `summary/title/tags/category` 仍可用于原有 AI 辅助，但不允许伪装为已人工确认的跨知识整理。Rust 单元素切片改为 `std::slice::from_ref`，不关闭 Clippy 规则或跳过测试。
+- 增加五种允许操作和四种非整理操作的负例回归，继续保留非法来源拒绝及正式 SQLite V16 审计数据层；未新增迁移、对 Provider/SiYuan 的写回或新的云依赖。新 HEAD 尚需综合 CI 和 Windows Provider 独立确认，真实模型/Windows 真机验收仍待集中进行；S1.3 完整备份和恢复继续留至其他代码级模块最后。
