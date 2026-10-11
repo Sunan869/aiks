@@ -1,7 +1,7 @@
 use crate::app_state::AppState;
 use aiks_core::knowledge::{
     render_agent_context_scoped, render_project_review_scoped, ProjectMemoryService,
-    ProjectMemorySnapshot, ProjectOverview,
+    ProjectMemorySnapshot, ProjectOverview, ProjectEvolutionService, ProjectEvolutionSnapshot,
 };
 use tauri::State;
 
@@ -25,6 +25,19 @@ pub async fn get_project_memory(
     let db = engine.db();
     ProjectMemoryService::new(&db)
         .get(&project_id, 200)
+        .map_err(|error| error.to_string())
+}
+
+/// Read-only evidence links; no inferred contradictions or automatic edits.
+#[tauri::command]
+pub async fn list_project_evolution(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectEvolutionSnapshot, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectEvolutionService::new(&db)
+        .list(&project_id, 100)
         .map_err(|error| error.to_string())
 }
 

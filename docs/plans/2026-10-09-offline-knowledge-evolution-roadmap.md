@@ -510,3 +510,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 新增 `task-diagnostics.ts` 聚合器，严格**正向字段白名单**：全库任务统计与最近最多 200 条任务的按来源（固定允许集合）、同步状态、AI 状态、故障类型、尝试次数分布、阶段延迟 p50/p95。未知来源/状态归并为固定标签；错误正文、原始会话 ID、标题、路径、源文件、历史 Prompt、服务地址、Token 和各项可识别身份均不复制到 JSON；任何自由文本字段均不序列化。
 - 处理中心沿用只读 `getTaskCenterEntries` / `getTaskCenterStats`，打开预览时创建**冻结快照**。轮询更新不会替换已经审核的导出内容；手动点击「更新预览快照」才重建 JSON。只有看到预览后可显式复制或保存独立 JSON 文件；不写入项目目录或 SiYuan。注明统计和有界样本不同范围，非全量诊断且非已验证的性能基线。
 - 增加字段脱敏、恶意来源字符串、边界数量、故障计数与 p50/p95、空样本和用户预览行为回归，提供 `docs/acceptance/task-diagnostics-safe-export.md` 验收步骤。本次不涉及 migration 和 S1.3 备份；新 HEAD 的 CI、真实 Windows/SiYuan 与工作负载故障注入仍待确认，不能宣称 S1.2 完整实机验收。
+
+### 2026-10-11 S3.1 项目知识演进视图：人工确认与待审核关系
+
+- 基线 HEAD `5b512784` 的综合 CI `38118508697` 与 Windows Provider `38118508692` 已通过。在现有跨 Provider Project Memory 工作台补齐原来缺少的项目级「修正 / 替代 / 解决」证据列表；**不将标题相似、模型摘要或未经验证的猜测视为矛盾事实**。
+- 新建只读 `ProjectEvolutionService`，依赖现有正式 migration 013 的 `knowledge_relation` 与当前 Knowledge/Session SQLite 记录；仅展示 `corrects/supersedes/resolved_by` 和 `confirmed/suggested`，拒绝 rejected、已归档 Knowledge、缺失 Session。每条关系的**两个 Knowledge 端点**都重新用当前 canonical session source/path 计算项目身份，必须属于所选同一项目；Session 迁走、来源丢失后不会错误混入旧项目。原始关系审核表和知识内容保持不变。
+- Tauri 命令 `list_project_evolution`、TypeScript API/Mock 与项目记忆 UI 一并接入。明确区分用户确认与待人工审核、提示审核时间不等于生效时间，提供双方 Knowledge 详情入口和证据文本。结果最多展示 100 条且提示截断，项目切换时抛弃旧的异步结果；不自动确认、发布、删除、覆盖任何知识或 SiYuan 原文。
+- 增加真实 SQLite 回归覆盖同项目跨 Provider、跨项目假关联、确认/建议/拒绝状态、项目迁移、Session 缺失、知识归档与截断行为，另有前端交互/API 边界测试和 `docs/acceptance/project-evolution-reviewed.md` 验收入口。无 Schema 迁移、Provider 只读、个人离线模式不变。
+- 本模块仍需新 HEAD 综合 CI 和真实 Windows/内嵌 SiYuan 跨来源验收；项目手工归属修正及自动矛盾候选检测等更大功能仍待独立核对，不能把本项标作整个 S3.1 完成。S1.3 完整备份/恢复继续排在所有其他代码模块最后。

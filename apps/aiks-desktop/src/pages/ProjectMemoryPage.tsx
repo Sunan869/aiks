@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
-import type { ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview } from "../api/types";
+import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview } from "../api/types";
 import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
 import { summarizeProjectMemoryQuality } from "../project-memory-quality";
 
@@ -36,6 +36,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<ProjectMemorySnapshot | null>(null);
+  const [evolution, setEvolution] = useState<ProjectEvolutionSnapshot | null>(null);
+  const [evolutionError, setEvolutionError] = useState("");
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 86400000).toISOString().slice(0,10));
@@ -63,7 +65,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   }, []);
 
   useEffect(() => {
-    if (!selected) { setDetail(null); return; }
+    if (!selected) { setDetail(null); setEvolution(null); return; }
     let mounted = true;
     setError("");
     generation.current += 1;
@@ -72,14 +74,22 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setNotice("");
     setWorking(false);
     setDetail(null);
+    setEvolution(null);
+    setEvolutionError("");
     setOnlyFlagged(false);
     setSourceFilter("");
     setAgentFormat("markdown");
     setTopicFilter("all");
     setViewMode("list");
-    getApi().getProjectMemory(selected).then(snapshot => {
+    const api = getApi();
+    void api.getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
+    void api.getProjectEvolution(selected).then(snapshot => {
+      if (mounted) setEvolution(snapshot);
+    }).catch(reason => {
+      if (mounted) setEvolutionError(String(reason));
+    });
     return () => { mounted = false; };
   }, [selected]);
 
@@ -234,6 +244,62 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               {evidence.length === 0 && <p className="text-gray-500">当前筛选范围内暂无知识证据。</p>}
               {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史；主题统计和时间线均可能不完整。</p>}
             </div>
+          </section>
+          <section className="rounded border p-4 dark:border-gray-700">
+            <h2 className="font-semibold">知识演进与已审核的修正关系</h2>
+            <p className="mt-2 text-xs text-gray-500">
+              仅显示带来源证据、由用户确认或尚待确认的「修正 / 替代 / 解决」关系。
+              关系时间表示审核记录更新时间，不代表方案生效时间；旧知识及 Session 均保留。
+            </p>
+            {evolutionError && <p role="alert" className="mt-2 text-xs text-red-600">
+              关系读取失败：{evolutionError}
+            </p>}
+            {!evolution && !evolutionError && <p className="mt-2 text-xs text-gray-500">正在读取关系…</p>}
+            {evolution && evolution.links.length === 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                当前项目没有可展示的人工确认或待确认演进关系；这并不证明不存在知识矛盾。
+              </p>
+            )}
+            {evolution && evolution.links.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {evolution.links.map(link => {
+                  const relationLabel = {
+                    corrects: "修正",
+                    supersedes: "替代",
+                    resolved_by: "通过…解决",
+                  }[link.relation_type];
+                  return (
+                    <article key={link.id} className="rounded border p-3 text-xs dark:border-gray-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={link.status === "confirmed" ?
+                          "rounded bg-green-50 px-2 py-1 text-green-800" :
+                          "rounded bg-amber-50 px-2 py-1 text-amber-800"}>
+                          {link.status === "confirmed" ? "用户已确认关系" : "待人工审核，不能视为生效结论"}
+                        </span>
+                        <span className="text-gray-500">{relationLabel} · 关系更新 {link.updated_at.slice(0, 10)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button" className="text-blue-600 hover:underline"
+                          onClick={() => onOpenKnowledge(link.source_id)}>
+                          {link.source_title}
+                        </button>
+                        <span className="text-gray-400">→ {relationLabel} →</span>
+                        <button type="button" className="text-blue-600 hover:underline"
+                          onClick={() => onOpenKnowledge(link.target_id)}>
+                          {link.target_title}
+                        </button>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">
+                        审核证据：{link.evidence}
+                      </p>
+                    </article>
+                  );
+                })}
+                {evolution.truncated && (
+                  <p className="text-amber-600">仅展示最近 100 条关系，不代表项目全部历史。</p>
+                )}
+              </div>
+            )}
           </section>
           <section className="rounded border p-4 dark:border-gray-700">
             <h2 className="font-semibold">工作回顾与 Agent 上下文</h2>

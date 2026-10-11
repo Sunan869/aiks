@@ -5,7 +5,7 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -196,6 +196,28 @@ export class MockAiksApi implements AiksApi {
     }));
     return { project, entries, truncated: false };
   }
+  async getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot> {
+    const snapshot = await this.getProjectMemory(projectId);
+    const ids = new Set(snapshot.entries.map(entry => entry.knowledge_id));
+    const links = knowledgeRelations.filter(relation =>
+      relation.status !== "rejected" &&
+      (relation.relation_type === "corrects" || relation.relation_type === "supersedes" ||
+       relation.relation_type === "resolved_by") &&
+      ids.has(relation.source_id) && ids.has(relation.target_id)
+    ).map(relation => ({
+      id: relation.id,
+      source_id: relation.source_id,
+      target_id: relation.target_id,
+      source_title: knowledge.find(item => item.id === relation.source_id)?.title || "",
+      target_title: knowledge.find(item => item.id === relation.target_id)?.title || "",
+      relation_type: relation.relation_type as "corrects" | "supersedes" | "resolved_by",
+      status: relation.status as "confirmed" | "suggested",
+      evidence: relation.evidence,
+      updated_at: relation.updated_at,
+    }));
+    return { links: links.slice(0, 100), truncated: links.length > 100 };
+  }
+
   async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> {
     const snapshot = await this.getProjectMemory(projectId);
     if (from > through) throw new Error("Invalid date range");

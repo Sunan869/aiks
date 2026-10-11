@@ -159,6 +159,7 @@ pub fn run() {
             knowledge_commands::list_knowledge_v4,
             project_memory_commands::list_project_memory,
             project_memory_commands::get_project_memory,
+            project_memory_commands::list_project_evolution,
             project_memory_commands::create_project_review,
             project_memory_commands::create_agent_context_pack,
             knowledge_commands::get_knowledge_detail_v4,

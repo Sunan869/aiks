@@ -11,6 +11,7 @@ import type {
   KnowledgeDetail,
   ProjectOverview,
   ProjectMemorySnapshot,
+  ProjectEvolutionSnapshot,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
   KnowledgeRelation,
@@ -50,6 +51,7 @@ export interface AiksApi {
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
   getProjectMemories(): Promise<ProjectOverview[]>;
   getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
+  getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot>;
   createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string>;
   createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;

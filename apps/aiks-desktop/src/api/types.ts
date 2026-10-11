@@ -369,3 +369,21 @@ export interface ProjectMemorySnapshot {
   entries: ProjectMemoryEntry[];
   truncated: boolean;
 }
+
+/** Human-reviewed, evidence-bearing cross-session evolution only. */
+export interface ProjectEvolutionLink {
+  id: string;
+  source_id: string;
+  target_id: string;
+  source_title: string;
+  target_title: string;
+  relation_type: "supersedes" | "corrects" | "resolved_by";
+  status: "confirmed" | "suggested";
+  evidence: string;
+  updated_at: string;
+}
+
+export interface ProjectEvolutionSnapshot {
+  links: ProjectEvolutionLink[];
+  truncated: boolean;
+}
