@@ -47,6 +47,10 @@ impl ChatResponse {
             .into_iter()
             .next()
             .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
+        // A gateway may ignore max_tokens even on non-streaming requests.
+        // Check decoded text before publishing it to the RAG or extraction
+        // pipeline. This bounds accepted output, not the HTTP body's memory.
+        check_chat_output_budget(0, choice.message.content.len())?;
         Ok(ChatResult {
             content: choice.message.content,
             usage: self.usage,
@@ -492,8 +496,13 @@ impl AiClient {
             let mut content = String::new();
             let mut first_text_seen = false;
             let mut terminal_seen = false;
+            let mut received_bytes = 0usize;
 
             while let Some(chunk) = resp.chunk().await.context("read AI stream chunk")? {
+                // A limit per SSE line is not enough: a non-compliant
+                // gateway can send unlimited valid, tiny events or pings.
+                // Count raw bytes before accumulating/parsing this chunk.
+                received_bytes = next_stream_wire_size(received_bytes, chunk.len())?;
                 pending.extend_from_slice(&chunk);
                 while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
                     anyhow::ensure!(
@@ -513,6 +522,7 @@ impl AiClient {
                                 "[AI_TIMING] first response text"
                             );
                         }
+                        check_chat_output_budget(content.len(), delta.len())?;
                         on_delta(&delta)?;
                         content.push_str(&delta);
                     }
@@ -534,6 +544,7 @@ impl AiClient {
                             "[AI_TIMING] first response text"
                         );
                     }
+                    check_chat_output_budget(content.len(), delta.len())?;
                     on_delta(&delta)?;
                     content.push_str(&delta);
                 }
@@ -558,6 +569,35 @@ impl AiClient {
 
 /// Maximum bytes held for a single unterminated SSE event.
 const MAX_STREAM_EVENT_BYTES: usize = 1024 * 1024;
+/// A broken local gateway must not return an unbounded chat answer even if it
+/// silently ignores the advertised max_tokens. Both ordinary and SSE answers
+/// share the same decoded UTF-8 byte limit (8 MiB).
+const MAX_CHAT_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+/// Include SSE metadata, keepalives and discarded choices in the wire cap.
+/// An endpoint can otherwise keep the reader busy forever without producing
+/// accepted answer text. This is not a connection deadline.
+const MAX_STREAM_WIRE_BYTES: usize = 16 * 1024 * 1024;
+
+fn check_chat_output_budget(existing_bytes: usize, delta_bytes: usize) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        existing_bytes
+            .checked_add(delta_bytes)
+            .is_some_and(|total| total <= MAX_CHAT_OUTPUT_BYTES),
+        "AI response exceeded the safe output-size limit"
+    );
+    Ok(())
+}
+
+fn next_stream_wire_size(existing_bytes: usize, incoming_bytes: usize) -> anyhow::Result<usize> {
+    let total = existing_bytes
+        .checked_add(incoming_bytes)
+        .ok_or_else(|| anyhow::anyhow!("AI stream exceeded the safe transport-size limit"))?;
+    anyhow::ensure!(
+        total <= MAX_STREAM_WIRE_BYTES,
+        "AI stream exceeded the safe transport-size limit"
+    );
+    Ok(total)
+}
 
 /// Transient capacity signals from OpenAI-compatible local model servers.
 fn is_model_overloaded(status: u16) -> bool {
@@ -631,7 +671,10 @@ fn ensure_stream_completed(terminal_seen: bool, content: &str) -> anyhow::Result
 }
 
 fn parse_stream_line(line: &[u8]) -> anyhow::Result<StreamEvent> {
-    anyhow::ensure!(line.len() <= MAX_STREAM_EVENT_BYTES, "AI stream event too large");
+    anyhow::ensure!(
+        line.len() <= MAX_STREAM_EVENT_BYTES,
+        "AI stream event too large"
+    );
     let line = std::str::from_utf8(line)
         .context("AI stream returned invalid UTF-8")?
         .trim();
@@ -763,10 +806,9 @@ mod stream_tests {
     #[test]
     fn streaming_missing_terminal_marker_is_not_a_completed_answer() {
         let mut finished = false;
-        let event = parse_stream_line(
-            br#"data: {"choices":[{"delta":{"content":"partial answer"}}]}"#,
-        )
-        .unwrap();
+        let event =
+            parse_stream_line(br#"data: {"choices":[{"delta":{"content":"partial answer"}}]}"#)
+                .unwrap();
         assert_eq!(
             super::consume_stream_event(event, &mut finished)
                 .unwrap()
@@ -776,11 +818,12 @@ mod stream_tests {
         assert!(!finished);
         assert!(super::ensure_stream_completed(finished, "partial answer").is_err());
 
-        let stop = parse_stream_line(
-            br#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
-        )
-        .unwrap();
-        assert_eq!(super::consume_stream_event(stop, &mut finished).unwrap(), None);
+        let stop = parse_stream_line(br#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#)
+            .unwrap();
+        assert_eq!(
+            super::consume_stream_event(stop, &mut finished).unwrap(),
+            None
+        );
         assert!(super::ensure_stream_completed(finished, "complete answer").is_ok());
         assert!(super::ensure_stream_completed(finished, "").is_err());
     }
@@ -789,17 +832,26 @@ mod stream_tests {
     fn streaming_done_allows_legacy_no_reason_but_refuses_late_text() {
         let mut finished = false;
         let done = parse_stream_line(b"data: [DONE]").unwrap();
-        assert_eq!(super::consume_stream_event(done, &mut finished).unwrap(), None);
+        assert_eq!(
+            super::consume_stream_event(done, &mut finished).unwrap(),
+            None
+        );
         assert!(finished);
         assert!(super::ensure_stream_completed(finished, "legacy answer").is_ok());
-        let extra = parse_stream_line(br#"data: {"choices":[{"delta":{"content":"late"}}]}"#)
-            .unwrap();
+        let extra =
+            parse_stream_line(br#"data: {"choices":[{"delta":{"content":"late"}}]}"#).unwrap();
         assert!(super::consume_stream_event(extra, &mut finished).is_err());
     }
 
     #[test]
     fn streaming_abnormal_completion_rejects_valid_looking_text() {
-        for reason in ["length", "content_filter", "tool_calls", "function_call", "error"] {
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "error",
+        ] {
             let input = format!(
                 r#"data: {{"choices":[{{"delta":{{"content":"complete"}},"finish_reason":"{reason}"}}]}}"#
             );
@@ -837,6 +889,56 @@ mod stream_tests {
     }
 
     #[test]
+    fn answer_budget_applies_to_streaming_and_nonstreaming_completions() {
+        // Check the end-of-buffer boundary without allocating giant strings:
+        // every UTF-8 byte (including multi-byte Chinese) counts.
+        assert!(super::check_chat_output_budget(0, 0).is_ok());
+        assert!(super::check_chat_output_budget(0, "中文".len()).is_ok());
+        assert!(super::check_chat_output_budget(super::MAX_CHAT_OUTPUT_BYTES - 3, 3).is_ok());
+        assert!(super::check_chat_output_budget(super::MAX_CHAT_OUTPUT_BYTES, 1).is_err());
+        assert!(super::check_chat_output_budget(usize::MAX, 1).is_err());
+
+        // A JSON fallback and an ordinary completion both pass through
+        // ChatResponse::into_result and cannot bypass the decoded-text cap.
+        let response = super::ChatResponse {
+            choices: vec![super::Choice {
+                message: super::AssistantMessage {
+                    content: "answer".to_string(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+        assert_eq!(response.into_result().unwrap().content, "answer");
+        let oversized_response = super::ChatResponse {
+            choices: vec![super::Choice {
+                message: super::AssistantMessage {
+                    content: "x".repeat(super::MAX_CHAT_OUTPUT_BYTES + 1),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+        assert!(oversized_response.into_result().is_err());
+    }
+
+    #[test]
+    fn streamed_transport_budget_counts_ignored_heartbeat_frames() {
+        assert_eq!(super::next_stream_wire_size(0, 10).unwrap(), 10);
+        assert_eq!(
+            super::next_stream_wire_size(super::MAX_STREAM_WIRE_BYTES - 1, 1).unwrap(),
+            super::MAX_STREAM_WIRE_BYTES
+        );
+        assert!(super::next_stream_wire_size(super::MAX_STREAM_WIRE_BYTES, 1).is_err());
+        assert!(super::next_stream_wire_size(usize::MAX, 1).is_err());
+        // Even an event that does not produce answer text consumes wire
+        // budget; discarding a usage-only SSE frame cannot reset the cap.
+        let ignored =
+            parse_stream_line(br#"data: {"choices":[],"usage":{"total_tokens":42}}"#).unwrap();
+        assert_eq!(ignored, super::StreamEvent::Ignored);
+    }
+
+    #[test]
     fn oversized_unterminated_sse_event_is_rejected() {
         let oversized = vec![b'x'; super::MAX_STREAM_EVENT_BYTES + 1];
         assert!(parse_stream_line(&oversized).is_err());
@@ -853,7 +955,13 @@ mod stream_tests {
                 finish_reason: None,
             }
         );
-        assert_eq!(parse_stream_line(b"data: [DONE]").unwrap(), super::StreamEvent::Done);
-        assert_eq!(parse_stream_line(b"event: message").unwrap(), super::StreamEvent::Ignored);
+        assert_eq!(
+            parse_stream_line(b"data: [DONE]").unwrap(),
+            super::StreamEvent::Done
+        );
+        assert_eq!(
+            parse_stream_line(b"event: message").unwrap(),
+            super::StreamEvent::Ignored
+        );
     }
 }

@@ -702,3 +702,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 补客户端 Rust 正反单测覆盖 stop/DONE、EOF、length/content_filter/tool_calls/function_call/error、第一候选/usage-only、安全长度门禁；更新 `docs/acceptance/rag-source-provenance.md` 中 Windows 真实网关故障注入步骤。所有行为在本地 Rust 客户端，无数据库 migration、Provider 文件写入或 SiYuan 原文自动覆盖。该批 CI 尚待新 HEAD 验证，不将固定模拟视为 Windows、真实模型或网关中断验收；S1.3 完整备份恢复继续留到其他优化与功能代码完整以后。
 
 - 补齐同一 S2.4 边界的非流式 `chat_with_max_tokens`：返回通用文本之前同样验证 `finish_reason`，避免非流式「问 AIKS」在 `length` 截断时绕过完整性门禁；具体结构化提炼仍沿用 `parse_completed_extraction_reply` 的更严格 Schema/内容校验。
+
+### 2026-10-12 S2.4 SSE 全流量与回答上限保护、Rust CI 格式恢复（新 HEAD 待自动化）
+
+- 已先核对远端 HEAD `2b8ea79a`，其 Windows Provider #38166971167、Desktop frontend、Windows desktop compile、Repository hygiene 成功；综合 CI #38166971186 的 Rust quality 仅在 `crates/aiks-core/src/ai/client.rs` 代码与测试的 rustfmt 差异失败，故 Clippy 和 Rust tests 尚未执行。依照失败作业的全部 6 处 rustfmt diff 更正，避免将仅部分步骤成功误报为全量通过。
+- 审核 S2.4 最近引入的终止标记保护后发现真实运行资源缺口：SSE 原实现限制单条未终止数据行在 1 MiB 以下，但异常网关如果连续无限发送较小有效 SSE/heartbeat/usage-only 事件，将无限消耗下载流量和处理时间；如果连续产生普通输出，`content.push_str` 会无限增长，忽略配置 `max_tokens` 的端点有可能长时间增长内存并实时渲染过大页面。普通非流式与 JSON fallback 也不限制接收后的正文大小。
+- 增加独立的双重资源预算：每次流式请求累计原始 SSE 网络输入不超过 16 MiB（无论是否为被忽略的事件），流式/非流式/JSON fallback 的有效回答 UTF-8 字节长度不超过 8 MiB；使用 `checked_add` 防止极端整数溢出，**在调用 delta 回调前**先拒绝超额内容。网络长度上限只是整个 SSE body 的粗粒度防护，不代表上传／下载进度或真实 token 用量；非流式路径仍先由 HTTP 读取并反序列化，故不能声称已经对任意恶意超大完整 HTTP body 做零内存分配防护。既有 1 MiB 单事件门禁、`stop`/`[DONE]` 和 `finish_reason` 语义不变，拒绝时明确为错误而非完成回答。
+- 新增 Rust 回归覆盖有效预算边界、溢出、中文多字节、SSE 心跳／usage-only 消耗网络预算、普通 JSON 与 SSE 使用相同答案预算、不合规网关超大正文拒绝。没有 SQLite migration，也不写 Provider 或 SiYuan 用户文档；不合并 main、不发布 Release。只是客户端资源安全代码级保护，8 MiB/16 MiB 与真实模型输出质量无直接相关，Windows 大规模/断流/慢请求测试仍须在隔离机器上执行；完整 S1.3 继续最后实施。
