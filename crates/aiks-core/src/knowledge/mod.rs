@@ -29,8 +29,7 @@ pub use project_memory::{
 };
 pub use project_outputs::{
     render_agent_context, render_agent_context_scoped, render_curated_agent_context_scoped,
-    render_project_review,
-    render_project_review_scoped,
+    render_project_review, render_project_review_scoped,
 };
 pub use project_report_drafts::{
     ProjectReportDraft, ProjectReportDraftInput, ProjectReportDraftService, ProjectReportVersion,

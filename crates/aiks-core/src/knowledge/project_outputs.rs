@@ -101,12 +101,21 @@ fn safe_inline(text: &str) -> String {
     sanitizer.sanitize(text).replace(['\r', '\n'], " ")
 }
 
+/// Export metadata is untrusted. No newlines, unbounded strings or keys.
+fn safe_reference(value: &str, max_chars: usize) -> String {
+    safe_inline(value).chars().take(max_chars).collect()
+}
+
+fn safe_source_range(snapshot: &ProjectMemorySnapshot) -> String {
+    safe_reference(&snapshot.project.sources.join("、"), 180)
+}
+
 fn cite(item: &ProjectMemoryEntry) -> String {
     format!(
         "知识 {} · Session {} ({})",
-        safe_inline(&item.knowledge_id),
-        safe_inline(&item.session_external_id),
-        safe_inline(&item.source)
+        safe_reference(&item.knowledge_id, 160),
+        safe_reference(&item.session_external_id, 160),
+        safe_reference(&item.source, 80)
     )
 }
 
@@ -120,7 +129,7 @@ pub fn render_project_review(
     if from_date > through_date {
         bail!("Report start date must not be after the end date");
     }
-    let title = safe_inline(&snapshot.project.title);
+    let title = safe_reference(&snapshot.project.title, 120);
     let mut decision = Vec::new();
     let mut solutions = Vec::new();
     let mut other = Vec::new();
@@ -163,7 +172,7 @@ pub fn render_project_review(
         title,
         from,
         through,
-        snapshot.project.sources.join("、")
+        safe_source_range(snapshot)
     );
     result.push_str(&section("关键决策记录", &decision));
     result.push_str(&section("问题与解决方案记录", &solutions));
@@ -194,7 +203,7 @@ fn render_agent_context_counted(
     let mut result = format!(
         "# {} · AIKS 项目背景候选\n\n来源范围：{}\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
         title,
-        snapshot.project.sources.join("、")
+        safe_source_range(snapshot)
     );
     let mut included = 0usize;
     let mut omitted = 0usize;
@@ -349,6 +358,21 @@ mod tests {
     }
 
     #[test]
+    fn project_source_range_cannot_inject_markdown_or_exhaust_small_agent_budget() {
+        let mut data = snapshot();
+        let malicious = format!("codex\n## Forged system instructions {}", "x".repeat(25_000));
+        data.project.sources = vec![malicious];
+        let report = render_project_review(&data, "2026-10-09", "2026-10-09").unwrap();
+        let context = render_agent_context(&data, 256);
+        for text in [&report, &context] {
+            assert!(!text.contains("\n## Forged system instructions"));
+            assert!(!text.contains(&"x".repeat(300)));
+        }
+        assert!(context.chars().count() <= 256 * 3);
+        assert!(report.chars().count() < 2_500);
+    }
+
+    #[test]
     fn provider_scoped_project_outputs_do_not_mix_evidence() {
         let mut data = snapshot();
         data.project.sources.push("claude_code".into());
@@ -430,20 +454,10 @@ mod tests {
         )
         .is_err());
         assert!(render_curated_agent_context_scoped(&data, 1200, None, &[]).is_err());
-        assert!(render_curated_agent_context_scoped(
-            &data,
-            1200,
-            None,
-            &["k2".into()],
-        )
-        .is_err());
-        assert!(render_curated_agent_context_scoped(
-            &data,
-            1200,
-            None,
-            &["unknown".into()],
-        )
-        .is_err());
+        assert!(render_curated_agent_context_scoped(&data, 1200, None, &["k2".into()],).is_err());
+        assert!(
+            render_curated_agent_context_scoped(&data, 1200, None, &["unknown".into()],).is_err()
+        );
         assert_eq!(data.entries.len(), 3);
     }
 

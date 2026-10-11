@@ -1,10 +1,9 @@
 use crate::app_state::AppState;
 use aiks_core::knowledge::{
-    render_agent_context_scoped, render_curated_agent_context_scoped,
-    render_project_review_scoped, ProjectEvolutionService,
-    ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview,
-    ProjectReportDraft, ProjectReportDraftInput, ProjectReportDraftService, ProjectReportVersion,
-    ProjectSessionBinding, ProjectSessionBindingService,
+    render_agent_context_scoped, render_curated_agent_context_scoped, render_project_review_scoped,
+    ProjectEvolutionService, ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot,
+    ProjectOverview, ProjectReportDraft, ProjectReportDraftInput, ProjectReportDraftService,
+    ProjectReportVersion, ProjectSessionBinding, ProjectSessionBindingService,
 };
 use tauri::State;
 
@@ -174,13 +173,8 @@ pub async fn create_curated_agent_context_pack(
     let snapshot = ProjectMemoryService::new(&db)
         .get_scoped(&project_id, 200, source.as_deref())
         .map_err(|error| error.to_string())?;
-    render_curated_agent_context_scoped(
-        &snapshot,
-        max_tokens,
-        source.as_deref(),
-        &knowledge_ids,
-    )
-    .map_err(|error| error.to_string())
+    render_curated_agent_context_scoped(&snapshot, max_tokens, source.as_deref(), &knowledge_ids)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

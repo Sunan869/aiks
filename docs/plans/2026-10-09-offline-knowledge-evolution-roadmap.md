@@ -635,3 +635,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 增加专用只读 Tauri `create_curated_agent_context_pack` 与 TypeScript API/Mock；Project Memory 新增人工勾选、来源变化时清除选中项、最多 30 条门禁，以及「生成所选知识的 Agent 背景预览」。生成仍使用原有用户选择的普通 Markdown / AGENTS.md / CLAUDE.md 引用建议片段，并仅能手动复制或下载一个**不同于原 AGENTS.md/CLAUDE.md 的建议文件**；不会自动读取、创建或覆盖项目指令文件，不写 Provider、SiYuan，不依赖云端模型。
 - 增加 Rust 数据级跨来源、错误质量反馈、无效/重复/超量 ID 正反测试和前端选取/顺序/身份回归，并补 `docs/acceptance/curated-agent-context-pack.md` Windows 真机入口。保留当前个人离线方案、Provider 只读、SiYuan 用户原文不被自动覆盖、迁移兼容；S1.3 完整备份恢复仍然在所有非备份模块之后最后完成。
 - 本轮只是代码级本地预览，**不将 CI 通过或 Mock 构造输出视为真实新 Agent Session 已成功复用知识**。新提交的 Windows CI、跨 Session 真实来源正确性、Agent 指令污染防护和真实模型问答均仍须检查。
+
+### 2026-10-11 S3.3 Agent 背景输出来源元数据注入与 CI 收尾
+
+- 远端基线 a29d1126，Windows Provider `38141367811` 成功，综合 CI `38141368185` 前端 175/176 个用例通过、Windows Desktop 与仓库卫生通过；唯一前端失败是已有 `agent-export-ui.test.ts` 对旧源码相邻行的文本断言，因新增「选择 Provider 时清空精选知识」安全步骤插入中间导致断言失效；Rust quality 则在 `project_memory_commands.rs` 的导入/函数调用及 `knowledge/mod.rs` 和 `project_outputs.rs` 的格式差异处失败，Clippy/Rust tests 被跳过。本轮合批修复上述所有已知失败，不删除安全清空逻辑、不跳过质量检查。
+- 深入审计 S3.3 导出边界发现：原报告和 Agent 上下文已正确净化正文与多数单项引用，但 `render_project_review` 与 `render_agent_context_counted` 顶部的 Provider 来源范围直接拼接 `project.sources.join`。极端自定义来源值若包含回车、换行、伪 Markdown 标题或巨大元数据，可将不受信任的 Provider 标签混入报告开头甚至超过极小 Token 预算。增加 `safe_source_range` 对所有来源标签执行既有 SecretSanitizer、单行化并限制输出长度；同时限定报告标题、Knowledge ID、Session External ID、Provider 来源 ID 在报告引用中的最大显示长度，保持原 canonical ID 数据不变。这是仅针对导出**展示文本**的净化，不会改动 SQLite、真实来源文件或已存引用。
+- 补充真实 Rust 模拟恶意来源超长值/伪标题的回归，要求工作报告及 Agent 背景均不得生成伪 Markdown 标题或超预算的元数据；兼容既有正常 Codex/Claude/OpenCode 来源引用。改进前端测试为验证 `invalidatePreview → setSelectedAgentKnowledgeIds([]) → setSourceFilter` 的完整新安全路径，不能为让旧断言通过而删除勾选清理。
+- 仍不引入全新 migration、外部云服务或自动写项目指令文件。对 AGENTS.md、CLAUDE.md 继续仅提供由人审阅、显式复制的引用建议。当前只是代码级元数据/安全回归，真实 Windows Provider 自定义来源、模型引用污染及 Agent 问答复用仍须集中真机验收。S1.3 完整备份恢复继续最后实现。

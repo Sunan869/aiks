@@ -16,7 +16,7 @@ describe("S3.3 Agent suggestion export UI boundary", () => {
     expect(pageSource).toContain('generation.current += 1;');
     expect(pageSource).toContain('setPreview("");');
     expect(pageSource).toContain('setPreviewType("");');
-    expect(pageSource).toContain('invalidatePreview();\n                  setSourceFilter');
+    expect(pageSource).toMatch(/invalidatePreview\\(\\);\\s*setSelectedAgentKnowledgeIds\\(\\[\\]\\);\\s*setSourceFilter\\(/);
     expect(pageSource).toContain('invalidatePreview();\n                    setAgentFormat');
     expect(pageSource).toContain('invalidatePreview(); setFrom(');
     expect(pageSource).toContain('invalidatePreview(); setThrough(');
