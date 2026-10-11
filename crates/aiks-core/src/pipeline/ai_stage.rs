@@ -93,31 +93,41 @@ impl AiStage {
         ((usable as f64) * BUDGET_CHARS_PER_TOKEN) as usize
     }
 
-    /// Keep the first 2/3 and the last 1/3 of an oversized prompt, dropping
-    /// the middle with an explicit marker. Losing middle content is strictly
-    /// better than a request that can never succeed at ANY output budget
-    /// (chat() only halves max_tokens down to 1024 before giving up).
-    fn fit_to_budget(&self, prompt: &str) -> String {
+    /// Keep source context head, original tail and the final /no_think switch.
+    /// The omission marker is part of the character budget: the previous
+    /// formatter appended it AFTER allocating the entire budget to source text.
+    /// Reject too-small context windows instead of sending near-empty prompts
+    /// that could falsely return a successful but evidence-free extraction.
+    fn fit_to_budget(&self, prompt: &str) -> anyhow::Result<String> {
         let max_chars = self.prompt_char_budget();
+        anyhow::ensure!(
+            max_chars >= 512,
+            "AI context budget is too small for reliable extraction"
+        );
         let total = prompt.chars().count();
         if total <= max_chars {
-            return prompt.to_string();
+            return Ok(prompt.to_string());
         }
-        let head = max_chars * 2 / 3;
-        let tail = max_chars - head;
-        let dropped = total - max_chars;
+        let marker = format!("\n\n[...中间内容已截断，原文总长 {total} 字符...]\n\n");
+        let marker_chars = marker.chars().count();
+        anyhow::ensure!(
+            marker_chars < max_chars,
+            "AI context budget cannot include the truncation marker"
+        );
+        let available = max_chars - marker_chars;
+        let head = available * 2 / 3;
+        let tail = available - head;
         let head_s: String = prompt.chars().take(head).collect();
         let tail_s: String = prompt.chars().skip(total - tail).collect();
         tracing::warn!(
             chars = total,
             max_chars,
-            dropped,
+            dropped = total - available,
             "Prompt exceeds model context budget; truncating middle"
         );
-        format!(
-            "{}\n\n[...中间内容过长，已截断 {} 字符...]\n\n{}",
-            head_s, dropped, tail_s
-        )
+        let fitted = format!("{head_s}{marker}{tail_s}");
+        debug_assert!(fitted.chars().count() <= max_chars);
+        Ok(fitted)
     }
 
     /// Run AI extraction on a session's LLM chunks.
@@ -151,7 +161,7 @@ impl AiStage {
             // Single chunk: direct extraction
             let sanitized = self.sanitizer.sanitize(&chunks[0].1);
             let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context));
+            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
             let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
             // R10: parse errors propagate — model failure / protocol breakage
             // must surface as a stage error, never as a silent "skip".
@@ -329,7 +339,7 @@ impl AiStage {
             pending.push((
                 idx,
                 cache_key,
-                self.fit_to_budget(&make_v3_extraction_prompt(&context)),
+                self.fit_to_budget(&make_v3_extraction_prompt(&context))?,
             ));
         }
         tracing::info!(
@@ -1546,7 +1556,7 @@ mod tests {
     fn fit_to_budget_passes_short_prompt_through() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
         let prompt = "短内容".repeat(100);
-        assert_eq!(stage.fit_to_budget(&prompt), prompt);
+        assert_eq!(stage.fit_to_budget(&prompt).unwrap(), prompt);
     }
 
     /// An oversized prompt keeps head and tail and marks the dropped middle —
@@ -1562,11 +1572,44 @@ mod tests {
         let filler = "x".repeat(budget); // alone already over budget
         let prompt = format!("{}{}{}", head_marker, filler, tail_marker);
 
-        let fitted = stage.fit_to_budget(&prompt);
+        let fitted = stage.fit_to_budget(&prompt).unwrap();
         assert!(fitted.chars().count() < prompt.chars().count());
         assert!(fitted.starts_with(head_marker), "head must be preserved");
         assert!(fitted.ends_with(tail_marker), "tail must be preserved");
         assert!(fitted.contains("已截断"), "drop marker must be present");
+    }
+
+    /// The omitted-middle marker must consume part of the exact prompt
+    /// budget; previously the marker alone overflowed the model window.
+    #[test]
+    fn prompt_budget_includes_truncation_marker_even_with_multibyte_text() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let max_chars = stage.prompt_char_budget();
+        let prompt = format!(
+            "开始 {} 最后/no_think",
+            "中\n工具输出🔧".repeat(max_chars / 4)
+        );
+        let output = stage.fit_to_budget(&prompt).unwrap();
+        assert_eq!(output.chars().count(), max_chars);
+        assert!(output.starts_with("开始 "));
+        assert!(output.ends_with("最后/no_think"));
+        assert!(output.contains("已截断"));
+        assert!(!output.contains("\u{fffd}"));
+    }
+
+    /// A malformed user-supplied context window is an explicit stage failure,
+    /// not a successful request containing zero trustworthy Session evidence.
+    #[test]
+    fn tiny_context_windows_refuse_extraction_instead_of_hiding_all_evidence() {
+        let mut config = AiModelConfig::default();
+        config.max_context_tokens = config.max_tokens as usize + PROMPT_OVERHEAD_TOKENS;
+        let stage = AiStage::new(config.clone()).unwrap();
+        assert_eq!(stage.prompt_char_budget(), 0);
+        assert!(stage.fit_to_budget("Some Session evidence").is_err());
+
+        config.max_context_tokens += 100;
+        let stage = AiStage::new(config).unwrap();
+        assert!(stage.fit_to_budget("Some Session evidence").is_err());
     }
 
     /// Default config numbers must leave room for output: budget chars at

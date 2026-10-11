@@ -36,3 +36,11 @@ cargo test -p aiks-core --test extraction_live_benchmark -- --ignored --nocaptur
 真实 Windows 机器上需配合 S1.1/S1.2 的内嵌 SiYuan 与真实 Session 操作验收；另记录模型版本、设备、参数、并发、长 Session 负载下的 P50/P95、Token、错误率、缓存命中率与人工遗漏评审。至少比较优化前后的同配置重复运行结果。任何一项缺失，都不得把 S2.1 标记为已完成实机验收。
 
 对正例样例，`worth_extracting=true` 但 `items=[]` 的响应不能计入 `skip_matches`；对噪声负例，`worth_extracting=false` 时仍必须没有知识项。生产 Schema 可解析并不自动证明提炼结果符合业务预期。
+
+## 超长 Prompt 与嵌套并发预算的专项故障注入（Windows 真机待执行）
+
+使用独立 `AIKS_DATA_DIR` 与用户指定的测试模型端点，构造包含中文、Emoji、代码块、工具输出及 10 万字以上会话的合法源数据，先用 max_concurrent=1，然后依次 2/3/4 执行完整提炼。观测模型服务真实在途请求数、429、GPU/CPU 内存峰值、每阶段耗时及错误重试次数：**整体请求在途数不能因为 Session 并行与 Map-Reduce 片段并行相乘为 N²**。单 Session 多块处理在 N=2/3/4 时可以按显式允许的并行数工作；默认 1 不能意外并发。改变超时、max_context_tokens 或 max_tokens 时缓存指纹应正确失效。
+
+对一个刻意过小的 `max_context_tokens`，预期 Pipeline 显式错误并展示可操作恢复说明，**不得伪造成功、静默跳过正文或修改旧 Knowledge**。对正常上下文但很长的 Prompt，检查实际发送文本遵循保护头部和最后一段的裁剪策略，省略标记本身在字符预算以内；显示中段被省略而非向模型声称已读取完整会话。实际模型 Token 数需要以模型服务 usage/服务端观测为准，字符预算只是保守估算，不保证所有 tokenizer 都严格 2 chars/token。
+
+记录同一真实模型/参数/Session 下的首轮与重复提炼、缓存命中、批次 P50/P95、LLM calls/tokens、是否遗漏中段重要技术结论，并与 `extraction_live_benchmark.rs` 的单独真实模型结果交叉检查。该专项由用户在 Windows 真机执行，Rust 单测仅覆盖代码数学与拒绝路径，不构成真实效果验收；S1.3 完整备份最后执行。

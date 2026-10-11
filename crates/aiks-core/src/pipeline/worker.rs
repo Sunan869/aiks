@@ -112,6 +112,39 @@ pub struct PipelineWorker {
     wake_tx: mpsc::Sender<()>,
 }
 
+/// Bound nested resource use. Every running durable job may spawn up to
+/// min(ai_config.max_concurrent, 4) simultaneous chunk model calls. The old
+/// worker granted max_concurrent jobs AND each could spawn max_concurrent
+/// requests, multiplying user-configured model pressure quadratically.
+/// Allocate a shared model-call budget before claiming independent jobs.
+fn worker_job_parallelism(max_jobs: usize, max_chunks_per_job: usize) -> usize {
+    let budget = max_jobs.clamp(1, 4);
+    let requests_per_job = max_chunks_per_job.clamp(1, 4);
+    budget.checked_div(requests_per_job).unwrap_or(0).max(1)
+}
+
+#[cfg(test)]
+#[test]
+fn worker_budget_does_not_multiply_model_concurrency_per_session() {
+    assert_eq!(worker_job_parallelism(1, 1), 1);
+    assert_eq!(worker_job_parallelism(2, 2), 1);
+    assert_eq!(worker_job_parallelism(3, 3), 1);
+    assert_eq!(worker_job_parallelism(4, 4), 1);
+    assert_eq!(worker_job_parallelism(4, 2), 2);
+    assert_eq!(worker_job_parallelism(4, 1), 4);
+    assert_eq!(worker_job_parallelism(0, 0), 1);
+    assert_eq!(worker_job_parallelism(usize::MAX, usize::MAX), 1);
+    // The normal start() path uses the same budget for jobs and chunks.
+    for budget in 1..=4 {
+        let permitted = worker_job_parallelism(budget, budget);
+        assert!(
+            permitted * budget <= budget,
+            "model calls must not multiply the configured global budget"
+        );
+    }
+}
+
+
 impl PipelineWorker {
     pub fn start(
         db: Arc<StateDb>,
@@ -131,7 +164,23 @@ impl PipelineWorker {
         max_concurrent: usize,
     ) -> Self {
         let (wake_tx, wake_rx) = mpsc::channel(1);
-        let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
+        // An explicit start_with_limit cap also constrains per-session chunk
+        // fan-out. Otherwise 2 jobs * 4 requests each defeats a two-request
+        // budget. The default start() uses the same config for both limits.
+        let mut bounded_ai_config = ai_config;
+        bounded_ai_config.max_concurrent = bounded_ai_config
+            .max_concurrent
+            .clamp(1, 4)
+            .min(max_concurrent.clamp(1, 4));
+        let permitted_jobs =
+            worker_job_parallelism(max_concurrent, bounded_ai_config.max_concurrent);
+        info!(
+            configured_jobs = max_concurrent,
+            effective_chunk_parallelism = bounded_ai_config.max_concurrent,
+            permitted_jobs,
+            "Durable worker model concurrency budget"
+        );
+        let semaphore = Arc::new(Semaphore::new(permitted_jobs));
         let worker_wake_tx = wake_tx.clone();
         let worker_db = Arc::clone(&db);
 
@@ -140,7 +189,7 @@ impl PipelineWorker {
                 wake_rx,
                 worker_db,
                 registry,
-                ai_config,
+                bounded_ai_config,
                 embedding_config,
                 worker_wake_tx,
                 semaphore,

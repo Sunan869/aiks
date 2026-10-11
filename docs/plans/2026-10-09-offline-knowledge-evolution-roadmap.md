@@ -656,3 +656,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 已实现的行级差异仅对照主 Knowledge 正文；compare/merge_draft 允许 2–5 条知识，但原 UI 难以把每条**实际送给模型的源全文**与同一个新草稿逐一对照，用户可能只阅读主知识就确认多来源综合结论。本批在模型成功返回草稿时暂存已调用的真实 `getKnowledgeDetail` 来源快照，显示「逐一审阅全部来源知识」及按原始来源 ID/标题切换的只读正文/差异视图。保留原有渲染的 +/−/未变行和长文截断提示；对于每条来源均显示审核进度，不将「主知识差异为零」误当作所有来源无变化。
 - 新增严格的本地审核 checkpoint：`allOrganizationSourcesReviewed` 在预期 ID、加载快照来源顺序一致且全部 ID 都由用户点击查看后才允许多来源确认；改变草稿正文要取消确认并要求再次逐项阅读，切换整理方式/来源/当前知识要清空旧来源快照和查看进度。源列表中的其他 ID 不得冒充已审核；最多 5 条。这个前端 checkpoint 仅代表用户**打开并查看**每份来源，不证明用户真实理解或模型结论正确，不替代 Rust `OrganizationScopeGuard`、最终创建前的来源内容快照复核和独立文档创建。
 - 新增 TypeScript 纯逻辑单测覆盖完整/不完整查看、重复或错序来源、不在原列表的注入 ID、切换与草稿编辑触发重新复核；差异测试一并核对动态来源正确选取和后端复核未被绕过。补 `docs/acceptance/organization-diff-review.md` Windows 真实模型多来源逐条核验入口。无需新 migration、不会写 Provider、不会覆盖 SiYuan 用户原文、不合并 main、不发 Release。新 HEAD 综合 CI 尚待验证；不把固定测试当作 Windows 真机或真实模型正确性证明。
+
+### 2026-10-11 S2.1 实际 Prompt 预算与持久任务多层并发保护（待本 HEAD CI）
+
+- 基线 `13a9a870` 对应综合 CI `38145465676`、Windows Provider `38145465672` 都已完整成功，最新 HEAD 未变；没有其他运行中的本 HEAD Actions 才开始本批修改。已检查 `AiStage::fit_to_budget` / `map_reduce` / `PipelineWorker` 及现有固定与可选真实模型评测入口。
+- **实际提炼缺口 1**：当长 Session 的模型 Prompt 超过上下文窗口时，原 `fit_to_budget` 先保留 `max_chars` 字符，再额外拼接标注省略中段的文字，导致**真正发给模型的 Prompt 比最大预算更长**；上下文极小时还会把关键证据几乎全部截掉后当作正常请求发送。重写为把「已截断／原文总长」标识纳入完整预算（保持首尾片段、`/no_think` 末尾标识），`chars().count() <= prompt_char_budget`，配置后剩余不足 512 字符时明确拒绝，禁止无意义模型调用与伪成功。不改变真实模型推理结果的评价口径，也不会把裁剪输出说成全文已分析。
+- **实际提炼缺口 2**：持久 Pipeline Worker 原来可同时启动 `max_concurrent` 条 Session，每条 Session 的 Map-Reduce 又可各并发 `max_concurrent` 个模型请求；选择 4 时实际有可能发起 16 个同端点 LLM 请求，压垮用户本地模型或诱发 429/超时。新增 `worker_job_parallelism`，在已配置批量分块并发条件下分配保守的 worker 任务许可证，`start_with_limit` 的显式上限同时约束每任务分块扇出；正常 `start()` 保证最大同时模型请求不会因为 Session × Chunk 双层乘法突破用户配置的 1–4 范围。默认 1 串行仍保持，用户选 2–4 的长 Session Map-Reduce 能按配置批量并发；代价是并发长 Session 数更少，但优先保护实际用户端点。
+- 增加真实 Rust 单测覆盖多字节 Unicode／长 Prompt／省略标记占位／末尾 Qwen3 禁用思考后缀／极小上下文拒绝与不同 `max_concurrent` 条件的 worker 任务预算。无数据库结构变更、Provider 只读、SiYuan 原文绝不自动覆盖、不依赖新的云端模型或网络服务；固定用例是代码级安全回归，真实 Token、LLM 精度、性能改善必须通过 S2.1 可选真实模型与 Windows 实机采样比较，**不将 CI Success 当成真实基准**。S1.3 完整备份恢复继续放所有非备份功能之后最后实施。
