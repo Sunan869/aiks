@@ -60,7 +60,10 @@ impl<'a> ProjectReportDraftService<'a> {
         } = input;
         let from_date = NaiveDate::parse_from_str(from, "%Y-%m-%d")?;
         let through_date = NaiveDate::parse_from_str(through, "%Y-%m-%d")?;
-        anyhow::ensure!(from_date <= through_date, "Invalid project report date range");
+        anyhow::ensure!(
+            from_date <= through_date,
+            "Invalid project report date range"
+        );
         anyhow::ensure!(
             !body.trim().is_empty() && body.len() <= 250_000,
             "Reviewed report must contain 1 to 250000 bytes"
@@ -110,8 +113,7 @@ impl<'a> ProjectReportDraftService<'a> {
                     },
                 )
                 .optional()?;
-            let Some((saved_project, saved_from, saved_through, saved_source, current)) =
-                previous
+            let Some((saved_project, saved_from, saved_through, saved_source, current)) = previous
             else {
                 bail!("Report draft not found");
             };

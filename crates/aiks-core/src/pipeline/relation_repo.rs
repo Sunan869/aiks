@@ -687,7 +687,11 @@ mod tests {
         let proposed = repo
             .suggest("source", "target", "corrects", "review evidence", None)
             .unwrap();
-        assert!(repo.review_history("source", 100).unwrap().reviews.is_empty());
+        assert!(repo
+            .review_history("source", 100)
+            .unwrap()
+            .reviews
+            .is_empty());
         assert!(repo.review_history("", 100).is_err());
         repo.review(&proposed.id, "confirmed").unwrap();
         repo.review(&proposed.id, "rejected").unwrap();
@@ -708,7 +712,9 @@ mod tests {
         drop(db);
 
         let db = StateDb::open(&path).unwrap();
-        let reopened = RelationRepo::new(&db).review_history("target", 100).unwrap();
+        let reopened = RelationRepo::new(&db)
+            .review_history("target", 100)
+            .unwrap();
         assert_eq!(reopened.reviews.len(), 2);
         assert!(reopened.reviews.iter().any(|r| r.next_status == "rejected"));
     }

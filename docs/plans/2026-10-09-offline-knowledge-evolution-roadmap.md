@@ -619,3 +619,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Desktop 新增「今天（日报）」「本周（周报）」日期预设，按用户 Windows **本地日期**而非 UTC 截断；保留原有任意日期/项目/Provider 选择。已审核回顾 Markdown 可点击本地保存或继续人工修改后追加 v2/v3，切换项目/重启后可列出已保存草稿并载入任一历史修订。载入将替换未保存预览时要求明确确认；从旧版本另存也追加为新修订，不覆写之前内容。草稿列表最多显示 100 份，每篇报表字节大小限制 250000；仍支持原来的仅下载独立 Markdown 文件。
 - 新增 Tauri `list/get/save_project_report_draft` 命令、Desktop API/Mock、真实 SQLite reopen/修订 CAS/越权范围测试及前端日期/版本/无静默发布回归。此功能仍是**按 Knowledge 更新时间组织证据的可编辑工作回顾草稿**，不等于已验证的项目交付/真实发生时间、模型自动周报质量、真实性标注已由人核验；真实 Windows 连续采集、多时区和 SiYuan 仍须集中人工验收。
 - 沿用 S3.2 的只读项目报告生成，不新增云依赖。不合并 main、不发布 Release、不自动写入 SiYuan 用户文档；S1.3 完整备份恢复仍在其余代码模块完成后最后实施。新 HEAD 综合 CI 和 Provider 状态需单独验证。
+
+### 2026-10-11 S3.1 项目知识复核队列：用户反馈及有证据关系联合展示（代码级）
+
+- 基线 43ab08be：Windows Provider 38137396309 成功，综合 CI 38137396299 仅在 project_report_drafts.rs、relation_repo.rs 的 Rust 格式阶段失败；Windows Desktop、前端与仓库卫生成功，Rust Clippy/tests 因前置格式失败未执行。本批根据原始 diff 一次修正所有已知格式差异，并完成独立的 S3.1 知识复核模块，避免小修小补反复触发 Actions。
+- S3.1 原有项目记忆主题分类、用户明确质量反馈统计和审阅过的跨 Session 关系，但需在两个板块分别查找「可能过时」「修正/替代/解决」证据，缺少统一的人工复核入口。新增只读 project-review-queue.ts，仅从当前项目已有的 incorrect/outdated/needs_detail/duplicate 用户反馈，以及经后端当前 canonical project scope 过滤的 corrects/supersedes/resolved_by 已有关系汇总线索。不根据标题、相似内容或 LLM 的生成文本臆造事实矛盾。
+- 队列区分 suggested（待人工核对）与 confirmed（人已确认关联，但并不等于结论真实或已失效），展示关系证据、反馈原因、知识 ID、原 Session 跳转、记录更新时间及类别筛选。现有关系审核仍必须通过手工点击、确认对话框及 Rust 后端的来源范围复核，不自动归档、覆盖、合并任何知识。
+- 项目切换时增加 evolutionProjectId 证据身份保护，防止上一项目的慢速异步结果进入新项目复核队列。所有候选按稳定时间/ID 顺序最多展示 100 条；保留原有 Knowledge(200)、Relation(100) 只读上限，显式警告部分样本和空队列不能推断「项目没有风险」，原始证据不修改。
+- 加入 Vitest 正/负例及 UI 契约、Windows 三 Provider + SiYuan 验收文档 docs/acceptance/project-knowledge-review-inbox.md。本轮未新增 migration、没有 Provider 或 SiYuan 写入和新模型依赖；这只是已有证据的人工复核工作台，并非已经完成真实模型的自动矛盾准确性评测。六优化/五功能仍须逐项复核，S1.3 完整备份恢复最后做，不合并 main、不发布 Release。新 HEAD CI 与 Windows Provider 仍须实际验证。

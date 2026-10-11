@@ -4,6 +4,7 @@ import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, typ
 import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview, ProjectReportDraft, ProjectSessionBinding, SessionItem } from "../api/types";
 import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
 import { summarizeProjectMemoryQuality } from "../project-memory-quality";
+import { buildProjectReviewQueue, type ProjectReviewSignal } from "../project-review-queue";
 import { reportDateRange } from "../project-report-dates";
 
 interface Props {
@@ -38,6 +39,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<ProjectMemorySnapshot | null>(null);
   const [evolution, setEvolution] = useState<ProjectEvolutionSnapshot | null>(null);
+  const [evolutionProjectId, setEvolutionProjectId] = useState<string | null>(null);
+  const [reviewQueueFilter, setReviewQueueFilter] = useState<"all" | ProjectReviewSignal>("all");
   const [evolutionError, setEvolutionError] = useState("");
   const [relationBusy, setRelationBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -111,6 +114,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setWorking(false);
     setDetail(null);
     setEvolution(null);
+    setEvolutionProjectId(null);
+    setReviewQueueFilter("all");
     setEvolutionError("");
     setRelationBusy(null);
     setOnlyFlagged(false);
@@ -128,7 +133,10 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       if (mounted) setReportError("读取本地报告草稿失败：" + String(reason));
     });
     void api.getProjectEvolution(selected).then(snapshot => {
-      if (mounted) setEvolution(snapshot);
+      if (mounted) {
+        setEvolution(snapshot);
+        setEvolutionProjectId(selected);
+      }
     }).catch(reason => {
       if (mounted) setEvolutionError(String(reason));
     });
@@ -167,6 +175,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       const snapshot = await getApi().getProjectEvolution(requestProject);
       if (requestGeneration !== projectGeneration.current) return;
       setEvolution(snapshot);
+      setEvolutionProjectId(requestProject);
       setNotice(decision === "confirmed" ? "已保存人工确认的关系审核。" : "已拒绝关系建议，原始知识不受影响。");
     } catch (reason) {
       if (requestGeneration === projectGeneration.current) {
@@ -333,6 +342,13 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     feedbackOnly: onlyFlagged,
   }) : [];
   const topicCounts = detail ? countProjectMemoryTopics(detail.entries) : null;
+  const reviewQueue = detail && detail.project.id === selected
+    && evolution && evolutionProjectId === selected
+    ? buildProjectReviewQueue(detail, evolution)
+    : null;
+  const reviewCandidates = reviewQueue
+    ? reviewQueue.candidates.filter(item => reviewQueueFilter === "all" || item.kind === reviewQueueFilter)
+    : [];
   const timeline = viewMode === "timeline" ? groupProjectMemoryUpdates(evidence) : [];
   const evidenceCard = (item: ProjectMemoryEntry) => (
     <ProjectMemoryEvidenceCard
@@ -469,6 +485,80 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               {evidence.length === 0 && <p className="text-gray-500">当前筛选范围内暂无知识证据。</p>}
               {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史；主题统计和时间线均可能不完整。</p>}
             </div>
+          </section>
+          <section className="rounded border border-amber-300 p-4 dark:border-amber-700">
+            <h2 className="font-semibold">项目知识复核队列（明确证据）</h2>
+            <p className="mt-2 text-xs text-gray-500">
+              仅汇总用户明确反馈和当前项目中已有来源验证的修正、替代、解决关系。
+              AIKS 不因标题相似或模型摘要自动推断矛盾、过期或事实真伪；关系确认不等于工程结论已经验证。
+              任何进一步编辑、归档或审核都需要用户明确操作，不会修改 Provider 或 SiYuan 原文。
+            </p>
+            {!reviewQueue && !evolutionError && (
+              <p className="mt-2 text-xs text-gray-500">正在加载项目的可复核证据…</p>
+            )}
+            {reviewQueue && (
+              <>
+                <div role="group" aria-label="复核线索类别" className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <button type="button" aria-pressed={reviewQueueFilter === "all"}
+                    className="rounded border px-2 py-1 dark:border-gray-700"
+                    onClick={() => setReviewQueueFilter("all")}>
+                    所有线索 · {reviewQueue.feedbackCount + reviewQueue.relationCount}
+                  </button>
+                  <button type="button" aria-pressed={reviewQueueFilter === "feedback"}
+                    className="rounded border px-2 py-1 dark:border-gray-700"
+                    onClick={() => setReviewQueueFilter("feedback")}>
+                    用户质量反馈 · {reviewQueue.feedbackCount}
+                  </button>
+                  <button type="button" aria-pressed={reviewQueueFilter === "relation"}
+                    className="rounded border px-2 py-1 dark:border-gray-700"
+                    onClick={() => setReviewQueueFilter("relation")}>
+                    人工关系线索 · {reviewQueue.relationCount}
+                  </button>
+                </div>
+                {reviewQueue.truncated && (
+                  <p role="status" className="mt-2 text-xs text-amber-700">
+                    当前复核队列仅覆盖已有的有界知识/关系列表，且最多展示最近 100 条；
+                    不得将无显示线索解释为项目不存在风险。
+                  </p>
+                )}
+                <div className="mt-3 space-y-2">
+                  {reviewCandidates.map(item => (
+                    <article key={item.id} className="rounded border p-3 text-xs dark:border-gray-700">
+                      <div className="flex flex-wrap gap-2">
+                        <strong>{item.title}</strong>
+                        <span className="text-gray-500">记录更新 {item.updatedAt.slice(0, 10)}</span>
+                      </div>
+                      <p className="mt-2 text-amber-700">{item.reason}</p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-gray-500">
+                        {item.evidence}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {item.knowledgeIds.map(id => (
+                          <button type="button" key={id} onClick={() => onOpenKnowledge(id)}
+                            className="text-blue-600">查看知识 {id}</button>
+                        ))}
+                        {item.sourceSessionIds.map(id => (
+                          <button type="button" key={id} onClick={() => onOpenSession(id)}
+                            className="text-blue-600">查看来源 Session {id}</button>
+                        ))}
+                        {item.relationId && item.relationStatus === "suggested" && (
+                          <button type="button" disabled={relationBusy !== null}
+                            className="text-green-700 disabled:opacity-40"
+                            onClick={() => void reviewEvolution(item.relationId!, "confirmed")}>
+                            核对原文后确认关联
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                  {reviewCandidates.length === 0 && (
+                    <p className="text-xs text-gray-500">
+                      当前已加载证据中没有这一类别的显式复核线索；不代表所有知识均正确或没有过期内容。
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </section>
           <section className="rounded border p-4 dark:border-gray-700">
             <h2 className="font-semibold">知识演进与人工审核关系</h2>
