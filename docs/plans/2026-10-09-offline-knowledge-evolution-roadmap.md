@@ -532,3 +532,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Project Memory 列表、知识样本/报告/Agent 导出和跨 Session 关系读取使用 `COALESCE(binding.project_path, source_session.project_path)` 计算**当前本地归组**；关联关系在人工确认时同样使用已修正项目身份约束，不能绕过跨项目隔离。绑定删除后原始 Provider 路径立刻生效，旧关系与知识不被删除。
 - Desktop 项目记忆页增加明确的 Session/目标项目选择、手工确认、已绑定状态及撤销；来源候选最多显示 200 条、提示列表不完整；归属成功后重载项目概览/证据与关系视图。Mock/API 类型/命令和后端 SQLite 持久性、重开数据库、非法对象拒绝、撤销及原始目录不变回归一并添加。
 - 新增 `docs/acceptance/project-session-binding.md` 作为 Windows 真实环境验收入口；迁移旧库数据不搬迁、不覆盖，SQLite 新表可以重复创建；本次新 HEAD CI/Windows 实机集中验收尚待核查。不将单元测试或 GitHub Windows 编译冒充用户机器三 Provider 真机验证；S1.3 完整备份与恢复仍安排在其他模块代码级收尾后最后实施。
+
+### 2026-10-11 S3.1 手工归组 CI 格式修复与身份元数据一致性
+
+- 当前远端 HEAD `715f7609`；综合 CI `38120701419` 的 Windows Desktop 编译、Desktop 前端和卫生检查成功，Windows Provider `38120701418` 成功，Rust 质量任务仅在 `project_binding.rs` 两组测试断言的 rustfmt 换行失败，Clippy/Rust tests 尚未开始。本批严格按该 CI 原始 diff 完整修正格式，未将 CI 失败声称为 Rust 测试通过。
+- 检查项目人工归属后的真实业务一致性发现：项目分组的展示标题取本组先遇到的 Session，而原 SQL 按最近 `source_session.updated_at` 排序。如果绑定过来的 Session 较新且它的旧项目名与目标项目不同，可能错误把目标项目标题改成旧名字。修复为先从仍然按 Provider 原始绝对路径归组的 Session 选择项目显示标题，再聚合手工绑定成员；组内来源、数量、知识和分组身份仍完整计算，用户人工归属不会更名原项目或更改 canonical 路径。
+- 同步修复前端 Mock 数据的一致性：只按 canonical 未绑定 Session 优先确定项目标题，项目知识计数根据实际源 Session 所属组汇总，而非靠可变项目显示名字符串推断。增加迁入/撤销 Session 时知识数、归组证据与原始来源 `project_name` 不变的回归测试。这些只是 SQLite/Mock 代码验证，不是用户真实 Windows 试运行或模型质量测量。
+- 新 HEAD 自动化必须独立验证；沿用 local-first、Provider 只读、SiYuan 人工文档不覆盖、V15 migration 前向兼容和完整备份 S1.3 最后实施的约束。

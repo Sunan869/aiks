@@ -168,9 +168,17 @@ export class MockAiksApi implements AiksApi {
   async getProjectMemories(): Promise<ProjectOverview[]> {
     await delay();
     const groups = new Map<string, ProjectOverview>();
-    for (const session of sessions) {
+    const sessionProjects = new Map<number, string>();
+    // Canonical project owners determine the target title, not a recently
+    // reassigned Session whose original display name belongs to another repo.
+    const ordered = [...sessions].sort((a, b) =>
+      Number(localProjectBindings.has(a.id)) - Number(localProjectBindings.has(b.id)) ||
+      (b.updated_at || "").localeCompare(a.updated_at || "") || b.id - a.id
+    );
+    for (const session of ordered) {
       const key = localProjectBindings.get(session.id)?.project_id ||
         session.project_path || "unresolved:" + session.source + ":" + session.session_id;
+      sessionProjects.set(session.id, key);
       const project = groups.get(key) || {
         id: key, title: session.project_name || session.title || session.session_id,
         verified_path: Boolean(session.project_path), session_count: 0, knowledge_count: 0,
@@ -182,7 +190,8 @@ export class MockAiksApi implements AiksApi {
       groups.set(key, project);
     }
     for (const item of knowledge) {
-      const group = Array.from(groups.values()).find(value => value.title === item.project_name);
+      if (item.status !== "active" || item.session_id === null) continue;
+      const group = groups.get(sessionProjects.get(item.session_id) || "");
       if (group) group.knowledge_count++;
     }
     return Array.from(groups.values()).sort((a,b) => b.last_updated_at.localeCompare(a.last_updated_at));

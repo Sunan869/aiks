@@ -17,6 +17,9 @@ describe("S3.1 explicit local-only project session bindings", () => {
     expect(target).toBeDefined();
     const original = originalProjects.find(project => project.id === session!.project_path);
     expect(original).toBeDefined();
+    const affectedKnowledge = (await api.getProjectMemory(original!.id)).entries
+      .filter(entry => entry.session_id === session!.id).length;
+    expect(affectedKnowledge).toBeGreaterThan(0);
 
     await expect(api.bindProjectSession(session!.id, "project:forged")).rejects.toThrow();
     const saved = await api.bindProjectSession(session!.id, target!.id);
@@ -27,6 +30,12 @@ describe("S3.1 explicit local-only project session bindings", () => {
       .toBe(target!.session_count + 1);
     expect(after.find(project => project.id === original!.id)?.session_count)
       .toBe(original!.session_count - 1);
+    expect(after.find(project => project.id === target!.id)?.knowledge_count)
+      .toBe(target!.knowledge_count + affectedKnowledge);
+    expect(after.find(project => project.id === original!.id)?.knowledge_count)
+      .toBe(original!.knowledge_count - affectedKnowledge);
+    expect((await api.getProjectMemory(target!.id)).entries
+      .some(entry => entry.session_id === session!.id)).toBe(true);
     expect((await api.getProjectSessionBindings()).some(binding =>
       binding.session_id === session!.id && binding.project_id === target!.id
     )).toBe(true);
@@ -34,8 +43,13 @@ describe("S3.1 explicit local-only project session bindings", () => {
       .toBe(session!.project_path);
     expect(await api.clearProjectSessionBinding(session!.id)).toBe(true);
     expect(await api.clearProjectSessionBinding(session!.id)).toBe(false);
-    expect((await api.getProjectMemories()).find(project => project.id === original!.id)?.session_count)
+    const restored = await api.getProjectMemories();
+    expect(restored.find(project => project.id === original!.id)?.session_count)
       .toBe(original!.session_count);
+    expect(restored.find(project => project.id === target!.id)?.knowledge_count)
+      .toBe(target!.knowledge_count);
+    expect(restored.find(project => project.id === original!.id)?.knowledge_count)
+      .toBe(original!.knowledge_count);
   });
 
   it("keeps mutations explicit and protects both canonical Session and original documents", () => {

@@ -95,7 +95,9 @@ impl<'a> ProjectMemoryService<'a> {
                         COALESCE(pb.project_path,ss.project_path),ss.project_name,ss.updated_at
                  FROM source_session ss
                  LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
-                 WHERE ss.is_missing = 0 ORDER BY ss.updated_at DESC, ss.id DESC",
+                 WHERE ss.is_missing = 0
+                 ORDER BY CASE WHEN pb.session_id IS NULL THEN 0 ELSE 1 END,
+                          ss.updated_at DESC, ss.id DESC",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((

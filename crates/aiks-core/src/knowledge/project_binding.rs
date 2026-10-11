@@ -155,6 +155,12 @@ mod tests {
         }
         db.conn()
             .execute(
+                "UPDATE source_session SET project_name = 'misleading-name' WHERE id = 2",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
                 "INSERT INTO knowledge_item
                  (id,source_session_id,project_name,title,category,summary,content,
                   source_type,managed_by,status,created_at,updated_at)
@@ -185,14 +191,25 @@ mod tests {
             )
             .unwrap();
         assert!(canonical.is_none());
+        let unchanged_name: String = db
+            .conn()
+            .query_row(
+                "SELECT project_name FROM source_session WHERE id = 2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(unchanged_name, "misleading-name");
         let grouped = ProjectMemoryService::new(&db).list().unwrap();
         assert_eq!(grouped.len(), 2);
         let target = grouped.iter().find(|p| p.id == project.id).unwrap();
         assert_eq!(target.session_count, 2);
         assert_eq!(target.sources, vec!["claude_code", "codex"]);
-        let target_memory = ProjectMemoryService::new(&db)
-            .get(&project.id, 50)
-            .unwrap();
+        assert_eq!(
+            target.title, "team",
+            "a manually reclassified Session must not rename its verified target project"
+        );
+        let target_memory = ProjectMemoryService::new(&db).get(&project.id, 50).unwrap();
         assert_eq!(target_memory.entries.len(), 1);
         assert_eq!(target_memory.entries[0].knowledge_id, "k2");
         drop(db);
@@ -205,10 +222,19 @@ mod tests {
                 .len(),
             1
         );
-        assert!(ProjectSessionBindingService::new(&reopened).clear(2).unwrap());
-        assert!(!ProjectSessionBindingService::new(&reopened).clear(2).unwrap());
-        assert_eq!(ProjectMemoryService::new(&reopened).list().unwrap().len(), 3);
-        let restored = ProjectMemoryService::new(&reopened).get(&project.id, 50).unwrap();
+        assert!(ProjectSessionBindingService::new(&reopened)
+            .clear(2)
+            .unwrap());
+        assert!(!ProjectSessionBindingService::new(&reopened)
+            .clear(2)
+            .unwrap());
+        assert_eq!(
+            ProjectMemoryService::new(&reopened).list().unwrap().len(),
+            3
+        );
+        let restored = ProjectMemoryService::new(&reopened)
+            .get(&project.id, 50)
+            .unwrap();
         assert!(restored.entries.is_empty());
         drop(reopened);
         StateDb::open(&path).unwrap();
