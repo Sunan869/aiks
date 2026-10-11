@@ -1,6 +1,11 @@
 /// Embedding Client — calls OpenAI-compatible /v1/embeddings API
+use anyhow::Context;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+
+const MAX_EMBEDDING_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_EMBEDDING_ERROR_BYTES: usize = 32 * 1024;
+const MAX_EMBEDDING_DIMENSIONS: usize = 16_384;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -49,6 +54,62 @@ struct EmbedData {
     index: usize,
 }
 
+/// Reject the whole batch if an API response cannot map every input to one
+/// well-formed embedding. Index reordering is allowed but partial data is not.
+fn validate_embeddings(
+    response: EmbedResponse,
+    input_count: usize,
+    configured_dimensions: Option<usize>,
+) -> anyhow::Result<Vec<Vec<f32>>> {
+    anyhow::ensure!(
+        response.data.len() == input_count,
+        "Embedding API returned {} vectors for {input_count} inputs",
+        response.data.len()
+    );
+    let mut results = vec![None; input_count];
+    let mut dimensions = configured_dimensions;
+    for EmbedData { embedding, index } in response.data {
+        anyhow::ensure!(
+            index < input_count,
+            "Embedding API returned out-of-range index {index} for {input_count} inputs"
+        );
+        anyhow::ensure!(
+            results[index].is_none(),
+            "Embedding API returned duplicate index {index} for {input_count} inputs"
+        );
+        let size = embedding.len();
+        anyhow::ensure!(
+            (1..=MAX_EMBEDDING_DIMENSIONS).contains(&size),
+            "Embedding API returned invalid vector size {size} at index {index}"
+        );
+        if let Some(expected) = dimensions {
+            anyhow::ensure!(
+                size == expected,
+                "Embedding API dimension mismatch at index {index}: expected {expected}, got {size}"
+            );
+        } else {
+            dimensions = Some(size);
+        }
+        anyhow::ensure!(
+            embedding.iter().all(|value| value.is_finite()),
+            "Embedding API returned non-finite values at index {index} in batch of {input_count}"
+        );
+        let norm = l2_norm(&embedding);
+        anyhow::ensure!(
+            norm.is_finite() && norm > 0.0,
+            "Embedding API returned zero or non-normalizable vector at index {index}"
+        );
+        results[index] = Some(embedding);
+    }
+    results
+        .into_iter()
+        .enumerate()
+        .map(|(index, vector)| {
+            vector.ok_or_else(|| anyhow::anyhow!("Embedding API missing index {index}"))
+        })
+        .collect()
+}
+
 pub struct EmbeddingClient {
     pub config: EmbeddingConfig,
     http: Client,
@@ -56,6 +117,11 @@ pub struct EmbeddingClient {
 
 impl EmbeddingClient {
     pub fn new(config: EmbeddingConfig) -> anyhow::Result<Self> {
+        anyhow::ensure!(config.batch_size > 0, "Embedding batch_size must be positive");
+        anyhow::ensure!(
+            config.dimensions.is_none_or(|size| (1..=MAX_EMBEDDING_DIMENSIONS).contains(&size)),
+            "Embedding configured dimensions must be between 1 and {MAX_EMBEDDING_DIMENSIONS}"
+        );
         let http = Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()?;
@@ -82,22 +148,19 @@ impl EmbeddingClient {
         let resp = req.send().await?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Embedding API error {}: {}",
-                status,
-                &body[..body.len().min(200)]
-            );
+            let body = crate::util::read_bounded_http_text(resp, MAX_EMBEDDING_ERROR_BYTES)
+                .await
+                .context("read bounded Embedding API error")?;
+            let preview: String = body.chars().take(200).collect();
+            anyhow::bail!("Embedding API error {status}: {preview}");
         }
 
-        let embed_resp: EmbedResponse = resp.json().await?;
-        let mut results = vec![vec![]; texts.len()];
-        for item in embed_resp.data {
-            if item.index < results.len() {
-                results[item.index] = item.embedding;
-            }
-        }
-        Ok(results)
+        let body = crate::util::read_bounded_http_text(resp, MAX_EMBEDDING_RESPONSE_BYTES)
+            .await
+            .context("read bounded Embedding API response")?;
+        let embed_resp: EmbedResponse =
+            serde_json::from_str(&body).context("decode Embedding API response")?;
+        validate_embeddings(embed_resp, texts.len(), self.config.dimensions)
     }
 
     /// Health check

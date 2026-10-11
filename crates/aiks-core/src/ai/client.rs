@@ -452,10 +452,9 @@ impl AiClient {
                 continue;
             }
             if !status.is_success() {
-                let body_text =
-                    crate::util::read_bounded_http_text(resp, MAX_ERROR_RESPONSE_BYTES)
-                        .await
-                        .with_context(|| format!("read bounded AI error (HTTP {status})"))?;
+                let body_text = crate::util::read_bounded_http_text(resp, MAX_ERROR_RESPONSE_BYTES)
+                    .await
+                    .with_context(|| format!("read bounded AI error (HTTP {status})"))?;
                 if status.as_u16() == 400
                     && body_text.contains("maximum context length")
                     && max_tokens > 1024

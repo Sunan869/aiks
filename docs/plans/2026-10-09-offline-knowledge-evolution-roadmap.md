@@ -717,3 +717,12 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 引入统一 `util/http_body.rs` 接收上限：先检查可信度不高但可提前拒绝的 `Content-Length`，然后按真实已接收 chunk 的长度逐块累加、进行 checked_add 和边界校验，再从有限缓冲转换 UTF-8 文本。对正常聊天完整 JSON 和 fallback 采用 16 MiB body 限额，对模型探测列表采用 2 MiB，对网关错误体仅允许 32 KiB；完整文本仍须通过原有 8 MiB 答案长度、finish_reason、结构和来源门禁。/models 解析仅作辅助诊断，超长列表不影响「HTTP 服务可达」这一原健康检测语义；错误体过大直接失败，不再回退为误导性的空错误。
 - 纯缓冲正反单测覆盖多 chunk 跨越 UTF-8 字符边界、准确上限、溢出/超限及无效编码；使用本地 loopback HTTP fixture 覆盖无 Content-Length 的 chunked 响应和显式超大 Content-Length 提前拒绝。未依赖真实互联网和模型，**不能**从单测推出 Windows 网关兼容性、模型质量、断流时序通过。读取上限无法保证 reqwest 内部的单个解压/网络 chunk 零拷贝，也不代表任意上传/模型响应都能精确控制峰值内存；仍依赖用户设置的 HTTP 总超时。
 - 审计发现相邻的 Embedding API 路径仍有 `resp.json()` 无界接收和批次索引/维度校验不足的问题，留作下一完整功能批次处理，不能冒充已覆盖所有模型端点。无迁移和 Provider/SiYuan 原文写入；不合并 main、不发布 Release，S1.3 完整备份与恢复最后实现。
+
+
+### 2026-10-12 Embedding API 有界读取与批次完整性门禁（代码级，CI 待验证）
+
+- 核对远端 HEAD 59e74fb1：Windows Provider 38174720030 通过，综合 CI 38174720006 的 Windows 编译、前端、仓库卫生通过；Rust 质量任务仅在 ai/client.rs:452 的单处 rustfmt 失败，Clippy/Rust tests 未执行。本轮与新的完整功能模块合并修正该阻断，不单独为格式问题推送。
+- EmbeddingClient 以前对成功 JSON 运行无界 resp.json()、错误体无界 resp.text()，且以字节直接截取错误预览（中文边界可能 panic）。本轮复用通用 HTTP 有界读取器，成功响应最多 16 MiB，错误体最多 32 KiB；错误信息按 Unicode 字符安全截断，既校验 Content-Length 也检查实际接收流量。
+- 成功批次必须完整且无歧义：条数等于输入，index 唯一且在合法范围，支持乱序归位；空向量、维数不一致或不符合配置、非有限值、零范数或数值溢出、超出 16384 维均明确失败。拒绝整批错误数据，而不是忽略越界、覆盖重复下标、将缺失结果当空向量继续部分写入。无效 batch_size 和配置维数提前报错。
+- EmbeddingStage 对未设置 dimensions 的合法向量持久化真实维数，而不是硬编码为 1024。新增独立回环 HTTP 合约测试，覆盖乱序、重复/缺失/越界、不同维数、异常向量、无界 Content-Length 和 UTF-8 错误信息；这些合成测试不是模型质量测试。
+- 改动不增加 SQLite migration、不写 Provider、不自动覆盖 SiYuan 用户原文，保留个人 local-first 配置和已有知识。当前执行环境没有 Rust 工具链，综合 CI 的格式、Clippy 和 Rust 测试结果须以新提交实际运行结果为准；未执行真实模型、Windows 客户端或真实向量检索质量测量。S1.3 完整备份与恢复仍在所有其他优化和功能代码级完成后最后实现。
