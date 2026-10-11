@@ -80,15 +80,14 @@ impl<'a> OrganizationScopeGuard<'a> {
                     "Different or unverified source projects cannot be merged"
                 );
             } else {
-                let (scope_id, verified) =
-                    match (provider.as_deref(), external_id.as_deref()) {
-                        (Some(source), Some(external)) => {
-                            let (id, _, verified) =
-                                project_identity(source, external, path.as_deref(), None);
-                            (id, verified)
-                        }
-                        _ => (String::new(), false),
-                    };
+                let (scope_id, verified) = match (provider.as_deref(), external_id.as_deref()) {
+                    (Some(source), Some(external)) => {
+                        let (id, _, verified) =
+                            project_identity(source, external, path.as_deref(), None);
+                        (id, verified)
+                    }
+                    _ => (String::new(), false),
+                };
                 first_scope = Some((scope_id, verified, session_id.unwrap_or(0)));
             }
         }
@@ -145,7 +144,10 @@ mod tests {
         assert!(guard.validate(&ids(&["k1", "missing"])).is_err());
         assert!(guard.validate(&ids(&[])).is_err());
         db.conn()
-            .execute("UPDATE knowledge_item SET status = 'archived' WHERE id = 'k3'", [])
+            .execute(
+                "UPDATE knowledge_item SET status = 'archived' WHERE id = 'k3'",
+                [],
+            )
             .unwrap();
         assert!(guard.validate(&ids(&["k1", "k3"])).is_err());
     }
@@ -167,16 +169,15 @@ mod tests {
         assert!(guard.validate(&ids(&["k1", "k2"])).is_ok());
         let original: String = db
             .conn()
-            .query_row("SELECT project_path FROM source_session WHERE id = 2", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT project_path FROM source_session WHERE id = 2",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(original, "D:/other/project");
         db.conn()
-            .execute(
-                "UPDATE source_session SET is_missing = 1 WHERE id = 2",
-                [],
-            )
+            .execute("UPDATE source_session SET is_missing = 1 WHERE id = 2", [])
             .unwrap();
         assert!(guard.validate(&ids(&["k1", "k2"])).is_err());
     }

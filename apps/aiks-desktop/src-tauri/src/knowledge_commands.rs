@@ -158,6 +158,26 @@ pub async fn create_knowledge(
     Ok(to_json(item))
 }
 
+/// Create a separately reviewed organization document, never altering source
+/// knowledge or writing into the Provider workspace. Unlike the legacy manual
+/// create command this entrypoint REQUIRES authoritative source validation at
+/// the final Tauri write boundary, even if a caller skips the frontend guard.
+#[tauri::command]
+pub async fn create_organized_knowledge(
+    input: KnowledgeWritePayload,
+    source_knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    {
+        let db = engine.db();
+        OrganizationScopeGuard::new(&db)
+            .validate(&source_knowledge_ids)
+            .map_err(|error| error.to_string())?;
+    }
+    create_knowledge(input, state).await
+}
+
 /// V4.1 canonical knowledge content is edited inside the embedded SiYuan
 /// workbench. Keep this command registered for transport compatibility with
 /// older UI bundles, but never allow it to turn SQLite back into a content

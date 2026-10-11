@@ -547,3 +547,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 通过只读 Tauri 命令 `validate_organization_scope` 和 TypeScript API 调用，在**模型请求前**、以及**用户审阅草稿后即将创建独立知识前**分别验证一次。原有前端内容快照/人工确认/双击写入门禁继续使用；这项改动补足权威项目身份门禁，不承诺跨网络/SiYuan 事务的完全原子化。若校验失败应显式提示用户并停止该次流程，不自动更改任何资料。
 - 包含真实 SQLite 测试：同名不同路径拒绝、跨 Provider 同路径接受、归档/缺失拒绝、人工归属覆盖后安全通过、原始 Provider 路径不变、无来源/手动知识与超限拒绝。Mock 与 UI 回归验证两次后端调用，新增 `docs/acceptance/organization-source-scope.md` 作为 Windows/真实模型负例入口。
 - 不涉及数据库迁移，不把模型输出、固定 Mock 或 CI 测试结果视为 Windows 真机与真实模型验收。仍保留个人离线、Provider 只读、SiYuan 原文人工编辑保护；S1.3 完整备份和恢复继续最后实现。
+
+### 2026-10-11 S3.4 最终创建入口的后端来源强制校验与 CI 格式修复
+
+- HEAD `ed4ba933` 的 Windows Provider Contracts `38122454943`、Desktop 前端、Windows 编译及仓库卫生均成功，但综合 CI `38122454975` 仅在 `organization_scope.rs` 4 处 `rustfmt` 差异失败，Rust Clippy/tests 尚未执行；本批按原始日志一次修正全部 Rust 格式问题。
+- 复核受控知识整理链路：原本 UI 在模型调用前及写入前已调用 `validate_organization_scope`，但最终写入仍走通用 `create_knowledge`，Tauri 命令本身并不要求携带任何证据来源身份。这意味着调用方绕过前端校验或使用旧调用路径时，可能把未经核验的跨项目合并草稿作为已审核结果提交。
+- 新增专用 Tauri `create_organized_knowledge`，**必选 `sourceKnowledgeIds`**，在最终 SiYuan 创建动作前再次由 Rust `OrganizationScopeGuard` 查询当前本地 SQLite 活跃知识、Session 缺失与项目/人工归属；来源为空、重复、过量或跨项目一律拒绝。Tauri 不接受从前端直接传入项目真实路径。原 `create_knowledge` 命令原样保留给普通用户手动创建以确保 API 兼容，不把多来源审核规则施加到普通文档。
+- S3.4 UI 仅针对经用户预览确认的整理草稿改用专用创建命令，传入已审核的原始知识 ID。保留前端完整内容快照/来源复核/确认/防双击门禁，以及生成后单独归档或恢复。前端 Mock 和接口同步实现强制证据校验，增加被绕过的空来源、同名不同目录、正常同项目整理创建及用户普通手工创建不受影响的回归。
+- 此门禁是**最终写入请求开始前的**来源合法性检查，不是覆盖后续 HTTP/SiYuan 异步时段的原子锁；真正的并发故障注入、真实模型质量、SiYuan 远端人工编辑保护仍须 Windows 真机集中验收。没有新的 SQLite migration、Provider 写回、main 合并或 Release；S1.3 完整备份与恢复继续最后实施。新提交 CI 尚待执行/确认，不能宣称已通过。

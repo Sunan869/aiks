@@ -369,6 +369,11 @@ export class MockAiksApi implements AiksApi {
     return true;
   }
 
+  async createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[]): Promise<KnowledgeDetail> {
+    await this.validateOrganizationScope(sourceKnowledgeIds);
+    return this.createKnowledge(input);
+  }
+
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
     await delay();
     const now = new Date().toISOString();

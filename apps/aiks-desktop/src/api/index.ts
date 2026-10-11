@@ -65,6 +65,7 @@ export interface AiksApi {
   reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, 'suggested'>): Promise<KnowledgeRelation>;
   addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback>;
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
+  createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[]): Promise<KnowledgeDetail>;
   validateOrganizationScope(knowledgeIds: string[]): Promise<boolean>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
   setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;

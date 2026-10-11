@@ -234,14 +234,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         rewrite: "润色草稿",
         key_conclusions: "关键结论",
       };
-      const created = await getApi().createKnowledge({
+      const created = await getApi().createOrganizedKnowledge({
         title: data.title + " · " + (labels[reviewedOperation] ?? "整理草稿"),
         category: data.category,
         project_name: data.project_name,
         summary: "由用户确认的 AIKS 知识整理结果；请通过来源知识 ID 核验。",
         tags: parseTags(data.tags),
         content,
-      });
+      }, organizeSourceIds);
       // Navigation may have changed the current knowledge during this write.
       // Never report the previous project's result on the newly shown page.
       if (generation !== organizationGeneration.current) return;

@@ -28,6 +28,24 @@ describe("S3.4 authoritative source scope before AI and reviewed writes", () => 
     expect(await api.validateOrganizationScope(["kn_0001", candidate])).toBe(true);
   });
 
+  it("requires source identities in the final create command and leaves ordinary manual creation compatible", async () => {
+    const api = new MockAiksApi();
+    const input = {
+      title: "S3.4 reviewed scoped document",
+      content: "# Manually reviewed draft",
+      project_name: "Pipeline",
+      tags: ["reviewed"],
+    };
+    await expect(api.createOrganizedKnowledge(input, [])).rejects.toThrow();
+    await expect(api.createOrganizedKnowledge(input, ["kn_0001", "kn_0002"])).rejects.toThrow();
+    expect((await api.getKnowledge({ limit: 200 })).items
+      .some(item => item.title === input.title)).toBe(false);
+    const created = await api.createOrganizedKnowledge(input, ["kn_0001", "kn_0005"]);
+    expect(created.title).toBe(input.title);
+    expect(created.source_type).toBe("manual");
+    expect(created.managed_by).toBe("user");
+  });
+
   it("calls Rust-side canonical validation at both safety boundaries", () => {
     expect(organizationPage).toContain(
       "await getApi().validateOrganizationScope(sources.map(source => source.id))",
@@ -35,7 +53,12 @@ describe("S3.4 authoritative source scope before AI and reviewed writes", () => 
     expect(organizationPage).toContain(
       "await getApi().validateOrganizationScope(currentSources.map(source => source.id))",
     );
+    expect(organizationPage).toContain("getApi().createOrganizedKnowledge({");
+    expect(organizationPage).toContain("}, organizeSourceIds)");
     expect(rustCommand).toContain("pub fn validate_organization_scope(");
+    expect(rustCommand).toContain("pub async fn create_organized_knowledge(");
+    expect(rustCommand).toContain(".validate(&source_knowledge_ids)");
+    expect(rustCommand).toContain("create_knowledge(input, state).await");
     expect(rustCommand).toContain("OrganizationScopeGuard::new(&db)");
     expect(coreScope).toContain("COALESCE(pb.project_path,ss.project_path)");
     expect(coreScope).toContain("Organization source is not active");
