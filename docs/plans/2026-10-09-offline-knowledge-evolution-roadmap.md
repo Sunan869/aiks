@@ -449,3 +449,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Rust Core 通过 `render_project_review_scoped` 与 `render_agent_context_scoped` 校验来源必须存在于当前项目，过滤原始证据后再渲染，拒绝伪造来源；保留旧函数和未指定来源的兼容行为。Markdown 输出注明来源范围；有界快照已截断时，筛选后仍保留不完整提醒。
 - Tauri 可选参数、TypeScript API、Mock 和回归覆盖此链路；不改 SQLite migration、不写 Provider 源、不自动修改 AGENTS.md/CLAUDE.md 或 SiYuan 原文。
 - 新提交尚需综合 CI，真实跨工具 Windows/SiYuan 质量与体验验收仍待集中进行；完整备份/恢复继续最后实施。
+
+### 2026-10-11 S3.2/S3.3 来源过滤完整性与 CI 复核
+
+- `8108e17` 的 Windows Provider `38106785877` 已通过，但综合 CI `38106785880` 在新增 Rust 测试的 `rustfmt` 处失败，Clippy/Rust tests 被跳过。本次按照 CI diff 修正所有四处格式。
+- 实质修复：项目全来源前 200 条列表先截断再按 Provider 过滤，会让低频数据源的回顾和 Agent 上下文漏掉本来存在的知识。新增 `ProjectMemoryService::get_scoped`，来源需属于选定项目，并在 SQL 层**先过滤来源再按 200 条上限截断**。Tauri 的两个生成命令调用该路径；原有 `get` API 保持兼容。
+- 增加真实 SQLite 数据层回归，覆盖跨 Provider 排序、来源范围、来源内截断、未知来源拒绝及未指定来源兼容。无 SQLite migration、无 Provider/SiYuan 原文写入；S1.3 完整备份最后实施，Windows/真实模型验收尚未执行。

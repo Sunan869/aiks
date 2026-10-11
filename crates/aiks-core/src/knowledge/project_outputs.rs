@@ -298,13 +298,9 @@ mod tests {
         second.summary = "Use bounded executor".into();
         data.entries.push(second);
 
-        let report = render_project_review_scoped(
-            &data,
-            "2026-10-09",
-            "2026-10-09",
-            Some("claude_code"),
-        )
-        .unwrap();
+        let report =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("claude_code"))
+                .unwrap();
         assert!(report.contains("来源范围：claude_code"));
         assert!(report.contains("bounded executor"));
         assert!(!report.contains("bounded queue"));
@@ -314,13 +310,8 @@ mod tests {
         assert!(pack.contains("bounded queue"));
         assert!(!pack.contains("bounded executor"));
         assert!(!pack.contains("s-claude"));
-        let combined = render_project_review_scoped(
-            &data,
-            "2026-10-09",
-            "2026-10-09",
-            None,
-        )
-        .unwrap();
+        let combined =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", None).unwrap();
         assert!(combined.contains("bounded executor"));
         assert!(combined.contains("bounded queue"));
     }
@@ -328,22 +319,14 @@ mod tests {
     #[test]
     fn scoped_exports_reject_unknown_source_and_preserve_truncation() {
         let mut data = snapshot();
-        assert!(render_project_review_scoped(
-            &data,
-            "2026-10-09",
-            "2026-10-09",
-            Some("unknown"),
-        )
-        .is_err());
+        assert!(
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("unknown"),)
+                .is_err()
+        );
         assert!(render_agent_context_scoped(&data, 1200, Some("unknown")).is_err());
         data.truncated = true;
-        let report = render_project_review_scoped(
-            &data,
-            "2026-10-09",
-            "2026-10-09",
-            Some("codex"),
-        )
-        .unwrap();
+        let report =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("codex")).unwrap();
         assert!(report.contains("仅包含当前加载的知识记录"));
     }
 

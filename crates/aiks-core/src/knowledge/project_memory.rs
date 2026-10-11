@@ -169,11 +169,28 @@ impl<'a> ProjectMemoryService<'a> {
     }
 
     pub fn get(&self, project_id: &str, limit: usize) -> Result<ProjectMemorySnapshot> {
+        self.get_scoped(project_id, limit, None)
+    }
+
+    /// Filter by Provider before bounding evidence rows; a global top-200
+    /// sample cannot represent every source of a long-running project.
+    pub fn get_scoped(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+    ) -> Result<ProjectMemorySnapshot> {
         let project = self
             .list()?
             .into_iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| anyhow::anyhow!("Project identity not found"))?;
+        if let Some(source) = source_filter {
+            anyhow::ensure!(
+                project.sources.iter().any(|known| known == source),
+                "Project source not found"
+            );
+        }
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT ki.id,ki.title,ki.category,ki.summary,ki.updated_at,
@@ -182,11 +199,12 @@ impl<'a> ProjectMemoryService<'a> {
                      ORDER BY created_at DESC, id DESC LIMIT 1)
              FROM knowledge_item ki JOIN source_session ss ON ss.id = ki.source_session_id
              WHERE ki.status = 'active' AND ss.is_missing = 0
+               AND (?1 IS NULL OR ss.source = ?1)
              ORDER BY ki.updated_at DESC, ki.id DESC",
         )?;
         let mut entries = Vec::new();
         let mut truncated = false;
-        let rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map([source_filter], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -328,6 +346,53 @@ mod tests {
         let other = service.get(&projects[1].id, 20).unwrap();
         assert_eq!(other.entries.len(), 1);
         assert_eq!(other.entries[0].source, "opencode");
+    }
+
+    #[test]
+    fn scoped_memory_binds_provider_before_limiting_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("scoped-memory.db")).unwrap();
+        for (session_id, source) in [(1, "codex"), (2, "claude_code")] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,'C:/repo/shared','shared',
+                             '2026-10-09','2026-10-09','2026-10-09')",
+                    params![session_id, source, format!("s-{session_id}")],
+                )
+                .unwrap();
+        }
+        for (id, session_id, updated) in [
+            ("codex-new", 1, "2026-10-11"),
+            ("claude-new", 2, "2026-10-10"),
+            ("claude-old", 2, "2026-10-09"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'Finding','decision','Evidence','Detail',
+                             'conversation','pipeline','active','2026-10-09',?3)",
+                    params![id, session_id, updated],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let id = service.list().unwrap()[0].id.clone();
+        assert_eq!(service.get(&id, 1).unwrap().entries[0].knowledge_id, "codex-new");
+        let selected = service.get_scoped(&id, 1, Some("claude_code")).unwrap();
+        assert!(selected.truncated);
+        assert_eq!(selected.entries[0].knowledge_id, "claude-new");
+        let source_all = service.get_scoped(&id, 200, Some("claude_code")).unwrap();
+        assert_eq!(source_all.entries.len(), 2);
+        assert!(!source_all.truncated);
+        assert!(source_all.entries.iter().all(|entry| entry.source == "claude_code"));
+        assert_eq!(service.get(&id, 200).unwrap().entries.len(), 3);
+        assert!(service.get_scoped(&id, 200, Some("unknown")).is_err());
+        assert!(service.get_scoped(&id, 200, Some("")).is_err());
     }
 
     #[test]

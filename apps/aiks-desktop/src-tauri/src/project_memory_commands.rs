@@ -39,7 +39,7 @@ pub async fn create_project_review(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let snapshot = ProjectMemoryService::new(&db)
-        .get(&project_id, 200)
+        .get_scoped(&project_id, 200, source.as_deref())
         .map_err(|error| error.to_string())?;
     render_project_review_scoped(&snapshot, &from, &through, source.as_deref())
         .map_err(|error| error.to_string())
@@ -55,7 +55,7 @@ pub async fn create_agent_context_pack(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let snapshot = ProjectMemoryService::new(&db)
-        .get(&project_id, 200)
+        .get_scoped(&project_id, 200, source.as_deref())
         .map_err(|error| error.to_string())?;
     render_agent_context_scoped(&snapshot, max_tokens, source.as_deref())
         .map_err(|error| error.to_string())
