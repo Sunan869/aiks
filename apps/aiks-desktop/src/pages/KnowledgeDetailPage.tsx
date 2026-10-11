@@ -7,6 +7,7 @@ import type { AiAssistOperation } from "../api/ai-assist";
 import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
 import { previewKnowledgeOrganizationDiff } from "../knowledge-organization-diff";
+import { allOrganizationSourcesReviewed, reviewOrganizationSource } from "../knowledge-organization-review";
 
 interface Props {
   knowledgeId: string;
@@ -52,6 +53,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeError, setOrganizeError] = useState<string | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
+  const [reviewedSources, setReviewedSources] = useState<KnowledgeDetail[]>([]);
+  const [diffSourceId, setDiffSourceId] = useState("");
+  const [sourceReviewVisitedIds, setSourceReviewVisitedIds] = useState<string[]>([]);
   const [organizeSourceSnapshot, setOrganizeSourceSnapshot] = useState<string | null>(null);
   const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
@@ -83,6 +87,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setDerivedArchived(false);
     setOrganizeBusy(false);
     setOrganizeSourceIds([]);
+    setReviewedSources([]);
+    setDiffSourceId("");
+    setSourceReviewVisitedIds([]);
     setOrganizeSourceSnapshot(null);
     setReviewedOperation(null);
     setSelectedSources([]);
@@ -222,6 +229,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeConfirmed(false);
     setOrganizeDraft("");
     setOrganizeSourceIds([]);
+    setReviewedSources([]);
+    setDiffSourceId("");
+    setSourceReviewVisitedIds([]);
     setReviewedOperation(null);
     setCreatedKnowledgeId(null);
     setDerivedArchived(false);
@@ -249,6 +259,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
       if (generation !== organizationGeneration.current) return;
       setOrganizeSourceIds(sourceIds);
+      setReviewedSources(sources);
+      setDiffSourceId(sourceIds[0]);
+      setSourceReviewVisitedIds([sourceIds[0]]);
       setOrganizeSourceSnapshot(organizationSourceSnapshot(sources));
       setReviewedOperation(organizeOperation);
       setOrganizeDraft(suggestion.text);
@@ -260,7 +273,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const createDerivedKnowledge = async () => {
-    if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id || !sourcesReviewed) return;
     if (!organizationWriteGate.current.tryBegin()) return;
     const generation = organizationGeneration.current;
     setOrganizeBusy(true);
@@ -425,9 +438,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     }
   };
 
+  const sourcesReviewed = allOrganizationSourcesReviewed(
+    organizeSourceIds, reviewedSources.map(source => source.id), sourceReviewVisitedIds,
+  );
+  const diffReferenceSource = reviewedSources.find(source => source.id === diffSourceId);
+  const diffReferenceContent = diffReferenceSource?.content ?? data?.content ?? "";
   const organizationDiff = useMemo(
-    () => previewKnowledgeOrganizationDiff(data?.content ?? "", organizeDraft),
-    [data?.content, organizeDraft],
+    () => previewKnowledgeOrganizationDiff(diffReferenceContent, organizeDraft),
+    [diffReferenceContent, organizeDraft],
   );
 
   if (loading) return <div className="flex h-48 items-center justify-center p-6 text-sm text-gray-400">加载中...</div>;
@@ -652,6 +670,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
             setOrganizeSourceIds([]);
+            setReviewedSources([]);
+            setDiffSourceId("");
+            setSourceReviewVisitedIds([]);
             setOrganizeSourceSnapshot(null);
             setOrganizeConfirmed(false);
             setOrganizeBusy(false);
@@ -672,6 +693,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   setOrganizeConfirmed(false);
                   setOrganizeDraft("");
                   setOrganizeSourceIds([]);
+                  setReviewedSources([]);
+                  setDiffSourceId("");
+                  setSourceReviewVisitedIds([]);
                   setOrganizeSourceSnapshot(null);
                   setOrganizeBusy(false);
                 }}
@@ -692,16 +716,48 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
+            {reviewedSources.length > 1 && (
+              <section aria-label="逐一审阅整理来源" className="rounded border border-amber-200 p-3 text-xs dark:border-amber-800">
+                <h3 className="font-medium">逐一审阅全部来源知识（{sourceReviewVisitedIds.length}/{reviewedSources.length}）</h3>
+                <p className="mt-1 text-gray-500">
+                  多来源比较/合并的差异视图一次仅对照一份真实原文；每份来源的内容必须分别核对，
+                  不能把主知识差异当作其他来源已经核查。点击来源查看原始文本并完成该来源的阅读步骤。
+                  审核范围仅是用户当前看到的草稿；创建前仍由 Rust 再次核实所有来源。
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {reviewedSources.map(source => (
+                    <button type="button" key={source.id}
+                      aria-pressed={diffSourceId === source.id}
+                      onClick={() => {
+                        setDiffSourceId(source.id);
+                        setSourceReviewVisitedIds(current => reviewOrganizationSource(organizeSourceIds, current, source.id));
+                        setOrganizeConfirmed(false);
+                      }}
+                      className={diffSourceId === source.id ? "rounded border border-indigo-600 bg-indigo-50 p-2 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-100"
+                        : "rounded border border-gray-300 p-2 dark:border-gray-700"}>
+                      {sourceReviewVisitedIds.includes(source.id) ? "✓ 已查看 " : "○ 待核对 "}
+                      {source.title}（{source.id}）
+                    </button>
+                  ))}
+                </div>
+                {!sourcesReviewed && <p role="status" className="mt-2 text-amber-700">请逐一打开所有来源，才能确认多来源整理草稿。</p>}
+              </section>
+            )}
             <div className="grid gap-2 lg:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium">当前正文（只读）</label>
-                <textarea aria-label="当前知识正文" value={data.content} readOnly rows={12}
+                <label className="mb-1 block text-xs font-medium">当前正文（只读）：{diffReferenceSource?.title ?? data.title} · {diffReferenceSource?.id ?? data.id}</label>
+                <textarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
                   className="w-full rounded border bg-gray-50 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900" />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
                 <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
-                  onChange={event => { setOrganizeDraft(event.target.value); setOrganizeConfirmed(false); }}
+                  onChange={event => {
+                    setOrganizeDraft(event.target.value);
+                    setOrganizeConfirmed(false);
+                    setSourceReviewVisitedIds(organizeSourceIds.slice(0, 1));
+                    setDiffSourceId(organizeSourceIds[0] || "");
+                  }}
                   rows={12} className="w-full rounded border bg-transparent p-2 font-mono text-xs dark:border-gray-700" />
               </div>
             </div>
@@ -709,7 +765,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               className="rounded border border-indigo-200 p-3 text-xs dark:border-indigo-800">
               <h3 className="font-medium">整理差异预览（仅供人工核对）</h3>
               <p className="mt-1 text-gray-500">
-                与当前知识正文按行对照：+ 为新草稿增加，− 为原正文没有保留，
+                与当前选中的来源知识正文按行对照：+ 为新草稿增加，− 为原正文没有保留，
                 未标记的行表示相同。此处只是审核辅助，原知识不会被修改；
                 创建动作始终生成新的独立 SiYuan 文档。
               </p>
@@ -738,7 +794,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               </pre>
             </section>
             <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy} onChange={event => setOrganizeConfirmed(event.target.checked)} />
+              <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy || !sourcesReviewed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
               我已核对原文与草稿，理解复制不写入、确认创建会新增独立 SiYuan 文档。
             </label>
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}

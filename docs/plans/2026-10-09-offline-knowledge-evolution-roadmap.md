@@ -649,3 +649,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 针对 S3.4 路线图原要求「所有编辑类操作先预览 diff」的代码级缺口：此前前端只有原知识正文与 AI 建议 Markdown 的两列文本框，用户需要自行肉眼比较，未显示可审核的行级差异。新增独立的纯 TypeScript `knowledge-organization-diff.ts`：基于确定性逐行 LCS，明确区分原文未保留的行、草稿新增行、内容不变行以及行变更。只处理每侧前 320 行/64000 字符、最多展示 500 行，每行最多显示 800 Unicode codepoints，防止超长日志或模型输出导致页面爆炸；若输入或渲染截断，必须显式说明「不能推断未显示部分没有修改」，完整文本仍可在原有两列正文/草稿中人工检查。
 - 知识详情在用户确认前展示「整理差异预览（仅供人工核对）」，支持新草稿继续编辑时立即重新计算，原来的确认复选框在草稿编辑后自动取消，原始 Knowledge/SiYuan 文档不被差异渲染修改。对比原始知识正文是**审核参考**，若多来源合并，还须在来源选择和完整源资料中分别核对，并不能声称存在一个可以覆盖所有来源的单一合并 diff。创建仍只能走已有 `create_organized_knowledge`、人工确认、来源身份重检和独立新文档路径；绝不将 diff 直接 apply/overwrite 到原文。
 - 新增针对插入/删除/保留/Windows CRLF/长文本截断/恶意 Markdown/大样本确定性/界面门禁的 Vitest 回归；补 `docs/acceptance/organization-diff-review.md` 后续 Windows 真实模型审核步骤。无需 SQLite migration、无 Provider 写入、无 SiYuan 原文覆盖，不合并 main、不发布 Release。此次不会将固定 diff 用例或新 CI 成功冒充真实模型编辑质量及 Windows 验收通过；S1.3 备份恢复保持最后。
+
+### 2026-10-11 S3.4 多来源逐项差异复核与阻止遗漏确认（代码级）
+
+- 当前 HEAD `065d1dca` 的 Windows Provider `38144290034` 与 Windows Desktop、Rust fmt/Clippy/测试、仓库卫生均成功；综合 CI `38144290039` 前端 1 项源码边界测试失败，原因是断言期望 `previewKnowledgeOrganizationDiff(data.content, organizeDraft)`，实际使用空值安全的 `data?.content ?? ""`（参见前端作业失败日志），并非行级 diff 算法回归。该项补正断言，保留真正的空值和渲染安全；与 S3.4 多来源审核缺口合批一次提交。
+- 已实现的行级差异仅对照主 Knowledge 正文；compare/merge_draft 允许 2–5 条知识，但原 UI 难以把每条**实际送给模型的源全文**与同一个新草稿逐一对照，用户可能只阅读主知识就确认多来源综合结论。本批在模型成功返回草稿时暂存已调用的真实 `getKnowledgeDetail` 来源快照，显示「逐一审阅全部来源知识」及按原始来源 ID/标题切换的只读正文/差异视图。保留原有渲染的 +/−/未变行和长文截断提示；对于每条来源均显示审核进度，不将「主知识差异为零」误当作所有来源无变化。
+- 新增严格的本地审核 checkpoint：`allOrganizationSourcesReviewed` 在预期 ID、加载快照来源顺序一致且全部 ID 都由用户点击查看后才允许多来源确认；改变草稿正文要取消确认并要求再次逐项阅读，切换整理方式/来源/当前知识要清空旧来源快照和查看进度。源列表中的其他 ID 不得冒充已审核；最多 5 条。这个前端 checkpoint 仅代表用户**打开并查看**每份来源，不证明用户真实理解或模型结论正确，不替代 Rust `OrganizationScopeGuard`、最终创建前的来源内容快照复核和独立文档创建。
+- 新增 TypeScript 纯逻辑单测覆盖完整/不完整查看、重复或错序来源、不在原列表的注入 ID、切换与草稿编辑触发重新复核；差异测试一并核对动态来源正确选取和后端复核未被绕过。补 `docs/acceptance/organization-diff-review.md` Windows 真实模型多来源逐条核验入口。无需新 migration、不会写 Provider、不会覆盖 SiYuan 用户原文、不合并 main、不发 Release。新 HEAD 综合 CI 尚待验证；不把固定测试当作 Windows 真机或真实模型正确性证明。

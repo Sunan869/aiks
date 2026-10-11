@@ -60,12 +60,14 @@ describe("S3.4 user-reviewed independent organization diff preview", () => {
   });
 
   it("makes the bounded inline diff an explicit pre-confirmation preview only", () => {
-    expect(page).toContain("previewKnowledgeOrganizationDiff(data.content, organizeDraft)");
+    expect(page).toContain("previewKnowledgeOrganizationDiff(diffReferenceContent, organizeDraft)");
     expect(page).toContain("整理差异预览（仅供人工核对）");
     expect(page).toContain("organizationDiff.truncated");
     expect(page).toContain("差异预览已截断");
     expect(page).toContain("原知识不会被修改");
     expect(page).toContain("organizationDiff.rows.map((row, index) =>");
+    expect(page).toContain("diffReferenceSource?.content ?? data?.content ??");
+    expect(page).toContain("逐一审阅全部来源知识");
     expect(page).toContain("organizeConfirmed");
     expect(page).toContain("createOrganizedKnowledge");
   });
