@@ -87,7 +87,14 @@ impl<'a> ProjectEvolutionService<'a> {
         let mut truncated = false;
         for row in rows {
             let (
-                link, source, external, path, name, other_source, other_external, other_path,
+                link,
+                source,
+                external,
+                path,
+                name,
+                other_source,
+                other_external,
+                other_path,
                 other_name,
             ) = row?;
             let (left, _, _) =
@@ -146,10 +153,34 @@ mod tests {
                 .unwrap();
         }
         for (id, source, target, status, relation_type) in [
-            ("reviewed", "knowledge-1", "knowledge-2", "confirmed", "corrects"),
-            ("pending", "knowledge-2", "knowledge-1", "suggested", "supersedes"),
-            ("excluded-cross", "knowledge-1", "knowledge-3", "confirmed", "corrects"),
-            ("excluded-rejected", "knowledge-1", "knowledge-2", "rejected", "supersedes"),
+            (
+                "reviewed",
+                "knowledge-1",
+                "knowledge-2",
+                "confirmed",
+                "corrects",
+            ),
+            (
+                "pending",
+                "knowledge-2",
+                "knowledge-1",
+                "suggested",
+                "supersedes",
+            ),
+            (
+                "excluded-cross",
+                "knowledge-1",
+                "knowledge-3",
+                "confirmed",
+                "corrects",
+            ),
+            (
+                "excluded-rejected",
+                "knowledge-1",
+                "knowledge-2",
+                "rejected",
+                "supersedes",
+            ),
         ] {
             db.conn()
                 .execute(

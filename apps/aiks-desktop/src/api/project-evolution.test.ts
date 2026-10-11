@@ -38,6 +38,13 @@ describe("S3.1 evidence-linked project evolution", () => {
     expect(pageSource).toContain('link.source_id');
     expect(pageSource).toContain('link.target_id');
     expect(pageSource).toContain('审核证据：{link.evidence}');
+    expect(pageSource).toContain('window.confirm(prompt)');
+    expect(pageSource).toContain('reviewKnowledgeRelation(relationId, decision)');
+    expect(pageSource).toContain('getProjectEvolution(requestProject)');
+    expect(pageSource).toContain('requestGeneration !== projectGeneration.current');
+    expect(pageSource).toContain('onClick={() => void reviewEvolution(link.id, "confirmed")}');
+    expect(pageSource).toContain('onClick={() => void reviewEvolution(link.id, "rejected")}');
+    expect(pageSource).toContain('link.status === "suggested"');
     expect(pageSource).not.toContain('autoConfirmKnowledgeRelations(');
   });
 });

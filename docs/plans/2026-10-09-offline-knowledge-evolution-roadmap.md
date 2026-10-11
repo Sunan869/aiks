@@ -518,3 +518,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - Tauri 命令 `list_project_evolution`、TypeScript API/Mock 与项目记忆 UI 一并接入。明确区分用户确认与待人工审核、提示审核时间不等于生效时间，提供双方 Knowledge 详情入口和证据文本。结果最多展示 100 条且提示截断，项目切换时抛弃旧的异步结果；不自动确认、发布、删除、覆盖任何知识或 SiYuan 原文。
 - 增加真实 SQLite 回归覆盖同项目跨 Provider、跨项目假关联、确认/建议/拒绝状态、项目迁移、Session 缺失、知识归档与截断行为，另有前端交互/API 边界测试和 `docs/acceptance/project-evolution-reviewed.md` 验收入口。无 Schema 迁移、Provider 只读、个人离线模式不变。
 - 本模块仍需新 HEAD 综合 CI 和真实 Windows/内嵌 SiYuan 跨来源验收；项目手工归属修正及自动矛盾候选检测等更大功能仍待独立核对，不能把本项标作整个 S3.1 完成。S1.3 完整备份/恢复继续排在所有其他代码模块最后。
+
+### 2026-10-11 S3.1 演进关系 CI 修复与项目内人工审核闭环
+
+- `b60000dd` 的 Windows Provider `38119254947`、Windows Desktop 编译、前端与仓库卫生已通过，但综合 CI `38119254904` 的 Rust fmt 报告 `project_memory_commands.rs`、`knowledge/mod.rs` 与 `project_evolution.rs` 中导入排序、导出换行、元组解构及测试元组布局不符；Rust Clippy/tests 因而尚未运行。本次直接按完整日志修正全部差异。
+- 项目知识演进原来只有展示，人工需另跳转知识详情才能审核建议。本批补齐项目内审核闭环：只对 suggested 关系显示「核对原文后确认关系」「拒绝关系建议」；点击需要显式确认，操作写入**已有** `knowledge_relation_review` 审计日志并刷新只读演进视图，拒绝后关系不再显示。按钮处理期间防重复提交；项目切换的异步返回不会污染新项目。
+- 新增前端接口/交互边界回归；现有 Core SQLite 回归保持原关联身份、状态和跨项目隔离要求。不得自动确认、删除知识、修改 Provider 原始文件或覆盖 SiYuan 用户文档；无需 migration。新 HEAD 自动化和 Windows 真机人工审核体验仍待验收，S1.3 完整备份最后开发。

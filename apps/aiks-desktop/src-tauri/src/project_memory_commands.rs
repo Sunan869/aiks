@@ -1,7 +1,7 @@
 use crate::app_state::AppState;
 use aiks_core::knowledge::{
-    render_agent_context_scoped, render_project_review_scoped, ProjectMemoryService,
-    ProjectMemorySnapshot, ProjectOverview, ProjectEvolutionService, ProjectEvolutionSnapshot,
+    render_agent_context_scoped, render_project_review_scoped, ProjectEvolutionService,
+    ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview,
 };
 use tauri::State;
 

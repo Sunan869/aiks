@@ -38,6 +38,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [detail, setDetail] = useState<ProjectMemorySnapshot | null>(null);
   const [evolution, setEvolution] = useState<ProjectEvolutionSnapshot | null>(null);
   const [evolutionError, setEvolutionError] = useState("");
+  const [relationBusy, setRelationBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 86400000).toISOString().slice(0,10));
@@ -46,6 +47,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [preview, setPreview] = useState("");
   const [previewType, setPreviewType] = useState<"review" | "agent" | "">("");
   const generation = useRef(0);
+  const projectGeneration = useRef(0);
   const [notice, setNotice] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [sourceFilter, setSourceFilter] = useState("");
@@ -69,6 +71,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     let mounted = true;
     setError("");
     generation.current += 1;
+    projectGeneration.current += 1;
     setPreview("");
     setPreviewType("");
     setNotice("");
@@ -76,6 +79,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setDetail(null);
     setEvolution(null);
     setEvolutionError("");
+    setRelationBusy(null);
     setOnlyFlagged(false);
     setSourceFilter("");
     setAgentFormat("markdown");
@@ -101,6 +105,35 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setPreviewType("");
     setNotice("");
     setWorking(false);
+  };
+
+  // A human decision updates the existing append-only relation audit; it
+  // never edits either knowledge item. Re-fetch canonical projection after
+  // completion to avoid showing an obsolete suggested relationship.
+  const reviewEvolution = async (relationId: string, decision: "confirmed" | "rejected") => {
+    if (!selected || relationBusy !== null) return;
+    const prompt = decision === "confirmed"
+      ? "确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。"
+      : "拒绝此演进关系建议？原始知识和 Session 均会保留。";
+    if (!window.confirm(prompt)) return;
+    const requestProject = selected;
+    const requestGeneration = projectGeneration.current;
+    setRelationBusy(relationId);
+    setEvolutionError("");
+    try {
+      await getApi().reviewKnowledgeRelation(relationId, decision);
+      if (requestGeneration !== projectGeneration.current) return;
+      const snapshot = await getApi().getProjectEvolution(requestProject);
+      if (requestGeneration !== projectGeneration.current) return;
+      setEvolution(snapshot);
+      setNotice(decision === "confirmed" ? "已保存人工确认的关系审核。" : "已拒绝关系建议，原始知识不受影响。");
+    } catch (reason) {
+      if (requestGeneration === projectGeneration.current) {
+        setEvolutionError("关系审核未完成：" + String(reason));
+      }
+    } finally {
+      if (requestGeneration === projectGeneration.current) setRelationBusy(null);
+    }
   };
 
   const generate = async (kind: "review" | "agent") => {
@@ -246,7 +279,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             </div>
           </section>
           <section className="rounded border p-4 dark:border-gray-700">
-            <h2 className="font-semibold">知识演进与已审核的修正关系</h2>
+            <h2 className="font-semibold">知识演进与人工审核关系</h2>
             <p className="mt-2 text-xs text-gray-500">
               仅显示带来源证据、由用户确认或尚待确认的「修正 / 替代 / 解决」关系。
               关系时间表示审核记录更新时间，不代表方案生效时间；旧知识及 Session 均保留。
@@ -292,6 +325,20 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                       <p className="mt-2 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">
                         审核证据：{link.evidence}
                       </p>
+                      {link.status === "suggested" && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" disabled={relationBusy !== null}
+                            className="rounded border border-green-400 px-2 py-1 text-green-700 disabled:opacity-40"
+                            onClick={() => void reviewEvolution(link.id, "confirmed")}>
+                            {relationBusy === link.id ? "审核提交中…" : "核对原文后确认关系"}
+                          </button>
+                          <button type="button" disabled={relationBusy !== null}
+                            className="rounded border border-gray-300 px-2 py-1 text-gray-700 disabled:opacity-40"
+                            onClick={() => void reviewEvolution(link.id, "rejected")}>
+                            拒绝关系建议
+                          </button>
+                        </div>
+                      )}
                     </article>
                   );
                 })}
