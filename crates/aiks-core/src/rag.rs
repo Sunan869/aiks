@@ -163,10 +163,8 @@ fn audit_answer_citations(answer: &str, citations: &[RagCitation]) -> Vec<String
         ));
     }
     if overflow {
-        warnings.push(
-            "模型包含超出有效编号范围的引用；请人工核实来源，不要将其当作证据。"
-                .to_string(),
-        );
+        warnings
+            .push("模型包含超出有效编号范围的引用；请人工核实来源，不要将其当作证据。".to_string());
     }
     if observed.is_empty() {
         warnings.push(
@@ -279,11 +277,13 @@ impl RagAnswerService {
 
         let search = UnifiedSearchService::new(self.db.clone(), self.models.clone());
         let search_started = Instant::now();
-        let outcome = search.search(&question, RETRIEVAL_LIMIT, scope).await?;
+        let outcome = search
+            .search(&question, RETRIEVAL_LIMIT, scope.clone())
+            .await?;
         let search_ms = search_started.elapsed().as_millis() as u64;
 
         let evidence_started = Instant::now();
-        let evidence = self.collect_evidence(&question, outcome.hits)?;
+        let evidence = self.collect_evidence(&question, outcome.hits, &scope)?;
         let evidence_ms = evidence_started.elapsed().as_millis() as u64;
         if evidence.is_empty() {
             tracing::info!(
@@ -347,6 +347,7 @@ impl RagAnswerService {
         &self,
         question: &str,
         hits: Vec<UnifiedSearchHit>,
+        scope: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<Evidence>> {
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
@@ -355,6 +356,12 @@ impl RagAnswerService {
         for hit in hits {
             if evidence.len() >= MAX_EVIDENCE_ITEMS || total_chars >= MAX_EVIDENCE_CHARS {
                 break;
+            }
+            // Search and evidence resolution are separate operations. If a
+            // source Session or Knowledge row changed since recall, reject the
+            // stale hit before opening its full text or passing it to a model.
+            if !hit_is_currently_visible(&self.db, &hit, scope)? {
+                continue;
             }
 
             let dedupe_key = format!(
@@ -491,6 +498,50 @@ impl RagAnswerService {
     }
 }
 
+/// Revalidate a retrieved hit against current canonical SQLite scope.
+/// This closes a time-of-check/time-of-use gap between search and reading a
+/// full chunk, including when a Session changes project/source or goes missing.
+fn hit_is_currently_visible(
+    db: &StateDb,
+    hit: &UnifiedSearchHit,
+    scope: &UnifiedSearchFilter,
+) -> anyhow::Result<bool> {
+    let project = scope.project.as_deref().unwrap_or("");
+    let source = scope.source.as_deref().unwrap_or("");
+    let conn = db.conn();
+    let found: i64 = match hit.corpus {
+        SearchCorpus::Knowledge => conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM knowledge_item ki
+                LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+                WHERE ki.id = ?1 AND ki.status = 'active'
+                  AND (ki.source_session_id IS NULL OR ss.is_missing = 0)
+                  AND (?2 = '' OR ki.project_name = ?2)
+                  AND (?2 = '' OR ki.source_session_id IS NULL OR ss.project_name = ?2)
+                  AND (?3 = '' OR ss.source = ?3)
+            )",
+            params![hit.entity_id.as_str(), project, source],
+            |row| row.get(0),
+        )?,
+        SearchCorpus::Session => {
+            let Ok(session_id) = hit.entity_id.parse::<i64>() else {
+                return Ok(false);
+            };
+            conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM source_session ss
+                    WHERE ss.id = ?1 AND ss.is_missing = 0
+                      AND (?2 = '' OR ss.project_name = ?2)
+                      AND (?3 = '' OR ss.source = ?3)
+                )",
+                params![session_id, project, source],
+                |row| row.get(0),
+            )?
+        }
+    };
+    Ok(found != 0)
+}
+
 /// Latest human review stays advisory; disputed material remains visible
 /// for traceability but is explicitly marked before being sent to the model.
 fn disputed_feedback_label(kind: &str) -> Option<&'static str> {
@@ -607,7 +658,10 @@ mod tests {
         assert!(warnings[0].contains("99"));
         assert_eq!(audit_answer_citations("没有证据编号", &citations).len(), 1);
         assert_eq!(audit_answer_citations("[0] [99]", &citations).len(), 2);
-        assert_eq!(audit_answer_citations("参考 [1234] 和 [1]", &citations).len(), 1);
+        assert_eq!(
+            audit_answer_citations("参考 [1234] 和 [1]", &citations).len(),
+            1
+        );
         let overflow = audit_answer_citations(
             "模型输出了 [9999999999999999999999999999999999999] 和 [1]",
             &citations,
@@ -615,6 +669,84 @@ mod tests {
         assert_eq!(overflow.len(), 1);
         assert!(overflow[0].contains("超出有效编号范围"));
         assert!(audit_answer_citations("无内容", &[]).is_empty());
+    }
+
+    #[test]
+    fn rag_evidence_rechecks_live_source_and_project_before_reading_full_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("rag-scope.db")).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO source_session
+                 (id,source,external_session_id,project_name,
+                  last_seen_at,created_at,updated_at)
+                 VALUES (1,'codex','session-1','alpha','now','now','now')",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO knowledge_item
+                 (id,source_session_id,project_name,title,category,summary,
+                  content,source_type,managed_by,status,created_at,updated_at)
+                 VALUES ('knowledge-1',1,'alpha','Fix','decision','Summary',
+                         'Body','conversation','pipeline','active','now','now')",
+                [],
+            )
+            .unwrap();
+
+        let hit = |corpus: SearchCorpus, id: &str| UnifiedSearchHit {
+            corpus,
+            entity_id: id.to_string(),
+            chunk_id: None,
+            title: "Fix".into(),
+            snippet: "Evidence".into(),
+            score: 1.0,
+            match_types: vec!["lexical".into()],
+            siyuan_doc_id: None,
+        };
+        let knowledge = hit(SearchCorpus::Knowledge, "knowledge-1");
+        let session = hit(SearchCorpus::Session, "1");
+        let scope = UnifiedSearchFilter {
+            corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
+            project: Some("alpha".into()),
+            source: Some("codex".into()),
+        };
+        assert!(hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        assert!(hit_is_currently_visible(&db, &session, &scope).unwrap());
+        let invalid_session = hit(SearchCorpus::Session, "not-a-number");
+        let missing_knowledge = hit(SearchCorpus::Knowledge, "missing");
+        assert!(!hit_is_currently_visible(&db, &invalid_session, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &missing_knowledge, &scope).unwrap());
+
+        db.conn()
+            .execute("UPDATE source_session SET source = 'claude_code' WHERE id = 1", [])
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+        db.conn()
+            .execute(
+                "UPDATE source_session SET source = 'codex', project_name = 'beta' WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        db.conn()
+            .execute("UPDATE knowledge_item SET status = 'archived' WHERE id = 'knowledge-1'", [])
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        db.conn()
+            .execute("UPDATE source_session SET is_missing = 1 WHERE id = 1", [])
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+
+        // The source may disappear while its previously extracted knowledge
+        // row still looks active. Do not send that stale evidence to the model.
+        db.conn()
+            .execute("UPDATE knowledge_item SET status = 'active' WHERE id = 'knowledge-1'", [])
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
     }
 
     #[test]

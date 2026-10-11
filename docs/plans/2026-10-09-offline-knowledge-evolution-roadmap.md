@@ -491,3 +491,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - `a8294eae` 的 Windows Provider `38112690353` 成功、Desktop 前端及 Windows 编译成功，综合 CI `38112690367` 仅在 Rust `cargo fmt --all --check` 的 4 处格式检查失败，Clippy 和 Rust tests 尚未执行。根据 CI 原始 diff 修复 4 处格式。
 - 补齐模型引用完整性的一处边界：以前只识别不超过 3 位的 `[n]`，`[1234]` 或整数溢出编号可能不被检查；现在识别任意位数字编号，对不存在的编号和超出整数范围编号分别发出可见警告，保持实际检索证据列表不变，不把模型输出当成数据库来源。
 - Rust 单元测试新增大编号/溢出引用回归，验收文档补充相应真机用例。无迁移或 Provider 写回；新 HEAD 自动化仍待验证，S1.3 完整备份最后实施。
+
+### 2026-10-11 S2.4 证据二次范围复核与 CI 格式修复
+
+- 当前 HEAD `6408b295` 的 Windows Provider `38113198262` 已通过，综合 CI `38113198256` 因新增引用告警与测试两处 rustfmt 差异失败，Clippy/Rust tests 未运行。按 CI 原始格式 diff 一并修正。
+- 发现范围过滤只发生在 Unified Search 候选返回时，RAG 在单独读取全文片段阶段未复核对象当前状态；若两个阶段之间知识被归档、源 Session 被标为缺失或更换项目/Provider，存在陈旧证据被送进模型的 TOCTOU 风险。本批在读全文前按 Knowledge/Session 类型、当前 active/missing 状态、项目和来源精确过滤条件执行只读 SQLite EXISTS 校验，拒绝陈旧候选。
+- 新增真实 SQLite 状态变化负例回归，覆盖知识归档、Session 来源变化、项目变化、来源缺失和无效 ID，不修改数据库/Provider/SiYuan 原文；新 HEAD 的完整 CI 与真实 Windows/SiYuan 并发测试尚需独立验收。S1.3 备份/恢复仍最后实施。
