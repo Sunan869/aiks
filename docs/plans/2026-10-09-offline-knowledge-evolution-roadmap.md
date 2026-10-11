@@ -422,3 +422,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - HEAD `e1c912a3` 的 Windows Provider `38103074206` 已通过；综合 CI `38103074202` 因 `p1_pipeline_job_queue.rs` 一处 `rustfmt` 闭包换行要求失败，Rust Clippy/tests 均未执行。按原样应用 CI 提供的格式修正。
 - 对可恢复的 Lease 超时记录固定非敏感诊断原因（`Worker lease expired; retry scheduled`），避免只残留先前无关错误；第三次超时仍保留终止原因。测试增加超时诊断及终止后显式新任务从 attempt=1 开始的断言。
 - 代码已提交仍须以相应新 HEAD 的 GitHub Actions 结果验证；不会将 CI/模拟测试视为 Windows 真机或真实模型通过。S1.3 完整备份继续保持暂停、最后实施。
+
+
+### 2026-10-11 S2.1 真实模型质量/性能验收入口增强
+
+- 在已存在的 opt-in `extraction_live_benchmark` 基础上完成独立报告模块：按样例与重复轮次统计真实请求失败、生产 Schema 有效率、工具噪声跳过正确率、技术术语命中、完全同名重复知识、请求 P50/P95 和仅来自服务端 usage 的 Token。全部指标来自实际返回值，不用固定输出冒充真实模型。
+- 支持 `AIKS_BENCH_REPEATS=1..5` 与显式 `AIKS_BENCH_REPORT_PATH`；JSON 文件 create-new，拒绝覆盖已有报告，不保存会话原文、模型输出、API Key 或端点 URL。未运行真实模型时只有合成评分/报告测试，不会自动访问任何模型端点。
+- 新增 `docs/acceptance/extraction-live-benchmark.md` 作为 Windows 真机验收入口说明，声明术语命中不等于准确率，模型请求时延不等于整体 Pipeline 时延，匿名化质量和真实业务质量需分别验证。保持 S1.3 完整备份最后实施。
+- 本次仅完成评测工具代码和自动化测试入口，**尚无真实模型实测结果、人工遗漏率评审或 Windows 实机验收数据**；新 HEAD 综合 CI 仍须确认，不勾选 S2.1 完成。
