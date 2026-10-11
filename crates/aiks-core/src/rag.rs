@@ -58,7 +58,10 @@ pub struct RagAskRequest {
 /// scope values, never interpolated into SQL or accepted as new data sources.
 fn retrieval_scope(request: &RagAskRequest) -> anyhow::Result<UnifiedSearchFilter> {
     let normalize = |name: &str, value: &Option<String>| -> anyhow::Result<Option<String>> {
-        let value = value.as_deref().map(str::trim).filter(|text| !text.is_empty());
+        let value = value
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
         anyhow::ensure!(
             value.is_none_or(|text| text.chars().count() <= 256),
             "{name} filter is too long"
@@ -133,25 +136,37 @@ fn audit_answer_citations(answer: &str, citations: &[RagCitation]) -> Vec<String
         return Vec::new();
     }
     let allowed: HashSet<usize> = citations.iter().map(|item| item.index).collect();
-    let citation_pattern = regex::Regex::new(r"\[(\d{1,3})\]").expect("fixed citation pattern");
+    let citation_pattern = regex::Regex::new(r"\[(\d+)\]").expect("fixed citation pattern");
     let mut observed = HashSet::new();
     let mut invalid = BTreeSet::new();
+    let mut overflow = false;
     for found in citation_pattern.captures_iter(answer) {
-        let Ok(index) = found[1].parse::<usize>() else {
-            continue;
-        };
-        if allowed.contains(&index) {
-            observed.insert(index);
-        } else {
-            invalid.insert(index);
+        match found[1].parse::<usize>() {
+            Ok(index) if allowed.contains(&index) => {
+                observed.insert(index);
+            }
+            Ok(index) => {
+                invalid.insert(index);
+            }
+            Err(_) => overflow = true,
         }
     }
     let mut warnings = Vec::new();
     if !invalid.is_empty() {
         warnings.push(format!(
             "模型引用了不存在的证据编号：{}。请勿依赖这些编号核实结论。",
-            invalid.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
+            invalid
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
+    }
+    if overflow {
+        warnings.push(
+            "模型包含超出有效编号范围的引用；请人工核实来源，不要将其当作证据。"
+                .to_string(),
+        );
     }
     if observed.is_empty() {
         warnings.push(
@@ -264,13 +279,7 @@ impl RagAnswerService {
 
         let search = UnifiedSearchService::new(self.db.clone(), self.models.clone());
         let search_started = Instant::now();
-        let outcome = search
-            .search(
-                &question,
-                RETRIEVAL_LIMIT,
-                scope,
-            )
-            .await?;
+        let outcome = search.search(&question, RETRIEVAL_LIMIT, scope).await?;
         let search_ms = search_started.elapsed().as_millis() as u64;
 
         let evidence_started = Instant::now();
@@ -598,6 +607,13 @@ mod tests {
         assert!(warnings[0].contains("99"));
         assert_eq!(audit_answer_citations("没有证据编号", &citations).len(), 1);
         assert_eq!(audit_answer_citations("[0] [99]", &citations).len(), 2);
+        assert_eq!(audit_answer_citations("参考 [1234] 和 [1]", &citations).len(), 1);
+        let overflow = audit_answer_citations(
+            "模型输出了 [9999999999999999999999999999999999999] 和 [1]",
+            &citations,
+        );
+        assert_eq!(overflow.len(), 1);
+        assert!(overflow[0].contains("超出有效编号范围"));
         assert!(audit_answer_citations("无内容", &[]).is_empty());
     }
 
@@ -657,11 +673,13 @@ mod tests {
         let scope = retrieval_scope(&request).unwrap();
         assert_eq!(scope.project.as_deref(), Some("team-a"));
         assert_eq!(scope.source.as_deref(), Some("claude_code"));
-        assert_eq!(scope.corpora, vec![SearchCorpus::Knowledge, SearchCorpus::Session]);
-        let unrestricted: RagAskRequest = serde_json::from_str(
-            r#"{"question":"lease recovery","project":"   ","source":""}"#,
-        )
-        .unwrap();
+        assert_eq!(
+            scope.corpora,
+            vec![SearchCorpus::Knowledge, SearchCorpus::Session]
+        );
+        let unrestricted: RagAskRequest =
+            serde_json::from_str(r#"{"question":"lease recovery","project":"   ","source":""}"#)
+                .unwrap();
         let default = retrieval_scope(&unrestricted).unwrap();
         assert!(default.project.is_none());
         assert!(default.source.is_none());
