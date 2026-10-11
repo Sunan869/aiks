@@ -18,6 +18,7 @@ const SCHEMA_V11_SQL: &str = include_str!("../../migrations/010_v42_deleted_know
 const SCHEMA_V12_SQL: &str = include_str!("../../migrations/011_v42_session_search.sql");
 const SCHEMA_V13_SQL: &str = include_str!("../../migrations/012_knowledge_feedback.sql");
 const SCHEMA_V14_SQL: &str = include_str!("../../migrations/013_knowledge_relations.sql");
+const SCHEMA_V15_SQL: &str = include_str!("../../migrations/014_project_session_binding.sql");
 
 /// AIKS state database.
 ///
@@ -243,6 +244,8 @@ impl StateDb {
             .context("run V13 local knowledge feedback migrations")?;
         conn.execute_batch(SCHEMA_V14_SQL)
             .context("run V14 knowledge relation migrations")?;
+        conn.execute_batch(SCHEMA_V15_SQL)
+            .context("run V15 project session binding migrations")?;
 
         Ok(())
     }

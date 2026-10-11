@@ -47,13 +47,17 @@ impl<'a> ProjectEvolutionService<'a> {
         let mut stmt = conn.prepare(
             "SELECT r.id,r.source_id,r.target_id,a.title,b.title,
                     r.relation_type,r.status,r.evidence,r.updated_at,
-                    sa.source,sa.external_session_id,sa.project_path,sa.project_name,
-                    sb.source,sb.external_session_id,sb.project_path,sb.project_name
+                    sa.source,sa.external_session_id,
+                    COALESCE(pa.project_path,sa.project_path),sa.project_name,
+                    sb.source,sb.external_session_id,
+                    COALESCE(pb.project_path,sb.project_path),sb.project_name
              FROM knowledge_relation r
              JOIN knowledge_item a ON a.id = r.source_id
              JOIN knowledge_item b ON b.id = r.target_id
              JOIN source_session sa ON sa.id = a.source_session_id
              JOIN source_session sb ON sb.id = b.source_session_id
+             LEFT JOIN project_session_binding pa ON pa.session_id = sa.id
+             LEFT JOIN project_session_binding pb ON pb.session_id = sb.id
              WHERE r.relation_type IN ('supersedes','corrects','resolved_by')
                AND r.status IN ('confirmed','suggested')
                AND a.status = 'active' AND b.status = 'active'

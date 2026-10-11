@@ -370,6 +370,13 @@ export interface ProjectMemorySnapshot {
   truncated: boolean;
 }
 
+/** Human-approved local grouping; original Session project_path is never edited. */
+export interface ProjectSessionBinding {
+  session_id: number;
+  project_id: string;
+  updated_at: string;
+}
+
 /** Human-reviewed, evidence-bearing cross-session evolution only. */
 export interface ProjectEvolutionLink {
   id: string;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
-import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview } from "../api/types";
+import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview, ProjectSessionBinding, SessionItem } from "../api/types";
 import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
 import { summarizeProjectMemoryQuality } from "../project-memory-quality";
 
@@ -54,17 +54,37 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [agentFormat, setAgentFormat] = useState<AgentExportFormat>("markdown");
   const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
+  const [projectRevision, setProjectRevision] = useState(0);
+  const [sessionChoices, setSessionChoices] = useState<SessionItem[]>([]);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [bindings, setBindings] = useState<ProjectSessionBinding[]>([]);
+  const [bindingSession, setBindingSession] = useState("");
+  const [bindingTarget, setBindingTarget] = useState("");
+  const [bindingBusy, setBindingBusy] = useState(false);
+  const [bindingError, setBindingError] = useState("");
+  const [bindingNotice, setBindingNotice] = useState("");
 
   useEffect(() => {
     let mounted = true;
-    getApi().getProjectMemories().then(items => {
-      if (mounted) {
-        setProjects(items);
-        setSelected(current => current || items[0]?.id || "");
-      }
-    }).catch(reason => { if (mounted) setError(String(reason)); });
+    const api = getApi();
+    void Promise.all([
+      api.getProjectMemories(),
+      api.getSessions({ limit: 200, offset: 0 }),
+      api.getProjectSessionBindings(),
+    ]).then(([items, page, saved]) => {
+      if (!mounted) return;
+      setProjects(items);
+      setSelected(current => items.some(item => item.id === current) ? current : items[0]?.id || "");
+      setSessionChoices(page.items);
+      setSessionTotal(page.total);
+      setBindings(saved);
+      setBindingSession(current => page.items.some(item => String(item.id) === current) ?
+        current : String(page.items[0]?.id || ""));
+      setBindingTarget(current => items.some(item => item.id === current && item.verified_path) ?
+        current : items.find(item => item.verified_path)?.id || "");
+    }).catch(reason => { if (mounted) setBindingError("无法读取项目归属信息：" + String(reason)); });
     return () => { mounted = false; };
-  }, []);
+  }, [projectRevision]);
 
   useEffect(() => {
     if (!selected) { setDetail(null); setEvolution(null); return; }
@@ -95,7 +115,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       if (mounted) setEvolutionError(String(reason));
     });
     return () => { mounted = false; };
-  }, [selected]);
+  }, [selected, projectRevision]);
 
   // Changing any export parameter invalidates old, potentially edited Markdown.
   // It also invalidates responses from a request started under older settings.
@@ -133,6 +153,38 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       }
     } finally {
       if (requestGeneration === projectGeneration.current) setRelationBusy(null);
+    }
+  };
+
+  const applyProjectBinding = async (clear = false) => {
+    if (bindingBusy || !bindingSession) return;
+    const sessionId = Number(bindingSession);
+    const session = sessionChoices.find(item => item.id === sessionId);
+    const project = projects.find(item => item.id === bindingTarget);
+    const message = clear
+      ? `撤销 ${session?.title || session?.session_id || bindingSession} 的本地项目归属修正？原始来源信息不变。`
+      : `将 ${session?.title || session?.session_id || bindingSession} 归入「${project?.title || "未知项目"}」？
+仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。`;
+    if (!window.confirm(message)) return;
+    setBindingBusy(true);
+    setBindingError("");
+    setBindingNotice("");
+    try {
+      const api = getApi();
+      if (clear) {
+        const changed = await api.clearProjectSessionBinding(sessionId);
+        setBindingNotice(changed ? "已撤销本地归属修正，恢复来源路径归组。" : "此 Session 没有本地归属修正。");
+      } else {
+        if (!project?.verified_path) throw new Error("必须选择有真实绝对路径的项目");
+        await api.bindProjectSession(sessionId, project.id);
+        setBindingNotice("已保存本地人工归属修正，可随时撤销；原始来源未改变。");
+        setSelected(project.id);
+      }
+      setProjectRevision(value => value + 1);
+    } catch (reason) {
+      setBindingError("未修改项目归属：" + String(reason));
+    } finally {
+      setBindingBusy(false);
     }
   };
 
@@ -216,6 +268,55 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         </select>
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
+      <section className="rounded border p-4 dark:border-gray-700">
+        <h2 className="font-semibold">人工修正项目归属（仅 AIKS 本地）</h2>
+        <p className="mt-2 text-xs text-gray-500">
+          仅将选中的 Session 归入一个已经发现真实绝对路径的项目，适用于无路径或识别错误的历史记录。
+          原 Provider 文件、原 Session 路径与 SiYuan 文档不会修改。可撤销后恢复原始自动归组。
+        </p>
+        {sessionTotal > sessionChoices.length && (
+          <p className="mt-2 text-xs text-amber-700">
+            当前只列出最近 {sessionChoices.length} / {sessionTotal} 条会话，其他历史记录需从会话管理页核查。
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-end gap-2 text-xs">
+          <label className="min-w-0 flex-1">选择 Session
+            <select aria-label="待调整 Session" value={bindingSession}
+              onChange={event => setBindingSession(event.target.value)}
+              className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
+              {sessionChoices.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.source} · {item.title || item.session_id}（{item.project_name || "项目未知"}）
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="min-w-0 flex-1">目标项目
+            <select aria-label="项目归属目标" value={bindingTarget}
+              onChange={event => setBindingTarget(event.target.value)}
+              className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
+              {projects.filter(item => item.verified_path).map(item => (
+                <option key={item.id} value={item.id}>{item.title} · {item.sources.join("、")}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" disabled={bindingBusy || !bindingSession || !bindingTarget}
+            onClick={() => void applyProjectBinding()}
+            className="rounded border border-blue-400 px-3 py-2 text-blue-600 disabled:opacity-40">
+            确认本地归属
+          </button>
+          <button type="button" disabled={bindingBusy || !bindings.some(item => String(item.session_id) === bindingSession)}
+            onClick={() => void applyProjectBinding(true)}
+            className="rounded border px-3 py-2 text-gray-600 disabled:opacity-40 dark:border-gray-700">
+            撤销归属修正
+          </button>
+        </div>
+        {bindings.some(item => String(item.session_id) === bindingSession) && (
+          <p className="mt-2 text-xs text-amber-700">当前 Session 有用户手动归属记录；可使用「撤销归属修正」恢复。</p>
+        )}
+        {bindingError && <p role="alert" className="mt-2 text-xs text-red-600">{bindingError}</p>}
+        {bindingNotice && <p role="status" className="mt-2 text-xs text-green-600">{bindingNotice}</p>}
+      </section>
       {detail && (
         <>
           <section className="rounded border p-4 dark:border-gray-700">

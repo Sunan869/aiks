@@ -16,6 +16,7 @@ import type {
   KnowledgeDetail,
   ProjectOverview,
   ProjectMemorySnapshot,
+  ProjectSessionBinding,
   ProjectEvolutionSnapshot,
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
@@ -131,6 +132,13 @@ export class TauriAiksApi implements AiksApi {
   }
   async getProjectMemories(): Promise<ProjectOverview[]> { return invoke("list_project_memory"); }
   async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> { return invoke("get_project_memory", { projectId }); }
+  async getProjectSessionBindings(): Promise<ProjectSessionBinding[]> { return invoke("list_project_session_bindings"); }
+  async bindProjectSession(sessionId: number, targetProjectId: string): Promise<ProjectSessionBinding> {
+    return invoke("bind_project_session", { sessionId, targetProjectId });
+  }
+  async clearProjectSessionBinding(sessionId: number): Promise<boolean> {
+    return invoke("clear_project_session_binding", { sessionId });
+  }
   async getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot> { return invoke("list_project_evolution", { projectId }); }
   async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> { return invoke("create_project_review", { projectId, from, through, source }); }
   async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens, source }); }

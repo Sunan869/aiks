@@ -44,9 +44,10 @@ fn load_knowledge_scope(
     let scope = conn
         .query_row(
             "SELECT ki.project_name, ki.status, ss.source,
-                    ss.external_session_id, ss.project_path
+                    ss.external_session_id, COALESCE(pb.project_path,ss.project_path)
              FROM knowledge_item ki
              LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+             LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
              WHERE ki.id = ?1",
             [knowledge_id],
             |row| {

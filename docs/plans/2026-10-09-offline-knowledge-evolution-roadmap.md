@@ -524,3 +524,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - `b60000dd` 的 Windows Provider `38119254947`、Windows Desktop 编译、前端与仓库卫生已通过，但综合 CI `38119254904` 的 Rust fmt 报告 `project_memory_commands.rs`、`knowledge/mod.rs` 与 `project_evolution.rs` 中导入排序、导出换行、元组解构及测试元组布局不符；Rust Clippy/tests 因而尚未运行。本次直接按完整日志修正全部差异。
 - 项目知识演进原来只有展示，人工需另跳转知识详情才能审核建议。本批补齐项目内审核闭环：只对 suggested 关系显示「核对原文后确认关系」「拒绝关系建议」；点击需要显式确认，操作写入**已有** `knowledge_relation_review` 审计日志并刷新只读演进视图，拒绝后关系不再显示。按钮处理期间防重复提交；项目切换的异步返回不会污染新项目。
 - 新增前端接口/交互边界回归；现有 Core SQLite 回归保持原关联身份、状态和跨项目隔离要求。不得自动确认、删除知识、修改 Provider 原始文件或覆盖 SiYuan 用户文档；无需 migration。新 HEAD 自动化和 Windows 真机人工审核体验仍待验收，S1.3 完整备份最后开发。
+
+### 2026-10-11 S3.1 人工项目归属修正（仅本地覆盖，含撤销）
+
+- 基线 HEAD `59fa109f` 的综合 CI `38119878967` 和 Windows Provider `38119878971` 成功。在现有以 Provider cwd/project_path 归集的 Project Memory 模块中补齐此前缺失的**用户手工修正**：通过项目记忆页选择一个本地 Session 和一个已有**绝对路径且仍然存在**的目标项目，显式确认将此 Session 作为该项目的记忆成员；可随时撤销恢复自动归组。没有自动识别同名项目或擅自合并路径不明 Session。
+- 新增向前兼容的幂等 SQLite migration `014_project_session_binding.sql`（StateDb V15），存储本地 Session ID、用户选择的目标项目路径和更新时间。Tauri 只接受 Session ID 和**不暴露目录路径的现有项目不透明 ID**；Core 在 SQLite 事务内核验来源仍存在、目标实际是当前发现的绝对路径项目，拒绝不存在的项目/Session，避免调用方传入任意目录或注入路径。覆盖表与源 Session 表分离，**不修改** canonical `source_session.project_path`、任何 Provider 文件、SiYuan 用户原文/Workspace 或知识 ID。无自动发现回写。
+- Project Memory 列表、知识样本/报告/Agent 导出和跨 Session 关系读取使用 `COALESCE(binding.project_path, source_session.project_path)` 计算**当前本地归组**；关联关系在人工确认时同样使用已修正项目身份约束，不能绕过跨项目隔离。绑定删除后原始 Provider 路径立刻生效，旧关系与知识不被删除。
+- Desktop 项目记忆页增加明确的 Session/目标项目选择、手工确认、已绑定状态及撤销；来源候选最多显示 200 条、提示列表不完整；归属成功后重载项目概览/证据与关系视图。Mock/API 类型/命令和后端 SQLite 持久性、重开数据库、非法对象拒绝、撤销及原始目录不变回归一并添加。
+- 新增 `docs/acceptance/project-session-binding.md` 作为 Windows 真实环境验收入口；迁移旧库数据不搬迁、不覆盖，SQLite 新表可以重复创建；本次新 HEAD CI/Windows 实机集中验收尚待核查。不将单元测试或 GitHub Windows 编译冒充用户机器三 Provider 真机验证；S1.3 完整备份与恢复仍安排在其他模块代码级收尾后最后实施。

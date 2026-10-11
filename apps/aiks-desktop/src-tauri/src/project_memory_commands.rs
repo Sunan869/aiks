@@ -2,6 +2,7 @@ use crate::app_state::AppState;
 use aiks_core::knowledge::{
     render_agent_context_scoped, render_project_review_scoped, ProjectEvolutionService,
     ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview,
+    ProjectSessionBinding, ProjectSessionBindingService,
 };
 use tauri::State;
 
@@ -38,6 +39,42 @@ pub async fn list_project_evolution(
     let db = engine.db();
     ProjectEvolutionService::new(&db)
         .list(&project_id, 100)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_project_session_bindings(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProjectSessionBinding>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectSessionBindingService::new(&db)
+        .list()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn bind_project_session(
+    session_id: i64,
+    target_project_id: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectSessionBinding, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectSessionBindingService::new(&db)
+        .bind(session_id, &target_project_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_project_session_binding(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectSessionBindingService::new(&db)
+        .clear(session_id)
         .map_err(|error| error.to_string())
 }
 

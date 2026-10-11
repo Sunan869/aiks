@@ -1,6 +1,7 @@
 pub mod ai_assist;
 pub mod migration;
 pub mod model;
+pub mod project_binding;
 pub mod project_evolution;
 pub mod project_memory;
 pub mod project_outputs;
@@ -14,6 +15,7 @@ pub mod workbench;
 pub use ai_assist::{AiAssistOperation, AiAssistRequest, AiAssistService, AiAssistSuggestion};
 pub use migration::{ContentMigrationService, ContentMigrationStats};
 pub use model::{ExtractionRecord, ExtractionStats, ExtractionStatus};
+pub use project_binding::{ProjectSessionBinding, ProjectSessionBindingService};
 pub use project_evolution::{
     ProjectEvolutionLink, ProjectEvolutionService, ProjectEvolutionSnapshot,
 };

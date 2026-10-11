@@ -5,7 +5,7 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectEvolutionSnapshot, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -13,6 +13,7 @@ import type {
 
 const feedbackHistory: KnowledgeFeedback[] = [];
 const knowledgeRelations: KnowledgeRelation[] = [];
+const localProjectBindings = new Map<number, ProjectSessionBinding>();
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
 const PROJECTS = ["AIKS", "Pipeline", "Desktop", "DevOps"];
@@ -168,7 +169,8 @@ export class MockAiksApi implements AiksApi {
     await delay();
     const groups = new Map<string, ProjectOverview>();
     for (const session of sessions) {
-      const key = session.project_path || "unresolved:" + session.source + ":" + session.session_id;
+      const key = localProjectBindings.get(session.id)?.project_id ||
+        session.project_path || "unresolved:" + session.source + ":" + session.session_id;
       const project = groups.get(key) || {
         id: key, title: session.project_name || session.title || session.session_id,
         verified_path: Boolean(session.project_path), session_count: 0, knowledge_count: 0,
@@ -188,7 +190,13 @@ export class MockAiksApi implements AiksApi {
   async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> {
     const project = (await this.getProjectMemories()).find(item => item.id === projectId);
     if (!project) throw new Error("Project not found");
-    const entries = knowledge.filter(item => item.project_name === project.title).slice(0, 200).map(item => ({
+    const memberIds = new Set(sessions.filter(session =>
+      (localProjectBindings.get(session.id)?.project_id ||
+       session.project_path || "unresolved:" + session.source + ":" + session.session_id) === projectId
+    ).map(session => session.id));
+    const entries = knowledge.filter(item =>
+      item.status === "active" && item.session_id !== null && memberIds.has(item.session_id)
+    ).slice(0, 200).map(item => ({
       knowledge_id: item.id, session_id: item.session_id ?? 0,
       source: sessions.find(session => session.id === item.session_id)?.source || "unknown", session_external_id: String(item.session_id ?? ""),
       title: item.title, category: item.category, summary: item.summary,
@@ -196,6 +204,29 @@ export class MockAiksApi implements AiksApi {
     }));
     return { project, entries, truncated: false };
   }
+  async getProjectSessionBindings(): Promise<ProjectSessionBinding[]> {
+    await delay();
+    return Array.from(localProjectBindings.values());
+  }
+
+  async bindProjectSession(sessionId: number, targetProjectId: string): Promise<ProjectSessionBinding> {
+    await delay();
+    if (!sessions.some(session => session.id === sessionId)) throw new Error("Session not found");
+    if (!sessions.some(session => session.project_path === targetProjectId)) {
+      throw new Error("Target project must have an original verified directory");
+    }
+    const binding: ProjectSessionBinding = {
+      session_id: sessionId, project_id: targetProjectId, updated_at: new Date().toISOString(),
+    };
+    localProjectBindings.set(sessionId, binding);
+    return binding;
+  }
+
+  async clearProjectSessionBinding(sessionId: number): Promise<boolean> {
+    await delay();
+    return localProjectBindings.delete(sessionId);
+  }
+
   async getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot> {
     const snapshot = await this.getProjectMemory(projectId);
     const ids = new Set(snapshot.entries.map(entry => entry.knowledge_id));

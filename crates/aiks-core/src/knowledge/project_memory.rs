@@ -91,8 +91,11 @@ impl<'a> ProjectMemoryService<'a> {
         let mut session_to_project: HashMap<i64, String> = HashMap::new();
         {
             let mut stmt = conn.prepare(
-                "SELECT id,source,external_session_id,project_path,project_name,updated_at
-                 FROM source_session WHERE is_missing = 0 ORDER BY updated_at DESC, id DESC",
+                "SELECT ss.id,ss.source,ss.external_session_id,
+                        COALESCE(pb.project_path,ss.project_path),ss.project_name,ss.updated_at
+                 FROM source_session ss
+                 LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
+                 WHERE ss.is_missing = 0 ORDER BY ss.updated_at DESC, ss.id DESC",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((
@@ -222,10 +225,12 @@ impl<'a> ProjectMemoryService<'a> {
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT ki.id,ki.title,ki.category,ki.summary,ki.updated_at,
-                    ss.id,ss.source,ss.external_session_id,ss.project_path,ss.project_name,
+                    ss.id,ss.source,ss.external_session_id,
+                    COALESCE(pb.project_path,ss.project_path),ss.project_name,
                     (SELECT kind FROM knowledge_feedback WHERE knowledge_id = ki.id
                      ORDER BY created_at DESC, id DESC LIMIT 1)
              FROM knowledge_item ki JOIN source_session ss ON ss.id = ki.source_session_id
+             LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
              WHERE ki.status = 'active' AND ss.is_missing = 0
                AND (?1 IS NULL OR ss.source = ?1)
                AND (?2 IS NULL OR substr(ki.updated_at, 1, 10) >= ?2)
