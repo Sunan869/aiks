@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationReviewHistory, KnowledgeSummary, OrganizationAuditEntry } from "../api/types";
@@ -6,6 +6,7 @@ import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
 import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
+import { previewKnowledgeOrganizationDiff } from "../knowledge-organization-diff";
 
 interface Props {
   knowledgeId: string;
@@ -424,6 +425,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     }
   };
 
+  const organizationDiff = useMemo(
+    () => previewKnowledgeOrganizationDiff(data?.content ?? "", organizeDraft),
+    [data?.content, organizeDraft],
+  );
+
   if (loading) return <div className="flex h-48 items-center justify-center p-6 text-sm text-gray-400">加载中...</div>;
   if (!data) return <div className="p-6 text-gray-400">未找到知识条目：{knowledgeId}</div>;
 
@@ -699,6 +705,38 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   rows={12} className="w-full rounded border bg-transparent p-2 font-mono text-xs dark:border-gray-700" />
               </div>
             </div>
+            <section aria-label="整理差异预览（仅供人工核对）"
+              className="rounded border border-indigo-200 p-3 text-xs dark:border-indigo-800">
+              <h3 className="font-medium">整理差异预览（仅供人工核对）</h3>
+              <p className="mt-1 text-gray-500">
+                与当前知识正文按行对照：+ 为新草稿增加，− 为原正文没有保留，
+                未标记的行表示相同。此处只是审核辅助，原知识不会被修改；
+                创建动作始终生成新的独立 SiYuan 文档。
+              </p>
+              <div className="mt-2 flex flex-wrap gap-3 text-gray-500">
+                <span>当前预览新增 {organizationDiff.added} 行</span>
+                <span>当前预览减少 {organizationDiff.removed} 行</span>
+                {organizationDiff.identical && <span>内容相同（换行风格差异忽略）</span>}
+              </div>
+              {organizationDiff.truncated && (
+                <p role="status" className="mt-2 rounded bg-amber-50 p-2 text-amber-800">
+                  差异预览已截断（最多 320 行/单侧、500 行展示），
+                  这不代表未展示的部分没有修改；必须通过上方完整正文和草稿继续审核。
+                </p>
+              )}
+              <pre aria-label="当前整理草稿行级差异"
+                className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 font-mono dark:bg-gray-900">
+                {organizationDiff.rows.map((row, index) => (
+                  <span key={index}
+                    className={row.kind === "added" ? "block bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100"
+                      : row.kind === "removed" ? "block bg-rose-100 text-rose-950 dark:bg-rose-900 dark:text-rose-100"
+                      : "block text-gray-500"}>
+                    {row.kind === "added" ? "+ " : row.kind === "removed" ? "− " : "  "}
+                    {row.text || " "}
+                  </span>
+                ))}
+              </pre>
+            </section>
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy} onChange={event => setOrganizeConfirmed(event.target.checked)} />
               我已核对原文与草稿，理解复制不写入、确认创建会新增独立 SiYuan 文档。

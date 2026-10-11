@@ -642,3 +642,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 深入审计 S3.3 导出边界发现：原报告和 Agent 上下文已正确净化正文与多数单项引用，但 `render_project_review` 与 `render_agent_context_counted` 顶部的 Provider 来源范围直接拼接 `project.sources.join`。极端自定义来源值若包含回车、换行、伪 Markdown 标题或巨大元数据，可将不受信任的 Provider 标签混入报告开头甚至超过极小 Token 预算。增加 `safe_source_range` 对所有来源标签执行既有 SecretSanitizer、单行化并限制输出长度；同时限定报告标题、Knowledge ID、Session External ID、Provider 来源 ID 在报告引用中的最大显示长度，保持原 canonical ID 数据不变。这是仅针对导出**展示文本**的净化，不会改动 SQLite、真实来源文件或已存引用。
 - 补充真实 Rust 模拟恶意来源超长值/伪标题的回归，要求工作报告及 Agent 背景均不得生成伪 Markdown 标题或超预算的元数据；兼容既有正常 Codex/Claude/OpenCode 来源引用。改进前端测试为验证 `invalidatePreview → setSelectedAgentKnowledgeIds([]) → setSourceFilter` 的完整新安全路径，不能为让旧断言通过而删除勾选清理。
 - 仍不引入全新 migration、外部云服务或自动写项目指令文件。对 AGENTS.md、CLAUDE.md 继续仅提供由人审阅、显式复制的引用建议。当前只是代码级元数据/安全回归，真实 Windows Provider 自定义来源、模型引用污染及 Agent 问答复用仍须集中真机验收。S1.3 完整备份恢复继续最后实现。
+
+### 2026-10-11 S3.4 行级整理差异预览与代码级 CI 修复
+
+- 本批开发前 HEAD 为 4d84c0f，Windows Provider 38143528593 成功，综合 CI 38143528583 因前端测试中错误转义的正则表达式不能解析而失败；Rust fmt 则只在 project_outputs.rs 的一处恶意来源测试 format! 换行失败。前端 174 项其他测试通过，但未构建成功；Rust Clippy / Rust tests 因 fmt 阻塞而未运行。按工作流原始日志一并修正这两个确定错误，保留 Provider 来源切换时清理 Agent 精选 ID 的安全功能，不通过删掉检查或绕过静态工具「修复」CI。
+- 针对 S3.4 路线图原要求「所有编辑类操作先预览 diff」的代码级缺口：此前前端只有原知识正文与 AI 建议 Markdown 的两列文本框，用户需要自行肉眼比较，未显示可审核的行级差异。新增独立的纯 TypeScript `knowledge-organization-diff.ts`：基于确定性逐行 LCS，明确区分原文未保留的行、草稿新增行、内容不变行以及行变更。只处理每侧前 320 行/64000 字符、最多展示 500 行，每行最多显示 800 Unicode codepoints，防止超长日志或模型输出导致页面爆炸；若输入或渲染截断，必须显式说明「不能推断未显示部分没有修改」，完整文本仍可在原有两列正文/草稿中人工检查。
+- 知识详情在用户确认前展示「整理差异预览（仅供人工核对）」，支持新草稿继续编辑时立即重新计算，原来的确认复选框在草稿编辑后自动取消，原始 Knowledge/SiYuan 文档不被差异渲染修改。对比原始知识正文是**审核参考**，若多来源合并，还须在来源选择和完整源资料中分别核对，并不能声称存在一个可以覆盖所有来源的单一合并 diff。创建仍只能走已有 `create_organized_knowledge`、人工确认、来源身份重检和独立新文档路径；绝不将 diff 直接 apply/overwrite 到原文。
+- 新增针对插入/删除/保留/Windows CRLF/长文本截断/恶意 Markdown/大样本确定性/界面门禁的 Vitest 回归；补 `docs/acceptance/organization-diff-review.md` 后续 Windows 真实模型审核步骤。无需 SQLite migration、无 Provider 写入、无 SiYuan 原文覆盖，不合并 main、不发布 Release。此次不会将固定 diff 用例或新 CI 成功冒充真实模型编辑质量及 Windows 验收通过；S1.3 备份恢复保持最后。
