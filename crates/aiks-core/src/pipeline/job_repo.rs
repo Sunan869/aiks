@@ -146,14 +146,9 @@ impl<'a> PipelineJobRepo<'a> {
         let mut conn = self.db.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        // A dead worker eventually releases its claim. Live workers renew their
-        // lease periodically, so this only recovers genuinely abandoned work.
-        tx.execute(
-            "UPDATE pipeline_job
-             SET status = 'PENDING', lease_until = NULL, available_at = ?1, updated_at = ?1
-             WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
-            params![now],
-        )?;
+        // Reclaims and retry-budget terminalization share this transaction
+        // with claim_next, so an expired third attempt is never claimed a fourth time.
+        Self::expire_leases(&tx, &now)?;
 
         let row = tx
             .query_row(
@@ -330,15 +325,35 @@ impl<'a> PipelineJobRepo<'a> {
         Ok(changed > 0)
     }
 
+    /// An abandoned worker consumes its attempt budget just like a reported
+    /// failure. Otherwise repeated crashes could retry forever.
+    fn expire_leases(conn: &rusqlite::Connection, now: &str) -> rusqlite::Result<usize> {
+        let exhausted = conn.execute(
+            "UPDATE pipeline_job
+             SET status = 'FAILED', lease_until = NULL, available_at = NULL,
+                 last_error = 'Worker lease expired; retry budget exhausted',
+                 updated_at = ?1
+             WHERE status = 'RUNNING' AND lease_until IS NOT NULL
+               AND lease_until <= ?1 AND attempt >= ?2",
+            params![now, MAX_ATTEMPTS],
+        )?;
+        let recoverable = conn.execute(
+            "UPDATE pipeline_job
+             SET status = 'PENDING', lease_until = NULL, available_at = ?1,
+                 updated_at = ?1
+             WHERE status = 'RUNNING' AND lease_until IS NOT NULL
+               AND lease_until <= ?1 AND attempt < ?2",
+            params![now, MAX_ATTEMPTS],
+        )?;
+        Ok(exhausted + recoverable)
+    }
+
     pub fn recover_expired_leases(&self) -> anyhow::Result<usize> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.db.conn();
-        let changed = conn.execute(
-            "UPDATE pipeline_job
-             SET status = 'PENDING', lease_until = NULL, available_at = ?1, updated_at = ?1
-             WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
-            params![now],
-        )?;
+        let mut conn = self.db.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = Self::expire_leases(&tx, &now)?;
+        tx.commit()?;
         Ok(changed)
     }
 }
