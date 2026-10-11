@@ -1,11 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
-import type { ProjectMemorySnapshot, ProjectOverview } from "../api/types";
-import { reviewRequiredProjectKnowledge, summarizeProjectMemoryQuality } from "../project-memory-quality";
+import type { ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview } from "../api/types";
+import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
+import { summarizeProjectMemoryQuality } from "../project-memory-quality";
 
 interface Props {
   onOpenKnowledge: (knowledgeId: string) => void;
   onOpenSession: (sessionId: number) => void;
+}
+
+/** Every UI fact links to the canonical Knowledge and source Session. */
+function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
+  item: ProjectMemoryEntry;
+  onOpenKnowledge: Props["onOpenKnowledge"];
+  onOpenSession: Props["onOpenSession"];
+}) {
+  return (
+    <article className="rounded border p-3 dark:border-gray-700">
+      <div className="flex flex-wrap justify-between gap-2">
+        <strong>{item.title}</strong>
+        <span className="text-xs text-gray-500">{recordedUpdateDay(item.updated_at) || "更新时间未知"} · {item.category} · {item.source}</span>
+      </div>
+      <p className="my-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">{item.summary}</p>
+      {item.feedback_status && <span className="text-xs text-amber-600">最近用户反馈：{item.feedback_status}</span>}
+      <div className="mt-2 flex gap-3 text-xs">
+        <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(item.knowledge_id)}>知识详情</button>
+        <button type="button" className="text-blue-600" onClick={() => onOpenSession(item.session_id)}>原始 Session</button>
+      </div>
+    </article>
+  );
 }
 
 export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Props) {
@@ -23,6 +46,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [notice, setNotice] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [sourceFilter, setSourceFilter] = useState("");
+  const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
+  const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
 
   useEffect(() => {
     let mounted = true;
@@ -47,6 +72,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setDetail(null);
     setOnlyFlagged(false);
     setSourceFilter("");
+    setTopicFilter("all");
+    setViewMode("list");
     getApi().getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
@@ -100,6 +127,21 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     }
   };
 
+  const evidence = detail ? selectProjectMemoryEntries(detail.entries, {
+    topic: topicFilter,
+    feedbackOnly: onlyFlagged,
+  }) : [];
+  const topicCounts = detail ? countProjectMemoryTopics(detail.entries) : null;
+  const timeline = viewMode === "timeline" ? groupProjectMemoryUpdates(evidence) : [];
+  const evidenceCard = (item: ProjectMemoryEntry) => (
+    <ProjectMemoryEvidenceCard
+      key={item.knowledge_id}
+      item={item}
+      onOpenKnowledge={onOpenKnowledge}
+      onOpenSession={onOpenSession}
+    />
+  );
+
   return (
     <div className="space-y-5 p-6 text-sm">
       <header>
@@ -133,28 +175,49 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 </p>
               ) : null;
             })()}
-            <label className="mt-3 flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={onlyFlagged} onChange={event => setOnlyFlagged(event.target.checked)} />
-              仅查看需要人工复核的知识（基于用户反馈）
-            </label>
+            <div className="mt-4 space-y-2">
+              <h3 className="text-sm font-medium">项目记忆主题概览（当前已加载的知识）</h3>
+              <p className="text-xs text-gray-500">
+                按既有知识类别整理，不从对话猜测已完成事项、待办或事实矛盾。统计仅覆盖当前有界样本。
+              </p>
+              <div role="group" aria-label="项目记忆主题" className="flex flex-wrap gap-2">
+                <button type="button" aria-pressed={topicFilter === "all"}
+                  className={`rounded border px-2 py-1 text-xs ${topicFilter === "all" ? "border-blue-500 bg-blue-50 text-blue-900" : "dark:border-gray-700"}`}
+                  onClick={() => setTopicFilter("all")}>全部主题 · {detail.entries.length}</button>
+                {PROJECT_MEMORY_TOPICS.map(topic => (
+                  <button type="button" key={topic.id} aria-pressed={topicFilter === topic.id}
+                    className={`rounded border px-2 py-1 text-xs ${topicFilter === topic.id ? "border-blue-500 bg-blue-50 text-blue-900" : "dark:border-gray-700"}`}
+                    onClick={() => setTopicFilter(topic.id)}>
+                    {topic.title} · {topicCounts?.[topic.id] ?? 0}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={onlyFlagged} onChange={event => setOnlyFlagged(event.target.checked)} />
+                仅查看需要人工复核的知识（基于用户反馈）
+              </label>
+              <button type="button" aria-pressed={viewMode === "timeline"}
+                className="rounded border px-3 py-2 dark:border-gray-700"
+                onClick={() => setViewMode(current => current === "timeline" ? "list" : "timeline")}>
+                {viewMode === "timeline" ? "切换为列表" : "按知识更新时间线"}
+              </button>
+            </div>
+            {viewMode === "timeline" && (
+              <p className="mt-2 text-xs text-amber-700">
+                时间线使用知识最后更新时间，并非问题发生或决策生效时间；请点击原始 Session 核实。
+              </p>
+            )}
             <div className="mt-4 space-y-3">
-              {(onlyFlagged ? reviewRequiredProjectKnowledge(detail.entries) : detail.entries).map(item => (
-                <article key={item.knowledge_id} className="rounded border p-3 dark:border-gray-700">
-                  <div className="flex flex-wrap justify-between gap-2">
-                    <strong>{item.title}</strong>
-                    <span className="text-xs text-gray-500">{item.updated_at.slice(0,10)} · {item.category}</span>
-                  </div>
-                  <p className="my-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">{item.summary}</p>
-                  {item.feedback_status && <span className="text-xs text-amber-600">最近用户反馈：{item.feedback_status}</span>}
-                  <div className="mt-2 flex gap-3 text-xs">
-                    <button className="text-blue-600" onClick={() => onOpenKnowledge(item.knowledge_id)}>知识详情</button>
-                    <button className="text-blue-600" onClick={() => onOpenSession(item.session_id)}>原始 Session</button>
-                  </div>
-                </article>
-              ))}
-              {detail.entries.length === 0 && <p className="text-gray-500">暂无可追溯的结构化知识。</p>}
-              {onlyFlagged && reviewRequiredProjectKnowledge(detail.entries).length === 0 && <p className="text-gray-500">当前加载范围内没有用户标记为需复核的知识。</p>}
-              {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史。</p>}
+              {viewMode === "timeline" ? timeline.map(group => (
+                <section key={group.day} aria-label={`知识更新 ${group.day}`} className="space-y-2">
+                  <h3 className="font-medium text-gray-600 dark:text-gray-300">知识更新 · {group.day}</h3>
+                  {group.entries.map(evidenceCard)}
+                </section>
+              )) : evidence.map(evidenceCard)}
+              {evidence.length === 0 && <p className="text-gray-500">当前筛选范围内暂无知识证据。</p>}
+              {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史；主题统计和时间线均可能不完整。</p>}
             </div>
           </section>
           <section className="rounded border p-4 dark:border-gray-700">
