@@ -146,6 +146,7 @@ export class MockAiksApi implements AiksApi {
   async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
   async getTaskCenterStats(): Promise<TaskCenterStats> { await delay(); return { total_sessions: sessions.length, pending: 0, running: 0, cancelled: 0, sync_issues: 0, ai_issues: 0 }; }
   async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }
+  async runPipelineForSession(): Promise<string> { throw new Error("Mock first-run is not available"); }
   async cancelPendingAiTask(): Promise<boolean> { throw new Error("Mock cancel is not available"); }
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> {

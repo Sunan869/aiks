@@ -3,6 +3,7 @@ pub mod cleaner;
 pub mod embedding_client;
 pub mod embedding_stage;
 pub mod feedback_repo;
+pub mod first_run;
 pub mod job_repo;
 pub mod knowledge_repo;
 /// V3 Processing Pipeline

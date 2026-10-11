@@ -158,8 +158,7 @@ impl<'a> OrganizationAuditRepo<'a> {
             .and_then(|line| line.strip_prefix("人工确认时间（UTC）："))
             .ok_or_else(|| anyhow::anyhow!("Reviewed confirmation time is missing"))?;
         anyhow::ensure!(
-            reviewed_at.ends_with('Z')
-                && chrono::DateTime::parse_from_rfc3339(reviewed_at).is_ok(),
+            reviewed_at.ends_with('Z') && chrono::DateTime::parse_from_rfc3339(reviewed_at).is_ok(),
             "Reviewed confirmation timestamp is invalid"
         );
         anyhow::ensure!(

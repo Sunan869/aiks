@@ -586,3 +586,12 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 在 `create_organized_knowledge` 内对 **SiYuan HTTP 创建返回后** 和审计入库前补一次 canonical 来源/项目归属的后置校验；异步期间来源被归档或用户修正了项目归属则必须作为「已经创建文档但尚未落审核记录」的显式异常返回，避免记录过期身份。不能使跨 HTTP/SQLite 写入成为原子操作。
 - 前端草稿、来源快照与模型来源合成的数量上限由原先不一致的 100 项统一为与后端一致的 **5 项**；Mock 模拟真实 SiYuan 创建后的绑定元数据、使用单调知识 ID、防止同毫秒 Mock ID 撞车，并修复模拟编辑后保存的内容读模型不同步，减少 CI/浏览器演示对恢复结果的误判。对应更新测试及人工验收入口。
 - 仅对已有本地且带 SiYuan 绑定的知识做人工审计恢复，**不实时联网确认 SiYuan 文档存活或内容未变更**；远端孤儿、HTTP 不确定提交、模型实际输出质量、Windows 真机三 Provider/内嵌 SiYuan 测试仍不得声明通过。保持个人离线、Provider 只读、用户 SiYuan 原文不可自动覆盖、旧数据库兼容；S1.3 完整备份与恢复仍排在其他功能代码级完成之后。
+
+### 2026-10-11 S1.2 处理详情安全重试、首次入队与遗留命令防绕过（代码级）
+
+- 基线 HEAD `aef65cc` 的 Windows Provider `38126077463` 成功，综合 CI `38126077458` 仅在 `organization_audit.rs` 一处 `rustfmt` 换行失败；Windows Desktop、前端和仓库卫生均通过，Rust Clippy/tests 尚未执行。本批根据日志修正该格式问题，并同时交付独立 S1.2 任务处理模块，避免每次格式修复触发单独 Actions。
+- 复核发现历史处理详情页将 `FAILED` 和 `RAW_ONLY` 一律动态调用遗留 `run_pipeline_for_session`，而后端该遗留命令只核对 Session 存在，不验证原文同步、SiYuan 编辑冲突、历史 Pipeline/Queue 状态。可能绕过已实现的 `retry_failed_ai_task` 安全重试和持久队列去重，导致历史失败或 READY Session 错误重入队。
+- 新增统一前端 `submitProcessingDetailAction`：FAILED 只调用已有持久队列安全失败重试；RAW_ONLY 仅走已收紧的首次/原始入队；READY、PROCESSING、CONFLICT 和非法 Session ID fail closed。历史 UI 改为经 `getApi()` 调用单一路由，不再自行 `import("@tauri-apps/api/core")` 绕开 API。成功和失败提示分别反馈实际动作，禁止任何安全重试失败时退回无条件入队。
+- Rust Core 新增 `pipeline/first_run.rs` 只读检查：源 Session 必须仍在、SiYuan sync_target 是 SYNCED/UNCHANGED、没有 PENDING/RUNNING 持久任务，且不存在除明确 RAW_ONLY 外的现有 V3 Pipeline 记录；遗留 Tauri 命令改为调用该 Core 检查后再走原有 `enqueue_pipeline_for_session`，**不能通过直接 IPC 重放绕过验证**。另给 `retry_failed_ai_task` 加当前 READY/PROCESSING 的优先拒绝，即使数据库仍保留旧 FAILED job，也不得将已完成/当前进行中 Pipeline 当成失败重试。
+- 新增真实 SQLite Core 测试覆盖原文未同步/冲突、正确同步、缺失源、历史 FAILED/READY/PROCESSING/DISCOVERED、RAW_ONLY、持久队列 PENDING/RUNNING/CANCELLED；前端 Vitest 覆盖状态路由、错误传播和原生命令契约。无 SQLite 迁移，不创建第二套队列，不修改 Provider/SiYuan 原始数据；新增 `docs/acceptance/processing-detail-safe-retry.md` 作为后续 Windows、嵌入式 SiYuan 故障注入入口。
+- 本轮只解决代码边界与自动化测试，**不能把固定 SQLite/Mock 通过视为 Windows 真机连续同步或真实模型通过**；异步入队与用户真实环境的竞态仍需集中验收。S1.3 完整备份/恢复继续等所有其他代码级事项完成后最后开发，不合并 main、不发布 Release。

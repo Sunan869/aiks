@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
+import { submitProcessingDetailAction } from "../processing-detail-action";
 import type { PipelineSummary, StageRun } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
@@ -89,11 +90,9 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
     setRetrying(true);
     setRetryMsg(null);
     try {
-      // Trigger re-run via run_pipeline_for_session
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("run_pipeline_for_session", { sessionId: detail.session_id });
-      setRetryMsg("已重新提交处理任务");
-      setTimeout(load, 2000);
+      const disposition = await submitProcessingDetailAction(getApi(), detail);
+      setRetryMsg(disposition === "retry" ? "已通过持久任务安全重试失败阶段" : "已提交首次 AI 处理任务");
+      setTimeout(() => void load(), 2000);
     } catch (e) {
       setRetryMsg(`错误：${e}`);
     } finally {
@@ -148,7 +147,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
                 disabled={retrying}
                 className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
               >
-                {retrying ? "提交中..." : "重新处理"}
+                {retrying ? "提交中..." : detail.status === "FAILED" ? "安全重试失败阶段" : "首次处理原始 Session"}
               </button>
             )}
           </div>

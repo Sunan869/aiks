@@ -118,6 +118,7 @@ export class TauriAiksApi implements AiksApi {
   async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
   async getTaskCenterStats(): Promise<TaskCenterStats> { return invoke("get_task_center_stats"); }
   async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
+  async runPipelineForSession(sessionId: number): Promise<string> { return invoke("run_pipeline_for_session", { sessionId }); }
   async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
