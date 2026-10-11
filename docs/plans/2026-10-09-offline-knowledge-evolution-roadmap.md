@@ -663,3 +663,10 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - **实际提炼缺口 1**：当长 Session 的模型 Prompt 超过上下文窗口时，原 `fit_to_budget` 先保留 `max_chars` 字符，再额外拼接标注省略中段的文字，导致**真正发给模型的 Prompt 比最大预算更长**；上下文极小时还会把关键证据几乎全部截掉后当作正常请求发送。重写为把「已截断／原文总长」标识纳入完整预算（保持首尾片段、`/no_think` 末尾标识），`chars().count() <= prompt_char_budget`，配置后剩余不足 512 字符时明确拒绝，禁止无意义模型调用与伪成功。不改变真实模型推理结果的评价口径，也不会把裁剪输出说成全文已分析。
 - **实际提炼缺口 2**：持久 Pipeline Worker 原来可同时启动 `max_concurrent` 条 Session，每条 Session 的 Map-Reduce 又可各并发 `max_concurrent` 个模型请求；选择 4 时实际有可能发起 16 个同端点 LLM 请求，压垮用户本地模型或诱发 429/超时。新增 `worker_job_parallelism`，在已配置批量分块并发条件下分配保守的 worker 任务许可证，`start_with_limit` 的显式上限同时约束每任务分块扇出；正常 `start()` 保证最大同时模型请求不会因为 Session × Chunk 双层乘法突破用户配置的 1–4 范围。默认 1 串行仍保持，用户选 2–4 的长 Session Map-Reduce 能按配置批量并发；代价是并发长 Session 数更少，但优先保护实际用户端点。
 - 增加真实 Rust 单测覆盖多字节 Unicode／长 Prompt／省略标记占位／末尾 Qwen3 禁用思考后缀／极小上下文拒绝与不同 `max_concurrent` 条件的 worker 任务预算。无数据库结构变更、Provider 只读、SiYuan 原文绝不自动覆盖、不依赖新的云端模型或网络服务；固定用例是代码级安全回归，真实 Token、LLM 精度、性能改善必须通过 S2.1 可选真实模型与 Windows 实机采样比较，**不将 CI Success 当成真实基准**。S1.3 完整备份恢复继续放所有非备份功能之后最后实施。
+
+### 2026-10-11 S2.1 单块持久提炼缓存与 CI 修复（新 HEAD 自动化待验证）
+
+- 基线 `e6c3ca3b` 的 Windows Provider `38146952857` 成功，综合 CI `38146952852` 在 `worker.rs` 多余空行的 Rust fmt 检查失败，Clippy 和 Rust tests 被跳过。本批合并修正该格式问题，不为单一格式修复单独触发 Actions。
+- 发现真实业务缺口：原有 `ai_chunk_extract_cache` 只在 Map-Reduce 多块提炼中生效，单块 Session 每次被处理时即使内容/配置不变也重新请求模型。重构统一 v5 内容与模型配置指纹、SQLite 读写和 2000 条有界清理，加入短会话缓存读写；旧的合规多块缓存无需迁移即可复用。纯缓存命中不再假记 `ai_request_log` 为一次新的实际模型调用，阶段缓存命中率、`llm_calls` 和服务端真实 usage 仍分别统计。
+- 模型声明值得提炼却返回空知识，或声明跳过但同时输出知识时，不会缓存这类自相矛盾结果；历史缓存里同类坏记录被忽略并允许后续重跑。加入缓存 key 配置失效、重启恢复、旧坏缓存过滤的 SQLite/Core 回归，以及 Windows 真实模型验证说明。
+- 未进行 Windows 真机和真实模型验收，不能凭本提交或固定自动化标记 S2.1 完成。没有新增 migration、不写 Provider、不覆盖用户 SiYuan 文档、不合并 main、不发布 Release。所有其他优化与功能完成后再实施 S1.3 完整备份与恢复。

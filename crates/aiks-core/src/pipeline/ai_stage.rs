@@ -12,6 +12,7 @@
 /// Handles Map-Reduce for long sessions.
 use std::time::Instant;
 
+use sha2::{Digest, Sha256};
 use tracing::info;
 
 use crate::ai::client::ChatUsage;
@@ -49,6 +50,93 @@ const PROMPT_OVERHEAD_TOKENS: usize = 2_000;
 /// A user may opt into modest parallelism; zero is treated as sequential.
 fn extraction_batch_size(configured: usize) -> usize {
     configured.clamp(1, 4)
+}
+
+/// Share the established v5 fingerprint between single-chunk and
+/// Map-Reduce extraction; do not invalidate existing, verified cache rows.
+fn chunk_cache_key(
+    config: &AiModelConfig,
+    session_title: Option<&str>,
+    project_name: Option<&str>,
+    text: &str,
+) -> String {
+    let key_material = format!(
+        "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        crate::ai::prompts_v3::PROMPT_VERSION_V3,
+        config.base_url,
+        config.model,
+        config.temperature,
+        config.max_tokens,
+        config.max_context_tokens,
+        config.disable_thinking,
+        session_title.unwrap_or(""),
+        project_name.unwrap_or(""),
+        text
+    );
+    hex::encode(Sha256::digest(key_material.as_bytes()))
+}
+
+fn ensure_chunk_cache_table(db: &StateDb) -> anyhow::Result<()> {
+    db.conn().execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
+            cache_key TEXT PRIMARY KEY,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
+/// Inconsistent model responses must never become permanent skipped work.
+fn cacheable_extraction(result: &V3ExtractionResult) -> bool {
+    result.worth_extracting == !result.items.is_empty()
+}
+
+fn read_cached_chunk_result(
+    db: &StateDb,
+    cache_key: &str,
+) -> anyhow::Result<Option<V3ExtractionResult>> {
+    let conn = db.conn();
+    let cached: Option<String> = match conn.query_row(
+        "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
+        [cache_key],
+        |row| row.get(0),
+    ) {
+        Ok(value) => Some(value),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(cached.as_deref().and_then(parse_cached_v3_result))
+}
+
+fn store_cached_chunk_result(
+    db: &StateDb,
+    cache_key: &str,
+    result: &V3ExtractionResult,
+) -> anyhow::Result<()> {
+    if !cacheable_extraction(result) {
+        return Ok(());
+    }
+    db.conn().execute(
+        "INSERT OR REPLACE INTO ai_chunk_extract_cache
+         (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
+        rusqlite::params![
+            cache_key,
+            serde_json::to_string(result)?,
+            chrono::Utc::now().to_rfc3339()
+        ],
+    )?;
+    Ok(())
+}
+
+fn prune_chunk_cache(db: &StateDb) -> anyhow::Result<()> {
+    db.conn().execute(
+        "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
+         (SELECT cache_key FROM ai_chunk_extract_cache
+          ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
+        [],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -150,6 +238,7 @@ impl AiStage {
             anyhow::bail!("No chunks found for session {}", session_id);
         }
 
+        ensure_chunk_cache_table(db)?;
         let t0 = Instant::now();
         info!(
             session_id,
@@ -158,41 +247,49 @@ impl AiStage {
         );
 
         let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
-            // Single chunk: direct extraction
-            let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
-            let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
-            // R10: parse errors propagate — model failure / protocol breakage
-            // must surface as a stage error, never as a silent "skip".
-            (
-                parse_v3_result_typed(&response.content)?,
-                0usize,
-                1usize,
-                response.usage,
-            )
+            let cache_key = chunk_cache_key(
+                &self.config,
+                session_title,
+                project_name,
+                &chunks[0].1,
+            );
+            if let Some(cached) = read_cached_chunk_result(db, &cache_key)? {
+                info!(session_id, "[AI] Reusing validated single-chunk extraction cache");
+                (cached, 1usize, 0usize, None)
+            } else {
+                let sanitized = self.sanitizer.sanitize(&chunks[0].1);
+                let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
+                let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
+                let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
+                let result = parse_v3_result_typed(&response.content)?;
+                store_cached_chunk_result(db, &cache_key, &result)?;
+                (result, 0usize, 1usize, response.usage)
+            }
         } else {
-            // Multiple chunks: Map-Reduce
             self.map_reduce(db, session_title, project_name, &chunks)
                 .await?
         };
+        prune_chunk_cache(db)?;
 
         let latency_ms = t0.elapsed().as_millis() as i64;
 
-        // Log AI request
-        log_ai_request(
-            db,
-            pipeline_run_id,
-            "AI_EXTRACT",
-            &self.config.model,
-            &self.config.base_url,
-            actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
-            actual_usage
-                .as_ref()
-                .and_then(|usage| usage.completion_tokens),
-            latency_ms,
-            true,
-        );
+        // A cache-only pass made no HTTP request, so it must not be counted
+        // as a new model call or fabricate token usage in ai_request_log.
+        if llm_calls > 0 {
+            log_ai_request(
+                db,
+                pipeline_run_id,
+                "AI_EXTRACT",
+                &self.config.model,
+                &self.config.base_url,
+                actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
+                actual_usage
+                    .as_ref()
+                    .and_then(|usage| usage.completion_tokens),
+                latency_ms,
+                true,
+            );
+        }
 
         if !result.worth_extracting || result.items.is_empty() {
             info!(
@@ -280,19 +377,6 @@ impl AiStage {
         project_name: Option<&str>,
         chunks: &[(i32, String)],
     ) -> anyhow::Result<(V3ExtractionResult, usize, usize, Option<ChatUsage>)> {
-        // Cache successful chunk extractions, not failed/incomplete responses.
-        // Changing the model, prompt version, project or chunk content
-        // invalidates the key automatically.
-        {
-            let conn = db.conn();
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
-                cache_key TEXT PRIMARY KEY,
-                result_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );",
-            )?;
-        }
         // Cached results retain their original slot; uncached chunks are
         // processed in bounded pairs to avoid queueing the entire session.
         let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
@@ -300,36 +384,8 @@ impl AiStage {
         let mut cache_hits = 0usize;
         let mut actual_usage: Option<ChatUsage> = None;
         for (idx, (_, text)) in chunks.iter().enumerate() {
-            use sha2::{Digest, Sha256};
-            let key_material = format!(
-                "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-                crate::ai::prompts_v3::PROMPT_VERSION_V3,
-                self.config.base_url,
-                self.config.model,
-                self.config.temperature,
-                self.config.max_tokens,
-                self.config.max_context_tokens,
-                self.config.disable_thinking,
-                session_title.unwrap_or(""),
-                project_name.unwrap_or(""),
-                text
-            );
-            let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
-            let cached: Option<String> = {
-                let conn = db.conn();
-                match conn.query_row(
-                    "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
-                    [&cache_key],
-                    |row| row.get(0),
-                ) {
-                    Ok(value) => Some(value),
-                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(error.into()),
-                }
-            };
-            // A persisted cache entry must satisfy the same score bounds as
-            // fresh model output. Invalid or old entries are cache misses.
-            if let Some(result) = cached.as_deref().and_then(parse_cached_v3_result) {
+            let cache_key = chunk_cache_key(&self.config, session_title, project_name, text);
+            if let Some(result) = read_cached_chunk_result(db, &cache_key)? {
                 cache_hits += 1;
                 results[idx] = Some(result);
                 continue;
@@ -408,16 +464,7 @@ impl AiStage {
                     parse_v3_result_typed(&output.content)
                 }) {
                     Ok(result) => {
-                        let conn = db.conn();
-                        conn.execute(
-                            "INSERT OR REPLACE INTO ai_chunk_extract_cache
-                             (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
-                            rusqlite::params![
-                                request.1,
-                                serde_json::to_string(&result)?,
-                                chrono::Utc::now().to_rfc3339()
-                            ],
-                        )?;
+                        store_cached_chunk_result(db, &request.1, &result)?;
                         tracing::info!(
                             chunk = request.0 + 1,
                             elapsed_ms = started.elapsed().as_millis(),
@@ -444,15 +491,6 @@ impl AiStage {
             batch_p95_ms = latency_percentile(&batch_latencies_ms, 95),
             "AIKS_EXTRACTION_BATCH_LATENCY"
         );
-        {
-            let conn = db.conn();
-            conn.execute(
-                "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
-                 (SELECT cache_key FROM ai_chunk_extract_cache
-                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
-                [],
-            )?;
-        }
         let results: Vec<V3ExtractionResult> = results
             .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
@@ -707,7 +745,7 @@ fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
 /// cache is a miss, never a silently accepted knowledge result.
 fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
     let result: V3ExtractionResult = serde_json::from_str(text).ok()?;
-    extraction_scores_valid(&result).then_some(result)
+    (extraction_scores_valid(&result) && cacheable_extraction(&result)).then_some(result)
 }
 
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
@@ -1295,6 +1333,82 @@ mod tests {
         bad_confidence["items"][0]["confidence"] = serde_json::json!(1.2);
         assert!(parse_cached_v3_result(&bad_confidence.to_string()).is_none());
         assert!(parse_cached_v3_result("{not valid json").is_none());
+    }
+
+    #[test]
+    fn both_extraction_paths_use_content_and_model_sensitive_cache_identity() {
+        let config = AiModelConfig::default();
+        let key = chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧");
+        assert_eq!(key.len(), 64);
+        assert!(!key.contains("消息"));
+        assert_eq!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧")
+        );
+        assert_ne!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Other"), "消息🔧")
+        );
+        assert_ne!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧追加")
+        );
+        let mut changed = config.clone();
+        changed.max_context_tokens += 1;
+        assert_ne!(
+            key,
+            chunk_cache_key(&changed, Some("Session"), Some("Project"), "消息🔧")
+        );
+        changed = config.clone();
+        changed.model.push_str("-new");
+        assert_ne!(
+            key,
+            chunk_cache_key(&changed, Some("Session"), Some("Project"), "消息🔧")
+        );
+    }
+
+    #[test]
+    fn single_chunk_cache_survives_reopen_but_rejects_contradictory_model_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        let key = "single-chunk-validated";
+        {
+            let db = StateDb::open(&path).unwrap();
+            ensure_chunk_cache_table(&db).unwrap();
+            assert!(read_cached_chunk_result(&db, key).unwrap().is_none());
+            let result = V3ExtractionResult::skip("Safe to skip");
+            store_cached_chunk_result(&db, key, &result).unwrap();
+            let loaded = read_cached_chunk_result(&db, key).unwrap().unwrap();
+            assert_eq!(loaded.session_summary, "Safe to skip");
+            assert!(!loaded.worth_extracting);
+
+            let inconsistent = V3ExtractionResult {
+                session_summary: "Truncated positive response".into(),
+                knowledge_score: 0.9,
+                worth_extracting: true,
+                items: vec![],
+            };
+            assert!(!cacheable_extraction(&inconsistent));
+            store_cached_chunk_result(&db, "bad-new", &inconsistent).unwrap();
+            assert!(read_cached_chunk_result(&db, "bad-new").unwrap().is_none());
+
+            db.conn()
+                .execute(
+                    "INSERT INTO ai_chunk_extract_cache
+                     (cache_key, result_json, created_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![
+                        "bad-existing",
+                        serde_json::to_string(&inconsistent).unwrap(),
+                        "2026-10-11T00:00:00Z"
+                    ],
+                )
+                .unwrap();
+            assert!(read_cached_chunk_result(&db, "bad-existing").unwrap().is_none());
+        }
+        let reopened = StateDb::open(&path).unwrap();
+        ensure_chunk_cache_table(&reopened).unwrap();
+        assert!(read_cached_chunk_result(&reopened, key).unwrap().is_some());
+        assert!(read_cached_chunk_result(&reopened, "bad-new").unwrap().is_none());
     }
 
     #[test]

@@ -44,3 +44,11 @@ cargo test -p aiks-core --test extraction_live_benchmark -- --ignored --nocaptur
 对一个刻意过小的 `max_context_tokens`，预期 Pipeline 显式错误并展示可操作恢复说明，**不得伪造成功、静默跳过正文或修改旧 Knowledge**。对正常上下文但很长的 Prompt，检查实际发送文本遵循保护头部和最后一段的裁剪策略，省略标记本身在字符预算以内；显示中段被省略而非向模型声称已读取完整会话。实际模型 Token 数需要以模型服务 usage/服务端观测为准，字符预算只是保守估算，不保证所有 tokenizer 都严格 2 chars/token。
 
 记录同一真实模型/参数/Session 下的首轮与重复提炼、缓存命中、批次 P50/P95、LLM calls/tokens、是否遗漏中段重要技术结论，并与 `extraction_live_benchmark.rs` 的单独真实模型结果交叉检查。该专项由用户在 Windows 真机执行，Rust 单测仅覆盖代码数学与拒绝路径，不构成真实效果验收；S1.3 完整备份最后执行。
+
+## 单块 Session 持久提炼缓存专项（Windows / 真实模型待验收）
+
+以前只在长会话 Map-Reduce 分块重用 SQLite 提炼缓存，短会话单块在再次处理时总是重复调用 LLM。现在单块与多块共用原有 `knowledge-chunk-v5` 内容指纹与本地 SQLite 缓存；模型端点、模型名、temperature、max_tokens、max_context_tokens、disable_thinking、Session 标题、项目和原始块内容共同决定命中条件。旧 v5 合法缓存继续兼容。
+
+在独立 AIKS 测试数据目录下，选取同一真实短 Session、相同模型和参数连续提炼两次，第二次应有 `cache_hits=1`、`llm_calls=0`，且不得因为纯缓存命中伪造新增的 `ai_request_log` 或 Token 使用量；重启后重复验证。再追加消息、更换项目/标题、改模型或上下文窗口，确认缓存失效并重新向服务发送请求。对自相矛盾的响应（宣称需要提炼却给空 items，或宣称跳过却给非空 items）不能持久化为成功缓存；手工修改 SiYuan 原文必须继续被保护。缓存命中仅代表相同提炼结果重用，不证明事实准确、知识没有遗漏，仍需人工复核。
+
+Rust 自动化只验证缓存身份、SQLite 持久性和失效规则，不连接实际模型，不能替代 Windows 真机、真实模型或异常中断测试。S1.3 完整备份/恢复继续在所有其他功能代码完成后最后实施。

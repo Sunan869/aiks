@@ -144,7 +144,6 @@ fn worker_budget_does_not_multiply_model_concurrency_per_session() {
     }
 }
 
-
 impl PipelineWorker {
     pub fn start(
         db: Arc<StateDb>,
