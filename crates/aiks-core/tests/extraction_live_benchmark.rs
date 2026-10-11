@@ -120,7 +120,7 @@ fn observation(
     if let Ok(result) = parse_v3_result_typed(content) {
         observed.production_schema_valid = true;
         observed.skip_match = result.worth_extracting == case.worth_extracting
-            && (case.worth_extracting || result.items.is_empty());
+            && (case.worth_extracting == !result.items.is_empty());
 
         let mut unique = HashSet::new();
         let evidence = result
@@ -175,7 +175,12 @@ struct LiveReport {
     observations: Vec<CaseObservation>,
 }
 
-fn summarize(model: &str, case_count: usize, repeats: usize, rows: Vec<CaseObservation>) -> LiveReport {
+fn summarize(
+    model: &str,
+    case_count: usize,
+    repeats: usize,
+    rows: Vec<CaseObservation>,
+) -> LiveReport {
     let latencies: Vec<u64> = rows.iter().map(|row| row.elapsed_ms).collect();
     let reported_token_calls = rows
         .iter()
@@ -200,10 +205,7 @@ fn summarize(model: &str, case_count: usize, repeats: usize, rows: Vec<CaseObser
         skip_matches: rows.iter().filter(|row| row.skip_match).count(),
         term_hits: rows.iter().map(|row| row.term_hits).sum(),
         term_total: rows.iter().map(|row| row.term_total).sum(),
-        exact_duplicate_titles: rows
-            .iter()
-            .map(|row| row.exact_duplicate_titles)
-            .sum(),
+        exact_duplicate_titles: rows.iter().map(|row| row.exact_duplicate_titles).sum(),
         latency_p50_ms: percentile(&latencies, 50),
         latency_p95_ms: percentile(&latencies, 95),
         reported_token_calls,
@@ -252,7 +254,10 @@ fn live_benchmark_cases_are_distinct_and_have_safe_evidence() {
 
 #[test]
 fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_labels() {
-    let noise = cases().into_iter().find(|case| !case.worth_extracting).unwrap();
+    let noise = cases()
+        .into_iter()
+        .find(|case| !case.worth_extracting)
+        .unwrap();
     let good_skip = serde_json::to_string(&V3ExtractionResult::skip("工具进度无知识")).unwrap();
     let valid = observation(&noise, 1, Some(&good_skip), 12, None);
     assert!(valid.production_schema_valid);
@@ -273,6 +278,27 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
     assert!(!invalid.production_schema_valid);
     let missing = observation(&noise, 4, None, 45, None);
     assert!(!missing.request_ok);
+
+    // Merely declaring "worth_extracting=true" with zero knowledge items
+    // must not count as a successful positive quality outcome.
+    let positive = &cases()[0];
+    let empty_positive = serde_json::json!({
+        "session_summary": "extracted",
+        "knowledge_score": 0.8,
+        "worth_extracting": true,
+        "items": []
+    });
+    let empty_positive = observation(
+        positive,
+        1,
+        Some(&empty_positive.to_string()),
+        12,
+        None,
+    );
+    assert!(empty_positive.production_schema_valid);
+    assert!(!empty_positive.skip_match);
+    assert_eq!(empty_positive.term_hits, 0);
+    assert_eq!(empty_positive.term_total, 2);
 
     let report = summarize("local-demo", 1, 4, vec![valid, wrong, invalid, missing]);
     assert_eq!(report.requests, 4);
@@ -334,7 +360,13 @@ async fn real_model_quality_and_latency() {
             let row = match response {
                 Ok(response) => {
                     let tokens = response.usage.and_then(|usage| usage.total_tokens);
-                    observation(case, repetition, Some(&response.content), elapsed_ms, tokens)
+                    observation(
+                        case,
+                        repetition,
+                        Some(&response.content),
+                        elapsed_ms,
+                        tokens,
+                    )
                 }
                 Err(_) => {
                     // Error details from model servers may contain sensitive URL
@@ -364,8 +396,7 @@ async fn real_model_quality_and_latency() {
     }
     assert_eq!(report.request_errors, 0, "live model requests failed");
     assert_eq!(
-        report.production_schema_valid,
-        report.requests,
+        report.production_schema_valid, report.requests,
         "model schema validation failed"
     );
 }

@@ -430,3 +430,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 支持 `AIKS_BENCH_REPEATS=1..5` 与显式 `AIKS_BENCH_REPORT_PATH`；JSON 文件 create-new，拒绝覆盖已有报告，不保存会话原文、模型输出、API Key 或端点 URL。未运行真实模型时只有合成评分/报告测试，不会自动访问任何模型端点。
 - 新增 `docs/acceptance/extraction-live-benchmark.md` 作为 Windows 真机验收入口说明，声明术语命中不等于准确率，模型请求时延不等于整体 Pipeline 时延，匿名化质量和真实业务质量需分别验证。保持 S1.3 完整备份最后实施。
 - 本次仅完成评测工具代码和自动化测试入口，**尚无真实模型实测结果、人工遗漏率评审或 Windows 实机验收数据**；新 HEAD 综合 CI 仍须确认，不勾选 S2.1 完成。
+
+### 2026-10-11 S2.1 质量门禁修复与 CI 状态
+
+- 综合 CI `38104969064` 在 `extraction_live_benchmark.rs` 的五处 `rustfmt` 检查失败；Windows Provider `38104969158` 成功，综合 CI 的 Clippy/Rust 测试未运行。根据 CI 原始 diff 逐处修正，不把 Windows 编译成功误认为 Rust 测试成功。
+- 修复实时模型评测的正例判定：模型声称 `worth_extracting=true` 但知识列表为空时不能计入正确提炼；增加生产 schema 可以通过但实际没有提炼到应有内容的负例回归，保留原始 `term_total` 遗漏统计。
+- 更新对应验收文档。新 HEAD 仍需通过完整自动化 CI，真实模型输出/Windows 实机评审没有执行；完整备份继续留待最后。

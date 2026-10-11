@@ -34,3 +34,5 @@ cargo test -p aiks-core --test extraction_live_benchmark -- --ignored --nocaptur
 ## 模块验收补充
 
 真实 Windows 机器上需配合 S1.1/S1.2 的内嵌 SiYuan 与真实 Session 操作验收；另记录模型版本、设备、参数、并发、长 Session 负载下的 P50/P95、Token、错误率、缓存命中率与人工遗漏评审。至少比较优化前后的同配置重复运行结果。任何一项缺失，都不得把 S2.1 标记为已完成实机验收。
+
+对正例样例，`worth_extracting=true` 但 `items=[]` 的响应不能计入 `skip_matches`；对噪声负例，`worth_extracting=false` 时仍必须没有知识项。生产 Schema 可解析并不自动证明提炼结果符合业务预期。
