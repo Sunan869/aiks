@@ -1417,10 +1417,22 @@ mod tests {
             usage: None,
             finish_reason: Some("stop".into()),
         };
-        assert_eq!(parse_completed_extraction_reply(&reply).unwrap().items.len(), 1);
+        assert_eq!(
+            parse_completed_extraction_reply(&reply)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
         // At max_tokens the model may have closed a valid JSON object but still
         // report truncated generation: its own signal overrides parse success.
-        for reason in ["length", "content_filter", "tool_calls", "function_call", "error"] {
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "error",
+        ] {
             reply.finish_reason = Some(reason.into());
             let error = parse_completed_extraction_reply(&reply)
                 .unwrap_err()
@@ -1429,7 +1441,13 @@ mod tests {
             assert!(error.contains("finish_reason"));
         }
         reply.finish_reason = None;
-        assert_eq!(parse_completed_extraction_reply(&reply).unwrap().items.len(), 1);
+        assert_eq!(
+            parse_completed_extraction_reply(&reply)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
 
         // Stop is not a bypass for the separate structural truncation guard.
         reply.finish_reason = Some("stop".into());

@@ -326,26 +326,14 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
 
     // HTTP 200 and syntactically valid JSON are not proof that the model
     // finished: finish_reason=length must not count as a successful extraction.
-    let length_capped = observation_with_stop_reason(
-        &noise,
-        5,
-        Some(&good_skip),
-        Some("length"),
-        10,
-        Some(14),
-    );
+    let length_capped =
+        observation_with_stop_reason(&noise, 5, Some(&good_skip), Some("length"), 10, Some(14));
     assert!(length_capped.request_ok);
     assert!(length_capped.strict_json_valid);
     assert!(!length_capped.production_schema_valid);
     assert!(!length_capped.skip_match);
-    let normally_stopped = observation_with_stop_reason(
-        &noise,
-        6,
-        Some(&good_skip),
-        Some("stop"),
-        10,
-        None,
-    );
+    let normally_stopped =
+        observation_with_stop_reason(&noise, 6, Some(&good_skip), Some("stop"), 10, None);
     assert!(normally_stopped.production_schema_valid);
     assert!(normally_stopped.skip_match);
 

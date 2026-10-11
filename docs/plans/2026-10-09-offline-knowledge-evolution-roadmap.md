@@ -693,3 +693,12 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 发现此前 JSON 结构完整性检查无法覆盖的遗漏风险：OpenAI-compatible 响应可以返回内容结构完好的完整 JSON，却同时标记 choices[0].finish_reason 为 length，表示模型因输出 Token 上限停止。旧客户端忽略结束原因，生产提炼会将可能缺项的完整 JSON 当作成功并永久缓存。现在保留可选结束原因，单块和 Map-Reduce 统一拒绝 length、content_filter、tool_calls、function_call、error，确保异常中止不写新知识或缓存；stop 正常通过原有结构、分数、items 一致性门禁，未上报结束原因的旧本地模型仍兼容。
 - 独立真实模型基准改为复用相同的最终产出门禁：HTTP 成功和严格 JSON 合法仍分别计数，但 finish_reason=length 时生产 schema、跳过匹配和关键词命中一律不可算通过。增加 API choice 元数据解析、合法/缺省/异常结束原因、结构完整但因长度中断、真实基准指标正反例回归；同步更新 Windows 故障注入验收指引。
 - 保持旧 v5 key、SQLite schema、local-first、Provider 只读、SiYuan 原文不覆盖及旧数据库兼容。既有缓存未储存历史结束原因，不能反推是否曾截断，不自动清除原有缓存。本次为代码级门禁和 fixture 回归，尚无 Windows 真机或真实模型验收结论；S1.3 完整备份/恢复仍最后实现，不合并 main、不发 Release。
+
+### 2026-10-12 S2.4 流式问答结束信号可靠性 + S2.1 CI 收尾（代码级，等待新 CI）
+
+- 基线远端 HEAD `4f4b445a` 的 Windows Provider `38160700689`、前端、Windows Desktop 与仓库卫生均成功；综合 CI `38160700697` 仅在 Rust 格式检查失败，Clippy / Rust tests 未运行。失败日志涉及 `ai/client.rs` 的 content_filter 测试数组、`pipeline/ai_stage.rs` 的两个长断言和一个原因数组、`tests/extraction_live_benchmark.rs` 的两个调用，本批统一按照 rustfmt 预期修复；不单独为微小格式问题触发新 Actions。
+- 实际 S2.4 业务缺口：`chat_stream_with_max_tokens` 过去只拼接 SSE delta 内容，忽略终止原因和 `[DONE]`。网关在输出回答前缀后异常断线时，HTTP 仍可能为 200，客户端会把前缀当完整回答；`finish_reason=length`、`content_filter` 等也不会阻断用户误把部分文字当作完成。加上有些不支持 SSE 的本地服务退回 `application/json`，该路径同样需要检查非正常结束原因。
+- 本批重构流式事件解析：每个事件保留首次 choice 的 `delta.content`、`finish_reason`；响应须由 stop 或 `[DONE]` 明确正常结束，非 stop 显式拒绝，EOF 没有结束标记即报错；可接受旧本地兼容网关省略 finish_reason 但保留 `[DONE]`，JSON 退化响应仍允许结束原因缺省/null。拒绝结束标记后的额外正文、不把多 choice 交叉合并、不把 usage-only event 当知识文本，对无换行超长 SSE 事件作有界拒绝。实时增量回调可能已经展示初始文字，因此终态错误必须继续由原 UI 显式呈现，不能宣称临时前缀已事实验证。
+- 补客户端 Rust 正反单测覆盖 stop/DONE、EOF、length/content_filter/tool_calls/function_call/error、第一候选/usage-only、安全长度门禁；更新 `docs/acceptance/rag-source-provenance.md` 中 Windows 真实网关故障注入步骤。所有行为在本地 Rust 客户端，无数据库 migration、Provider 文件写入或 SiYuan 原文自动覆盖。该批 CI 尚待新 HEAD 验证，不将固定模拟视为 Windows、真实模型或网关中断验收；S1.3 完整备份恢复继续留到其他优化与功能代码完整以后。
+
+- 补齐同一 S2.4 边界的非流式 `chat_with_max_tokens`：返回通用文本之前同样验证 `finish_reason`，避免非流式「问 AIKS」在 `length` 截断时绕过完整性门禁；具体结构化提炼仍沿用 `parse_completed_extraction_reply` 的更严格 Schema/内容校验。

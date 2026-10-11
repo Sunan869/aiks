@@ -121,13 +121,26 @@ struct ChatStreamResponse {
 
 #[derive(Debug, Deserialize)]
 struct StreamChoice {
-    delta: AssistantDelta,
+    #[serde(default)]
+    delta: Option<AssistantDelta>,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AssistantDelta {
     #[serde(default)]
     content: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum StreamEvent {
+    Ignored,
+    Done,
+    Completion {
+        text: Option<String>,
+        finish_reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -243,10 +256,11 @@ impl AiClient {
         user: &str,
         requested_max_tokens: u32,
     ) -> anyhow::Result<String> {
-        Ok(self
+        let result = self
             .chat_with_max_tokens_detailed(system, user, requested_max_tokens)
-            .await?
-            .content)
+            .await?;
+        validate_chat_finish_reason(result.finish_reason.as_deref())?;
+        Ok(result.content)
     }
 
     async fn chat_with_max_tokens_detailed(
@@ -450,13 +464,11 @@ impl AiClient {
                 let body_text = resp.text().await.unwrap_or_default();
                 let body: ChatResponse =
                     serde_json::from_str(&body_text).context("parse AI response")?;
-                log_token_usage(&self.config.model, body.usage.as_ref());
-                let content = body
-                    .choices
-                    .into_iter()
-                    .next()
-                    .map(|choice| choice.message.content)
-                    .ok_or_else(|| anyhow::anyhow!("Empty AI response"))?;
+                let result = body.into_result()?;
+                validate_chat_finish_reason(result.finish_reason.as_deref())?;
+                log_token_usage(&self.config.model, result.usage.as_ref());
+                let content = result.content;
+                anyhow::ensure!(!content.is_empty(), "Empty AI streaming response");
                 if !content.is_empty() {
                     tracing::info!(
                         model = %self.config.model,
@@ -479,13 +491,20 @@ impl AiClient {
             let mut pending = Vec::<u8>::new();
             let mut content = String::new();
             let mut first_text_seen = false;
+            let mut terminal_seen = false;
 
             while let Some(chunk) = resp.chunk().await.context("read AI stream chunk")? {
                 pending.extend_from_slice(&chunk);
                 while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+                    anyhow::ensure!(
+                        newline <= MAX_STREAM_EVENT_BYTES,
+                        "AI stream event exceeded the safe line-size limit"
+                    );
                     let mut line = pending.drain(..=newline).collect::<Vec<_>>();
                     line.pop();
-                    if let Some(delta) = parse_stream_line(&line)? {
+                    if let Some(delta) =
+                        consume_stream_event(parse_stream_line(&line)?, &mut terminal_seen)?
+                    {
                         if !first_text_seen {
                             first_text_seen = true;
                             tracing::info!(
@@ -498,10 +517,16 @@ impl AiClient {
                         content.push_str(&delta);
                     }
                 }
+                anyhow::ensure!(
+                    pending.len() <= MAX_STREAM_EVENT_BYTES,
+                    "AI stream event exceeded the safe line-size limit"
+                );
             }
 
             if !pending.is_empty() {
-                if let Some(delta) = parse_stream_line(&pending)? {
+                if let Some(delta) =
+                    consume_stream_event(parse_stream_line(&pending)?, &mut terminal_seen)?
+                {
                     if !first_text_seen {
                         tracing::info!(
                             model = %self.config.model,
@@ -514,7 +539,7 @@ impl AiClient {
                 }
             }
 
-            anyhow::ensure!(!content.is_empty(), "Empty AI streaming response");
+            ensure_stream_completed(terminal_seen, &content)?;
             tracing::info!(
                 model = %self.config.model,
                 llm_total_ms = request_started.elapsed().as_millis() as u64,
@@ -530,6 +555,9 @@ impl AiClient {
         &self.config
     }
 }
+
+/// Maximum bytes held for a single unterminated SSE event.
+const MAX_STREAM_EVENT_BYTES: usize = 1024 * 1024;
 
 /// Transient capacity signals from OpenAI-compatible local model servers.
 fn is_model_overloaded(status: u16) -> bool {
@@ -549,25 +577,85 @@ fn overload_retry_delay_ms(status: u16, retries_so_far: usize) -> Option<u64> {
     }
 }
 
-fn parse_stream_line(line: &[u8]) -> anyhow::Result<Option<String>> {
+/// A received delta is provisional until an explicit terminal SSE signal.
+fn validate_chat_finish_reason(reason: Option<&str>) -> anyhow::Result<()> {
+    match reason {
+        None | Some("stop") => Ok(()),
+        Some(reason) => {
+            let printable = reason
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+                .take(40)
+                .collect::<String>();
+            anyhow::bail!(
+                "AI stream did not finish normally (finish_reason={printable}); partial output must not be treated as complete"
+            );
+        }
+    }
+}
+
+fn consume_stream_event(
+    event: StreamEvent,
+    terminal_seen: &mut bool,
+) -> anyhow::Result<Option<String>> {
+    match event {
+        StreamEvent::Ignored => Ok(None),
+        StreamEvent::Done => {
+            *terminal_seen = true;
+            Ok(None)
+        }
+        StreamEvent::Completion {
+            text,
+            finish_reason,
+        } => {
+            anyhow::ensure!(
+                !*terminal_seen || text.is_none(),
+                "AI stream returned text after its completion marker"
+            );
+            validate_chat_finish_reason(finish_reason.as_deref())?;
+            if finish_reason.is_some() {
+                *terminal_seen = true;
+            }
+            Ok(text)
+        }
+    }
+}
+
+fn ensure_stream_completed(terminal_seen: bool, content: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        terminal_seen,
+        "AI stream ended before a terminal marker; refusing incomplete answer"
+    );
+    anyhow::ensure!(!content.is_empty(), "Empty AI streaming response");
+    Ok(())
+}
+
+fn parse_stream_line(line: &[u8]) -> anyhow::Result<StreamEvent> {
+    anyhow::ensure!(line.len() <= MAX_STREAM_EVENT_BYTES, "AI stream event too large");
     let line = std::str::from_utf8(line)
         .context("AI stream returned invalid UTF-8")?
         .trim();
     let Some(data) = line.strip_prefix("data:") else {
-        return Ok(None);
+        return Ok(StreamEvent::Ignored);
     };
     let data = data.trim();
-    if data.is_empty() || data == "[DONE]" {
-        return Ok(None);
+    if data.is_empty() {
+        return Ok(StreamEvent::Ignored);
     }
-
+    if data == "[DONE]" {
+        return Ok(StreamEvent::Done);
+    }
     let body: ChatStreamResponse = serde_json::from_str(data).context("parse AI stream event")?;
-    let delta = body
-        .choices
-        .into_iter()
-        .filter_map(|choice| choice.delta.content)
-        .collect::<String>();
-    Ok((!delta.is_empty()).then_some(delta))
+    let Some(choice) = body.choices.into_iter().next() else {
+        return Ok(StreamEvent::Ignored);
+    };
+    Ok(StreamEvent::Completion {
+        text: choice
+            .delta
+            .and_then(|delta| delta.content)
+            .filter(|text| !text.is_empty()),
+        finish_reason: choice.finish_reason,
+    })
 }
 
 #[cfg(test)]
@@ -625,7 +713,10 @@ mod stream_tests {
         for (reason, expected) in [
             (r#""finish_reason":"stop""#, Some("stop")),
             (r#""finish_reason":"length""#, Some("length")),
-            (r#""finish_reason":"content_filter""#, Some("content_filter")),
+            (
+                r#""finish_reason":"content_filter""#,
+                Some("content_filter"),
+            ),
             (r#""finish_reason":null"#, None),
             ("", None),
         ] {
@@ -670,11 +761,99 @@ mod stream_tests {
     }
 
     #[test]
+    fn streaming_missing_terminal_marker_is_not_a_completed_answer() {
+        let mut finished = false;
+        let event = parse_stream_line(
+            br#"data: {"choices":[{"delta":{"content":"partial answer"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            super::consume_stream_event(event, &mut finished)
+                .unwrap()
+                .as_deref(),
+            Some("partial answer")
+        );
+        assert!(!finished);
+        assert!(super::ensure_stream_completed(finished, "partial answer").is_err());
+
+        let stop = parse_stream_line(
+            br#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(super::consume_stream_event(stop, &mut finished).unwrap(), None);
+        assert!(super::ensure_stream_completed(finished, "complete answer").is_ok());
+        assert!(super::ensure_stream_completed(finished, "").is_err());
+    }
+
+    #[test]
+    fn streaming_done_allows_legacy_no_reason_but_refuses_late_text() {
+        let mut finished = false;
+        let done = parse_stream_line(b"data: [DONE]").unwrap();
+        assert_eq!(super::consume_stream_event(done, &mut finished).unwrap(), None);
+        assert!(finished);
+        assert!(super::ensure_stream_completed(finished, "legacy answer").is_ok());
+        let extra = parse_stream_line(br#"data: {"choices":[{"delta":{"content":"late"}}]}"#)
+            .unwrap();
+        assert!(super::consume_stream_event(extra, &mut finished).is_err());
+    }
+
+    #[test]
+    fn streaming_abnormal_completion_rejects_valid_looking_text() {
+        for reason in ["length", "content_filter", "tool_calls", "function_call", "error"] {
+            let input = format!(
+                r#"data: {{"choices":[{{"delta":{{"content":"complete"}},"finish_reason":"{reason}"}}]}}"#
+            );
+            let mut finished = false;
+            let event = parse_stream_line(input.as_bytes()).unwrap();
+            assert!(super::consume_stream_event(event, &mut finished).is_err());
+            assert!(!finished);
+        }
+        let json = r#"{"choices":[{"message":{"content":"complete"},"finish_reason":"length"}]}"#;
+        let fallback: super::ChatResponse = serde_json::from_str(json).unwrap();
+        let fallback = fallback.into_result().unwrap();
+        let abnormal = super::validate_chat_finish_reason(fallback.finish_reason.as_deref());
+        assert!(abnormal.is_err());
+        assert!(super::validate_chat_finish_reason(None).is_ok());
+        assert!(super::validate_chat_finish_reason(Some("stop")).is_ok());
+    }
+
+    #[test]
+    fn streamed_choices_are_not_accidentally_concatenated() {
+        let event = parse_stream_line(
+            br#"data: {"choices":[{"delta":{"content":"first"}},{"delta":{"content":"second"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            event,
+            super::StreamEvent::Completion {
+                text: Some("first".into()),
+                finish_reason: None,
+            }
+        );
+        assert_eq!(
+            parse_stream_line(br#"data: {"choices":[],"usage":{"total_tokens":42}}"#).unwrap(),
+            super::StreamEvent::Ignored
+        );
+    }
+
+    #[test]
+    fn oversized_unterminated_sse_event_is_rejected() {
+        let oversized = vec![b'x'; super::MAX_STREAM_EVENT_BYTES + 1];
+        assert!(parse_stream_line(&oversized).is_err());
+    }
+
+    #[test]
     fn parses_openai_stream_delta_and_ignores_done() {
         let delta =
             parse_stream_line(br#"data: {"choices":[{"delta":{"content":"hello"}}]}"#).unwrap();
-        assert_eq!(delta.as_deref(), Some("hello"));
-        assert_eq!(parse_stream_line(b"data: [DONE]").unwrap(), None);
-        assert_eq!(parse_stream_line(b"event: message").unwrap(), None);
+        assert_eq!(
+            delta,
+            super::StreamEvent::Completion {
+                text: Some("hello".into()),
+                finish_reason: None,
+            }
+        );
+        assert_eq!(parse_stream_line(b"data: [DONE]").unwrap(), super::StreamEvent::Done);
+        assert_eq!(parse_stream_line(b"event: message").unwrap(), super::StreamEvent::Ignored);
     }
 }
