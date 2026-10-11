@@ -273,6 +273,7 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
     });
     let wrong = observation(&noise, 2, Some(&wrong.to_string()), 20, Some(19));
     assert!(wrong.strict_json_valid);
+    assert!(!wrong.production_schema_valid);
     assert!(!wrong.skip_match);
     let invalid = observation(&noise, 3, Some("not json"), 30, None);
     assert!(!invalid.production_schema_valid);
@@ -289,16 +290,28 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
         "items": []
     });
     let empty_positive = observation(positive, 1, Some(&empty_positive.to_string()), 12, None);
-    assert!(empty_positive.production_schema_valid);
+    assert!(!empty_positive.production_schema_valid);
     assert!(!empty_positive.skip_match);
     assert_eq!(empty_positive.term_hits, 0);
     assert_eq!(empty_positive.term_total, 2);
+
+    // A partial JSON prefix can contain complete usable-looking knowledge,
+    // but that is not proof that the model finished emitting all items.
+    // Production scoring must never count that as schema-valid or accurate.
+    let truncated = r#"{"session_summary":"partial","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"timeout retry","category":"general","summary":"timeout","content":"retry","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8},"#;
+    let partial = observation(positive, 2, Some(truncated), 23, Some(52));
+    assert!(partial.request_ok);
+    assert!(!partial.strict_json_valid);
+    assert!(!partial.production_schema_valid);
+    assert!(!partial.skip_match);
+    assert_eq!(partial.term_hits, 0);
+    assert_eq!(partial.term_total, 2);
 
     let report = summarize("local-demo", 1, 4, vec![valid, wrong, invalid, missing]);
     assert_eq!(report.requests, 4);
     assert_eq!(report.request_errors, 1);
     assert_eq!(report.strict_json_valid, 2);
-    assert_eq!(report.production_schema_valid, 2);
+    assert_eq!(report.production_schema_valid, 1);
     assert_eq!(report.skip_matches, 1);
     assert_eq!(report.latency_p50_ms, 20);
     assert_eq!(report.latency_p95_ms, 45);

@@ -677,3 +677,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - CI Rust quality 同时在单块缓存路径的 3 处调用和 2 个断言处存在 rustfmt 差异；统一依据原始日志修正，避免未处理格式直接触发下一轮 CI。前端和仓库卫生在本 HEAD 已成功；没有证据说明其他跳过/被编译阻断的 Windows/Rust 检查成功。
 - 审核新增单块缓存实现发现另一个**真实业务安全缺口**：生产 `parse_v3_result_typed` 允许 schema 可解析却自相矛盾的结果进入 `run`，例如 `worth_extracting=true, items=[]`（模型超长 JSON 截断后容错解析可能生成），进而把该 Session 记为 `AI_EXTRACTED SUCCESS 0` 且丢弃值得提炼的内容；`worth_extracting=false` 但 items 非空也会被当正常无价值会话。虽然缓存层会避开这类结果，但**流水线成功语义本身不正确**，不能依赖再次运行碰运气。将正反一致性提升至生产结果验收条件：仍保留容错解析器的诊断恢复能力，但进入单块及 Map-Reduce 业务处理前明确失败，使持久 Pipeline 后续可以重试；并在真实模型测试入口明确要求故障注入核验。
 - Rust 测试补正常通过/跳过与两种自相矛盾、截断容错解析但不应成功、历史缓存兼容；同步补 `docs/acceptance/extraction-live-benchmark.md` Windows 实机测试步骤。固定测试不等于真实模型或 Windows 验收；仍保持个人离线、Provider 只读、SiYuan 原文禁止覆盖、迁移兼容、不合并 main、不发 Release，S1.3 最后实施。
+
+### 2026-10-12 S2.1 真实模型截断 JSON 不再静默发布部分知识（等待新 HEAD CI）
+
+- 核对远端 HEAD `1b41e07b`：Windows Provider `38150715476` 成功；综合 CI `38150715474` 前端、Windows Desktop、仓库卫生成功，但 Rust quality 在 `ai_stage.rs:1541,1569` 两处 rustfmt 差异失败，Clippy/Rust tests **没有执行**。合批修复这两处，不以旧综合 CI 成功作结论。
+- 审计 S2.1 单块/Map-Reduce 的 **真实遗漏风险**：模型响应因 `max_tokens` 在 `items` 数组中间截断时，即使仅生成部分知识项，历史生产 `parse_v3_result_typed` 仍可利用 `truncated_close_candidates`、单独对象回收机制拼出一个 `worth_extracting=true + 非空 items` 的结果，随后标记 AI_EXTRACTED SUCCESS、持久化 v5 缓存，导致未来重试永远不请求模型、遗漏后续知识。上批只禁止 `worth=true + 空 items`，未覆盖截断但有前缀知识的情况。
+- 本批增加**完整顶层 items 包裹结构**的判定：保留目前可诊断的 `parse_v3_result_unchecked` 片段回收能力，但生产 `parse_v3_result_typed` 不接受没有完整平衡包裹结构的 items 前缀。即使已有完整子项，也以可识别的模型截断/提高 max_tokens 提示失败、允许后续 Pipeline 正常重试；不会写入 SQLite 提炼缓存或新知识。结构完整但内容有可修复尾逗号的响应、带噪推理前缀后有完整 JSON、裸知识对象／对象列表等既有容错路径仍允许处理，不能把合法的非标准输出无差别判为截断。
+- 补 Rust 正反回归：末尾缺少数组／顶层闭合、截断但有 2 条完整前缀知识、负例跳过的截断、合法完整 Schema 修复、推理前缀污染与裸条目修复。同步修正 `extraction_live_benchmark.rs` **被此前 fmt 失败遮蔽的两个陈旧断言**：矛盾 JSON 即便严格 serde 通过，也不再满足生产业务门禁；真实模型统计须把此类响应与截断但含关键词前缀的样本计入无效生产输出，不得冒充知识命中。该修订不改变基准的匿名化/不存原文与端点规则。
+- 保持已有 `knowledge-chunk-v5` key、合法老缓存、SQLite schema 与个人离线兼容；不操作 Provider 文件，不覆盖 SiYuan 原文，不合并 main、不发 Release。此前已持久化的 v5 行**不含模型原始结束标记，不能仅凭缓存结果判断曾否截断**；本轮阻断新增截断成功与缓存，但不声称能够识别全部历史旧行。Windows/真实模型故障注入仍待用户集中验收；本批未运行真实模型或 Windows 真机，综合 CI 以新 HEAD 实测为准，其他优化/功能完成后再进行 S1.3 完整备份恢复。

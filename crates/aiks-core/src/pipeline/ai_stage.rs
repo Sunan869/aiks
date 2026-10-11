@@ -748,8 +748,39 @@ fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
     (extraction_scores_valid(&result) && cacheable_extraction(&result)).then_some(result)
 }
 
+/// The lenient parser deliberately salvages JSON cut off by max_tokens, even
+/// when some complete item objects precede the missing tail. Such a response
+/// is useful for diagnostics, but the model might have been about to produce
+/// more items: finalizing/caching the prefix silently loses knowledge.
+///
+/// This is a structural *completeness* gate, not a replacement for schema
+/// repairs. A balanced full wrapper may still contain recoverable syntax
+/// errors (e.g. trailing commas). A leaked reasoning prefix can also have
+/// stray braces before a later complete wrapper. The bounded balanced scanner
+/// lets those complete responses proceed, while a dangling items envelope
+/// with only complete nested item objects cannot be accepted as a full result.
+fn has_incomplete_v3_envelope(response: &str) -> bool {
+    let clean = clean_json(response);
+    if !clean.contains("\"items\"") {
+        // Bare object arrays / concatenated items are handled independently
+        // by the existing degraded-schema recovery.
+        return false;
+    }
+    if serde_json::from_str::<serde_json::Value>(&clean).is_ok() {
+        return false;
+    }
+    !balanced_json_candidates(&clean)
+        .iter()
+        .any(|candidate| candidate.contains("\"items\""))
+}
+
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let result = parse_v3_result_unchecked(response)?;
+    if has_incomplete_v3_envelope(response) {
+        anyhow::bail!(
+            "AI extraction response appears truncated before completing its items array; retry with a larger max_tokens or shorter input, rather than publishing an incomplete partial result"
+        );
+    }
     if !extraction_scores_valid(&result) {
         anyhow::bail!("AI extraction response contains invalid score or confidence");
     }
@@ -1541,8 +1572,7 @@ mod tests {
 
     #[test]
     fn production_parser_rejects_contradictory_model_verdicts_to_allow_retry() {
-        let positive_without_items =
-            r#"{"session_summary":"partial JSON","knowledge_score":0.9,"worth_extracting":true,"items":[]}"#;
+        let positive_without_items = r#"{"session_summary":"partial JSON","knowledge_score":0.9,"worth_extracting":true,"items":[]}"#;
         assert!(parse_v3_result_typed(positive_without_items)
             .unwrap_err()
             .to_string()
@@ -1569,8 +1599,7 @@ mod tests {
         assert!(parse_v3_result_typed(&contradictory.to_string()).is_ok());
         contradictory["worth_extracting"] = serde_json::json!(false);
         assert!(parse_v3_result_typed(&contradictory.to_string()).is_err());
-        let valid_skip =
-            r#"{"session_summary":"valid skip","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
+        let valid_skip = r#"{"session_summary":"valid skip","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
         assert!(parse_v3_result_typed(valid_skip).is_ok());
     }
 
@@ -1841,17 +1870,19 @@ mod tests {
     }
 
     /// max_tokens truncation mid-array (observed live: "EOF while parsing a
-    /// list at line 216", 14.7 KB of otherwise-clean JSON) — closing the
-    /// document must recover the items emitted before the cut.
+    /// list at line 216", 14.7 KB of otherwise-clean JSON) — diagnostic
+    /// recovery can show emitted items but must not publish or cache them.
     #[test]
     fn parse_closes_truncated_json() {
         let full = r#"{"session_summary":"大数据集分析","knowledge_score":0.9,"worth_extracting":true,"items":[
             {"title":"条目一","category":"architecture","summary":"s1","content":"c1","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.9},
             {"title":"条目二","category":"troubleshooting","summary":"s2","content":"c2","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8}"#;
-        let result = parse_v3_result_typed(full).unwrap();
+        let result = parse_v3_result_unchecked(full).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].title, "条目一");
+        let err = parse_v3_result_typed(full).unwrap_err().to_string();
+        assert!(err.contains("appears truncated"), "{err}");
     }
 
     /// Truncation in the middle of a string value must also close cleanly.
@@ -1873,8 +1904,8 @@ mod tests {
         assert!(parse_v3_result_typed(truncated).is_err());
     }
 
-    /// Truncation after several complete items keeps every complete item —
-    /// the boundary cut lands on the inter-item comma.
+    /// Truncation after several complete items can recover those items for
+    /// diagnostics, but never assert that the generated knowledge is complete.
     #[test]
     fn parse_keeps_complete_items_before_truncation() {
         let item = |t: &str| {
@@ -1888,11 +1919,48 @@ mod tests {
             item("甲"),
             item("乙")
         );
-        let result = parse_v3_result_typed(&truncated).unwrap();
+        let result = parse_v3_result_unchecked(&truncated).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].title, "甲");
         assert_eq!(result.items[1].title, "乙");
+        assert!(parse_v3_result_typed(&truncated).is_err());
+    }
+
+    /// Full wrappers may need syntactic repairs; structural completeness is
+    /// different from strict JSON syntax validity and from factual accuracy.
+    #[test]
+    fn rejects_incomplete_wrappers_without_regressing_complete_repairable_ones() {
+        let normal_skip = r#"{"session_summary":"complete","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
+        assert!(!has_incomplete_v3_envelope(normal_skip));
+        assert!(parse_v3_result_typed(normal_skip).is_ok());
+
+        let repairable = r#"{"session_summary":"complete","knowledge_score":0.2,"worth_extracting":false,"items":[],}"#;
+        assert!(!has_incomplete_v3_envelope(repairable));
+        assert!(parse_v3_result_typed(repairable).is_ok());
+
+        // A whole, well-formed wrapper inside noisy reasoning is allowed even
+        // when the first reasoning brace is left open.
+        let prefixed = format!("{{ bogus reasoning before valid JSON\n{normal_skip}");
+        assert!(!has_incomplete_v3_envelope(&prefixed));
+        assert!(parse_v3_result_typed(&prefixed).is_ok());
+
+        // Missing tail is never safe, including a would-be skip response
+        // and an otherwise valid object with a partially emitted second item.
+        let partial_skip = r#"{"session_summary":"partial","knowledge_score":0.2,"worth_extracting":false,"items":["#;
+        assert!(has_incomplete_v3_envelope(partial_skip));
+        assert!(parse_v3_result_typed(partial_skip).is_err());
+        let partial_positive = r#"{"session_summary":"partial","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"A","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8},"#;
+        assert!(has_incomplete_v3_envelope(partial_positive));
+        let error = parse_v3_result_typed(partial_positive)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("appears truncated"), "{error}");
+
+        // Legitimate schema-degraded bare items have no false envelope.
+        let bare_item = r#"{"title":"A","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8}"#;
+        assert!(!has_incomplete_v3_envelope(bare_item));
+        assert!(parse_v3_result_typed(bare_item).is_ok());
     }
 
     /// Observed live (session 19): the model emitted bare item objects
