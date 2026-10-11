@@ -14,6 +14,7 @@ import type {
   TaskCenterStats,
   KnowledgePage,
   KnowledgeDetail,
+  OrganizationAuditEntry,
   ProjectOverview,
   ProjectMemorySnapshot,
   ProjectSessionBinding,
@@ -149,8 +150,11 @@ export class TauriAiksApi implements AiksApi {
   async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> { return invoke("review_knowledge_relation", { relationId, decision }); }
   async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> { return invoke("add_knowledge_feedback", { knowledgeId, kind, note }); }
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> { return invoke("create_knowledge", { input }); }
-  async createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[]): Promise<KnowledgeDetail> {
-    return invoke("create_organized_knowledge", { input, sourceKnowledgeIds });
+  async createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<KnowledgeDetail> {
+    return invoke("create_organized_knowledge", { input, sourceKnowledgeIds, operation });
+  }
+  async getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]> {
+    return invoke("list_organization_audit", { sourceKnowledgeId });
   }
   async validateOrganizationScope(knowledgeIds: string[]): Promise<boolean> {
     return invoke("validate_organization_scope", { knowledgeIds });

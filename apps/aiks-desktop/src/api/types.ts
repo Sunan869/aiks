@@ -154,6 +154,15 @@ export interface KnowledgeWriteInput {
   tags: string[];
 }
 
+export interface OrganizationAuditEntry {
+  derived_knowledge_id: string;
+  title: string;
+  status: KnowledgeStatus | "missing";
+  operation: "structure" | "rewrite" | "key_conclusions" | "compare" | "merge_draft";
+  reviewed_at: string;
+  source_knowledge_ids: string[];
+}
+
 export interface KnowledgeUpdateInput {
   title: string;
   category: string;

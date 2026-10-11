@@ -1,6 +1,7 @@
 pub mod ai_assist;
 pub mod migration;
 pub mod model;
+pub mod organization_audit;
 pub mod organization_scope;
 pub mod project_binding;
 pub mod project_evolution;
@@ -16,6 +17,7 @@ pub mod workbench;
 pub use ai_assist::{AiAssistOperation, AiAssistRequest, AiAssistService, AiAssistSuggestion};
 pub use migration::{ContentMigrationService, ContentMigrationStats};
 pub use model::{ExtractionRecord, ExtractionStats, ExtractionStatus};
+pub use organization_audit::{OrganizationAuditEntry, OrganizationAuditRepo};
 pub use organization_scope::OrganizationScopeGuard;
 pub use project_binding::{ProjectSessionBinding, ProjectSessionBindingService};
 pub use project_evolution::{

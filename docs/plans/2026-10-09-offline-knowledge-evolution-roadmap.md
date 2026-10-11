@@ -555,3 +555,12 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 新增专用 Tauri `create_organized_knowledge`，**必选 `sourceKnowledgeIds`**，在最终 SiYuan 创建动作前再次由 Rust `OrganizationScopeGuard` 查询当前本地 SQLite 活跃知识、Session 缺失与项目/人工归属；来源为空、重复、过量或跨项目一律拒绝。Tauri 不接受从前端直接传入项目真实路径。原 `create_knowledge` 命令原样保留给普通用户手动创建以确保 API 兼容，不把多来源审核规则施加到普通文档。
 - S3.4 UI 仅针对经用户预览确认的整理草稿改用专用创建命令，传入已审核的原始知识 ID。保留前端完整内容快照/来源复核/确认/防双击门禁，以及生成后单独归档或恢复。前端 Mock 和接口同步实现强制证据校验，增加被绕过的空来源、同名不同目录、正常同项目整理创建及用户普通手工创建不受影响的回归。
 - 此门禁是**最终写入请求开始前的**来源合法性检查，不是覆盖后续 HTTP/SiYuan 异步时段的原子锁；真正的并发故障注入、真实模型质量、SiYuan 远端人工编辑保护仍须 Windows 真机集中验收。没有新的 SQLite migration、Provider 写回、main 合并或 Release；S1.3 完整备份与恢复继续最后实施。新提交 CI 尚待执行/确认，不能宣称已通过。
+
+### 2026-10-11 S3.4 人工整理记录持久化与重启后归档/恢复入口（代码级）
+
+- 已确认基线 `3cfc40fa` 对应综合 CI `38122920089` 与 Windows Provider `38122920088` 全部成功，远端 HEAD 未变化。本批继续补齐 S3.4 的**实际业务缺口**：此前整理草稿创建后，仅保存 `createdKnowledgeId` 在 React 临时状态；关闭窗口或切换知识后无法再从原始知识视图查找此次整理操作、恢复与撤销入口。Markdown 内虽然附有用户审核备注，但无法可靠检索派生条目与关联状态。
+- 新增 additive、幂等 SQLite V16 migration `015_organization_audit.sql`，独立持久保存原始知识到审核后新建文档的**顺序来源映射**、操作类型、用户确认时间；不修改现有 Knowledge ID、源 Session、原始 SiYuan 文档或 Provider 文件。新库和旧库均可重复打开，旧数据无需破坏性重建。
+- Core `OrganizationAuditRepo` 强制审计操作白名单、来源 ID 数量/去重/格式、比较或合并必须有至少两个来源、新文档必须确实已存在且是 active/user-managed/manual，事务内一次写入审计和来源映射；主键禁止重复记录冒充第二次审核。历史查询从**当前 canonical Knowledge.status** 读取 active/archived/missing，绝不维护伪造的第二套归档状态；源文档变化与重启不删除审计记录。
+- Tauri `create_organized_knowledge` 在请求 SiYuan 前校验操作和来源；新建成功后记录本地不可覆盖的审核关系。若远端文档**已经创建**、但本地审核写入失败，明确返回新文档 ID 与「不要重试」说明，防止前端重试生成重复 SiYuan 文档。新增 `list_organization_audit` 只读查询；普通 `create_knowledge` 不受审核条件影响。
+- Desktop 知识详情展示当前知识相关的最近最多 100 条持久整理记录，提供重新打开独立知识、人工归档、恢复当前状态入口；旧的当次创建后归档仍兼容，新增审核记录变更时刷新查询。经用户确认的归档只改变 AIKS 本地新知识状态，不自动删除 SiYuan 文件或其他原始知识。前端 Mock/接口及 Rust/TS 回归含数据库重开、来源次序、重复拒绝、归档恢复、无效操作与新命令门禁。
+- 已补充 `docs/acceptance/organization-persistent-audit.md` 真实 Windows + SiYuan 故障注入入口。本批没有运行真实模型或 Windows 用户环境；新 HEAD CI 及跨 HTTP 不确定提交情况仍须验证。**当前方案不能保证 SiYuan HTTP 写入与 SQLite 审计原子提交**，更高等级的异常中断/跨机一致性仍需真实验收和后续恢复策略复核。S1.3 完整备份恢复仍最后实施。

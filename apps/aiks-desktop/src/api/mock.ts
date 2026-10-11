@@ -5,7 +5,7 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -13,6 +13,7 @@ import type {
 
 const feedbackHistory: KnowledgeFeedback[] = [];
 const knowledgeRelations: KnowledgeRelation[] = [];
+const organizationAuditHistory: OrganizationAuditEntry[] = [];
 const localProjectBindings = new Map<number, ProjectSessionBinding>();
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -369,9 +370,35 @@ export class MockAiksApi implements AiksApi {
     return true;
   }
 
-  async createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[]): Promise<KnowledgeDetail> {
+  async createOrganizedKnowledge(
+    input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"],
+  ): Promise<KnowledgeDetail> {
+    if (!["structure", "rewrite", "key_conclusions", "compare", "merge_draft"].includes(operation)) {
+      throw new Error("Invalid organization audit operation");
+    }
+    if ((operation === "compare" || operation === "merge_draft") && sourceKnowledgeIds.length < 2) {
+      throw new Error("A comparison requires two knowledge sources");
+    }
     await this.validateOrganizationScope(sourceKnowledgeIds);
-    return this.createKnowledge(input);
+    const created = await this.createKnowledge(input);
+    organizationAuditHistory.push({
+      derived_knowledge_id: created.id,
+      title: created.title,
+      status: "active",
+      operation,
+      reviewed_at: new Date().toISOString(),
+      source_knowledge_ids: [...sourceKnowledgeIds],
+    });
+    return created;
+  }
+
+  async getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]> {
+    await delay();
+    return organizationAuditHistory.filter(entry => entry.source_knowledge_ids.includes(sourceKnowledgeId))
+      .map(entry => ({
+        ...entry,
+        status: knowledge.find(item => item.id === entry.derived_knowledge_id)?.status || "missing",
+      }));
   }
 
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {

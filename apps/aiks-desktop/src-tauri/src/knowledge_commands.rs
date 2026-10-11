@@ -1,4 +1,4 @@
-use aiks_core::knowledge::OrganizationScopeGuard;
+use aiks_core::knowledge::{OrganizationAuditEntry, OrganizationAuditRepo, OrganizationScopeGuard};
 use aiks_core::{CreateKnowledgeInput, KnowledgeListFilter, KnowledgeRecord, KnowledgeService};
 use serde::Deserialize;
 use tauri::State;
@@ -166,6 +166,7 @@ pub async fn create_knowledge(
 pub async fn create_organized_knowledge(
     input: KnowledgeWritePayload,
     source_knowledge_ids: Vec<String>,
+    operation: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
@@ -174,8 +175,38 @@ pub async fn create_organized_knowledge(
         OrganizationScopeGuard::new(&db)
             .validate(&source_knowledge_ids)
             .map_err(|error| error.to_string())?;
+        // Audit parameters must be validated BEFORE the remote document write.
+        OrganizationAuditRepo::validate_input(&operation, &source_knowledge_ids)
+            .map_err(|error| error.to_string())?;
     }
-    create_knowledge(input, state).await
+    let created = create_knowledge(input, state).await?;
+    let derived_id = created["id"]
+        .as_str()
+        .ok_or_else(|| "SiYuan created a document without a knowledge identity".to_string())?;
+    let db = engine.db();
+    if let Err(error) =
+        OrganizationAuditRepo::new(&db).record(derived_id, &operation, &source_knowledge_ids)
+    {
+        // Document creation already succeeded. Do not tell the user to retry:
+        // that would risk an accidental duplicate in SiYuan.
+        tracing::error!(knowledge_id = %derived_id, error = %error, "reviewed organization audit failed after SiYuan create");
+        return Err(format!(
+            "知识已创建（ID: {derived_id}），但本地整理审核记录保存失败：{error}。请勿重复点击创建，可从知识列表核查。"
+        ));
+    }
+    Ok(created)
+}
+
+#[tauri::command]
+pub fn list_organization_audit(
+    source_knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<OrganizationAuditEntry>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationAuditRepo::new(&db)
+        .list_for_source(&source_knowledge_id)
+        .map_err(|error| error.to_string())
 }
 
 /// V4.1 canonical knowledge content is edited inside the embedded SiYuan

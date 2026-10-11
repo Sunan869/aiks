@@ -36,11 +36,11 @@ describe("S3.4 authoritative source scope before AI and reviewed writes", () => 
       project_name: "Pipeline",
       tags: ["reviewed"],
     };
-    await expect(api.createOrganizedKnowledge(input, [])).rejects.toThrow();
-    await expect(api.createOrganizedKnowledge(input, ["kn_0001", "kn_0002"])).rejects.toThrow();
+    await expect(api.createOrganizedKnowledge(input, [], "structure")).rejects.toThrow();
+    await expect(api.createOrganizedKnowledge(input, ["kn_0001", "kn_0002"], "compare")).rejects.toThrow();
     expect((await api.getKnowledge({ limit: 200 })).items
       .some(item => item.title === input.title)).toBe(false);
-    const created = await api.createOrganizedKnowledge(input, ["kn_0001", "kn_0005"]);
+    const created = await api.createOrganizedKnowledge(input, ["kn_0001", "kn_0005"], "compare");
     expect(created.title).toBe(input.title);
     expect(created.source_type).toBe("manual");
     expect(created.managed_by).toBe("user");
@@ -54,11 +54,12 @@ describe("S3.4 authoritative source scope before AI and reviewed writes", () => 
       "await getApi().validateOrganizationScope(currentSources.map(source => source.id))",
     );
     expect(organizationPage).toContain("getApi().createOrganizedKnowledge({");
-    expect(organizationPage).toContain("}, organizeSourceIds)");
+    expect(organizationPage).toContain("}, organizeSourceIds, reviewedOperation)");
     expect(rustCommand).toContain("pub fn validate_organization_scope(");
     expect(rustCommand).toContain("pub async fn create_organized_knowledge(");
     expect(rustCommand).toContain(".validate(&source_knowledge_ids)");
     expect(rustCommand).toContain("create_knowledge(input, state).await");
+    expect(rustCommand).toContain("OrganizationAuditRepo::validate_input");
     expect(rustCommand).toContain("OrganizationScopeGuard::new(&db)");
     expect(coreScope).toContain("COALESCE(pb.project_path,ss.project_path)");
     expect(coreScope).toContain("Organization source is not active");

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
+import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary, OrganizationAuditEntry } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
 import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
@@ -52,6 +52,10 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
   const [derivedArchived, setDerivedArchived] = useState(false);
+  const [organizationHistory, setOrganizationHistory] = useState<OrganizationAuditEntry[]>([]);
+  const [organizationHistoryError, setOrganizationHistoryError] = useState("");
+  const [organizationHistoryRevision, setOrganizationHistoryRevision] = useState(0);
+  const [organizationHistoryBusy, setOrganizationHistoryBusy] = useState<string | null>(null);
   const organizationGeneration = useRef(0);
   const organizationWriteGate = useRef(createOrganizationWriteGate());
 
@@ -88,6 +92,38 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     });
     return () => { active = false; };
   }, [knowledgeId]);
+
+  useEffect(() => {
+    let active = true;
+    setOrganizationHistory([]);
+    setOrganizationHistoryError("");
+    void getApi().getOrganizationAudit(knowledgeId).then(items => {
+      if (active) setOrganizationHistory(items);
+    }).catch(reason => {
+      if (active) setOrganizationHistoryError("整理历史读取失败：" + String(reason));
+    });
+    return () => { active = false; };
+  }, [knowledgeId, organizationHistoryRevision]);
+
+  const changeOrganizationRecordStatus = async (
+    entry: OrganizationAuditEntry, nextStatus: "active" | "archived",
+  ) => {
+    if (organizationHistoryBusy !== null) return;
+    if (nextStatus === "archived" && !window.confirm(
+      "只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。"
+    )) return;
+    setOrganizationHistoryBusy(entry.derived_knowledge_id);
+    setOrganizationHistoryError("");
+    try {
+      if (nextStatus === "archived") await getApi().archiveKnowledge(entry.derived_knowledge_id);
+      else await getApi().restoreKnowledge(entry.derived_knowledge_id);
+      setOrganizationHistoryRevision(value => value + 1);
+    } catch (reason) {
+      setOrganizationHistoryError("整理记录状态更新失败：" + String(reason));
+    } finally {
+      setOrganizationHistoryBusy(null);
+    }
+  };
 
   const submitFeedback = async () => {
     setFeedbackBusy(true);
@@ -241,13 +277,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         summary: "由用户确认的 AIKS 知识整理结果；请通过来源知识 ID 核验。",
         tags: parseTags(data.tags),
         content,
-      }, organizeSourceIds);
+      }, organizeSourceIds, reviewedOperation);
       // Navigation may have changed the current knowledge during this write.
       // Never report the previous project's result on the newly shown page.
       if (generation !== organizationGeneration.current) return;
       setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
       setDerivedArchived(false);
+      setOrganizationHistoryRevision(value => value + 1);
       setMessage("已在 SiYuan 新建独立知识文档，原文保持不变。归档仅改变 AIKS 本地状态，不删除 SiYuan 文档。");
     } catch (error) {
       if (generation === organizationGeneration.current) {
@@ -267,6 +304,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       await getApi().archiveKnowledge(createdKnowledgeId);
       setMessage("已在 AIKS 本地归档新知识；来源知识和 SiYuan 文档仍保留。");
       setDerivedArchived(true);
+      setOrganizationHistoryRevision(value => value + 1);
     } catch (error) {
       setOrganizeError("归档生成的知识失败：" + String(error));
     } finally {
@@ -281,6 +319,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       await getApi().restoreKnowledge(createdKnowledgeId);
       setDerivedArchived(false);
+      setOrganizationHistoryRevision(value => value + 1);
       setMessage("已恢复 AIKS 本地知识状态；来源知识和 SiYuan 文档未修改。");
     } catch (error) {
       setOrganizeError("恢复生成的知识失败：" + String(error));
@@ -597,6 +636,50 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             )}
           </div>
         )}
+      </section>
+
+      <section className="mb-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <h2 className="font-semibold">人工审核的知识整理历史</h2>
+        <p className="mt-1 text-xs text-gray-500">
+          此处读取本地持久审核记录；关闭或重开程序后仍可找到从当前知识衍生的独立文档。
+          归档/恢复只改变新建知识的 AIKS 状态，不删除 SiYuan 文档或原 Session。
+          最多展示最近 100 条记录。
+        </p>
+        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{organizationHistoryError}</p>}
+        {organizationHistory.length === 0 && !organizationHistoryError && (
+          <p className="mt-2 text-xs text-gray-400">尚无本地持久的知识整理审核记录。</p>
+        )}
+        <div className="mt-3 space-y-2">
+          {organizationHistory.map(entry => (
+            <div key={entry.derived_knowledge_id} className="rounded border p-3 text-xs dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <strong>{entry.title}</strong>
+                <span className="text-gray-500">{entry.operation} · {entry.status} · {entry.reviewed_at.slice(0, 10)}</span>
+              </div>
+              <div className="mt-1 break-all text-gray-500">
+                来源知识：{entry.source_knowledge_ids.join("、")}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {onOpenKnowledge && entry.status !== "missing" && (
+                  <button type="button" className="text-blue-600"
+                    onClick={() => onOpenKnowledge(entry.derived_knowledge_id)}>打开独立知识</button>
+                )}
+                {entry.status === "active" && (
+                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-amber-700 disabled:opacity-40"
+                    onClick={() => void changeOrganizationRecordStatus(entry, "archived")}>
+                    本地归档（保留 SiYuan 文档）
+                  </button>
+                )}
+                {entry.status === "archived" && (
+                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-blue-700 disabled:opacity-40"
+                    onClick={() => void changeOrganizationRecordStatus(entry, "active")}>
+                    恢复本地知识状态
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <div className="flex gap-4 text-xs text-gray-400">
