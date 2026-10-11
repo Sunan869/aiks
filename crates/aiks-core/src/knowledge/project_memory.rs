@@ -194,7 +194,10 @@ impl<'a> ProjectMemoryService<'a> {
     ) -> Result<ProjectMemorySnapshot> {
         let first = chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d")?;
         let last = chrono::NaiveDate::parse_from_str(through, "%Y-%m-%d")?;
-        anyhow::ensure!(first <= last, "Report start date must not be after the end date");
+        anyhow::ensure!(
+            first <= last,
+            "Report start date must not be after the end date"
+        );
         self.get_filtered(project_id, limit, source_filter, Some((from, through)))
     }
 

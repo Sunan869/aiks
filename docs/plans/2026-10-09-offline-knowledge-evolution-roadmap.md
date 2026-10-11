@@ -455,3 +455,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - `8108e17` 的 Windows Provider `38106785877` 已通过，但综合 CI `38106785880` 在新增 Rust 测试的 `rustfmt` 处失败，Clippy/Rust tests 被跳过。本次按照 CI diff 修正所有四处格式。
 - 实质修复：项目全来源前 200 条列表先截断再按 Provider 过滤，会让低频数据源的回顾和 Agent 上下文漏掉本来存在的知识。新增 `ProjectMemoryService::get_scoped`，来源需属于选定项目，并在 SQL 层**先过滤来源再按 200 条上限截断**。Tauri 的两个生成命令调用该路径；原有 `get` API 保持兼容。
 - 增加真实 SQLite 数据层回归，覆盖跨 Provider 排序、来源范围、来源内截断、未知来源拒绝及未指定来源兼容。无 SQLite migration、无 Provider/SiYuan 原文写入；S1.3 完整备份最后实施，Windows/真实模型验收尚未执行。
+
+### 2026-10-11 S3.2 项目历史回顾范围与 CI 格式修复
+
+- 最新远端 HEAD `bf19966e` 已实现按来源与日期范围在 SQL 证据读取前过滤，避免历史区间被最新项目知识的有界样本挤出；CI `38109390183` 仅在 `project_memory.rs` 的 `anyhow::ensure!` 一处 `rustfmt` 失败，Rust Clippy/测试尚未运行。Windows Provider `38109390182`、Desktop 前端/Windows 编译和仓库卫生已通过。
+- 本轮根据 CI 原始格式 diff 修正唯一阻塞，维持该完整模块已编写的真实 SQLite 范围、非法日期和来源隔离回归；无 Schema 迁移，Provider 只读，SiYuan 原文保护不变。最新提交的 Rust 测试及完整 CI 尚需单独验证。
+- Windows 真机和真实模型质量/性能验收尚未执行；S1.3 完整备份/恢复留至所有其他功能、优化的代码级交付之后。
