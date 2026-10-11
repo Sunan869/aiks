@@ -297,6 +297,15 @@ fn expired_claim_cannot_be_revived_without_a_fresh_claim() {
     );
     let reclaimed = repo.claim_next().unwrap().unwrap();
     assert_eq!(reclaimed.attempt, claimed.attempt + 1);
+    let reason: String = db
+        .conn()
+        .query_row(
+            "SELECT last_error FROM pipeline_job WHERE id = ?1",
+            [&reclaimed.durable_job_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(reason, "Worker lease expired; retry scheduled");
     assert_eq!(
         repo.mark_failed(&reclaimed.durable_job_id, reclaimed.attempt, "new error")
             .unwrap(),
@@ -337,6 +346,8 @@ fn expired_lease_after_third_claim_is_terminal_during_claim_next() {
     assert!(error.unwrap().contains("retry budget exhausted"));
     // Explicit new user work remains possible; no automatic fourth attempt.
     assert!(repo.enqueue(&job).unwrap().inserted);
+    let fresh = repo.claim_next().unwrap().unwrap();
+    assert_eq!(fresh.attempt, 1);
 }
 
 #[test]
@@ -363,7 +374,9 @@ fn explicit_lease_recovery_respects_retry_budget() {
     assert!(repo.claim_next().unwrap().is_none());
     let status: String = db
         .conn()
-        .query_row("SELECT status FROM pipeline_job LIMIT 1", [], |row| row.get(0))
+        .query_row("SELECT status FROM pipeline_job LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(status, "FAILED");
 }

@@ -416,3 +416,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 上一提交 `0d063290` 的 Windows Provider 契约检查成功，但综合 CI `38102164925` 在新增测试的 `cargo fmt --all --check` 阶段失败，Clippy 和 Rust tests 因此未执行；不将 Windows Desktop 编译通过等同于 Rust 测试通过。
 - 本批根据日志修正测试格式，并统一 `claim_next` 与独立恢复的 Lease 超时逻辑：超时领取按已消费的 `attempt` 计入上限，第三次超时应终止为 `FAILED`，不允许崩溃后无界重新领取；未耗尽预算的 Lease 仍可安全恢复。
 - 增加第三次超时、重复恢复幂等、明确重新入队可用等 SQLite 回归用例。未改变表结构，不写 Provider、不覆盖 SiYuan 原文；新提交的综合 CI 和 Windows 实机仍待验证。
+
+### 2026-10-11 S1.2 CI 失败定位与超时诊断补全
+
+- HEAD `e1c912a3` 的 Windows Provider `38103074206` 已通过；综合 CI `38103074202` 因 `p1_pipeline_job_queue.rs` 一处 `rustfmt` 闭包换行要求失败，Rust Clippy/tests 均未执行。按原样应用 CI 提供的格式修正。
+- 对可恢复的 Lease 超时记录固定非敏感诊断原因（`Worker lease expired; retry scheduled`），避免只残留先前无关错误；第三次超时仍保留终止原因。测试增加超时诊断及终止后显式新任务从 attempt=1 开始的断言。
+- 代码已提交仍须以相应新 HEAD 的 GitHub Actions 结果验证；不会将 CI/模拟测试视为 Windows 真机或真实模型通过。S1.3 完整备份继续保持暂停、最后实施。

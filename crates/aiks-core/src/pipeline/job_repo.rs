@@ -340,6 +340,7 @@ impl<'a> PipelineJobRepo<'a> {
         let recoverable = conn.execute(
             "UPDATE pipeline_job
              SET status = 'PENDING', lease_until = NULL, available_at = ?1,
+                 last_error = 'Worker lease expired; retry scheduled',
                  updated_at = ?1
              WHERE status = 'RUNNING' AND lease_until IS NOT NULL
                AND lease_until <= ?1 AND attempt < ?2",
