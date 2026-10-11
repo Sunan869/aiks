@@ -54,6 +54,8 @@ export default function AskAiksPanel({
   const [error, setError] = useState<string | null>(null);
   const [projectChoices, setProjectChoices] = useState<string[]>([]);
   const [selectedProject, setSelectedProject] = useState("");
+  const [sourceChoices, setSourceChoices] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +70,21 @@ export default function AskAiksPanel({
       setProjectChoices(options);
     }).catch(() => {
       if (active) setProjectChoices([]);
+    });
+    return () => { active = false; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    // Derive source options from canonical project/session metadata instead
+    // of hardcoding Provider names or sampling only the first 200 knowledge rows.
+    void getApi().getProjectMemories().then(projects => {
+      if (active) {
+        setSourceChoices(Array.from(new Set(projects.flatMap(project => project.sources))).sort());
+      }
+    }).catch(() => {
+      if (active) setSourceChoices([]);
     });
     return () => { active = false; };
   }, [open]);
@@ -124,7 +141,7 @@ export default function AskAiksPanel({
 
     try {
       const result = await askAiksProgressively(
-        { question, history, project: selectedProject || undefined },
+        { question, history, project: selectedProject || undefined, source: selectedSource || undefined },
         {
           onDelta: delta => {
             setMessages(current => current.map(message => (
@@ -211,6 +228,22 @@ export default function AskAiksPanel({
           >
             <option value="">所有项目</option>
             {projectChoices.map(project => <option key={project} value={project}>{project}</option>)}
+          </select>
+          <label htmlFor="ask-aiks-source-filter" className="text-gray-500">来源</label>
+          <select
+            id="ask-aiks-source-filter"
+            aria-label="问 AIKS 数据源范围"
+            value={selectedSource}
+            disabled={loading}
+            onChange={event => {
+              setSelectedSource(event.target.value);
+              setMessages([]);
+              setError(null);
+            }}
+            className="min-w-0 max-w-36 rounded border border-gray-200 bg-transparent p-1.5 text-xs dark:border-gray-700"
+          >
+            <option value="">所有来源</option>
+            {sourceChoices.map(source => <option key={source} value={source}>{source}</option>)}
           </select>
         </div>
 
@@ -604,8 +637,8 @@ function Message({
         )}
 
         {message.warnings && message.warnings.length > 0 && (
-          <div className="mt-2 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-            {message.warnings[0]}
+          <div role="status" className="mt-2 space-y-1 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+            {message.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </div>
         )}
 

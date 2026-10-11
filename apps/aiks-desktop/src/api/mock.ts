@@ -357,7 +357,13 @@ export class MockAiksApi implements AiksApi {
     const allowed = new Set(options?.corpora ?? ["knowledge", "session"]);
     const knowledgeHits = allowed.has("knowledge")
       ? knowledge
-          .filter(k => k.status === "active" && (k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q)))
+          .filter(k =>
+            k.status === "active" &&
+            (k.title.toLowerCase().includes(q) || k.summary.toLowerCase().includes(q)) &&
+            (!options?.project || k.project_name === options.project) &&
+            (!options?.source || (k.session_id !== null &&
+              sessions.some(s => s.id === k.session_id && s.source === options.source)))
+          )
           .map(k => ({
             corpus: "knowledge" as const,
             entity_id: k.id,
@@ -371,7 +377,11 @@ export class MockAiksApi implements AiksApi {
       : [];
     const sessionHits = allowed.has("session")
       ? sessions
-          .filter(s => (s.title ?? "").toLowerCase().includes(q) || (s.project_name ?? "").toLowerCase().includes(q))
+          .filter(s =>
+            ((s.title ?? "").toLowerCase().includes(q) || (s.project_name ?? "").toLowerCase().includes(q)) &&
+            (!options?.project || s.project_name === options.project) &&
+            (!options?.source || s.source === options.source)
+          )
           .map(s => ({
             corpus: "session" as const,
             entity_id: String(s.id),
@@ -416,7 +426,9 @@ export class MockAiksApi implements AiksApi {
 
   async askAiks(request: RagAskRequest): Promise<RagAnswer> {
     await delay(420);
-    const hits = (await this.searchAll(request.question, { limit: 4 })).hits;
+    const hits = (await this.searchAll(request.question, {
+      limit: 4, project: request.project, source: request.source,
+    })).hits;
     return {
       answer: hits.length
         ? `根据当前 Mock 知识库，可以从 ${hits.length} 条相关记录中找到依据。[1]`

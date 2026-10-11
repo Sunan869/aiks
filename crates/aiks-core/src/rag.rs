@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -48,6 +48,28 @@ pub struct RagAskRequest {
     /// Exact project filter; omitted means search all projects.
     #[serde(default)]
     pub project: Option<String>,
+    /// Optional exact Provider source (e.g. codex, claude_code, opencode).
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Keep user-selected project/source filters on both streaming and ordinary
+/// RAG queries. Blank means unrestricted; other values are exact SQLite-bound
+/// scope values, never interpolated into SQL or accepted as new data sources.
+fn retrieval_scope(request: &RagAskRequest) -> anyhow::Result<UnifiedSearchFilter> {
+    let normalize = |name: &str, value: &Option<String>| -> anyhow::Result<Option<String>> {
+        let value = value.as_deref().map(str::trim).filter(|text| !text.is_empty());
+        anyhow::ensure!(
+            value.is_none_or(|text| text.chars().count() <= 256),
+            "{name} filter is too long"
+        );
+        Ok(value.map(str::to_string))
+    };
+    Ok(UnifiedSearchFilter {
+        corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
+        project: normalize("project", &request.project)?,
+        source: normalize("source", &request.source)?,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,14 +110,56 @@ struct PreparedRag {
 
 impl PreparedRag {
     fn finish(self, answer: String) -> RagAnswer {
+        let mut warnings = self.warnings;
+        let citation_warnings = audit_answer_citations(&answer, &self.citations);
+        let degraded = self.degraded || !citation_warnings.is_empty();
+        warnings.extend(citation_warnings);
         RagAnswer {
             answer: answer.trim().to_string(),
             citations: self.citations,
-            degraded: self.degraded,
-            warnings: self.warnings,
+            degraded,
+            warnings,
             model: self.model,
         }
     }
+}
+
+/// Model output is not a trusted citation map. Check that every [n] marker
+/// refers to an actually supplied evidence item and visibly flag ungrounded
+/// or missing markers. This cannot prove that the cited evidence supports the
+/// prose; that still requires a human reviewing the linked source.
+fn audit_answer_citations(answer: &str, citations: &[RagCitation]) -> Vec<String> {
+    if citations.is_empty() {
+        return Vec::new();
+    }
+    let allowed: HashSet<usize> = citations.iter().map(|item| item.index).collect();
+    let citation_pattern = regex::Regex::new(r"\[(\d{1,3})\]").expect("fixed citation pattern");
+    let mut observed = HashSet::new();
+    let mut invalid = BTreeSet::new();
+    for found in citation_pattern.captures_iter(answer) {
+        let Ok(index) = found[1].parse::<usize>() else {
+            continue;
+        };
+        if allowed.contains(&index) {
+            observed.insert(index);
+        } else {
+            invalid.insert(index);
+        }
+    }
+    let mut warnings = Vec::new();
+    if !invalid.is_empty() {
+        warnings.push(format!(
+            "模型引用了不存在的证据编号：{}。请勿依赖这些编号核实结论。",
+            invalid.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if observed.is_empty() {
+        warnings.push(
+            "模型回答未包含有效的检索证据编号；请人工检查下方参考来源，不要将回答当作已核实事实。"
+                .to_string(),
+        );
+    }
+    warnings
 }
 
 enum RagPreparation {
@@ -196,18 +260,7 @@ impl RagAnswerService {
         let question = request.question.trim().to_string();
         anyhow::ensure!(!question.is_empty(), "question must not be empty");
         anyhow::ensure!(question.chars().count() <= 4096, "question is too long");
-        let project = request
-            .project
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        anyhow::ensure!(
-            project
-                .as_ref()
-                .is_none_or(|value| value.chars().count() <= 256),
-            "project filter is too long"
-        );
+        let scope = retrieval_scope(&request)?;
 
         let search = UnifiedSearchService::new(self.db.clone(), self.models.clone());
         let search_started = Instant::now();
@@ -215,11 +268,7 @@ impl RagAnswerService {
             .search(
                 &question,
                 RETRIEVAL_LIMIT,
-                UnifiedSearchFilter {
-                    corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
-                    project,
-                    source: None,
-                },
+                scope,
             )
             .await?;
         let search_ms = search_started.elapsed().as_millis() as u64;
@@ -520,6 +569,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn model_citation_audit_detects_missing_and_forged_reference_numbers() {
+        let citations = vec![
+            RagCitation {
+                index: 1,
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "knowledge-1".into(),
+                chunk_id: None,
+                title: "Fix".into(),
+                snippet: "Evidence".into(),
+                siyuan_doc_id: None,
+                match_types: vec!["lexical".into()],
+            },
+            RagCitation {
+                index: 2,
+                corpus: SearchCorpus::Session,
+                entity_id: "42".into(),
+                chunk_id: None,
+                title: "Session".into(),
+                snippet: "Evidence".into(),
+                siyuan_doc_id: None,
+                match_types: vec!["lexical".into()],
+            },
+        ];
+        assert!(audit_answer_citations("两个来源 [1] 与 [2]", &citations).is_empty());
+        let warnings = audit_answer_citations("伪造引用 [99]，真实引用 [1]", &citations);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("99"));
+        assert_eq!(audit_answer_citations("没有证据编号", &citations).len(), 1);
+        assert_eq!(audit_answer_citations("[0] [99]", &citations).len(), 2);
+        assert!(audit_answer_citations("无内容", &[]).is_empty());
+    }
+
+    #[test]
+    fn prepared_rag_preserves_provenance_and_marks_unsupported_citations_degraded() {
+        let prepared = PreparedRag {
+            user_prompt: "test".into(),
+            citations: vec![RagCitation {
+                index: 1,
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "k1".into(),
+                chunk_id: None,
+                title: "Example".into(),
+                snippet: "Example".into(),
+                siyuan_doc_id: None,
+                match_types: vec![],
+            }],
+            degraded: false,
+            warnings: vec![],
+            model: "test-model".into(),
+        };
+        let answer = prepared.finish("不受支持的引用 [4]".into());
+        assert!(answer.degraded);
+        assert!(answer.warnings.iter().any(|message| message.contains("4")));
+        assert_eq!(answer.citations[0].entity_id, "k1");
+    }
+
+    #[test]
     fn human_quality_flags_are_visible_in_rag_evidence_context() {
         assert!(disputed_feedback_label("incorrect").is_some());
         assert!(disputed_feedback_label("outdated").is_some());
@@ -533,11 +639,42 @@ mod tests {
         let legacy: RagAskRequest =
             serde_json::from_str(r#"{"question":"Where is the fix?","history":[]}"#).unwrap();
         assert!(legacy.project.is_none());
+        assert!(legacy.source.is_none());
 
         let scoped: RagAskRequest =
             serde_json::from_str(r#"{"question":"Where is the fix?","project":"my-project"}"#)
                 .unwrap();
         assert_eq!(scoped.project.as_deref(), Some("my-project"));
+        assert!(scoped.source.is_none());
+    }
+
+    #[test]
+    fn rag_scope_propagates_exact_project_and_provider_without_crossing_corpora() {
+        let request: RagAskRequest = serde_json::from_str(
+            r#"{"question":"lease recovery","project":" team-a ","source":" claude_code "}"#,
+        )
+        .unwrap();
+        let scope = retrieval_scope(&request).unwrap();
+        assert_eq!(scope.project.as_deref(), Some("team-a"));
+        assert_eq!(scope.source.as_deref(), Some("claude_code"));
+        assert_eq!(scope.corpora, vec![SearchCorpus::Knowledge, SearchCorpus::Session]);
+        let unrestricted: RagAskRequest = serde_json::from_str(
+            r#"{"question":"lease recovery","project":"   ","source":""}"#,
+        )
+        .unwrap();
+        let default = retrieval_scope(&unrestricted).unwrap();
+        assert!(default.project.is_none());
+        assert!(default.source.is_none());
+        assert!(retrieval_scope(&RagAskRequest {
+            source: Some("x".repeat(257)),
+            ..request.clone()
+        })
+        .is_err());
+        assert!(retrieval_scope(&RagAskRequest {
+            project: Some("x".repeat(257)),
+            ..request
+        })
+        .is_err());
     }
 
     #[test]
