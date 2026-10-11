@@ -6,7 +6,7 @@ import { isReviewedOrganizationOperation } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeRelationReview, KnowledgeRelationReviewHistory, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -14,6 +14,7 @@ import type {
 
 const feedbackHistory: KnowledgeFeedback[] = [];
 const knowledgeRelations: KnowledgeRelation[] = [];
+const relationReviews: KnowledgeRelationReview[] = [];
 const organizationAuditHistory: OrganizationAuditEntry[] = [];
 const localKnowledgeContent = new Map<string, string>();
 let nextManualKnowledgeId = 0;
@@ -378,9 +379,30 @@ export class MockAiksApi implements AiksApi {
       if (!source || !target) throw new Error("Knowledge relation source is missing");
       checkRelationScope(source, target);
     }
-    relation.status = decision;
-    relation.updated_at = new Date().toISOString();
+    if (relation.status !== decision) {
+      const now = new Date().toISOString();
+      relationReviews.push({
+        id: "review_" + relationReviews.length + "_" + Date.now(),
+        relation_id: relation.id,
+        source_id: relation.source_id,
+        target_id: relation.target_id,
+        previous_status: relation.status,
+        next_status: decision,
+        created_at: now,
+      });
+      relation.status = decision;
+      relation.updated_at = now;
+    }
     return { ...relation };
+  }
+
+  async getKnowledgeRelationReviews(knowledgeId: string): Promise<KnowledgeRelationReviewHistory> {
+    await delay();
+    if (!knowledgeId.trim()) throw new Error("Review history requires a knowledge identity");
+    const matches = relationReviews.filter(item =>
+      item.source_id === knowledgeId || item.target_id === knowledgeId
+    ).slice().reverse();
+    return { reviews: matches.slice(0, 100), truncated: matches.length > 100 };
   }
 
   async validateOrganizationScope(knowledgeIds: string[]): Promise<boolean> {

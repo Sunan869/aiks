@@ -22,6 +22,7 @@ import type {
   KnowledgeFeedback,
   KnowledgeFeedbackKind,
   KnowledgeRelation,
+  KnowledgeRelationReviewHistory,
   KnowledgeRelationType,
   KnowledgeRelationStatus,
   KnowledgeListOptions,
@@ -147,6 +148,9 @@ export class TauriAiksApi implements AiksApi {
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
   async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }
+  async getKnowledgeRelationReviews(knowledgeId: string): Promise<KnowledgeRelationReviewHistory> {
+    return invoke("list_knowledge_relation_reviews", { knowledgeId });
+  }
   async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> { return invoke("suggest_knowledge_relation", { sourceId, targetId, relationType, evidence }); }
   async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> { return invoke("review_knowledge_relation", { relationId, decision }); }
   async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> { return invoke("add_knowledge_feedback", { knowledgeId, kind, note }); }

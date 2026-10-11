@@ -171,6 +171,7 @@ pub fn run() {
             knowledge_commands::suggest_knowledge_relation,
             knowledge_commands::list_knowledge_relations,
             knowledge_commands::review_knowledge_relation,
+            knowledge_commands::list_knowledge_relation_reviews,
             knowledge_commands::create_knowledge,
             knowledge_commands::create_organized_knowledge,
             knowledge_commands::list_organization_audit,

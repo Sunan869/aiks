@@ -28,6 +28,25 @@ pub struct KnowledgeRelation {
     pub updated_at: String,
 }
 
+/// Immutable human review log entry. Review timestamps are NOT dates when
+/// an engineering decision took effect; no validity claims are inferred.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KnowledgeRelationReview {
+    pub id: String,
+    pub relation_id: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub previous_status: String,
+    pub next_status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeRelationReviewHistory {
+    pub reviews: Vec<KnowledgeRelationReview>,
+    pub truncated: bool,
+}
+
 /// Canonical knowledge provenance. An unknown Session path does not become
 /// a verified project just because two display names match.
 struct KnowledgeScope {
@@ -118,8 +137,8 @@ fn ensure_related_knowledge_is_current(
             // Manual-only Knowledge has no Provider Session; explicit manual
             // project labels still permit a user-authored relation. Never
             // treat the same name of TWO distinct provider Sessions as proof.
-            let both_manual = source.source_session_id.is_none()
-                && target.source_session_id.is_none();
+            let both_manual =
+                source.source_session_id.is_none() && target.source_session_id.is_none();
             let same_manual_project = both_manual
                 && match (
                     source.project_name.as_deref(),
@@ -228,6 +247,46 @@ impl<'a> RelationRepo<'a> {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Historical review decisions for one knowledge endpoint, including
+    /// rejected relationships and those whose original Session later moved.
+    /// Result is bounded; no deleted source text or Provider content is loaded.
+    pub fn review_history(
+        &self,
+        knowledge_id: &str,
+        limit: usize,
+    ) -> Result<KnowledgeRelationReviewHistory> {
+        anyhow::ensure!(
+            !knowledge_id.trim().is_empty(),
+            "Review history requires a knowledge identity"
+        );
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            "SELECT rr.id,rr.relation_id,r.source_id,r.target_id,
+                    rr.previous_status,rr.next_status,rr.created_at
+             FROM knowledge_relation_review rr
+             JOIN knowledge_relation r ON r.id = rr.relation_id
+             WHERE r.source_id = ?1 OR r.target_id = ?1
+             ORDER BY rr.created_at DESC,rr.id DESC
+             LIMIT ?2",
+        )?;
+        let cap = limit.clamp(1, 100);
+        let rows = stmt.query_map(params![knowledge_id, (cap + 1) as i64], |row| {
+            Ok(KnowledgeRelationReview {
+                id: row.get(0)?,
+                relation_id: row.get(1)?,
+                source_id: row.get(2)?,
+                target_id: row.get(3)?,
+                previous_status: row.get(4)?,
+                next_status: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?;
+        let mut reviews = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        let truncated = reviews.len() > cap;
+        reviews.truncate(cap);
+        Ok(KnowledgeRelationReviewHistory { reviews, truncated })
     }
 
     /// Human decision is transactional and append-only in the review log.
@@ -536,11 +595,22 @@ mod tests {
 
         add_knowledge(&db, "manual-only", "same-display");
         let repo = RelationRepo::new(&db);
-        assert!(repo.suggest("k1", "k2", "corrects", "same display is insufficient", None).is_err());
-        assert!(repo.suggest("k3", "manual-only", "related", "mixed identity", None).is_err());
-        assert!(repo.suggest("k1", "k3", "corrects", "mixed identity", None).is_err());
-        let within_session = repo.suggest("k1", "k4", "related", "one source", None).unwrap();
-        assert_eq!(repo.review(&within_session.id, "confirmed").unwrap().status, "confirmed");
+        assert!(repo
+            .suggest("k1", "k2", "corrects", "same display is insufficient", None)
+            .is_err());
+        assert!(repo
+            .suggest("k3", "manual-only", "related", "mixed identity", None)
+            .is_err());
+        assert!(repo
+            .suggest("k1", "k3", "corrects", "mixed identity", None)
+            .is_err());
+        let within_session = repo
+            .suggest("k1", "k4", "related", "one source", None)
+            .unwrap();
+        assert_eq!(
+            repo.review(&within_session.id, "confirmed").unwrap().status,
+            "confirmed"
+        );
 
         let manual = repo.suggest("k1", "k4", "related", "duplicate", None);
         assert!(manual.is_err());
@@ -551,13 +621,19 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert!(repo.suggest("k2", "k3", "corrects", "same reviewed project", None).is_ok());
-        assert!(repo.suggest("k1", "k2", "corrects", "unverified vs bound", None).is_err());
+        assert!(repo
+            .suggest("k2", "k3", "corrects", "same reviewed project", None)
+            .is_ok());
+        assert!(repo
+            .suggest("k1", "k2", "corrects", "unverified vs bound", None)
+            .is_err());
 
         db.conn()
             .execute("UPDATE source_session SET is_missing = 1 WHERE id = 2", [])
             .unwrap();
-        assert!(repo.suggest("k2", "k3", "corrects", "missing source", None).is_err());
+        assert!(repo
+            .suggest("k2", "k3", "corrects", "missing source", None)
+            .is_err());
     }
 
     #[test]
@@ -586,13 +662,55 @@ mod tests {
                 .unwrap();
         }
         let repo = RelationRepo::new(&db);
-        let relation = repo.suggest("k1", "k2", "supersedes", "reviewed evidence", None).unwrap();
+        let relation = repo
+            .suggest("k1", "k2", "supersedes", "reviewed evidence", None)
+            .unwrap();
         db.conn()
             .execute("UPDATE source_session SET is_missing = 1 WHERE id = 2", [])
             .unwrap();
         assert!(repo.review(&relation.id, "confirmed").is_err());
         assert_eq!(repo.list("k1").unwrap()[0].status, "suggested");
-        assert_eq!(repo.review(&relation.id, "rejected").unwrap().status, "rejected");
+        assert_eq!(
+            repo.review(&relation.id, "rejected").unwrap().status,
+            "rejected"
+        );
+    }
+
+    #[test]
+    fn review_history_is_durable_ordered_bounded_and_includes_rejected_reviews() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("review-history.db");
+        let db = StateDb::open(&path).unwrap();
+        add_knowledge(&db, "source", "manual-scope");
+        add_knowledge(&db, "target", "manual-scope");
+        let repo = RelationRepo::new(&db);
+        let proposed = repo
+            .suggest("source", "target", "corrects", "review evidence", None)
+            .unwrap();
+        assert!(repo.review_history("source", 100).unwrap().reviews.is_empty());
+        assert!(repo.review_history("", 100).is_err());
+        repo.review(&proposed.id, "confirmed").unwrap();
+        repo.review(&proposed.id, "rejected").unwrap();
+        repo.review(&proposed.id, "rejected").unwrap();
+        let all = repo.review_history("source", 100).unwrap();
+        assert_eq!(all.reviews.len(), 2);
+        assert!(!all.truncated);
+        assert!(all.reviews.iter().any(|r| {
+            r.source_id == "source"
+                && r.target_id == "target"
+                && r.previous_status == "suggested"
+                && r.next_status == "confirmed"
+        }));
+        assert!(all.reviews.iter().any(|r| r.next_status == "rejected"));
+        let one = repo.review_history("target", 1).unwrap();
+        assert_eq!(one.reviews.len(), 1);
+        assert!(one.truncated);
+        drop(db);
+
+        let db = StateDb::open(&path).unwrap();
+        let reopened = RelationRepo::new(&db).review_history("target", 100).unwrap();
+        assert_eq!(reopened.reviews.len(), 2);
+        assert!(reopened.reviews.iter().any(|r| r.next_status == "rejected"));
     }
 
     #[test]

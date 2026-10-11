@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary, OrganizationAuditEntry } from "../api/types";
+import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationReviewHistory, KnowledgeSummary, OrganizationAuditEntry } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
 import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
@@ -41,6 +41,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [relationEvidence, setRelationEvidence] = useState("");
   const [relationBusy, setRelationBusy] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  const [relationReviewHistory, setRelationReviewHistory] = useState<KnowledgeRelationReviewHistory | null>(null);
+  const [relationReviewHistoryError, setRelationReviewHistoryError] = useState("");
+  const [relationReviewHistoryRevision, setRelationReviewHistoryRevision] = useState(0);
   const [organizeOperation, setOrganizeOperation] = useState<AiAssistOperation>("structure");
   const [organizeDraft, setOrganizeDraft] = useState("");
   const [organizeBusy, setOrganizeBusy] = useState(false);
@@ -163,6 +166,18 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     return () => { active = false; };
   }, [knowledgeId]);
 
+  useEffect(() => {
+    let active = true;
+    setRelationReviewHistory(null);
+    setRelationReviewHistoryError("");
+    void getApi().getKnowledgeRelationReviews(knowledgeId).then(history => {
+      if (active) setRelationReviewHistory(history);
+    }).catch(reason => {
+      if (active) setRelationReviewHistoryError("关系人工审核历史读取失败：" + String(reason));
+    });
+    return () => { active = false; };
+  }, [knowledgeId, relationReviewHistoryRevision]);
+
   const suggestRelation = async () => {
     setRelationBusy(true);
     setRelationError(null);
@@ -186,6 +201,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       const updated = await getApi().reviewKnowledgeRelation(id, decision);
       setRelations(current => current.map(item => item.id === id ? updated : item));
+      setRelationReviewHistoryRevision(value => value + 1);
     } catch (error) {
       setRelationError("关系审核失败：" + String(error));
     } finally {
@@ -558,6 +574,40 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               </div>
             );
           })}
+        </div>
+        <div className="mt-4 border-t border-gray-200 pt-3 text-xs dark:border-gray-700">
+          <h3 className="font-semibold">人工审核历史（本地持久记录）</h3>
+          <p className="mt-1 text-gray-500">
+            显示关系状态由「建议」到「确认」或「拒绝」的人工审核轨迹；审核时间不等于知识生效时间。
+            记录不会因后来修改项目归属、拒绝建议或归档知识而自动清除。
+          </p>
+          {relationReviewHistoryError && (
+            <p role="alert" className="mt-2 text-red-600">{relationReviewHistoryError}</p>
+          )}
+          {relationReviewHistory && relationReviewHistory.reviews.length === 0 && (
+            <p className="mt-2 text-gray-400">尚无本知识的关系人工审核记录。</p>
+          )}
+          <ol className="mt-2 space-y-2">
+            {relationReviewHistory?.reviews.map(review => (
+              <li key={review.id} className="rounded border p-2 dark:border-gray-700">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{review.previous_status} → {review.next_status}</span>
+                  <span className="text-gray-500">审核于 {review.created_at}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 break-all">
+                  <button type="button" disabled={!onOpenKnowledge}
+                    onClick={() => onOpenKnowledge?.(review.source_id)}
+                    className="text-blue-600 disabled:text-gray-500">来源知识 {review.source_id}</button>
+                  <button type="button" disabled={!onOpenKnowledge}
+                    onClick={() => onOpenKnowledge?.(review.target_id)}
+                    className="text-blue-600 disabled:text-gray-500">目标知识 {review.target_id}</button>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {relationReviewHistory?.truncated && (
+            <p className="mt-2 text-amber-700">仅展示最近 100 次审核，历史记录可能更多。</p>
+          )}
         </div>
       </section>
 

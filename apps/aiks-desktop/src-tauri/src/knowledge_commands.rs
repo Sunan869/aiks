@@ -414,6 +414,19 @@ pub async fn list_knowledge_relations(
         .map_err(|error| error.to_string())
 }
 
+/// Read-only human decisions, including rejected/archived relation history.
+#[tauri::command]
+pub async fn list_knowledge_relation_reviews(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeRelationReviewHistory, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .review_history(&knowledge_id, 100)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn review_knowledge_relation(
     relation_id: String,

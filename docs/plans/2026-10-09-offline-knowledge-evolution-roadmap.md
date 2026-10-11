@@ -602,3 +602,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 本批重新定义权威关系边界：两端都有可靠路径身份（含人工项目归属 `project_session_binding`）时必须相同；两端路径都无法核实时仅允许**确属同一 canonical Session** 的两条知识；两端皆为用户手动知识且明示相同非空项目名时，仍允许用户主动提出证据关系，保留原有手工工作流；**不同路径状态的混合、不同的无路径 Session 同名匹配、缺失源 Session 一律拒绝**。人工可以先使用 S3.1 已有本地项目归属修正显式归组，再重新提交。确认时在事务中再次校验当前范围，拒绝时保留原有审核证据而不要求来源可用。
 - Rust Core 补真实 SQLite 回归，覆盖同名无路径跨 Provider 拒绝、同 Session 无路径允许、人工归属之后允许、混合已验证/未验证拒绝、源 Session 丢失后禁止新增及确认但允许拒绝；保留现有人工手工同项目关系案例。Desktop Mock 建立同等建议/确认边界，避免前端测试误将显示名作为关系凭据；知识详情候选不再仅凭 mutable `project_name` 隐藏同路径跨 Provider 合法来源，说明候选列表本身不是授权结果。
 - `docs/acceptance/project-relation-source-isolation.md` 提供真实 Windows 三 Provider + SQLite/SiYuan 负例入口。**不将来源绑定/同路径关系推导为客观事实矛盾**，关系仍先建议、待用户确认；不修改来源知识、Provider、SiYuan 文档，也不新增 migration。新 HEAD 尚待独立 CI 和 Windows 真机人工确认，S1.3 完整备份恢复继续排在其他代码级功能之后。
+
+### 2026-10-11 S2.3 关系审核历史的持久可查看闭环
+
+- 基线 HEAD `bb1a69df` 的 Windows Provider `38127971955` 成功，综合 CI `38127971922` 在新增 `relation_repo.rs` 的 `rustfmt` 检查失败，其余 Windows Desktop 编译/前端/仓库卫生完成，Rust Clippy/tests 尚未执行。本批按完整 CI diff 修复全部格式差异，与关系审核历史功能合为**一次**多文件提交。
+- 业务缺口：SQLite `knowledge_relation_review` 自 migration 013 起已真实、事务化记录确认/拒绝的前后状态，但客户端只看到关系当前状态和 `updated_at`，**无法查出之前确认 → 撤销 → 再确认的完整人工决定轨迹**。知识关系和原始 Session 的来源可读，不等于用户能够审计何时由谁（当前仅本地匿名用户）确认和撤销。
+- 本批扩展现有 Core `RelationRepo::review_history`：只读联结现有 `knowledge_relation_review` 与 `knowledge_relation`，按来源或目标知识 ID 读取人工审核历史，返回原知识两端 ID、关系 ID、previous/next status、审核时间。固定最多 100 条并给出截断状态；包含 rejected/归档来源后仍保留的历史，永不基于审核时间伪造决策生效时间、不改变 Knowledge 文本。重复提交相同状态不会新增伪审核记录，继续依赖事务写入。
+- 新增 Tauri `list_knowledge_relation_reviews` 和统一 API/Mock，知识详情展示独立的「人工审核历史（本地持久记录）」板块，提供每次审核时间、前后状态和两端 Knowledge 详情链接。知识详情/项目切换时取消过期异步结果；人工审核后刷新历史；UI 区分关系演进的已确认视图与不可篡改的用户决策历史。
+- 增加 Rust SQLite reopen、两端查询、重复审核幂等、状态转移及有界截断回归，与前端 Mock/UI 契约测试；补 `docs/acceptance/knowledge-relation-review-history.md`。**不新建 migration、Provider 写回、SiYuan 自动覆盖，也不将 CI 通过冒充真实 Windows/模型验收**。剩余六优化/五功能仍需最终逐项核对，S1.3 完整备份/恢复最后实现。

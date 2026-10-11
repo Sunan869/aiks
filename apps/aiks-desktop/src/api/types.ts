@@ -353,6 +353,21 @@ export interface KnowledgeRelation {
   updated_at: string;
 }
 
+export interface KnowledgeRelationReview {
+  id: string;
+  relation_id: string;
+  source_id: string;
+  target_id: string;
+  previous_status: KnowledgeRelationStatus;
+  next_status: "confirmed" | "rejected";
+  created_at: string;
+}
+
+export interface KnowledgeRelationReviewHistory {
+  reviews: KnowledgeRelationReview[];
+  truncated: boolean;
+}
+
 export interface ProjectOverview {
   id: string;
   title: string;
