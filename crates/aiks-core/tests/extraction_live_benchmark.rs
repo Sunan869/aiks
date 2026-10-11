@@ -288,13 +288,7 @@ fn production_gate_and_metrics_are_computed_from_actual_output_not_fixture_label
         "worth_extracting": true,
         "items": []
     });
-    let empty_positive = observation(
-        positive,
-        1,
-        Some(&empty_positive.to_string()),
-        12,
-        None,
-    );
+    let empty_positive = observation(positive, 1, Some(&empty_positive.to_string()), 12, None);
     assert!(empty_positive.production_schema_valid);
     assert!(!empty_positive.skip_match);
     assert_eq!(empty_positive.term_hits, 0);

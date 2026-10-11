@@ -436,3 +436,9 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 综合 CI `38104969064` 在 `extraction_live_benchmark.rs` 的五处 `rustfmt` 检查失败；Windows Provider `38104969158` 成功，综合 CI 的 Clippy/Rust 测试未运行。根据 CI 原始 diff 逐处修正，不把 Windows 编译成功误认为 Rust 测试成功。
 - 修复实时模型评测的正例判定：模型声称 `worth_extracting=true` 但知识列表为空时不能计入正确提炼；增加生产 schema 可以通过但实际没有提炼到应有内容的负例回归，保留原始 `term_total` 遗漏统计。
 - 更新对应验收文档。新 HEAD 仍需通过完整自动化 CI，真实模型输出/Windows 实机评审没有执行；完整备份继续留待最后。
+
+### 2026-10-11 S2.1 实时评测 CI 失败收尾（最新 HEAD 待自动化验证）
+
+- 检查 `a0440174` 的 `38105589829`：Windows Desktop、前端和仓库卫生均通过；Rust 质量任务在唯一一处 `cargo fmt --all --check` 代码换行失败，Clippy/Rust tests 被跳过；Windows Provider `38105589845` 成功。
+- 本次按 CI 的格式差异直接修复 `extraction_live_benchmark.rs`，保留上轮已经实现的正例空知识项拒绝逻辑及其回归断言。未来必须以新 HEAD 的完整 Rust 测试和 Clippy 结果判定是否合格。
+- 未执行真实模型或 Windows 实机评测；S1.3 完整备份与恢复仍待全部其他功能/优化后最后实施。
