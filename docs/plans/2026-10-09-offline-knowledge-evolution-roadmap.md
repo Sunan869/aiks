@@ -539,3 +539,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 检查项目人工归属后的真实业务一致性发现：项目分组的展示标题取本组先遇到的 Session，而原 SQL 按最近 `source_session.updated_at` 排序。如果绑定过来的 Session 较新且它的旧项目名与目标项目不同，可能错误把目标项目标题改成旧名字。修复为先从仍然按 Provider 原始绝对路径归组的 Session 选择项目显示标题，再聚合手工绑定成员；组内来源、数量、知识和分组身份仍完整计算，用户人工归属不会更名原项目或更改 canonical 路径。
 - 同步修复前端 Mock 数据的一致性：只按 canonical 未绑定 Session 优先确定项目标题，项目知识计数根据实际源 Session 所属组汇总，而非靠可变项目显示名字符串推断。增加迁入/撤销 Session 时知识数、归组证据与原始来源 `project_name` 不变的回归测试。这些只是 SQLite/Mock 代码验证，不是用户真实 Windows 试运行或模型质量测量。
 - 新 HEAD 自动化必须独立验证；沿用 local-first、Provider 只读、SiYuan 人工文档不覆盖、V15 migration 前向兼容和完整备份 S1.3 最后实施的约束。
+
+### 2026-10-11 S3.4 受控多来源知识整理：后端权威项目身份校验
+
+- `2b80a7f` 的综合 CI `38121719301` 与 Windows Provider `38121719376` 均成功。再次审查受控多来源整理入口发现：已有 `validateOrganizationSources` 仅比较客户端获取的可变 `project_name`，未校验底层真实 Session 工作目录。两个**同名不同绝对路径**的项目知识可能被当作同项目传给用户配置的模型并创建合并草稿，存在跨项目证据混合风险。
+- 本批实现独立 `OrganizationScopeGuard`，后端直接查询**当前** `knowledge_item`、`source_session` 与 S3.1 已有的人工项目归属 `project_session_binding`。拒绝无效/重复/超过 5 个知识 ID、归档知识、缺失 Session；对于多来源要求双方当前都有**相同已验证绝对路径身份**，或者确实来自同一个 canonical Session。来源是手动知识或路径无法核实时只允许单条整理；不能仅凭展示标题/项目名相同合并多个来源。
+- 通过只读 Tauri 命令 `validate_organization_scope` 和 TypeScript API 调用，在**模型请求前**、以及**用户审阅草稿后即将创建独立知识前**分别验证一次。原有前端内容快照/人工确认/双击写入门禁继续使用；这项改动补足权威项目身份门禁，不承诺跨网络/SiYuan 事务的完全原子化。若校验失败应显式提示用户并停止该次流程，不自动更改任何资料。
+- 包含真实 SQLite 测试：同名不同路径拒绝、跨 Provider 同路径接受、归档/缺失拒绝、人工归属覆盖后安全通过、原始 Provider 路径不变、无来源/手动知识与超限拒绝。Mock 与 UI 回归验证两次后端调用，新增 `docs/acceptance/organization-source-scope.md` 作为 Windows/真实模型负例入口。
+- 不涉及数据库迁移，不把模型输出、固定 Mock 或 CI 测试结果视为 Windows 真机与真实模型验收。仍保留个人离线、Provider 只读、SiYuan 原文人工编辑保护；S1.3 完整备份和恢复继续最后实现。

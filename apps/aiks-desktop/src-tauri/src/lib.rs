@@ -172,6 +172,7 @@ pub fn run() {
             knowledge_commands::list_knowledge_relations,
             knowledge_commands::review_knowledge_relation,
             knowledge_commands::create_knowledge,
+            knowledge_commands::validate_organization_scope,
             knowledge_commands::update_knowledge,
             knowledge_commands::set_knowledge_favorite,
             knowledge_commands::archive_knowledge,

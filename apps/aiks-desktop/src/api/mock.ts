@@ -337,6 +337,38 @@ export class MockAiksApi implements AiksApi {
     return { ...relation };
   }
 
+  async validateOrganizationScope(knowledgeIds: string[]): Promise<boolean> {
+    await delay();
+    if (knowledgeIds.length < 1 || knowledgeIds.length > 5 ||
+        new Set(knowledgeIds).size !== knowledgeIds.length) {
+      throw new Error("Organization source count or identity is invalid");
+    }
+    let verifiedProject: string | null = null;
+    let firstSessionId: number | null = null;
+    let firstSeen = false;
+    for (const id of knowledgeIds) {
+      const item = knowledge.find(entry => entry.id === id);
+      if (!item || item.status !== "active") throw new Error("Source knowledge is not active");
+      const session = sessions.find(entry => entry.id === item.session_id);
+      if (item.session_id !== null && !session) throw new Error("Source Session missing");
+      const projectPath = session
+        ? (localProjectBindings.get(session.id)?.project_id || session.project_path)
+        : null;
+      if (firstSeen) {
+        const sameVerified = Boolean(projectPath && verifiedProject === projectPath);
+        const sameSession = Boolean(session && firstSessionId === session.id);
+        if (!sameVerified && !sameSession) {
+          throw new Error("Different or unverified source projects cannot be merged");
+        }
+      } else {
+        verifiedProject = projectPath ?? null;
+        firstSessionId = session?.id ?? null;
+      }
+      firstSeen = true;
+    }
+    return true;
+  }
+
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
     await delay();
     const now = new Date().toISOString();

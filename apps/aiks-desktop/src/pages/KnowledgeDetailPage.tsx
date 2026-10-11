@@ -175,6 +175,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       // giving their contents to the model: a record can change while loading.
       validateOrganizationSources(data, others);
       const sources = [data, ...others];
+      await getApi().validateOrganizationScope(sources.map(source => source.id));
       const sourceIds = sources.map(item => item.id);
       const sourceContext = buildOrganizationSourceContext(sources);
       const suggestion = await getApi().assistKnowledge({
@@ -215,6 +216,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         throw new Error("知识来源身份已变化，请重新生成并审核草稿");
       }
       validateOrganizationSources(currentSources[0], currentSources.slice(1));
+      await getApi().validateOrganizationScope(currentSources.map(source => source.id));
       if (organizationSourceSnapshot(currentSources) !== organizeSourceSnapshot) {
         throw new Error("来源知识内容或元数据已变化，请重新生成并审核草稿");
       }

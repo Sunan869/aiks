@@ -1,3 +1,4 @@
+use aiks_core::knowledge::OrganizationScopeGuard;
 use aiks_core::{CreateKnowledgeInput, KnowledgeListFilter, KnowledgeRecord, KnowledgeService};
 use serde::Deserialize;
 use tauri::State;
@@ -102,6 +103,21 @@ pub async fn get_knowledge_detail_v4(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Knowledge item not found: {knowledge_id}"))?;
     Ok(to_json(item))
+}
+
+/// Validate canonical Session/project identities immediately before each
+/// AI-assisted multi-source read and reviewed write. This endpoint is read-only.
+#[tauri::command]
+pub fn validate_organization_scope(
+    knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationScopeGuard::new(&db)
+        .validate(&knowledge_ids)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 #[tauri::command]
