@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
-import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview, ProjectSessionBinding, SessionItem } from "../api/types";
+import type { ProjectEvolutionSnapshot, ProjectMemoryEntry, ProjectMemorySnapshot, ProjectOverview, ProjectReportDraft, ProjectSessionBinding, SessionItem } from "../api/types";
 import { PROJECT_MEMORY_TOPICS, countProjectMemoryTopics, groupProjectMemoryUpdates, recordedUpdateDay, selectProjectMemoryEntries, type ProjectMemoryTopicFilter } from "../project-memory-view";
 import { summarizeProjectMemoryQuality } from "../project-memory-quality";
+import { reportDateRange } from "../project-report-dates";
 
 interface Props {
   onOpenKnowledge: (knowledgeId: string) => void;
@@ -41,11 +42,17 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [relationBusy, setRelationBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
-  const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 86400000).toISOString().slice(0,10));
-  const [through, setThrough] = useState(() => new Date().toISOString().slice(0,10));
+  const [from, setFrom] = useState(() => reportDateRange("week", new Date()).from);
+  const [through, setThrough] = useState(() => reportDateRange("today", new Date()).through);
   const [tokenBudget, setTokenBudget] = useState(2000);
   const [preview, setPreview] = useState("");
   const [previewType, setPreviewType] = useState<"review" | "agent" | "">("");
+  const [reportDrafts, setReportDrafts] = useState<ProjectReportDraft[]>([]);
+  const [reportDraftId, setReportDraftId] = useState<string | null>(null);
+  const [reportCurrentRevision, setReportCurrentRevision] = useState(0);
+  const [reportViewedRevision, setReportViewedRevision] = useState(0);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
   const generation = useRef(0);
   const projectGeneration = useRef(0);
   const [notice, setNotice] = useState("");
@@ -94,6 +101,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     projectGeneration.current += 1;
     setPreview("");
     setPreviewType("");
+    setReportDrafts([]);
+    setReportDraftId(null);
+    setReportCurrentRevision(0);
+    setReportViewedRevision(0);
+    setReportError("");
+    setReportBusy(false);
     setNotice("");
     setWorking(false);
     setDetail(null);
@@ -109,6 +122,11 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     void api.getProjectMemory(selected).then(snapshot => {
       if (mounted) setDetail(snapshot);
     }).catch(reason => { if (mounted) setError(String(reason)); });
+    void api.listProjectReportDrafts(selected).then(rows => {
+      if (mounted) setReportDrafts(rows);
+    }).catch(reason => {
+      if (mounted) setReportError("读取本地报告草稿失败：" + String(reason));
+    });
     void api.getProjectEvolution(selected).then(snapshot => {
       if (mounted) setEvolution(snapshot);
     }).catch(reason => {
@@ -123,6 +141,9 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     generation.current += 1;
     setPreview("");
     setPreviewType("");
+    setReportDraftId(null);
+    setReportCurrentRevision(0);
+    setReportViewedRevision(0);
     setNotice("");
     setWorking(false);
   };
@@ -204,12 +225,82 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         : await getApi().createAgentContextPack(selected, tokenBudget, sourceFilter || undefined);
       if (requestId !== generation.current) return;
       setPreviewType(kind);
+      setReportDraftId(null);
+      setReportCurrentRevision(0);
+      setReportViewedRevision(0);
       setPreview(kind === "agent" ? renderAgentSuggestion(output, agentFormat) : output);
     } catch (reason) {
       if (requestId === generation.current) setError(String(reason));
     } finally {
       if (requestId === generation.current) setWorking(false);
     }
+  };
+
+  const openSavedReport = async (id: string, revision?: number) => {
+    if (!id || !selected || reportBusy) return;
+    if (preview.trim() && !window.confirm(
+      "载入历史报告会替换当前尚未保存的预览编辑，是否继续？"
+    )) return;
+    const activeProject = selected;
+    const requestId = ++generation.current;
+    setReportBusy(true);
+    setReportError("");
+    try {
+      const saved = await getApi().getProjectReportDraft(id, revision);
+      if (generation.current !== requestId || selected !== activeProject) return;
+      if (saved.draft.project_id !== activeProject) {
+        throw new Error("历史报告项目身份不匹配");
+      }
+      setFrom(saved.draft.from_date);
+      setThrough(saved.draft.through_date);
+      setSourceFilter(saved.draft.source_filter || "");
+      setPreview(saved.body);
+      setPreviewType("review");
+      setReportDraftId(saved.draft.id);
+      setReportCurrentRevision(saved.draft.current_revision);
+      setReportViewedRevision(saved.revision);
+      setNotice("已载入本地报告修订 v" + saved.revision + "，再次保存只会追加新版本。");
+    } catch (reason) {
+      setReportError("载入报告草稿失败：" + String(reason));
+    } finally {
+      if (selected === activeProject) setReportBusy(false);
+    }
+  };
+
+  const saveReviewedReport = async () => {
+    if (!selected || previewType !== "review" || !preview.trim() || reportBusy) return;
+    if (!window.confirm(
+      "保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。"
+    )) return;
+    const activeProject = selected;
+    const requestId = generation.current;
+    setReportBusy(true);
+    setReportError("");
+    try {
+      const saved = await getApi().saveProjectReportDraft(
+        reportDraftId, activeProject, from, through,
+        sourceFilter || null, reportCurrentRevision, preview,
+      );
+      if (generation.current !== requestId || selected !== activeProject) return;
+      setReportDraftId(saved.draft.id);
+      setReportCurrentRevision(saved.revision);
+      setReportViewedRevision(saved.revision);
+      setReportDrafts(await getApi().listProjectReportDrafts(activeProject));
+      setNotice("已保存本地回顾版本 v" + saved.revision + "。历史版本没有被覆盖。");
+    } catch (reason) {
+      if (selected === activeProject) {
+        setReportError("保存报告失败：" + String(reason) + "。若版本已变化请重新载入。");
+      }
+    } finally {
+      if (selected === activeProject) setReportBusy(false);
+    }
+  };
+
+  const chooseReportRange = (kind: "today" | "week") => {
+    invalidatePreview();
+    const range = reportDateRange(kind, new Date());
+    setFrom(range.from);
+    setThrough(range.through);
   };
 
   const copyPreview = async () => {
@@ -465,6 +556,10 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </select>
             </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
+              <button type="button" onClick={() => chooseReportRange("today")}
+                className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</button>
+              <button type="button" onClick={() => chooseReportRange("week")}
+                className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</button>
               <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => { invalidatePreview(); setFrom(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => { invalidatePreview(); setThrough(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
@@ -495,6 +590,38 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </label>
               <button disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</button>
             </div>
+            <div className="mb-3 rounded border border-gray-200 p-3 text-xs dark:border-gray-700">
+              <h3 className="font-medium">本地回顾草稿与历史修订</h3>
+              <p className="mt-1 text-gray-500">
+                已审核的 Markdown 可显式保存到当前 AIKS 数据库；再次保存追加修订，
+                不覆盖过去的人工编辑，也不会发送到 SiYuan、邮件或 Provider。
+                历史最多显示最近 100 份报告。
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select aria-label="已保存回顾草稿" value={reportDraftId || ""}
+                  className="max-w-full flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
+                  onChange={event => void openSavedReport(event.target.value)}
+                  disabled={reportBusy}>
+                  <option value="">选择已保存的本地回顾</option>
+                  {reportDrafts.map(item => (
+                    <option value={item.id} key={item.id}>
+                      {item.from_date}～{item.through_date} · v{item.current_revision} · {item.source_filter || "全部来源"}
+                    </option>
+                  ))}
+                </select>
+                {reportDraftId && (
+                  <select aria-label="回顾历史修订版本" value={reportViewedRevision}
+                    className="rounded border bg-transparent p-2 dark:border-gray-700"
+                    disabled={reportBusy} onChange={event => void openSavedReport(
+                      reportDraftId, Number(event.target.value)
+                    )}>
+                    {Array.from({ length: reportCurrentRevision }, (_, index) => index + 1)
+                      .map(number => <option key={number} value={number}>v{number}</option>)}
+                  </select>
+                )}
+              </div>
+              {reportError && <p className="mt-2 text-red-600" role="alert">{reportError}</p>}
+            </div>
             {previewType && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-500">{previewType === "review" ? "回顾 Markdown" : agentFormat === "markdown" ? "Agent Markdown" : `${agentFormat === "agents" ? "AGENTS.md" : "CLAUDE.md"} 建议片段`} · 可编辑预览</p>
@@ -502,7 +629,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                   className="w-full rounded border bg-transparent p-3 font-mono text-xs dark:border-gray-700" />
                 <div className="flex flex-wrap gap-2">
                   <button disabled={!preview.trim()} onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">复制审核后的 Markdown</button>
-                  <button disabled={!preview.trim()} onClick={downloadPreview} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">保存审核后的 Markdown</button>
+                  <button disabled={!preview.trim()} onClick={downloadPreview} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">导出 Markdown 文件</button>
+                  {previewType === "review" && (
+                    <button type="button" disabled={!preview.trim() || reportBusy}
+                      onClick={() => void saveReviewedReport()}
+                      className="rounded border border-emerald-500 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
+                      {reportBusy ? "保存中…" : reportDraftId
+                        ? "保存为新的本地修订 v" + (reportCurrentRevision + 1)
+                        : "保存到本地报告草稿"}
+                    </button>
+                  )}
                 </div>
               </div>
             )}

@@ -610,3 +610,12 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 本批扩展现有 Core `RelationRepo::review_history`：只读联结现有 `knowledge_relation_review` 与 `knowledge_relation`，按来源或目标知识 ID 读取人工审核历史，返回原知识两端 ID、关系 ID、previous/next status、审核时间。固定最多 100 条并给出截断状态；包含 rejected/归档来源后仍保留的历史，永不基于审核时间伪造决策生效时间、不改变 Knowledge 文本。重复提交相同状态不会新增伪审核记录，继续依赖事务写入。
 - 新增 Tauri `list_knowledge_relation_reviews` 和统一 API/Mock，知识详情展示独立的「人工审核历史（本地持久记录）」板块，提供每次审核时间、前后状态和两端 Knowledge 详情链接。知识详情/项目切换时取消过期异步结果；人工审核后刷新历史；UI 区分关系演进的已确认视图与不可篡改的用户决策历史。
 - 增加 Rust SQLite reopen、两端查询、重复审核幂等、状态转移及有界截断回归，与前端 Mock/UI 契约测试；补 `docs/acceptance/knowledge-relation-review-history.md`。**不新建 migration、Provider 写回、SiYuan 自动覆盖，也不将 CI 通过冒充真实 Windows/模型验收**。剩余六优化/五功能仍需最终逐项核对，S1.3 完整备份/恢复最后实现。
+
+### 2026-10-11 S3.2 日报/周报本地草稿修订与重启恢复（代码级）
+
+- 核对当前 `a10bb5cf`：Windows Provider `38129480892` 成功，综合 CI `38129480853` 的 Windows Desktop、Desktop 前端和仓库卫生成功，但 Rust quality 在 `relation_repo.rs` 两段测试断言 rustfmt 差异失败，Clippy/Rust tests 因此未执行。本批根据 CI 完整 diff 同时修复这两处 Rust 格式并完成一个完整 S3.2 功能模块，避免微提交重复触发 Actions。
+- 真正的业务缺口：现有工作回顾 `render_project_review_scoped` 已可从本地 Project Memory 按日期/来源引用可核实的知识并生成 Markdown，Desktop 允许临时编辑/复制/导出，但**编辑后的报告只存在 React 状态；退出/切换项目后丢失，无法恢复早期修订**。日报/周报也没有便捷本地日历区间选择，只能手填日期。
+- 新增独立 **V17 additive SQLite migration** `016_project_report_drafts.sql`，分别保存稳定的 `project_report_draft` 身份、固定的项目/时间/来源范围、当前修订号和独立不可覆盖的 `project_report_revision` Markdown。Core `ProjectReportDraftService` 用 SQLite immediate transaction 写入，编辑采用 expected_revision 乐观并发保护：旧版本保留，过期窗口保存失败而不是覆盖新稿；不同项目/日期/来源不得用同一草稿 ID 静默换范围。内容仅在用户明确点击保存后写入本地 SQLite，禁止任何自动网络发布/自动修改 Provider/SiYuan/项目文件。
+- Desktop 新增「今天（日报）」「本周（周报）」日期预设，按用户 Windows **本地日期**而非 UTC 截断；保留原有任意日期/项目/Provider 选择。已审核回顾 Markdown 可点击本地保存或继续人工修改后追加 v2/v3，切换项目/重启后可列出已保存草稿并载入任一历史修订。载入将替换未保存预览时要求明确确认；从旧版本另存也追加为新修订，不覆写之前内容。草稿列表最多显示 100 份，每篇报表字节大小限制 250000；仍支持原来的仅下载独立 Markdown 文件。
+- 新增 Tauri `list/get/save_project_report_draft` 命令、Desktop API/Mock、真实 SQLite reopen/修订 CAS/越权范围测试及前端日期/版本/无静默发布回归。此功能仍是**按 Knowledge 更新时间组织证据的可编辑工作回顾草稿**，不等于已验证的项目交付/真实发生时间、模型自动周报质量、真实性标注已由人核验；真实 Windows 连续采集、多时区和 SiYuan 仍须集中人工验收。
+- 沿用 S3.2 的只读项目报告生成，不新增云依赖。不合并 main、不发布 Release、不自动写入 SiYuan 用户文档；S1.3 完整备份恢复仍在其余代码模块完成后最后实施。新 HEAD 综合 CI 和 Provider 状态需单独验证。

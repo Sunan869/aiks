@@ -12,6 +12,8 @@ import type {
   OrganizationAuditEntry,
   ProjectOverview,
   ProjectMemorySnapshot,
+  ProjectReportDraft,
+  ProjectReportVersion,
   ProjectSessionBinding,
   ProjectEvolutionSnapshot,
   KnowledgeFeedback,
@@ -60,6 +62,9 @@ export interface AiksApi {
   clearProjectSessionBinding(sessionId: number): Promise<boolean>;
   getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot>;
   createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string>;
+  listProjectReportDrafts(projectId: string): Promise<ProjectReportDraft[]>;
+  getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion>;
+  saveProjectReportDraft(draftId: string | null, projectId: string, from: string, through: string, source: string | null, expectedRevision: number, body: string): Promise<ProjectReportVersion>;
   createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
   getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;

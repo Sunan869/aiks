@@ -6,7 +6,7 @@ import { isReviewedOrganizationOperation } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
   Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
-  KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeRelationReview, KnowledgeRelationReviewHistory, ProjectOverview, ProjectMemorySnapshot, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
+  KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeRelationReview, KnowledgeRelationReviewHistory, ProjectOverview, ProjectMemorySnapshot, ProjectReportDraft, ProjectReportVersion, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
   WorkbenchBounds, WorkbenchStatus, WorkspaceMode, V41Diagnostics, FullStatus, AiStatus, ShareImportResult,
@@ -17,6 +17,9 @@ const knowledgeRelations: KnowledgeRelation[] = [];
 const relationReviews: KnowledgeRelationReview[] = [];
 const organizationAuditHistory: OrganizationAuditEntry[] = [];
 const localKnowledgeContent = new Map<string, string>();
+const reportDrafts = new Map<string, ProjectReportDraft>();
+const reportRevisions = new Map<string, ProjectReportVersion[]>();
+let reportSequence = 0;
 let nextManualKnowledgeId = 0;
 const localProjectBindings = new Map<number, ProjectSessionBinding>();
 
@@ -296,6 +299,63 @@ export class MockAiksApi implements AiksApi {
       updated_at: relation.updated_at,
     }));
     return { links: links.slice(0, 100), truncated: links.length > 100 };
+  }
+
+  async listProjectReportDrafts(projectId: string): Promise<ProjectReportDraft[]> {
+    await delay();
+    return [...reportDrafts.values()].filter(item => item.project_id === projectId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .slice(0, 100).map(item => ({ ...item }));
+  }
+
+  async getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion> {
+    await delay();
+    const rows = reportRevisions.get(draftId) || [];
+    const item = rows.find(value => value.revision === (revision ?? rows.length));
+    if (!item) throw new Error("Report revision not found");
+    return { ...item, draft: { ...reportDrafts.get(draftId)! } };
+  }
+
+  async saveProjectReportDraft(
+    draftId: string | null, projectId: string, from: string, through: string,
+    source: string | null, expectedRevision: number, body: string,
+  ): Promise<ProjectReportVersion> {
+    await delay();
+    const projects = await this.getProjectMemories();
+    const project = projects.find(item => item.id === projectId);
+    if (!project) throw new Error("Project not found");
+    if (source && !project.sources.includes(source)) throw new Error("Unknown project source");
+    const parse = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(new Date(date + "T00:00:00Z").getTime()) &&
+      new Date(date + "T00:00:00Z").toISOString().slice(0, 10) === date;
+    if (!parse(from) || !parse(through) || from > through) throw new Error("Invalid date range");
+    if (!body.trim() || new TextEncoder().encode(body).length > 250000) {
+      throw new Error("Invalid reviewed report length");
+    }
+    const previous = draftId ? reportDrafts.get(draftId) : undefined;
+    if (draftId && !previous) throw new Error("Report draft not found");
+    if ((previous?.current_revision ?? 0) !== expectedRevision) {
+      throw new Error("Report revision changed; reload before saving");
+    }
+    if (previous && (previous.project_id !== projectId ||
+        previous.from_date !== from || previous.through_date !== through ||
+        previous.source_filter !== source)) {
+      throw new Error("Saved report scope cannot change");
+    }
+    const now = new Date().toISOString();
+    const id = draftId || "report_" + (++reportSequence);
+    const draft: ProjectReportDraft = previous
+      ? { ...previous, current_revision: expectedRevision + 1, updated_at: now }
+      : {
+        id, project_id: projectId, from_date: from, through_date: through,
+        source_filter: source, current_revision: 1, created_at: now, updated_at: now,
+      };
+    reportDrafts.set(id, draft);
+    const version: ProjectReportVersion = {
+      draft: { ...draft }, revision: draft.current_revision, body, saved_at: now,
+    };
+    reportRevisions.set(id, [...(reportRevisions.get(id) || []), version]);
+    return version;
   }
 
   async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> {

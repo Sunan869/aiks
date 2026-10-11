@@ -2,6 +2,7 @@ use crate::app_state::AppState;
 use aiks_core::knowledge::{
     render_agent_context_scoped, render_project_review_scoped, ProjectEvolutionService,
     ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview,
+    ProjectReportDraft, ProjectReportDraftInput, ProjectReportDraftService, ProjectReportVersion,
     ProjectSessionBinding, ProjectSessionBindingService,
 };
 use tauri::State;
@@ -92,6 +93,66 @@ pub async fn create_project_review(
         .get_review_scoped(&project_id, 200, source.as_deref(), &from, &through)
         .map_err(|error| error.to_string())?;
     render_project_review_scoped(&snapshot, &from, &through, source.as_deref())
+        .map_err(|error| error.to_string())
+}
+
+/// S3.2: read-only draft list; unlike export this never contacts any service.
+#[tauri::command]
+pub async fn list_project_report_drafts(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProjectReportDraft>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectReportDraftService::new(&db)
+        .list(&project_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_project_report_draft(
+    draft_id: String,
+    revision: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<ProjectReportVersion, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectReportDraftService::new(&db)
+        .get(&draft_id, revision)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Reviewed report draft was not found".to_string())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveProjectReportDraftPayload {
+    pub draft_id: Option<String>,
+    pub project_id: String,
+    pub from: String,
+    pub through: String,
+    pub source: Option<String>,
+    pub expected_revision: i64,
+    pub body: String,
+}
+
+/// User-reviewed local save; never publishes or writes Provider source files.
+#[tauri::command]
+pub async fn save_project_report_draft(
+    payload: SaveProjectReportDraftPayload,
+    state: State<'_, AppState>,
+) -> Result<ProjectReportVersion, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    ProjectReportDraftService::new(&db)
+        .save(ProjectReportDraftInput {
+            draft_id: payload.draft_id.as_deref(),
+            project_id: &payload.project_id,
+            from: &payload.from,
+            through: &payload.through,
+            source: payload.source.as_deref(),
+            expected_revision: payload.expected_revision,
+            body: &payload.body,
+        })
         .map_err(|error| error.to_string())
 }
 

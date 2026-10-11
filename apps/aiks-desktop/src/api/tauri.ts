@@ -17,6 +17,8 @@ import type {
   OrganizationAuditEntry,
   ProjectOverview,
   ProjectMemorySnapshot,
+  ProjectReportDraft,
+  ProjectReportVersion,
   ProjectSessionBinding,
   ProjectEvolutionSnapshot,
   KnowledgeFeedback,
@@ -144,6 +146,15 @@ export class TauriAiksApi implements AiksApi {
   }
   async getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot> { return invoke("list_project_evolution", { projectId }); }
   async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> { return invoke("create_project_review", { projectId, from, through, source }); }
+  async listProjectReportDrafts(projectId: string): Promise<ProjectReportDraft[]> {
+    return invoke("list_project_report_drafts", { projectId });
+  }
+  async getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion> {
+    return invoke("get_project_report_draft", { draftId, revision });
+  }
+  async saveProjectReportDraft(draftId: string | null, projectId: string, from: string, through: string, source: string | null, expectedRevision: number, body: string): Promise<ProjectReportVersion> {
+    return invoke("save_project_report_draft", { payload: { draftId, projectId, from, through, source, expectedRevision, body } });
+  }
   async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens, source }); }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }

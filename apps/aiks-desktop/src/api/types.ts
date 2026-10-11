@@ -395,6 +395,25 @@ export interface ProjectMemorySnapshot {
 }
 
 /** Human-approved local grouping; original Session project_path is never edited. */
+/** Locally stored human edits, not a published or verified project report. */
+export interface ProjectReportDraft {
+  id: string;
+  project_id: string;
+  from_date: string;
+  through_date: string;
+  source_filter: string | null;
+  current_revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectReportVersion {
+  draft: ProjectReportDraft;
+  revision: number;
+  body: string;
+  saved_at: string;
+}
+
 export interface ProjectSessionBinding {
   session_id: number;
   project_id: string;
