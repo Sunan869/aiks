@@ -252,7 +252,8 @@ export class MockAiksApi implements AiksApi {
       knowledge_id: item.id, session_id: item.session_id ?? 0,
       source: sessions.find(session => session.id === item.session_id)?.source || "unknown", session_external_id: String(item.session_id ?? ""),
       title: item.title, category: item.category, summary: item.summary,
-      updated_at: item.updated_at, feedback_status: null,
+      updated_at: item.updated_at,
+      feedback_status: feedbackHistory.filter(row => row.knowledge_id === item.id).slice(-1)[0]?.kind ?? null,
     }));
     return { project, entries, truncated: false };
   }
@@ -370,6 +371,43 @@ export class MockAiksApi implements AiksApi {
       (source || snapshot.project.sources.join("、")) + "\n\n" +
       items.map(item => "- " + item.title + "（" + item.knowledge_id + "）").join("\n");
   }
+  async createCuratedAgentContextPack(
+    projectId: string, maxTokens: number, source: string | undefined, knowledgeIds: string[],
+  ): Promise<string> {
+    if (knowledgeIds.length < 1 || knowledgeIds.length > 30 ||
+        new Set(knowledgeIds).size !== knowledgeIds.length ||
+        knowledgeIds.some(id => !id || id.length > 256)) {
+      throw new Error("Select 1 to 30 unique project knowledge items");
+    }
+    const snapshot = await this.getProjectMemory(projectId);
+    if (source && !snapshot.project.sources.includes(source)) {
+      throw new Error("Selected source does not belong to the project");
+    }
+    const selected = knowledgeIds.map(id => {
+      const entry = snapshot.entries.find(item =>
+        item.knowledge_id === id && (!source || item.source === source)
+      );
+      if (!entry) throw new Error("Selected knowledge not in current project scope");
+      if (entry.feedback_status === "incorrect" || entry.feedback_status === "outdated") {
+        throw new Error("Incorrect or outdated knowledge cannot be exported");
+      }
+      return entry;
+    });
+    const budget = Math.max(256, Math.min(8192, maxTokens)) * 3;
+    let result = "# " + snapshot.project.title +
+      " · AIKS 精选 Agent 背景候选\n\n请人工核验来源，不直接写入 Agent 指令文件。\n\n";
+    for (const item of selected) {
+      const block = "## " + item.title + "\n" + item.summary +
+        "\n来源：知识 " + item.knowledge_id +
+        " · Session " + item.session_external_id + " (" + item.source + ")\n\n";
+      if ([...result, ...block].length > budget) {
+        throw new Error("Selected knowledge exceeds the configured Agent context budget");
+      }
+      result += block;
+    }
+    return result;
+  }
+
   async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> {
     const snapshot = await this.getProjectMemory(projectId);
     if (source && !snapshot.project.sources.includes(source)) throw new Error("Unknown project source");

@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use aiks_core::knowledge::{
-    render_agent_context_scoped, render_project_review_scoped, ProjectEvolutionService,
+    render_agent_context_scoped, render_curated_agent_context_scoped,
+    render_project_review_scoped, ProjectEvolutionService,
     ProjectEvolutionSnapshot, ProjectMemoryService, ProjectMemorySnapshot, ProjectOverview,
     ProjectReportDraft, ProjectReportDraftInput, ProjectReportDraftService, ProjectReportVersion,
     ProjectSessionBinding, ProjectSessionBindingService,
@@ -154,6 +155,32 @@ pub async fn save_project_report_draft(
             body: &payload.body,
         })
         .map_err(|error| error.to_string())
+}
+
+/// Opt-in selected Agent context preview. Missing or stale IDs fail closed
+/// against the current canonical project read model; no Provider write.
+#[tauri::command]
+pub async fn create_curated_agent_context_pack(
+    project_id: String,
+    max_tokens: usize,
+    source: Option<String>,
+    knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    // An explicit user selection may only come from the bounded current
+    // snapshot. The Core renderer requires every chosen ID to be present.
+    let snapshot = ProjectMemoryService::new(&db)
+        .get_scoped(&project_id, 200, source.as_deref())
+        .map_err(|error| error.to_string())?;
+    render_curated_agent_context_scoped(
+        &snapshot,
+        max_tokens,
+        source.as_deref(),
+        &knowledge_ids,
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

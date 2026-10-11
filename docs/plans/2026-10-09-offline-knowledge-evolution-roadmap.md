@@ -627,3 +627,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 队列区分 suggested（待人工核对）与 confirmed（人已确认关联，但并不等于结论真实或已失效），展示关系证据、反馈原因、知识 ID、原 Session 跳转、记录更新时间及类别筛选。现有关系审核仍必须通过手工点击、确认对话框及 Rust 后端的来源范围复核，不自动归档、覆盖、合并任何知识。
 - 项目切换时增加 evolutionProjectId 证据身份保护，防止上一项目的慢速异步结果进入新项目复核队列。所有候选按稳定时间/ID 顺序最多展示 100 条；保留原有 Knowledge(200)、Relation(100) 只读上限，显式警告部分样本和空队列不能推断「项目没有风险」，原始证据不修改。
 - 加入 Vitest 正/负例及 UI 契约、Windows 三 Provider + SiYuan 验收文档 docs/acceptance/project-knowledge-review-inbox.md。本轮未新增 migration、没有 Provider 或 SiYuan 写入和新模型依赖；这只是已有证据的人工复核工作台，并非已经完成真实模型的自动矛盾准确性评测。六优化/五功能仍须逐项复核，S1.3 完整备份恢复最后做，不合并 main、不发布 Release。新 HEAD CI 与 Windows Provider 仍须实际验证。
+
+### 2026-10-11 S3.3 人工精选 Agent 项目知识包（代码级）
+
+- 已确认基线 HEAD `4cad7564` 的综合 CI `38139892581` 与 Windows Provider `38139892590` 全部成功，且远端 HEAD 未前进。此批针对 S3.3 实际业务缺口：之前虽能生成整个项目最近最多 200 条知识的 Agent Markdown/AGENTS.md/CLAUDE.md 建议，但**无法显式选择单条知识及其顺序**，易把不相关的其他 Session 或尚未核实的知识混在 Agent 上下文中。旧的全项目导出功能仍保留，不改默认模式。
+- 新增 Core `render_curated_agent_context_scoped`，要求 1–30 条不同的、长度有限的 Knowledge ID，**由 Rust Core 根据当前 ProjectMemoryService / SQLite 再次验证每一个 ID 都属于被选的 canonical Project**，并遵守 Provider 来源筛选。对失效、缺失、越界、重复、错误/过时用户质量标记的知识直接拒绝整个生成请求，而不是悄悄跳过错误来源；保留用户挑选的条目顺序及明确 Knowledge / Session 来源，文本仍走现有敏感数据清理和 Token 预算（保守字符估算）处理。对于样本超过 200 条，UI 明确指出只能在当前样本内选择，后端拒绝任何在样本外的未知 ID，不冒充全量检索。
+- 增加专用只读 Tauri `create_curated_agent_context_pack` 与 TypeScript API/Mock；Project Memory 新增人工勾选、来源变化时清除选中项、最多 30 条门禁，以及「生成所选知识的 Agent 背景预览」。生成仍使用原有用户选择的普通 Markdown / AGENTS.md / CLAUDE.md 引用建议片段，并仅能手动复制或下载一个**不同于原 AGENTS.md/CLAUDE.md 的建议文件**；不会自动读取、创建或覆盖项目指令文件，不写 Provider、SiYuan，不依赖云端模型。
+- 增加 Rust 数据级跨来源、错误质量反馈、无效/重复/超量 ID 正反测试和前端选取/顺序/身份回归，并补 `docs/acceptance/curated-agent-context-pack.md` Windows 真机入口。保留当前个人离线方案、Provider 只读、SiYuan 用户原文不被自动覆盖、迁移兼容；S1.3 完整备份恢复仍然在所有非备份模块之后最后完成。
+- 本轮只是代码级本地预览，**不将 CI 通过或 Mock 构造输出视为真实新 Agent Session 已成功复用知识**。新提交的 Windows CI、跨 Session 真实来源正确性、Agent 指令污染防护和真实模型问答均仍须检查。

@@ -62,6 +62,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [sourceFilter, setSourceFilter] = useState("");
   const [agentFormat, setAgentFormat] = useState<AgentExportFormat>("markdown");
+  const [selectedAgentKnowledgeIds, setSelectedAgentKnowledgeIds] = useState<string[]>([]);
   const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
   const [projectRevision, setProjectRevision] = useState(0);
@@ -121,6 +122,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     setOnlyFlagged(false);
     setSourceFilter("");
     setAgentFormat("markdown");
+    setSelectedAgentKnowledgeIds([]);
     setTopicFilter("all");
     setViewMode("list");
     const api = getApi();
@@ -310,6 +312,40 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     const range = reportDateRange(kind, new Date());
     setFrom(range.from);
     setThrough(range.through);
+  };
+
+  const toggleAgentKnowledge = (id: string, checked: boolean) => {
+    invalidatePreview();
+    setSelectedAgentKnowledgeIds(current => {
+      if (!checked) return current.filter(value => value !== id);
+      if (current.includes(id) || current.length >= 30) return current;
+      return [...current, id];
+    });
+  };
+
+  const generateCuratedAgentPack = async () => {
+    if (!selected || working || selectedAgentKnowledgeIds.length === 0) return;
+    const requestId = ++generation.current;
+    const projectId = selected;
+    setError("");
+    setNotice("");
+    setWorking(true);
+    try {
+      // The backend re-reads current canonical project membership for each ID.
+      // Never interpolate unverified caller-provided summary into the pack.
+      const output = await getApi().createCuratedAgentContextPack(
+        projectId, tokenBudget, sourceFilter || undefined, [...selectedAgentKnowledgeIds],
+      );
+      if (requestId !== generation.current || selected !== projectId) return;
+      setPreviewType("agent");
+      setPreview(renderAgentSuggestion(output, agentFormat));
+    } catch (reason) {
+      if (requestId === generation.current && selected === projectId) {
+        setError("精选知识包生成失败：" + String(reason));
+      }
+    } finally {
+      if (requestId === generation.current && selected === projectId) setWorking(false);
+    }
   };
 
   const copyPreview = async () => {
@@ -639,6 +675,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 className="rounded border bg-transparent p-2 dark:border-gray-700"
                 onChange={event => {
                   invalidatePreview();
+                  setSelectedAgentKnowledgeIds([]);
                   setSourceFilter(event.target.value);
                 }}>
                 <option value="">全部来源</option>
@@ -680,6 +717,44 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </label>
               <button disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</button>
             </div>
+            <section className="mb-3 rounded border border-indigo-200 p-3 text-xs dark:border-indigo-900">
+              <h3 className="font-semibold">人工精选 Agent 知识包（最多 30 条）</h3>
+              <p className="mt-1 text-gray-500">
+                从当前项目可追溯的知识中手工选取具体条目；不会把相似标题当作同一来源。
+                标记为错误或过时的知识不可选。所有选中 ID 在后端再次核验当前项目与来源。
+                仅生成待审核的 Markdown/AGENTS.md/CLAUDE.md 建议，不写入任何指令文件。
+              </p>
+              {detail.truncated && (
+                <p className="mt-1 text-amber-700">
+                  当前项目知识超过 200 条，只能从已经加载的证据中选择；不代表全部知识均已审阅。
+                </p>
+              )}
+              <div role="group" aria-label="精选 Agent 知识来源"
+                className="mt-2 max-h-48 space-y-1 overflow-auto rounded border p-2 dark:border-gray-700">
+                {detail.entries.filter(item =>
+                  (!sourceFilter || item.source === sourceFilter) &&
+                  item.feedback_status !== "incorrect" && item.feedback_status !== "outdated"
+                ).map(item => (
+                  <label key={item.knowledge_id} className="flex items-center gap-2">
+                    <input type="checkbox" checked={selectedAgentKnowledgeIds.includes(item.knowledge_id)}
+                      disabled={working || (!selectedAgentKnowledgeIds.includes(item.knowledge_id)
+                        && selectedAgentKnowledgeIds.length >= 30)}
+                      onChange={event => toggleAgentKnowledge(item.knowledge_id, event.target.checked)} />
+                    <span className="min-w-0 break-words">
+                      {item.title} · {item.source} · {item.knowledge_id}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span>已选 {selectedAgentKnowledgeIds.length} / 30 条</span>
+                <button type="button" disabled={working || selectedAgentKnowledgeIds.length === 0}
+                  onClick={() => void generateCuratedAgentPack()}
+                  className="rounded border border-indigo-500 px-3 py-2 text-indigo-700 disabled:opacity-40">
+                  生成所选知识的 Agent 背景预览
+                </button>
+              </div>
+            </section>
             <div className="mb-3 rounded border border-gray-200 p-3 text-xs dark:border-gray-700">
               <h3 className="font-medium">本地回顾草稿与历史修订</h3>
               <p className="mt-1 text-gray-500">

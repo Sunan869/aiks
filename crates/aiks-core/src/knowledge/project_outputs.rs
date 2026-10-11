@@ -42,6 +42,60 @@ pub fn render_agent_context_scoped(
     Ok(render_agent_context(&selected, max_tokens))
 }
 
+/// Explicit, human-curated Agent memory pack. IDs are matched against the
+/// current canonical, project-scoped SQLite snapshot; never trust a caller's
+/// display name or user-provided content as the provenance source. This is
+/// a preview string only, never a file write to Provider or Agent instructions.
+pub fn render_curated_agent_context_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+    source: Option<&str>,
+    knowledge_ids: &[String],
+) -> Result<String> {
+    anyhow::ensure!(
+        !knowledge_ids.is_empty() && knowledge_ids.len() <= 30,
+        "Select 1 to 30 project knowledge items"
+    );
+    let mut unique = std::collections::HashSet::new();
+    for id in knowledge_ids {
+        anyhow::ensure!(
+            !id.is_empty() && id.len() <= 256 && unique.insert(id.as_str()),
+            "Empty, duplicate or oversized selected knowledge identity"
+        );
+    }
+    let scoped = scoped_snapshot(snapshot, source)?;
+    let by_id: std::collections::HashMap<_, _> = scoped
+        .entries
+        .iter()
+        .map(|entry| (entry.knowledge_id.as_str(), entry))
+        .collect();
+    let mut reviewed = Vec::with_capacity(knowledge_ids.len());
+    for id in knowledge_ids {
+        let entry = by_id
+            .get(id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Selected knowledge not in current project scope"))?;
+        anyhow::ensure!(
+            !matches!(
+                entry.feedback_status.as_deref(),
+                Some("incorrect" | "outdated")
+            ),
+            "Knowledge flagged incorrect or outdated cannot be exported"
+        );
+        reviewed.push((**entry).clone());
+    }
+    let selected = ProjectMemorySnapshot {
+        project: scoped.project,
+        entries: reviewed,
+        truncated: false,
+    };
+    let (output, included) = render_agent_context_counted(&selected, max_tokens);
+    anyhow::ensure!(
+        included == knowledge_ids.len(),
+        "Selected knowledge exceeds the configured Agent context budget"
+    );
+    Ok(output)
+}
+
 fn safe_inline(text: &str) -> String {
     let sanitizer = SecretSanitizer::new();
     sanitizer.sanitize(text).replace(['\r', '\n'], " ")
@@ -123,6 +177,13 @@ pub fn render_project_review(
 /// This is a conservative *character* budget, not an exact tokenizer count.
 /// The caller reviews the text and explicitly chooses whether to copy it.
 pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize) -> String {
+    render_agent_context_counted(snapshot, max_tokens).0
+}
+
+fn render_agent_context_counted(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+) -> (String, usize) {
     let sanitizer = SecretSanitizer::new();
     let max_chars = max_tokens.clamp(256, 8192).saturating_mul(3);
     // Bound untrusted project titles independently of the requested context budget.
@@ -172,7 +233,7 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
     if result.chars().count() + footer.chars().count() <= max_chars {
         result.push_str(&footer);
     }
-    result
+    (result, included)
 }
 
 #[cfg(test)]
@@ -328,6 +389,74 @@ mod tests {
         let report =
             render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("codex")).unwrap();
         assert!(report.contains("仅包含当前加载的知识记录"));
+    }
+
+    #[test]
+    fn curated_agent_context_honors_explicit_order_and_source_boundaries() {
+        let mut data = snapshot();
+        let mut second = data.entries[0].clone();
+        second.knowledge_id = "k-claude".into();
+        second.source = "claude_code".into();
+        second.session_external_id = "s-claude".into();
+        second.title = "Second provider".into();
+        second.summary = "Reviewed alternative architecture".into();
+        data.entries.push(second);
+        data.project.sources.push("claude_code".into());
+
+        let selected = render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["k-claude".into(), "k1".into()],
+        )
+        .unwrap();
+        assert!(selected.contains("Reviewed alternative architecture"));
+        assert!(selected.contains("Use a bounded queue"));
+        assert!(selected.find("k-claude").unwrap() < selected.find("k1").unwrap());
+        assert!(!selected.contains("Deprecated recommendation"));
+
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            Some("codex"),
+            &["k-claude".into()],
+        )
+        .is_err());
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["k1".into(), "k1".into()],
+        )
+        .is_err());
+        assert!(render_curated_agent_context_scoped(&data, 1200, None, &[]).is_err());
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["k2".into()],
+        )
+        .is_err());
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["unknown".into()],
+        )
+        .is_err());
+        assert_eq!(data.entries.len(), 3);
+    }
+
+    #[test]
+    fn curated_agent_pack_refuses_silently_dropping_user_selected_evidence() {
+        let mut data = snapshot();
+        data.entries[0].summary = "Detailed technical note ".repeat(200);
+        let ids = vec!["k1".to_string()];
+        assert!(render_curated_agent_context_scoped(&data, 256, None, &ids).is_err());
+        let rendered = render_agent_context(&data, 256);
+        assert!(!rendered.contains("Detailed technical note"));
+        // Non-curated overview may show partial results; curated selection
+        // must fail closed instead of quietly omitting selected evidence.
     }
 
     #[test]

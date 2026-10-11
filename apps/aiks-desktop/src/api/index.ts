@@ -66,6 +66,7 @@ export interface AiksApi {
   getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion>;
   saveProjectReportDraft(draftId: string | null, projectId: string, from: string, through: string, source: string | null, expectedRevision: number, body: string): Promise<ProjectReportVersion>;
   createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string>;
+  createCuratedAgentContextPack(projectId: string, maxTokens: number, source: string | undefined, knowledgeIds: string[]): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
   getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
   getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;

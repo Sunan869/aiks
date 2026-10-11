@@ -168,6 +168,7 @@ pub fn run() {
             project_memory_commands::get_project_report_draft,
             project_memory_commands::save_project_report_draft,
             project_memory_commands::create_agent_context_pack,
+            project_memory_commands::create_curated_agent_context_pack,
             knowledge_commands::get_knowledge_detail_v4,
             knowledge_commands::add_knowledge_feedback,
             knowledge_commands::list_knowledge_feedback,

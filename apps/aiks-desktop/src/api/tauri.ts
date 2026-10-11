@@ -156,6 +156,9 @@ export class TauriAiksApi implements AiksApi {
     return invoke("save_project_report_draft", { payload: { draftId, projectId, from, through, source, expectedRevision, body } });
   }
   async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens, source }); }
+  async createCuratedAgentContextPack(projectId: string, maxTokens: number, source: string | undefined, knowledgeIds: string[]): Promise<string> {
+    return invoke("create_curated_agent_context_pack", { projectId, maxTokens, source, knowledgeIds });
+  }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
   async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }
