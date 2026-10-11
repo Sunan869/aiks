@@ -682,7 +682,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <p className="text-amber-700 dark:text-amber-300">
             已确认 SiYuan 文档存在、但审计记录缺失时，可以只修复本地审核来源。
             请在上方整理方式与来源选择器中核对操作和原知识；须输入已有知识 ID。
-            后端会核查文档实际存在、包含一致的 AIKS 人工审核尾注及完整来源次序。
+            后端仅核查 AIKS 本地记录已绑定 SiYuan 文档，并核验本地人工审核尾注与来源顺序；此步骤不会向 SiYuan 查询文档当前状态。
             此操作不会再创建 SiYuan 文档。
           </p>
           <div className="mt-2 flex flex-wrap gap-2">

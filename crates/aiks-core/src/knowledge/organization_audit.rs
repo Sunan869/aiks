@@ -111,10 +111,9 @@ impl<'a> OrganizationAuditRepo<'a> {
         Ok(())
     }
 
-    /// Manually restore missing audit metadata for an already-created local
-    /// canonical document. This NEVER calls SiYuan or creates any content.
-    /// Require exact footer evidence to avoid assigning an unrelated manual
-    /// document to arbitrary sources after a crash or failed SQLite commit.
+    /// Recover the audit of an existing, locally bound SiYuan document only.
+    /// No remote calls or new knowledge rows are made. A local-only manual
+    /// draft (or a forged audit footer) must never be claimed as published.
     pub fn recover_existing(
         &self,
         derived_id: &str,
@@ -128,30 +127,59 @@ impl<'a> OrganizationAuditRepo<'a> {
             .conn()
             .query_row(
                 "SELECT content FROM knowledge_item WHERE id = ?1
-                 AND source_type = 'manual' AND managed_by = 'user' AND status = 'active'",
+                 AND source_type = 'manual' AND managed_by = 'user' AND status = 'active'
+                 AND NULLIF(TRIM(siyuan_doc_id),'') IS NOT NULL
+                 AND NULLIF(TRIM(generated_hash),'') IS NOT NULL",
                 params![derived_id],
                 |row| row.get(0),
             )
             .optional()?;
         let Some(content) = content else {
-            bail!("Reviewed local knowledge document is missing or inactive");
+            bail!("Reviewed knowledge has no active local SiYuan binding");
         };
-        let (_, footer) = content
+        let (prefix, footer) = content
             .rsplit_once("\n## AIKS 整理审核记录\n")
             .ok_or_else(|| anyhow::anyhow!("Existing document has no AIKS review footer"))?;
+        anyhow::ensure!(
+            prefix.ends_with("\n\n---\n"),
+            "Existing document has no separate review audit section"
+        );
+
+        // Match the exact footer emitted by appendOrganizationAudit rather
+        // than accepting operation/source tokens somewhere in arbitrary text.
+        let mut lines = footer.lines();
         let expected_operation = format!("操作：{operation}");
         anyhow::ensure!(
-            footer.lines().any(|line| line == expected_operation),
+            lines.next() == Some(expected_operation.as_str()),
             "Reviewed operation does not match the existing document"
         );
-        let attached: Vec<&str> = footer
-            .lines()
-            .filter_map(|line| line.strip_prefix("- AIKS 知识："))
-            .collect();
+        let reviewed_at = lines
+            .next()
+            .and_then(|line| line.strip_prefix("人工确认时间（UTC）："))
+            .ok_or_else(|| anyhow::anyhow!("Reviewed confirmation time is missing"))?;
         anyhow::ensure!(
-            attached.len() == source_ids.len()
-                && attached.iter().zip(source_ids).all(|(left, right)| *left == right),
-            "Reviewed document source evidence does not match the selected knowledge"
+            reviewed_at.ends_with('Z')
+                && chrono::DateTime::parse_from_rfc3339(reviewed_at).is_ok(),
+            "Reviewed confirmation timestamp is invalid"
+        );
+        anyhow::ensure!(
+            lines.next() == Some("原始知识未修改；此文档为可独立归档的人工确认副本。"),
+            "Existing document lacks the reviewed-copy declaration"
+        );
+        anyhow::ensure!(
+            lines.next() == Some("来源知识："),
+            "Existing document lacks the original source section"
+        );
+        for id in source_ids {
+            let expected = format!("- AIKS 知识：{id}");
+            anyhow::ensure!(
+                lines.next() == Some(expected.as_str()),
+                "Reviewed document source evidence does not match the selected knowledge"
+            );
+        }
+        anyhow::ensure!(
+            lines.next().is_none(),
+            "Reviewed document has unexpected extra source evidence"
         );
         self.record(derived_id, operation, source_ids)
     }
@@ -241,7 +269,9 @@ mod tests {
         assert_eq!(entries[0].derived_knowledge_id, derived);
         assert_eq!(entries[0].source_knowledge_ids, vec![first.clone(), second]);
         assert_eq!(entries[0].status, "active");
-        assert!(repo.record(&derived, "compare", std::slice::from_ref(&first)).is_err());
+        assert!(repo
+            .record(&derived, "compare", std::slice::from_ref(&first))
+            .is_err());
         assert!(repo
             .record(&derived, "structure", std::slice::from_ref(&first))
             .is_err());
@@ -270,7 +300,7 @@ mod tests {
         let db = StateDb::open(&dir.path().join("manual-recovery.db")).unwrap();
         let source = create(&db, "Source");
         let content = format!(
-            "Reviewed plan\n\n---\n\n## AIKS 整理审核记录\n操作：structure\n来源知识：\n- AIKS 知识：{source}"
+            "Reviewed plan\n\n---\n\n## AIKS 整理审核记录\n操作：structure\n人工确认时间（UTC）：2026-10-11T08:00:00.000Z\n原始知识未修改；此文档为可独立归档的人工确认副本。\n来源知识：\n- AIKS 知识：{source}"
         );
         let derived = KnowledgeService::new(&db)
             .create_manual(CreateKnowledgeInput {
@@ -278,20 +308,69 @@ mod tests {
                 category: Some("decision".into()),
                 project_name: Some("alpha".into()),
                 summary: None,
-                content,
+                content: content.clone(),
                 tags: vec![],
             })
             .unwrap();
         let repo = OrganizationAuditRepo::new(&db);
         let sources = vec![source.clone()];
-        assert!(repo.recover_existing(&derived.id, "rewrite", &sources).is_err());
-        assert!(repo.recover_existing(&source, "structure", &sources).is_err());
-        repo.recover_existing(&derived.id, "structure", &sources).unwrap();
+
+        // A local-only note with a plausible footer cannot be recovered.
+        assert!(repo
+            .recover_existing(&derived.id, "structure", &sources)
+            .is_err());
+        db.conn()
+            .execute(
+                "UPDATE knowledge_item
+                 SET siyuan_doc_id = 'simulated-bound-doc', generated_hash = 'simulated-hash'
+                 WHERE id = ?1",
+                params![derived.id],
+            )
+            .unwrap();
+
+        assert!(repo
+            .recover_existing(&derived.id, "rewrite", &sources)
+            .is_err());
+        assert!(repo
+            .recover_existing(&source, "structure", &sources)
+            .is_err());
+
+        // Reject incomplete, forged or appended review evidence before insert.
+        for invalid in [
+            content.replace("2026-10-11T08:00:00.000Z", "not-a-time"),
+            content.replace("原始知识未修改；此文档为可独立归档的人工确认副本。", ""),
+            format!("{content}\n- AIKS 知识：injected"),
+        ] {
+            db.conn()
+                .execute(
+                    "UPDATE knowledge_item SET content = ?2 WHERE id = ?1",
+                    params![derived.id, invalid],
+                )
+                .unwrap();
+            assert!(repo
+                .recover_existing(&derived.id, "structure", &sources)
+                .is_err());
+        }
+        db.conn()
+            .execute(
+                "UPDATE knowledge_item SET content = ?2 WHERE id = ?1",
+                params![derived.id, content],
+            )
+            .unwrap();
+        assert!(repo.list_for_source(&source).unwrap().is_empty());
+        repo.recover_existing(&derived.id, "structure", &sources)
+            .unwrap();
         assert_eq!(repo.list_for_source(&source).unwrap().len(), 1);
-        assert!(repo.recover_existing(&derived.id, "structure", &sources).is_err());
+        assert!(repo
+            .recover_existing(&derived.id, "structure", &sources)
+            .is_err());
         assert_eq!(repo.list_for_source(&source).unwrap().len(), 1);
         assert_eq!(
-            KnowledgeService::new(&db).get(&source).unwrap().unwrap().status,
+            KnowledgeService::new(&db)
+                .get(&source)
+                .unwrap()
+                .unwrap()
+                .status,
             "active"
         );
     }

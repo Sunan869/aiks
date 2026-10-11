@@ -98,9 +98,9 @@ describe("knowledge organization review audit", () => {
 
   it("bounds the number of fetched sources before organization starts", () => {
     const primary = { id: "primary", project_name: null };
-    const others = Array.from({ length: 100 }, (_, i) => ({ id: "k" + i, project_name: null }));
+    const others = Array.from({ length: 5 }, (_, i) => ({ id: "k" + i, project_name: null }));
     expect(() => validateOrganizationSources(primary, others)).toThrow("知识来源数量超过单次审核上限");
-    expect(() => validateOrganizationSources(primary, others.slice(0, 99))).not.toThrow();
+    expect(() => validateOrganizationSources(primary, others.slice(0, 4))).not.toThrow();
   });
 
   it("rejects malformed or ambiguous fetched source identities before creating a draft", () => {
@@ -123,7 +123,7 @@ describe("knowledge organization review audit", () => {
     for (const id of ["k1\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
       expect(() => appendOrganizationAudit("draft", "structure", [id], stamp)).toThrow();
     }
-    expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 101 }, (_, i) => "k" + i), stamp)).toThrow();
+    expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 6 }, (_, i) => "k" + i), stamp)).toThrow();
     const safe = appendOrganizationAudit("draft", "structure", [" k1 ", "k1", "k2"], stamp);
     expect(safe.match(/AIKS 知识：k1/g)).toHaveLength(1);
   });

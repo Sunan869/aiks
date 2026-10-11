@@ -16,6 +16,7 @@ const feedbackHistory: KnowledgeFeedback[] = [];
 const knowledgeRelations: KnowledgeRelation[] = [];
 const organizationAuditHistory: OrganizationAuditEntry[] = [];
 const localKnowledgeContent = new Map<string, string>();
+let nextManualKnowledgeId = 0;
 const localProjectBindings = new Map<number, ProjectSessionBinding>();
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -402,22 +403,34 @@ export class MockAiksApi implements AiksApi {
     await this.validateOrganizationScope(sourceKnowledgeIds);
     const derived = knowledge.find(item => item.id === derivedKnowledgeId);
     if (!derived || derived.status !== "active" ||
-        derived.source_type !== "manual" || derived.managed_by !== "user") {
+        derived.source_type !== "manual" || derived.managed_by !== "user" ||
+        !derived.siyuan_doc_id?.trim() || !derived.generated_hash?.trim()) {
       throw new Error("Reviewed local knowledge document is missing or inactive");
     }
     const content = localKnowledgeContent.get(derivedKnowledgeId) ?? "";
     const marker = "\n## AIKS 整理审核记录\n";
     const offset = content.lastIndexOf(marker);
-    if (offset < 0) throw new Error("Existing document has no AIKS review footer");
-    const footer = content.slice(offset + marker.length);
-    if (!footer.split("\n").includes("操作：" + operation)) {
+    if (offset < 0 || !content.slice(0, offset).endsWith("\n\n---\n")) {
+      throw new Error("Existing document has no separate AIKS review footer");
+    }
+    const lines = content.slice(offset + marker.length).split("\n");
+    if (lines[0] !== "操作：" + operation) {
       throw new Error("Review operation does not match existing document");
     }
-    const actualSources = footer.split("\n")
-      .filter(line => line.startsWith("- AIKS 知识："))
-      .map(line => line.slice("- AIKS 知识：".length));
-    if (actualSources.length !== sourceKnowledgeIds.length ||
-        actualSources.some((id, index) => id !== sourceKnowledgeIds[index])) {
+    const stampPrefix = "人工确认时间（UTC）：";
+    const timestamp = lines[1]?.startsWith(stampPrefix)
+      ? lines[1].slice(stampPrefix.length) : "";
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(timestamp) ||
+        Number.isNaN(Date.parse(timestamp)) || new Date(timestamp).toISOString() !== timestamp) {
+      throw new Error("Review timestamp is missing or invalid");
+    }
+    if (lines[2] !== "原始知识未修改；此文档为可独立归档的人工确认副本。" ||
+        lines[3] !== "来源知识：") {
+      throw new Error("Existing document lacks reviewed copy source declaration");
+    }
+    const expectedSources = sourceKnowledgeIds.map(id => "- AIKS 知识：" + id);
+    if (lines.length !== 4 + expectedSources.length ||
+        expectedSources.some((value, index) => lines[4 + index] !== value)) {
       throw new Error("Review source evidence does not match existing document");
     }
     if (organizationAuditHistory.some(entry => entry.derived_knowledge_id === derivedKnowledgeId)) {
@@ -443,8 +456,11 @@ export class MockAiksApi implements AiksApi {
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> {
     await delay();
     const now = new Date().toISOString();
+    const id = `kn_manual_${Date.now()}_${++nextManualKnowledgeId}`;
     const item: KnowledgeSummary = {
-      id: `kn_manual_${Date.now()}`,
+      id,
+      siyuan_doc_id: `mock-siyuan:${id}`,
+      generated_hash: `mock-generated:${id}`,
       session_id: null,
       project_name: input.project_name ?? null,
       title: input.title.trim(),
@@ -479,6 +495,7 @@ export class MockAiksApi implements AiksApi {
       updated_at: new Date().toISOString(),
     };
     knowledge[index] = next;
+    localKnowledgeContent.set(knowledgeId, input.content);
     return { ...detailOf(next), content: input.content };
   }
 

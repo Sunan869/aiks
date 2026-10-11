@@ -184,9 +184,13 @@ pub async fn create_organized_knowledge(
         .as_str()
         .ok_or_else(|| "SiYuan created a document without a knowledge identity".to_string())?;
     let db = engine.db();
-    if let Err(error) =
-        OrganizationAuditRepo::new(&db).record(derived_id, &operation, &source_knowledge_ids)
-    {
+    // Re-check canonical source scope after the SiYuan HTTP call returns.
+    let audit_result = OrganizationScopeGuard::new(&db)
+        .validate(&source_knowledge_ids)
+        .and_then(|_| {
+            OrganizationAuditRepo::new(&db).record(derived_id, &operation, &source_knowledge_ids)
+        });
+    if let Err(error) = audit_result {
         // Document creation already succeeded. Do not tell the user to retry:
         // that would risk an accidental duplicate in SiYuan.
         tracing::error!(knowledge_id = %derived_id, error = %error, "reviewed organization audit failed after SiYuan create");
