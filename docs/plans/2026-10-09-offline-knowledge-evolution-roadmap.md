@@ -570,3 +570,11 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 上一 HEAD `04bb4943`：Windows Provider `38123961195` 成功，综合 CI `38123961198` 失败。**Windows Desktop 编译、仓库卫生、Rust 格式、前端 152 项测试成功**，但前端 TypeScript 构建因 `AiAssistOperation`（含 `summary/title/tags/category`）被赋值给只允许 5 种「整理操作」的持久审计字段而失败；Rust Clippy（`-D warnings`）拒绝一处单元素 `[first.clone()]`，Rust tests 因 Clippy 失败未运行。两项均来自工作流原始日志，而非推断。
 - 一次批次修复两个独立 CI 阻塞点：新增 `ReviewedOrganizationOperation` 编译期受限类型及运行时收窄判别函数，**只有** `structure/rewrite/key_conclusions/compare/merge_draft` 可以进入已审核的整理审计；普通 `summary/title/tags/category` 仍可用于原有 AI 辅助，但不允许伪装为已人工确认的跨知识整理。Rust 单元素切片改为 `std::slice::from_ref`，不关闭 Clippy 规则或跳过测试。
 - 增加五种允许操作和四种非整理操作的负例回归，继续保留非法来源拒绝及正式 SQLite V16 审计数据层；未新增迁移、对 Provider/SiYuan 的写回或新的云依赖。新 HEAD 尚需综合 CI 和 Windows Provider 独立确认，真实模型/Windows 真机验收仍待集中进行；S1.3 完整备份和恢复继续留至其他代码级模块最后。
+
+### 2026-10-11 S3.4 已创建文档的审计修复（不重建 SiYuan 文档）
+
+- 基线 `0ee7146e`：Windows Provider `38124472173` 已成功，综合 CI `38124472136` 仅因 `organization_audit.rs` 单处 `rustfmt` 换行失败，Clippy/Rust tests 尚未运行；修复该格式差异并把恢复流程作为一整批收尾，避免单次格式提交浪费 Actions。
+- 实际业务缺口：当独立 SiYuan 知识创建成功但本地审核记录写入失败时，旧 UI 只有报错和新知识 ID，点击重新创建可能产生第二份文档；缺少无需重新触发 SiYuan HTTP 的恢复入口。新增 `OrganizationAuditRepo::recover_existing`：必须由用户提供**现有本地 Knowledge ID**、整理方式和按顺序列出的来源 ID；先重新检查当前 canonical Knowledge/Session/人工项目归属，再核对已创建文档在本地保存的 `## AIKS 整理审核记录` 尾注、操作类型和来源顺序，最后通过既有 SQLite 事务式 `record` 补录审计。已存在记录、伪造尾注、错误顺序、非 active 或非用户管理的目标/来源必须拒绝。**不调用任何 SiYuan 写 API、不修改已创建文档、更不覆盖原始资料**。
+- 增加只做本地审计修复的 Tauri API、TypeScript API/Mock、知识详情页明确的人工修复入口。若异常错误中明确返回「知识已创建（ID: ...）」则预填现有 ID，停用旧草稿的重复创建确认。其余不确定 HTTP 错误仍提示先人工查看已有文档，不声称已经创建/已经失败；用户仍须确认修复，避免自动绑定任何来源。
+- Rust/TypeScript 回归覆盖已存在且有正确人工审核尾注的单来源补录、重复补录拒绝、错误操作/来源/伪造文档拒绝、补录不增加知识数、重启后来源关联可查、默认 Provider/SiYuan 原文安全边界。真实 SiYuan HTTP 创建成功但 SQLite 未落库的情况，只有文档已被 AIKS 存成本地 canonical Knowledge 记录的**特定失败窗口**才能修复；完全没有本地记录的远端孤儿、跨系统原子事务仍未解决，必须在 Windows 真机实验中实证，不能将这一批当作完成 S3.4 所有故障恢复验收。
+- 无新 migration、无 main 合并或 Release，完整备份恢复 S1.3 依用户要求继续最后实施。新 HEAD CI 状态以后续工作流为准。

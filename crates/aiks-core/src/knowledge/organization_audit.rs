@@ -1,5 +1,6 @@
 //! Durable S3.4 user-reviewed organization audit. Read-only retrieval and
 //! append-only provenance; no Provider or SiYuan content writes occur here.
+use crate::knowledge::organization_scope::OrganizationScopeGuard;
 use crate::storage::StateDb;
 use anyhow::{bail, Result};
 use rusqlite::{params, OptionalExtension};
@@ -110,6 +111,51 @@ impl<'a> OrganizationAuditRepo<'a> {
         Ok(())
     }
 
+    /// Manually restore missing audit metadata for an already-created local
+    /// canonical document. This NEVER calls SiYuan or creates any content.
+    /// Require exact footer evidence to avoid assigning an unrelated manual
+    /// document to arbitrary sources after a crash or failed SQLite commit.
+    pub fn recover_existing(
+        &self,
+        derived_id: &str,
+        operation: &str,
+        source_ids: &[String],
+    ) -> Result<()> {
+        Self::validate_input(operation, source_ids)?;
+        OrganizationScopeGuard::new(self.db).validate(source_ids)?;
+        let content: Option<String> = self
+            .db
+            .conn()
+            .query_row(
+                "SELECT content FROM knowledge_item WHERE id = ?1
+                 AND source_type = 'manual' AND managed_by = 'user' AND status = 'active'",
+                params![derived_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(content) = content else {
+            bail!("Reviewed local knowledge document is missing or inactive");
+        };
+        let (_, footer) = content
+            .rsplit_once("\n## AIKS 整理审核记录\n")
+            .ok_or_else(|| anyhow::anyhow!("Existing document has no AIKS review footer"))?;
+        let expected_operation = format!("操作：{operation}");
+        anyhow::ensure!(
+            footer.lines().any(|line| line == expected_operation),
+            "Reviewed operation does not match the existing document"
+        );
+        let attached: Vec<&str> = footer
+            .lines()
+            .filter_map(|line| line.strip_prefix("- AIKS 知识："))
+            .collect();
+        anyhow::ensure!(
+            attached.len() == source_ids.len()
+                && attached.iter().zip(source_ids).all(|(left, right)| *left == right),
+            "Reviewed document source evidence does not match the selected knowledge"
+        );
+        self.record(derived_id, operation, source_ids)
+    }
+
     /// Reconstruct all reviewed copies after app restart. Archive/restore is
     /// projected from the current canonical knowledge status, not a fake
     /// second status machine.
@@ -214,6 +260,38 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .status,
+            "active"
+        );
+    }
+
+    #[test]
+    fn existing_reviewed_document_can_repair_missing_audit_without_remote_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("manual-recovery.db")).unwrap();
+        let source = create(&db, "Source");
+        let content = format!(
+            "Reviewed plan\n\n---\n\n## AIKS 整理审核记录\n操作：structure\n来源知识：\n- AIKS 知识：{source}"
+        );
+        let derived = KnowledgeService::new(&db)
+            .create_manual(CreateKnowledgeInput {
+                title: "Reviewed result".into(),
+                category: Some("decision".into()),
+                project_name: Some("alpha".into()),
+                summary: None,
+                content,
+                tags: vec![],
+            })
+            .unwrap();
+        let repo = OrganizationAuditRepo::new(&db);
+        let sources = vec![source.clone()];
+        assert!(repo.recover_existing(&derived.id, "rewrite", &sources).is_err());
+        assert!(repo.recover_existing(&source, "structure", &sources).is_err());
+        repo.recover_existing(&derived.id, "structure", &sources).unwrap();
+        assert_eq!(repo.list_for_source(&source).unwrap().len(), 1);
+        assert!(repo.recover_existing(&derived.id, "structure", &sources).is_err());
+        assert_eq!(repo.list_for_source(&source).unwrap().len(), 1);
+        assert_eq!(
+            KnowledgeService::new(&db).get(&source).unwrap().unwrap().status,
             "active"
         );
     }

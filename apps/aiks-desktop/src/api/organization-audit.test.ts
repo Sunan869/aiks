@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockAiksApi } from "./mock";
 import { isReviewedOrganizationOperation } from "./ai-assist";
+import { appendOrganizationAudit } from "../knowledge-organization-audit";
 import page from "../pages/KnowledgeDetailPage.tsx?raw";
 import tauri from "./tauri.ts?raw";
 import rustCommand from "../../src-tauri/src/knowledge_commands.rs?raw";
@@ -62,13 +63,47 @@ describe("S3.4 durable reviewed organization audit", () => {
     )).toBe(false);
   });
 
+  it("repairs a missing local audit for an existing reviewed document without another create", async () => {
+    const api = new MockAiksApi();
+    const inputs = ["kn_0001", "kn_0005"];
+    const content = appendOrganizationAudit(
+      "# Human checked comparison", "compare", inputs, "2026-10-11T08:00:00.000Z",
+    );
+    const original = await api.createKnowledge({
+      title: "Recover only existing document", content, tags: [],
+      project_name: "Pipeline",
+    });
+    expect((await api.getOrganizationAudit(inputs[0])).some(
+      entry => entry.derived_knowledge_id === original.id
+    )).toBe(false);
+    const count = (await api.getKnowledge({ limit: 200 })).total;
+    await expect(api.recoverOrganizationAudit(original.id, inputs, "rewrite")).rejects.toThrow();
+    await expect(api.recoverOrganizationAudit(original.id, [...inputs].reverse(), "compare")).rejects.toThrow();
+    await expect(api.recoverOrganizationAudit("kn_0002", inputs, "compare")).rejects.toThrow();
+    await expect(api.recoverOrganizationAudit(original.id, ["kn_0001", "kn_0002"], "compare")).rejects.toThrow();
+    expect(await api.recoverOrganizationAudit(original.id, inputs, "compare")).toBe(true);
+    expect((await api.getKnowledge({ limit: 200 })).total).toBe(count);
+    expect((await new MockAiksApi().getOrganizationAudit(inputs[0])).find(
+      entry => entry.derived_knowledge_id === original.id
+    )?.source_knowledge_ids).toEqual(inputs);
+    await expect(api.recoverOrganizationAudit(original.id, inputs, "compare")).rejects.toThrow();
+    await api.archiveKnowledge(original.id);
+    await expect(api.recoverOrganizationAudit(original.id, inputs, "compare")).rejects.toThrow();
+    await api.restoreKnowledge(original.id);
+  });
+
   it("registers a source-based persisted history, not an ephemeral last-created-ID-only control", () => {
     expect(page).toContain("getApi().getOrganizationAudit(knowledgeId)");
     expect(page).toContain("人工审核的知识整理历史");
     expect(page).toContain("organizationHistory.map(entry =>");
+    expect(page).toContain("getApi().recoverOrganizationAudit(id, sourceIds, organizeOperation)");
+    expect(page).toContain("window.confirm(");
+    expect(page).toContain("setRecoveryKnowledgeId(created[1])");
     expect(page).toContain('entry.status === "archived"');
     expect(page).toContain('entry.status === "active"');
     expect(tauri).toContain('invoke("list_organization_audit", { sourceKnowledgeId })');
+    expect(tauri).toContain('invoke("recover_organization_audit", { derivedKnowledgeId, sourceKnowledgeIds, operation })');
+    expect(rustCommand).toContain("OrganizationAuditRepo::new(&db)");
     expect(rustCommand).toContain("OrganizationAuditRepo::new(&db).record(");
     expect(rustCommand).toContain("请勿重复点击创建");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS knowledge_organization_record");

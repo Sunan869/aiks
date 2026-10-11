@@ -156,6 +156,9 @@ export class TauriAiksApi implements AiksApi {
   async getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]> {
     return invoke("list_organization_audit", { sourceKnowledgeId });
   }
+  async recoverOrganizationAudit(derivedKnowledgeId: string, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<boolean> {
+    return invoke("recover_organization_audit", { derivedKnowledgeId, sourceKnowledgeIds, operation });
+  }
   async validateOrganizationScope(knowledgeIds: string[]): Promise<boolean> {
     return invoke("validate_organization_scope", { knowledgeIds });
   }

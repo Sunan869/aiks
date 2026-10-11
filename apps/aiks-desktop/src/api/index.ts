@@ -68,6 +68,7 @@ export interface AiksApi {
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
   createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<KnowledgeDetail>;
   getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]>;
+  recoverOrganizationAudit(derivedKnowledgeId: string, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<boolean>;
   validateOrganizationScope(knowledgeIds: string[]): Promise<boolean>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
   setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;

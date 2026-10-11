@@ -197,6 +197,22 @@ pub async fn create_organized_knowledge(
     Ok(created)
 }
 
+/// Repair metadata only for a user-reviewed document that already exists.
+#[tauri::command]
+pub fn recover_organization_audit(
+    derived_knowledge_id: String,
+    operation: String,
+    source_knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationAuditRepo::new(&db)
+        .recover_existing(&derived_knowledge_id, &operation, &source_knowledge_ids)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn list_organization_audit(
     source_knowledge_id: String,

@@ -15,6 +15,7 @@ import type {
 const feedbackHistory: KnowledgeFeedback[] = [];
 const knowledgeRelations: KnowledgeRelation[] = [];
 const organizationAuditHistory: OrganizationAuditEntry[] = [];
+const localKnowledgeContent = new Map<string, string>();
 const localProjectBindings = new Map<number, ProjectSessionBinding>();
 
 const SOURCES = ["opencode", "claude_code", "codex", "gemini_cli"];
@@ -288,7 +289,8 @@ export class MockAiksApi implements AiksApi {
     await delay();
     const item = knowledge.find(k => k.id === knowledgeId);
     if (!item) throw new Error(`Knowledge not found: ${knowledgeId}`);
-    return detailOf(item);
+    const detail = detailOf(item);
+    return { ...detail, content: localKnowledgeContent.get(item.id) ?? detail.content };
   }
 
   async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> {
@@ -393,6 +395,42 @@ export class MockAiksApi implements AiksApi {
     return created;
   }
 
+  async recoverOrganizationAudit(
+    derivedKnowledgeId: string, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"],
+  ): Promise<boolean> {
+    if (!isReviewedOrganizationOperation(operation)) throw new Error("Invalid audit operation");
+    await this.validateOrganizationScope(sourceKnowledgeIds);
+    const derived = knowledge.find(item => item.id === derivedKnowledgeId);
+    if (!derived || derived.status !== "active" ||
+        derived.source_type !== "manual" || derived.managed_by !== "user") {
+      throw new Error("Reviewed local knowledge document is missing or inactive");
+    }
+    const content = localKnowledgeContent.get(derivedKnowledgeId) ?? "";
+    const marker = "\n## AIKS 整理审核记录\n";
+    const offset = content.lastIndexOf(marker);
+    if (offset < 0) throw new Error("Existing document has no AIKS review footer");
+    const footer = content.slice(offset + marker.length);
+    if (!footer.split("\n").includes("操作：" + operation)) {
+      throw new Error("Review operation does not match existing document");
+    }
+    const actualSources = footer.split("\n")
+      .filter(line => line.startsWith("- AIKS 知识："))
+      .map(line => line.slice("- AIKS 知识：".length));
+    if (actualSources.length !== sourceKnowledgeIds.length ||
+        actualSources.some((id, index) => id !== sourceKnowledgeIds[index])) {
+      throw new Error("Review source evidence does not match existing document");
+    }
+    if (organizationAuditHistory.some(entry => entry.derived_knowledge_id === derivedKnowledgeId)) {
+      throw new Error("Organization audit already exists");
+    }
+    organizationAuditHistory.push({
+      derived_knowledge_id: derivedKnowledgeId, title: derived.title,
+      status: "active", operation, reviewed_at: new Date().toISOString(),
+      source_knowledge_ids: [...sourceKnowledgeIds],
+    });
+    return true;
+  }
+
   async getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]> {
     await delay();
     return organizationAuditHistory.filter(entry => entry.source_knowledge_ids.includes(sourceKnowledgeId))
@@ -422,6 +460,7 @@ export class MockAiksApi implements AiksApi {
       updated_at: now,
     };
     knowledge = [item, ...knowledge];
+    localKnowledgeContent.set(item.id, input.content);
     return { ...detailOf(item), content: input.content };
   }
 

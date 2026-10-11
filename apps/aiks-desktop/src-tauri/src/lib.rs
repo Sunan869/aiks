@@ -174,6 +174,7 @@ pub fn run() {
             knowledge_commands::create_knowledge,
             knowledge_commands::create_organized_knowledge,
             knowledge_commands::list_organization_audit,
+            knowledge_commands::recover_organization_audit,
             knowledge_commands::validate_organization_scope,
             knowledge_commands::update_knowledge,
             knowledge_commands::set_knowledge_favorite,

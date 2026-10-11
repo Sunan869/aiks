@@ -56,6 +56,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizationHistoryError, setOrganizationHistoryError] = useState("");
   const [organizationHistoryRevision, setOrganizationHistoryRevision] = useState(0);
   const [organizationHistoryBusy, setOrganizationHistoryBusy] = useState<string | null>(null);
+  const [recoveryKnowledgeId, setRecoveryKnowledgeId] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
   const organizationGeneration = useRef(0);
   const organizationWriteGate = useRef(createOrganizationWriteGate());
 
@@ -79,6 +82,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeSourceSnapshot(null);
     setReviewedOperation(null);
     setSelectedSources([]);
+    setRecoveryKnowledgeId("");
+    setRecoveryBusy(false);
+    setRecoveryError("");
     void load();
   }, [load]);
   useEffect(() => {
@@ -288,11 +294,43 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setMessage("已在 SiYuan 新建独立知识文档，原文保持不变。归档仅改变 AIKS 本地状态，不删除 SiYuan 文档。");
     } catch (error) {
       if (generation === organizationGeneration.current) {
-        setOrganizeError("创建独立知识失败：" + String(error));
+        const explanation = String(error);
+        // When remote creation succeeded but audit persistence failed, stop
+        // create retries and expose the existing ID for audit-only recovery.
+        const created = explanation.match(/知识已创建（ID:\s*([A-Za-z0-9-]+)）/);
+        if (created) {
+          setOrganizeConfirmed(false);
+          setRecoveryKnowledgeId(created[1]);
+        }
+        setOrganizeError(
+          "创建独立知识未完整完成：" + explanation +
+          "。若 SiYuan 已写入，请先核对知识列表，避免重复创建。"
+        );
       }
     } finally {
       organizationWriteGate.current.finish();
       if (generation === organizationGeneration.current) setOrganizeBusy(false);
+    }
+  };
+
+  const recoverOrganizationAudit = async () => {
+    if (!data || recoveryBusy || !recoveryKnowledgeId.trim()) return;
+    const id = recoveryKnowledgeId.trim();
+    const sourceIds = [data.id, ...selectedSources];
+    if (!window.confirm(
+      "只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。"
+    )) return;
+    setRecoveryBusy(true);
+    setRecoveryError("");
+    try {
+      await getApi().recoverOrganizationAudit(id, sourceIds, organizeOperation);
+      setRecoveryKnowledgeId("");
+      setOrganizationHistoryRevision(value => value + 1);
+      setMessage("仅已修复本地审计来源映射，未创建或修改 SiYuan 文档。");
+    } catch (error) {
+      setRecoveryError("无法关联现有审核记录：" + String(error));
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
@@ -640,6 +678,27 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
         <h2 className="font-semibold">人工审核的知识整理历史</h2>
+        <div className="mt-3 rounded border border-amber-200 bg-amber-50/40 p-3 text-xs dark:border-amber-800">
+          <p className="text-amber-700 dark:text-amber-300">
+            已确认 SiYuan 文档存在、但审计记录缺失时，可以只修复本地审核来源。
+            请在上方整理方式与来源选择器中核对操作和原知识；须输入已有知识 ID。
+            后端会核查文档实际存在、包含一致的 AIKS 人工审核尾注及完整来源次序。
+            此操作不会再创建 SiYuan 文档。
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input aria-label="待修复审计的现有知识 ID"
+              value={recoveryKnowledgeId} onChange={event => setRecoveryKnowledgeId(event.target.value)}
+              placeholder="已有新知识 ID" maxLength={256}
+              className="min-w-0 flex-1 rounded border border-amber-300 bg-white p-2 dark:bg-gray-900"
+            />
+            <button type="button" disabled={!recoveryKnowledgeId.trim() || recoveryBusy}
+              onClick={() => void recoverOrganizationAudit()}
+              className="rounded border border-amber-500 px-3 py-2 text-amber-800 disabled:opacity-40">
+              {recoveryBusy ? "仅修复审核记录中…" : "审核并修复本地来源（不重建文档）"}
+            </button>
+          </div>
+          {recoveryError && <p role="alert" className="mt-2 text-red-600">{recoveryError}</p>}
+        </div>
         <p className="mt-1 text-xs text-gray-500">
           此处读取本地持久审核记录；关闭或重开程序后仍可找到从当前知识衍生的独立文档。
           归档/恢复只改变新建知识的 AIKS 状态，不删除 SiYuan 文档或原 Session。
