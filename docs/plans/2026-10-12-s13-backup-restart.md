@@ -110,3 +110,10 @@
 - HEAD `d43d994` Windows Provider #38211227424 成功；综合 CI #38211226874 已通过 rustfmt，但 Clippy 报 `app_backup.rs:83` 不必要借用，Rust tests 尚未执行。
 - 本批按 Clippy 建议去掉临时 PathBuf 的多余借用，并补 Unix 符号链接父目录的工作空间输出路径拒绝测试，避免通过指向 SiYuan 工作区的别名在其内部创建备份。
 - CI 仍需新 HEAD 实际验证；桌面确认、停写生命周期及容量预检仍为独立阻断项。
+
+## 2026-10-12 恢复磁盘空间预算门禁
+
+- HEAD `13df4e2` 的综合 CI #38211635991 与 Windows Provider #38211636007 均通过。
+- 新增 `preflight_offline_restore_with_capacity`：读取并完整校验归档后，以实际文件总量加 20% 或至少 64 MiB 预留空间进行门禁；容量不足时在任何目标目录创建前拒绝。
+- 新增包含容量预检和明确目标确认的独立恢复入口 `restore_offline_backup_with_capacity_and_confirmation`，并补充真实 SQLite 快照恢复的低容量拒绝、无副作用、高容量成功测试。
+- 可用空间数值必须由调用端在确认前实时读取；本 Core 函数不读取物理磁盘状态，不允许在线覆盖现有 AIKS/SiYuan 工作空间。SiYuan 生命周期协调和 Desktop 界面仍未完成。

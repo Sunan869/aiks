@@ -194,6 +194,41 @@ pub fn preflight_offline_restore(
     })
 }
 
+/// Enforce a conservative restore-space budget using a free-byte figure
+/// measured by the calling platform immediately before confirmation.
+/// This does not itself query disk capacity or authorize a live restore.
+pub fn preflight_offline_restore_with_capacity(
+    bundle: &Path,
+    destination: &Path,
+    available_bytes: u64,
+) -> Result<OfflineRestorePreview> {
+    let preview = preflight_offline_restore(bundle, destination)?;
+    let reserve = (preview.total_bytes / 5).max(64 * 1024 * 1024);
+    let required = preview
+        .total_bytes
+        .checked_add(reserve)
+        .context("restore space budget overflow")?;
+    if available_bytes < required {
+        bail!("insufficient available space for isolated restore");
+    }
+    Ok(preview)
+}
+
+/// A capacity-checked, explicitly confirmed entry point for callers that
+/// have already measured available space and quiesced the destination.
+pub fn restore_offline_backup_with_capacity_and_confirmation(
+    bundle: &Path,
+    destination: &Path,
+    confirmed_destination: &Path,
+    available_bytes: u64,
+) -> Result<BundleManifest> {
+    if destination != confirmed_destination {
+        bail!("restore destination differs from the confirmed destination");
+    }
+    preflight_offline_restore_with_capacity(bundle, destination, available_bytes)?;
+    restore_offline_backup_to_new_directory(bundle, destination)
+}
+
 /// Restore into a new, isolated directory only, after a read-only preflight.
 /// Never apply the snapshot automatically to the running AIKS workspace.
 /// A restore command must require an explicit confirmation matching the
@@ -417,6 +452,37 @@ token = "should-not-leak"
         assert!(
             restore_offline_backup_after_confirmation(&bundle, &destination, &destination).is_err()
         );
+    }
+
+    #[test]
+    fn restore_capacity_gate_rejects_insufficient_space_without_side_effects() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let bundle = dir.path().join("bundle");
+        create_offline_backup(&db, &[], &bundle).unwrap();
+        let target = dir.path().join("restored");
+        let preview = preflight_offline_restore(&bundle, &target).unwrap();
+        assert!(preview.total_bytes > 0);
+        assert!(preflight_offline_restore_with_capacity(&bundle, &target, 0).is_err());
+        assert!(!target.exists());
+        assert!(
+            restore_offline_backup_with_capacity_and_confirmation(
+                &bundle,
+                &target,
+                &target,
+                0,
+            )
+            .is_err()
+        );
+        assert!(!target.exists());
+        restore_offline_backup_with_capacity_and_confirmation(
+            &bundle,
+            &target,
+            &target,
+            u64::MAX,
+        )
+        .unwrap();
+        assert!(target.join("sqlite/state.sqlite").is_file());
     }
 
     #[test]
