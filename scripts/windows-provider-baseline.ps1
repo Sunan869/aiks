@@ -8,7 +8,7 @@ Only aggregate timing/exit status is written; stdout, file paths and tokens are 
 param(
     [Parameter(Mandatory = $true)]
     [string]$ConfigPath,
-    [ValidateRange(1, 20)]
+    [ValidateRange(2, 20)]
     [int]$Runs = 3,
     [string]$ReportPath = "",
     [switch]$KeepSandbox
@@ -16,6 +16,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "provider-baseline-stats.ps1")
 $resolvedConfig = (Resolve-Path -LiteralPath $ConfigPath -ErrorAction Stop).Path
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "Rust Cargo is required for this read-only Provider acceptance script."
@@ -76,6 +77,7 @@ try {
         all_success = ($null -eq $scanFailure)
         # No paths, configuration, stdout, stderr, tokens or source content.
         results = @($records.ToArray())
+        timing_summary = Get-AiksProviderTimingSummary -Records @($records.ToArray())
     }
     $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ReportPath -Encoding UTF8 -NoNewline
     Write-Host ("Saved aggregate Provider timing report: " + $ReportPath)
