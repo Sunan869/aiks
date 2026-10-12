@@ -83,3 +83,8 @@
 - 基线 `56d539d`：综合 CI #38197850265、Windows Provider #38197850318 均成功。后续代码级审核发现 `session_index_state.embedding_model` 与单条 `session_embedding_record.model` 不一致时，旧跳过门禁只检查数量/维度/长度，可能把旧模型结果当作当前语义索引。
 - 跳过前的 SQLite 检查新增每个向量记录的模型身份匹配；旧模型记录触发重新提取 Embedding，不误报 skipped，仍保持原 FTS、Provider 只读、SiYuan 原文不覆盖。
 - 新增真实 SQLite 正常幂等、污染模型字段、重新向量化、持久模型恢复、再次幂等回归；不新增 migration。固定模型不代表 Windows/真实模型质量验收。S1.3 完整备份恢复继续最后实施。
+
+## 2026-10-12 CI Rust 格式门禁收尾
+
+- CI #38198376267 Rust quality 在 `session.rs` 两处格式检查失败；Windows Provider #38198376257、Windows Desktop 编译、前端及卫生检查均通过，Rust Clippy/测试未执行。
+- 本次根据 runner 输出修正 `params!` 和 `query_row` 格式差异；保留模型身份校验业务逻辑，后续改为按完整功能模块集中审查、提交，优先非 Embedding 功能与最后的 S1.3 备份恢复。

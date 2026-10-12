@@ -219,7 +219,11 @@ impl SessionIndexService {
                  FROM session_search_chunk c
                  LEFT JOIN session_embedding_record e ON e.chunk_id = c.id
                  WHERE c.session_id = ?1",
-            params![session_id, state.embedding_dimensions, state.embedding_model],
+            params![
+                session_id,
+                state.embedding_dimensions,
+                state.embedding_model
+            ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         if chunk_count != state.chunk_count as i64 {
@@ -1039,11 +1043,9 @@ mod tests {
         assert_eq!(rebuilt.embedded_count, 1);
         let restored_model: String = db
             .conn()
-            .query_row(
-                "SELECT model FROM session_embedding_record",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT model FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(restored_model, "session-test-embed");
         assert_eq!(*provider.calls.lock().unwrap(), 2);
