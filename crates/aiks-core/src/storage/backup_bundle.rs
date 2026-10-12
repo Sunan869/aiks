@@ -26,7 +26,9 @@ const MAX_BUNDLE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 
 fn safe_relative(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty()
-        || path.components().any(|c| !matches!(c, Component::Normal(_)))
+        || path
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
     {
         bail!("bundle path must contain only normal relative components");
     }
@@ -52,7 +54,9 @@ fn digest(path: &Path) -> Result<(u64, String)> {
         if n == 0 {
             break;
         }
-        bytes = bytes.checked_add(n as u64).context("bundle size overflow")?;
+        bytes = bytes
+            .checked_add(n as u64)
+            .context("bundle size overflow")?;
         hash.update(&buffer[..n]);
     }
     Ok((bytes, hex::encode(hash.finalize())))
@@ -77,6 +81,9 @@ pub fn create_file_bundle(
         let mut seen = std::collections::HashSet::new();
         for (source, relative) in sources {
             safe_relative(relative)?;
+            if *relative == Path::new("bundle-manifest.json") {
+                bail!("bundle destination is reserved for the manifest");
+            }
             if !seen.insert((*relative).to_path_buf()) {
                 bail!("duplicate bundle destination");
             }
@@ -87,9 +94,7 @@ pub fn create_file_bundle(
                 if ancestor.as_os_str().is_empty() {
                     break;
                 }
-                if fs::symlink_metadata(ancestor)
-                    .is_ok_and(|meta| meta.file_type().is_symlink())
-                {
+                if fs::symlink_metadata(ancestor).is_ok_and(|meta| meta.file_type().is_symlink()) {
                     bail!("bundle source traverses a symbolic link");
                 }
             }
@@ -102,7 +107,10 @@ pub fn create_file_bundle(
             let parent = target.parent().context("invalid bundle destination")?;
             fs::create_dir_all(parent)?;
             let mut reader = fs::File::open(source)?;
-            let mut writer = OpenOptions::new().write(true).create_new(true).open(&target)?;
+            let mut writer = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
             std::io::copy(&mut reader, &mut writer)?;
             writer.sync_all()?;
             let (actual_size, after) = digest(&target)?;
@@ -157,9 +165,7 @@ pub fn verify_file_bundle(destination: &Path) -> Result<BundleManifest> {
             if parent == destination {
                 break;
             }
-            if fs::symlink_metadata(parent)
-                .is_ok_and(|meta| meta.file_type().is_symlink())
-            {
+            if fs::symlink_metadata(parent).is_ok_and(|meta| meta.file_type().is_symlink()) {
                 bail!("bundle traversal through symlink");
             }
         }
@@ -206,6 +212,21 @@ mod tests {
         let items = [(source.as_path(), Path::new("../escape"))];
         assert!(create_file_bundle(&items, &traversal).is_err());
         assert!(!traversal.exists());
+    }
+
+    #[test]
+    fn reserved_manifest_filename_does_not_destroy_preexisting_files() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("data");
+        fs::write(&source, b"preserve original").unwrap();
+        let bundle = dir.path().join("bundle");
+        assert!(create_file_bundle(
+            &[(source.as_path(), Path::new("bundle-manifest.json"))],
+            &bundle
+        )
+        .is_err());
+        assert!(!bundle.exists());
+        assert_eq!(fs::read(&source).unwrap(), b"preserve original");
     }
 
     #[cfg(unix)]
