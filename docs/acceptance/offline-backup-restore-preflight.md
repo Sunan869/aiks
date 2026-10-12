@@ -152,3 +152,10 @@
 - 基线 `2ed9a71`：Windows Provider #38230245064 成功，综合 CI #38230245218 已通过 Rust formatting，但 Clippy `too_many_arguments` 阻断于 run_worker 新增第八个参数。
 - 将 Worker 的 Semaphore 与共享 BackupQuiescence 状态组合为一个控制参数，在入口解构，保留现有 Worker 领取任务前获取写许可和任务结束释放的行为，不使用 `#[allow]` 绕过质量门禁。
 - 仍未解决 AiksEngine::initialize 内部启动 Worker 到 Desktop 注入门禁的时间窗口。应用级一键备份仍禁止启用，必须后续完成真正运行时一致性编排。
+
+
+## 2026-10-12 Worker 启动前门禁绑定
+
+- 基线 `f40c21c` 综合 CI #38230854196 与 Windows Provider #38230854269 成功。
+- AiksEngine 新增可选初始 BackupQuiescence 注入构造入口，PipelineWorker 的启动参数在 spawn 之前携带已绑定的门禁，Desktop 所有三条 engine 初始化路径都在调用 initialize 时传入共享门禁，消除初始化完成后 set_backup_gate 带来的 Worker 无保护启动空窗。
+- 原 CLI 与测试依然可调用 initialize/start_without_gate，避免意外改变非 Desktop 运行语义。尚未实现完整 SiYuan 停止和备份过程协调，不允许据此开放活动数据一键备份。

@@ -108,11 +108,11 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             error!("SiYuan failed to start: {}", e);
             emit_error(&app, &format!("知识引擎启动失败：{}", e));
             show_control_center(&app);
-            let engine = AiksEngine::initialize(AiksEngineConfig {
+            let engine = AiksEngine::initialize_with_backup_gate(AiksEngineConfig {
                 config_path: config_file_path().exists().then_some(config_file_path()),
                 siyuan_base_url: None,
                 siyuan_token: None,
-            })
+            }, app.try_state::<Arc<BackupQuiescence>>().map(|gate| Arc::clone(&gate)))
             .map(Arc::new)
             .ok();
             let engine_ref = engine.clone();
@@ -163,7 +163,10 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
 
     emit_progress(&app, "init_engine", "正在初始化采集引擎...");
-    let engine = match AiksEngine::initialize(engine_config) {
+    let engine = match AiksEngine::initialize_with_backup_gate(
+        engine_config,
+        app.try_state::<Arc<BackupQuiescence>>().map(|gate| Arc::clone(&gate)),
+    ) {
         Ok(e) => e,
         Err(e) => {
             error!("Engine init failed: {}", e);
@@ -172,9 +175,6 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
         }
     };
     let engine = Arc::new(engine);
-    if let Some(gate) = app.try_state::<Arc<BackupQuiescence>>() {
-        engine.set_backup_gate(Arc::clone(&gate));
-    }
 
     let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
@@ -530,10 +530,10 @@ async fn startup_with_external_siyuan(
         siyuan_token: token.clone(),
     };
 
-    let engine = Arc::new(AiksEngine::initialize(engine_config)?);
-    if let Some(gate) = app.try_state::<Arc<BackupQuiescence>>() {
-        engine.set_backup_gate(Arc::clone(&gate));
-    }
+    let engine = Arc::new(AiksEngine::initialize_with_backup_gate(
+        engine_config,
+        app.try_state::<Arc<BackupQuiescence>>().map(|gate| Arc::clone(&gate)),
+    )?);
     let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
     let state = AppState {

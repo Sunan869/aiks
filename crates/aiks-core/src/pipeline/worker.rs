@@ -157,8 +157,25 @@ impl PipelineWorker {
         ai_config: AiModelConfig,
         embedding_config: EmbeddingConfig,
     ) -> Self {
+        Self::start_with_gate(db, registry, ai_config, embedding_config, None)
+    }
+
+    pub fn start_with_gate(
+        db: Arc<StateDb>,
+        registry: Arc<ProviderRegistry>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        backup_gate: Option<Arc<BackupQuiescence>>,
+    ) -> Self {
         let max_concurrent = ai_config.max_concurrent.max(1);
-        Self::start_with_limit(db, registry, ai_config, embedding_config, max_concurrent)
+        Self::start_with_limit_and_gate(
+            db,
+            registry,
+            ai_config,
+            embedding_config,
+            max_concurrent,
+            backup_gate,
+        )
     }
 
     pub fn start_with_limit(
@@ -167,6 +184,24 @@ impl PipelineWorker {
         ai_config: AiModelConfig,
         embedding_config: EmbeddingConfig,
         max_concurrent: usize,
+    ) -> Self {
+        Self::start_with_limit_and_gate(
+            db,
+            registry,
+            ai_config,
+            embedding_config,
+            max_concurrent,
+            None,
+        )
+    }
+
+    fn start_with_limit_and_gate(
+        db: Arc<StateDb>,
+        registry: Arc<ProviderRegistry>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        max_concurrent: usize,
+        initial_gate: Option<Arc<BackupQuiescence>>,
     ) -> Self {
         let (wake_tx, wake_rx) = mpsc::channel(1);
         // An explicit start_with_limit cap also constrains per-session chunk
@@ -188,7 +223,7 @@ impl PipelineWorker {
         let semaphore = Arc::new(Semaphore::new(permitted_jobs));
         let worker_wake_tx = wake_tx.clone();
         let worker_db = Arc::clone(&db);
-        let backup_gate = Arc::new(RwLock::new(None));
+        let backup_gate = Arc::new(RwLock::new(initial_gate));
         let worker_gate = Arc::clone(&backup_gate);
 
         tokio::spawn(async move {
