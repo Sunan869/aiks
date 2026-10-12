@@ -372,10 +372,8 @@ async fn malformed_vectors_fail_closed_and_allow_safe_reindex() {
             .unwrap();
         assert_eq!(count, 0);
 
-        let repaired = KnowledgeIndexService::new(
-            db.clone(),
-            Arc::new(FakeEmbedding::ready("embed-v4", 2)),
-        );
+        let repaired =
+            KnowledgeIndexService::new(db.clone(), Arc::new(FakeEmbedding::ready("embed-v4", 2)));
         let retry = repaired.index_document(input).await.unwrap();
         assert!(!retry.skipped);
         assert_eq!(retry.embedded_count, 1);
