@@ -429,17 +429,13 @@ mod tests {
         let error = load_and_verify_backup(&snapshot, &file).unwrap_err();
         assert!(error.to_string().contains("foreign-key violations"));
         verify_sqlite_backup(&snapshot, &manifest).unwrap();
-        let snapshot_violations: i64 = Connection::open_with_flags(
-            &snapshot,
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap()
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_foreign_key_check",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
+        let snapshot_violations: i64 =
+            Connection::open_with_flags(&snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
         assert_eq!(snapshot_violations, 1);
         assert_eq!(
             db.conn()
