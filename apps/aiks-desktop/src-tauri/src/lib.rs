@@ -1,5 +1,6 @@
 mod ai_assist_commands;
 mod app_state;
+mod backup_commands;
 mod bootstrap;
 mod commands;
 mod diagnostics;
@@ -130,6 +131,8 @@ pub fn run() {
             embedding_commands::save_embedding_settings,
             embedding_commands::test_embedding_connection_with_settings,
             embedding_commands::rebuild_semantic_index,
+            backup_commands::inspect_offline_backup,
+            backup_commands::verify_offline_backup_manifest,
             storage_commands::get_data_storage_settings,
             storage_commands::pick_data_directory,
             storage_commands::set_data_storage_root,
