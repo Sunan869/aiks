@@ -209,9 +209,8 @@ impl SessionIndexService {
         embedding_enabled: bool,
     ) -> anyhow::Result<bool> {
         let conn = self.db.conn();
-        let (chunk_count, embedding_count, invalid_dimensions): (i64, i64, i64) = conn
-            .query_row(
-                "SELECT COUNT(c.id), COUNT(e.id),
+        let (chunk_count, embedding_count, invalid_dimensions): (i64, i64, i64) = conn.query_row(
+            "SELECT COUNT(c.id), COUNT(e.id),
                         COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND
                             (e.dimensions <= 0 OR e.dimensions != ?2 OR
                              LENGTH(e.vector) != e.dimensions * 4)
@@ -219,18 +218,16 @@ impl SessionIndexService {
                  FROM session_search_chunk c
                  LEFT JOIN session_embedding_record e ON e.chunk_id = c.id
                  WHERE c.session_id = ?1",
-                params![session_id, state.embedding_dimensions],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )?;
+            params![session_id, state.embedding_dimensions],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
         if chunk_count != state.chunk_count as i64 {
             return Ok(false);
         }
         if embedding_enabled {
-            return Ok(
-                state.embedding_dimensions.is_some_and(|dim| dim > 0)
-                    && embedding_count == chunk_count
-                    && invalid_dimensions == 0,
-            );
+            return Ok(state.embedding_dimensions.is_some_and(|dim| dim > 0)
+                && embedding_count == chunk_count
+                && invalid_dimensions == 0);
         }
         Ok(embedding_count == 0)
     }
@@ -954,6 +951,44 @@ mod tests {
         assert_eq!(recovered.embedded_count, 1);
         assert_eq!(*provider.calls.lock().unwrap(), 2);
         assert!(service.index_session(input).await.unwrap().skipped);
+    }
+
+    #[tokio::test]
+    async fn malformed_persisted_vector_rebuilds_before_idempotent_skip() {
+        for corrupt_vector in [vec![0_u8; 3], vec![0_u8; 4]] {
+            let dir = tempdir().unwrap();
+            let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+            let session_id = seed_session(&db);
+            let provider = Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            });
+            let service = SessionIndexService::new(db.clone(), provider.clone());
+            let input = SessionIndexInput {
+                session_id,
+                external_id: "session-v42".into(),
+                source: "claude_code".into(),
+                title: None,
+                normalized_text: "searchable current content".into(),
+            };
+            assert_eq!(
+                service.index_session(input.clone()).await.unwrap().embedded_count,
+                1
+            );
+            {
+                let conn = db.conn();
+                conn.execute(
+                    "UPDATE session_embedding_record SET vector = ?1 WHERE chunk_id IN
+                     (SELECT id FROM session_search_chunk WHERE session_id = ?2)",
+                    params![corrupt_vector, session_id],
+                )
+                .unwrap();
+            }
+            let repaired = service.index_session(input.clone()).await.unwrap();
+            assert!(!repaired.skipped);
+            assert_eq!(repaired.embedded_count, 1);
+            assert_eq!(*provider.calls.lock().unwrap(), 2);
+            assert!(service.index_session(input).await.unwrap().skipped);
+        }
     }
 
     fn seed_session(db: &StateDb) -> i64 {
