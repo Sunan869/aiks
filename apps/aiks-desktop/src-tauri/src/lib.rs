@@ -59,6 +59,7 @@ pub fn run() {
     tracing::info!(log_path = %log_path.display(), "AIKS file logging initialized");
 
     let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
+    let backup_gate = Arc::new(aiks_core::storage::backup_quiescence::BackupQuiescence::default());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -69,6 +70,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(runtime_container)
+        .manage(backup_gate)
         .manage(workbench::controller::WorkbenchController::new())
         .setup(|app| {
             let app_handle = app.handle().clone();

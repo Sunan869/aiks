@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
+use aiks_core::storage::backup_quiescence::BackupQuiescence;
 use aiks_core::knowledge::ContentMigrationService;
 use aiks_core::runtime::{RuntimeState, SiyuanRuntime};
 use aiks_core::sink::SiYuanSink;
@@ -348,10 +349,16 @@ fn spawn_background_tasks(
     let Some(engine) = engine else {
         return;
     };
+    let Some(gate) = app.try_state::<Arc<BackupQuiescence>>() else {
+        error!("Missing backup write gate; refusing background sync startup");
+        return;
+    };
+    let gate = Arc::clone(&gate);
 
     {
         let engine_bg = engine.clone();
         let app_bg = app.clone();
+        let gate_bg = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             info!("[STARTUP] Beginning initial scan...");
             let _ = app_bg.emit("sync-status", serde_json::json!({"status": "scanning"}));
@@ -362,6 +369,10 @@ fn spawn_background_tasks(
                 overwrite: false,
             };
 
+            let Some(_writer) = gate_bg.try_begin_write() else {
+                warn!("Startup sync deferred while backup write gate is paused");
+                return;
+            };
             match engine_bg
                 .sync_and_enqueue_extraction_with_trigger(opts, "startup")
                 .await
@@ -396,6 +407,7 @@ fn spawn_background_tasks(
     {
         let engine_w = engine.clone();
         let app_w = app.clone();
+        let gate_w = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             while let Some(event) = watcher_rx.recv().await {
                 let source = event.source.as_str().to_string();
@@ -403,6 +415,10 @@ fn spawn_background_tasks(
                     source_filter: Some(source),
                     dry_run: false,
                     overwrite: false,
+                };
+                let Some(_writer) = gate_w.try_begin_write() else {
+                    warn!("Watcher sync deferred while backup write gate is paused");
+                    continue;
                 };
                 match engine_w
                     .sync_and_enqueue_extraction_with_trigger(opts, "watcher")
@@ -425,6 +441,7 @@ fn spawn_background_tasks(
 
     {
         let engine_p = engine.clone();
+        let gate_p = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             let interval_secs = engine_p.config().sync.scan_interval_seconds.max(30);
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
@@ -437,6 +454,10 @@ fn spawn_background_tasks(
                     source_filter: None,
                     dry_run: false,
                     overwrite: false,
+                };
+                let Some(_writer) = gate_p.try_begin_write() else {
+                    warn!("Periodic sync skipped while backup write gate is paused");
+                    continue;
                 };
                 match engine_p
                     .sync_and_enqueue_extraction_with_trigger(opts, "periodic")
