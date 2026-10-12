@@ -39,7 +39,7 @@ pub struct ProjectMemorySnapshot {
 }
 
 /// A stable opaque ID; raw source paths never need to cross the UI boundary.
-fn project_identity(
+pub(crate) fn project_identity(
     source: &str,
     external_id: &str,
     path: Option<&str>,
@@ -91,8 +91,13 @@ impl<'a> ProjectMemoryService<'a> {
         let mut session_to_project: HashMap<i64, String> = HashMap::new();
         {
             let mut stmt = conn.prepare(
-                "SELECT id,source,external_session_id,project_path,project_name,updated_at
-                 FROM source_session WHERE is_missing = 0 ORDER BY updated_at DESC, id DESC",
+                "SELECT ss.id,ss.source,ss.external_session_id,
+                        COALESCE(pb.project_path,ss.project_path),ss.project_name,ss.updated_at
+                 FROM source_session ss
+                 LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
+                 WHERE ss.is_missing = 0
+                 ORDER BY CASE WHEN pb.session_id IS NULL THEN 0 ELSE 1 END,
+                          ss.updated_at DESC, ss.id DESC",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((
@@ -129,17 +134,29 @@ impl<'a> ProjectMemoryService<'a> {
         }
         {
             let mut stmt = conn.prepare(
-                "SELECT source_session_id, COUNT(*) FROM knowledge_item
+                "SELECT source_session_id, COUNT(*), MAX(updated_at) FROM knowledge_item
                  WHERE status = 'active' AND source_session_id IS NOT NULL
                  GROUP BY source_session_id",
             )?;
-            let rows =
-                stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
             for row in rows {
-                let (session_id, count) = row?;
+                let (session_id, count, knowledge_updated) = row?;
                 if let Some(group_id) = session_to_project.get(&session_id) {
                     if let Some(group) = groups.get_mut(group_id) {
                         group.knowledge_count += count as usize;
+                        // Manual review can update a KnowledgeItem long after
+                        // its source Session stopped changing.
+                        if let Some(updated) = knowledge_updated {
+                            if updated > group.last_updated_at {
+                                group.last_updated_at = updated;
+                            }
+                        }
                     }
                 }
             }
@@ -157,24 +174,78 @@ impl<'a> ProjectMemoryService<'a> {
     }
 
     pub fn get(&self, project_id: &str, limit: usize) -> Result<ProjectMemorySnapshot> {
+        self.get_scoped(project_id, limit, None)
+    }
+
+    /// Filter by Provider before bounding evidence rows; a global top-200
+    /// sample cannot represent every source of a long-running project.
+    pub fn get_scoped(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+    ) -> Result<ProjectMemorySnapshot> {
+        self.get_filtered(project_id, limit, source_filter, None)
+    }
+
+    /// Restrict report evidence by dates and Provider before applying a limit.
+    pub fn get_review_scoped(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+        from: &str,
+        through: &str,
+    ) -> Result<ProjectMemorySnapshot> {
+        let first = chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d")?;
+        let last = chrono::NaiveDate::parse_from_str(through, "%Y-%m-%d")?;
+        anyhow::ensure!(
+            first <= last,
+            "Report start date must not be after the end date"
+        );
+        self.get_filtered(project_id, limit, source_filter, Some((from, through)))
+    }
+
+    fn get_filtered(
+        &self,
+        project_id: &str,
+        limit: usize,
+        source_filter: Option<&str>,
+        date_filter: Option<(&str, &str)>,
+    ) -> Result<ProjectMemorySnapshot> {
         let project = self
             .list()?
             .into_iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| anyhow::anyhow!("Project identity not found"))?;
+        if let Some(source) = source_filter {
+            anyhow::ensure!(
+                project.sources.iter().any(|known| known == source),
+                "Project source not found"
+            );
+        }
         let conn = self.db.conn();
         let mut stmt = conn.prepare(
             "SELECT ki.id,ki.title,ki.category,ki.summary,ki.updated_at,
-                    ss.id,ss.source,ss.external_session_id,ss.project_path,ss.project_name,
+                    ss.id,ss.source,ss.external_session_id,
+                    COALESCE(pb.project_path,ss.project_path),ss.project_name,
                     (SELECT kind FROM knowledge_feedback WHERE knowledge_id = ki.id
                      ORDER BY created_at DESC, id DESC LIMIT 1)
              FROM knowledge_item ki JOIN source_session ss ON ss.id = ki.source_session_id
+             LEFT JOIN project_session_binding pb ON pb.session_id = ss.id
              WHERE ki.status = 'active' AND ss.is_missing = 0
+               AND (?1 IS NULL OR ss.source = ?1)
+               AND (?2 IS NULL OR substr(ki.updated_at, 1, 10) >= ?2)
+               AND (?3 IS NULL OR substr(ki.updated_at, 1, 10) <= ?3)
              ORDER BY ki.updated_at DESC, ki.id DESC",
         )?;
         let mut entries = Vec::new();
         let mut truncated = false;
-        let rows = stmt.query_map([], |row| {
+        let (from, through) = match date_filter {
+            Some((from, through)) => (Some(from), Some(through)),
+            None => (None, None),
+        };
+        let rows = stmt.query_map(rusqlite::params![source_filter, from, through], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -252,6 +323,194 @@ mod tests {
         assert_ne!(relative_a, relative_b);
         assert!(!verified_a);
         assert!(!verified_b);
+    }
+
+    #[test]
+    fn project_memory_tracks_latest_knowledge_and_keeps_cross_tool_evidence_isolated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("knowledge-timeline.db")).unwrap();
+        for (id, source, path) in [
+            (1, "codex", "C:/repo/alpha"),
+            (2, "claude", "c:/repo/alpha/"),
+            (3, "opencode", "D:/repo/alpha"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,?4,'alpha',
+                             '2026-01-01','2026-01-01','2026-01-01')",
+                    params![id, source, format!("tool-{id}"), path],
+                )
+                .unwrap();
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,project_name,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'alpha','Fix','troubleshooting','verified fix','details',
+                             'conversation','pipeline','active','2026-01-01',?3)",
+                    params![
+                        format!("knowledge-{id}"),
+                        id,
+                        if id == 1 { "2026-10-10" } else { "2026-01-02" }
+                    ],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let projects = service.list().unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].session_count, 2);
+        assert_eq!(projects[0].knowledge_count, 2);
+        assert_eq!(projects[0].sources, vec!["claude", "codex"]);
+        assert_eq!(projects[0].last_updated_at, "2026-10-10");
+        assert!(projects[0].verified_path);
+
+        let memory = service.get(&projects[0].id, 20).unwrap();
+        assert!(!memory.truncated);
+        assert_eq!(memory.entries.len(), 2);
+        assert!(memory
+            .entries
+            .iter()
+            .any(|entry| { entry.source == "codex" && entry.session_external_id == "tool-1" }));
+        assert!(memory.entries.iter().any(|entry| entry.source == "claude"));
+        assert!(!memory
+            .entries
+            .iter()
+            .any(|entry| entry.source == "opencode"));
+
+        let limited = service.get(&projects[0].id, 1).unwrap();
+        assert_eq!(limited.entries.len(), 1);
+        assert!(limited.truncated);
+        let other = service.get(&projects[1].id, 20).unwrap();
+        assert_eq!(other.entries.len(), 1);
+        assert_eq!(other.entries[0].source, "opencode");
+    }
+
+    #[test]
+    fn scoped_memory_binds_provider_before_limiting_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("scoped-memory.db")).unwrap();
+        for (session_id, source) in [(1, "codex"), (2, "claude_code")] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,'C:/repo/shared','shared',
+                             '2026-10-09','2026-10-09','2026-10-09')",
+                    params![session_id, source, format!("s-{session_id}")],
+                )
+                .unwrap();
+        }
+        for (id, session_id, updated) in [
+            ("codex-new", 1, "2026-10-11"),
+            ("claude-new", 2, "2026-10-10"),
+            ("claude-old", 2, "2026-10-09"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'Finding','decision','Evidence','Detail',
+                             'conversation','pipeline','active','2026-10-09',?3)",
+                    params![id, session_id, updated],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let id = service.list().unwrap()[0].id.clone();
+        assert_eq!(
+            service.get(&id, 1).unwrap().entries[0].knowledge_id,
+            "codex-new"
+        );
+        let selected = service.get_scoped(&id, 1, Some("claude_code")).unwrap();
+        assert!(selected.truncated);
+        assert_eq!(selected.entries[0].knowledge_id, "claude-new");
+        let source_all = service.get_scoped(&id, 200, Some("claude_code")).unwrap();
+        assert_eq!(source_all.entries.len(), 2);
+        assert!(!source_all.truncated);
+        assert!(source_all
+            .entries
+            .iter()
+            .all(|entry| entry.source == "claude_code"));
+        assert_eq!(service.get(&id, 200).unwrap().entries.len(), 3);
+        assert!(service.get_scoped(&id, 200, Some("unknown")).is_err());
+        assert!(service.get_scoped(&id, 200, Some("")).is_err());
+    }
+
+    #[test]
+    fn historical_review_filters_dates_before_limit_and_keeps_source_provenance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&tmp.path().join("review-memory.db")).unwrap();
+        for (id, source) in [(1, "codex"), (2, "claude_code")] {
+            db.conn()
+                .execute(
+                    "INSERT INTO source_session
+                     (id,source,external_session_id,project_path,project_name,
+                      last_seen_at,created_at,updated_at)
+                     VALUES (?1,?2,?3,'C:/repo/shared','shared',
+                             '2026-10-10','2026-10-10','2026-10-10')",
+                    params![id, source, format!("session-{id}")],
+                )
+                .unwrap();
+        }
+        for (id, sid, date) in [
+            ("recent-codex", 1, "2026-10-10T10:00:00"),
+            ("recent-claude", 2, "2026-10-10T09:00:00"),
+            ("historical-claude", 2, "2026-01-09T11:00:00"),
+            ("historical-codex", 1, "2026-01-09T10:00:00"),
+        ] {
+            db.conn()
+                .execute(
+                    "INSERT INTO knowledge_item
+                     (id,source_session_id,title,category,summary,content,
+                      source_type,managed_by,status,created_at,updated_at)
+                     VALUES (?1,?2,'Finding','decision',?1,'Detail',
+                             'conversation','pipeline','active','2026-01-09',?3)",
+                    params![id, sid, date],
+                )
+                .unwrap();
+        }
+        let service = ProjectMemoryService::new(&db);
+        let id = service.list().unwrap()[0].id.clone();
+        let current = service.get_scoped(&id, 1, Some("claude_code")).unwrap();
+        assert_eq!(current.entries[0].knowledge_id, "recent-claude");
+
+        let history = service
+            .get_review_scoped(&id, 1, Some("claude_code"), "2026-01-09", "2026-01-09")
+            .unwrap();
+        assert_eq!(history.entries[0].knowledge_id, "historical-claude");
+        assert!(!history.truncated);
+
+        let combined = service
+            .get_review_scoped(&id, 1, None, "2026-01-09", "2026-01-09")
+            .unwrap();
+        assert!(combined.truncated);
+        assert_eq!(combined.entries[0].knowledge_id, "historical-claude");
+
+        let report = crate::knowledge::render_project_review_scoped(
+            &history,
+            "2026-01-09",
+            "2026-01-09",
+            Some("claude_code"),
+        )
+        .unwrap();
+        assert!(report.contains("historical-claude"));
+        assert!(!report.contains("recent-claude"));
+        assert!(!report.contains("historical-codex"));
+        assert!(service
+            .get_review_scoped(&id, 10, None, "2026-01-10", "2026-01-09")
+            .is_err());
+        assert!(service
+            .get_review_scoped(&id, 10, None, "bad-date", "2026-01-09")
+            .is_err());
+        assert!(service
+            .get_review_scoped(&id, 10, Some("unknown"), "2026-01-09", "2026-01-09")
+            .is_err());
     }
 
     #[test]

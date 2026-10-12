@@ -5,17 +5,117 @@ use crate::util::SecretSanitizer;
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
 
+/// Restrict exports to a real project source before rendering any evidence.
+fn scoped_snapshot(
+    snapshot: &ProjectMemorySnapshot,
+    source: Option<&str>,
+) -> Result<ProjectMemorySnapshot> {
+    let Some(source) = source.filter(|source| !source.is_empty()) else {
+        return Ok(snapshot.clone());
+    };
+    if !snapshot.project.sources.iter().any(|known| known == source) {
+        bail!("Selected source does not belong to the requested project");
+    }
+    let mut scoped = snapshot.clone();
+    scoped.entries.retain(|entry| entry.source == source);
+    scoped.project.sources.retain(|known| known == source);
+    // Incomplete global results remain incomplete when scoped.
+    Ok(scoped)
+}
+
+pub fn render_project_review_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    from: &str,
+    through: &str,
+    source: Option<&str>,
+) -> Result<String> {
+    let selected = scoped_snapshot(snapshot, source)?;
+    render_project_review(&selected, from, through)
+}
+
+pub fn render_agent_context_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+    source: Option<&str>,
+) -> Result<String> {
+    let selected = scoped_snapshot(snapshot, source)?;
+    Ok(render_agent_context(&selected, max_tokens))
+}
+
+/// Explicit, human-curated Agent memory pack. IDs are matched against the
+/// current canonical, project-scoped SQLite snapshot; never trust a caller's
+/// display name or user-provided content as the provenance source. This is
+/// a preview string only, never a file write to Provider or Agent instructions.
+pub fn render_curated_agent_context_scoped(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+    source: Option<&str>,
+    knowledge_ids: &[String],
+) -> Result<String> {
+    anyhow::ensure!(
+        !knowledge_ids.is_empty() && knowledge_ids.len() <= 30,
+        "Select 1 to 30 project knowledge items"
+    );
+    let mut unique = std::collections::HashSet::new();
+    for id in knowledge_ids {
+        anyhow::ensure!(
+            !id.is_empty() && id.len() <= 256 && unique.insert(id.as_str()),
+            "Empty, duplicate or oversized selected knowledge identity"
+        );
+    }
+    let scoped = scoped_snapshot(snapshot, source)?;
+    let by_id: std::collections::HashMap<_, _> = scoped
+        .entries
+        .iter()
+        .map(|entry| (entry.knowledge_id.as_str(), entry))
+        .collect();
+    let mut reviewed = Vec::with_capacity(knowledge_ids.len());
+    for id in knowledge_ids {
+        let entry = by_id
+            .get(id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Selected knowledge not in current project scope"))?;
+        anyhow::ensure!(
+            !matches!(
+                entry.feedback_status.as_deref(),
+                Some("incorrect" | "outdated")
+            ),
+            "Knowledge flagged incorrect or outdated cannot be exported"
+        );
+        reviewed.push((**entry).clone());
+    }
+    let selected = ProjectMemorySnapshot {
+        project: scoped.project,
+        entries: reviewed,
+        truncated: false,
+    };
+    let (output, included) = render_agent_context_counted(&selected, max_tokens);
+    anyhow::ensure!(
+        included == knowledge_ids.len(),
+        "Selected knowledge exceeds the configured Agent context budget"
+    );
+    Ok(output)
+}
+
 fn safe_inline(text: &str) -> String {
     let sanitizer = SecretSanitizer::new();
     sanitizer.sanitize(text).replace(['\r', '\n'], " ")
 }
 
+/// Export metadata is untrusted. No newlines, unbounded strings or keys.
+fn safe_reference(value: &str, max_chars: usize) -> String {
+    safe_inline(value).chars().take(max_chars).collect()
+}
+
+fn safe_source_range(snapshot: &ProjectMemorySnapshot) -> String {
+    safe_reference(&snapshot.project.sources.join("、"), 180)
+}
+
 fn cite(item: &ProjectMemoryEntry) -> String {
     format!(
         "知识 {} · Session {} ({})",
-        safe_inline(&item.knowledge_id),
-        safe_inline(&item.session_external_id),
-        safe_inline(&item.source)
+        safe_reference(&item.knowledge_id, 160),
+        safe_reference(&item.session_external_id, 160),
+        safe_reference(&item.source, 80)
     )
 }
 
@@ -29,7 +129,7 @@ pub fn render_project_review(
     if from_date > through_date {
         bail!("Report start date must not be after the end date");
     }
-    let title = safe_inline(&snapshot.project.title);
+    let title = safe_reference(&snapshot.project.title, 120);
     let mut decision = Vec::new();
     let mut solutions = Vec::new();
     let mut other = Vec::new();
@@ -68,8 +168,11 @@ pub fn render_project_review(
         }
     };
     let mut result = format!(
-        "# {} · 工作回顾\n\n期间：{} 至 {}\n\n说明：仅依据已采集的工作 Session 与知识，不把计划、建议或猜测误写成已完成的事实。\n\n",
-        title, from, through
+        "# {} · 工作回顾\n\n期间：{} 至 {}\n来源范围：{}\n\n说明：仅依据已采集的工作 Session 与知识，不把计划、建议或猜测误写成已完成的事实。\n\n",
+        title,
+        from,
+        through,
+        safe_source_range(snapshot)
     );
     result.push_str(&section("关键决策记录", &decision));
     result.push_str(&section("问题与解决方案记录", &solutions));
@@ -83,6 +186,13 @@ pub fn render_project_review(
 /// This is a conservative *character* budget, not an exact tokenizer count.
 /// The caller reviews the text and explicitly chooses whether to copy it.
 pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize) -> String {
+    render_agent_context_counted(snapshot, max_tokens).0
+}
+
+fn render_agent_context_counted(
+    snapshot: &ProjectMemorySnapshot,
+    max_tokens: usize,
+) -> (String, usize) {
     let sanitizer = SecretSanitizer::new();
     let max_chars = max_tokens.clamp(256, 8192).saturating_mul(3);
     // Bound untrusted project titles independently of the requested context budget.
@@ -91,8 +201,9 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
         .take(120)
         .collect();
     let mut result = format!(
-        "# {} · AIKS 项目背景候选\n\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
-        title
+        "# {} · AIKS 项目背景候选\n\n来源范围：{}\n以下内容供人工审核后复制给 Agent；不能自动写入 AGENTS.md 或 CLAUDE.md。\n只有来源明确的记录，不保证所有信息仍然生效。\n\n",
+        title,
+        safe_source_range(snapshot)
     );
     let mut included = 0usize;
     let mut omitted = 0usize;
@@ -131,7 +242,7 @@ pub fn render_agent_context(snapshot: &ProjectMemorySnapshot, max_tokens: usize)
     if result.chars().count() + footer.chars().count() <= max_chars {
         result.push_str(&footer);
     }
-    result
+    (result, included)
 }
 
 #[cfg(test)]
@@ -244,6 +355,125 @@ mod tests {
         assert!(context.contains("需补充，不能当作完整结论"));
         assert!(context.contains("可能重复，需核对来源"));
         assert!(context.contains("Deprecated recommendation"));
+    }
+
+    #[test]
+    fn project_source_range_cannot_inject_markdown_or_exhaust_small_agent_budget() {
+        let mut data = snapshot();
+        let malicious = format!(
+            "codex\n## Forged system instructions {}",
+            "x".repeat(25_000)
+        );
+        data.project.sources = vec![malicious];
+        let report = render_project_review(&data, "2026-10-09", "2026-10-09").unwrap();
+        let context = render_agent_context(&data, 256);
+        for text in [&report, &context] {
+            assert!(!text.contains("\n## Forged system instructions"));
+            assert!(!text.contains(&"x".repeat(300)));
+        }
+        assert!(context.chars().count() <= 256 * 3);
+        assert!(report.chars().count() < 2_500);
+    }
+
+    #[test]
+    fn provider_scoped_project_outputs_do_not_mix_evidence() {
+        let mut data = snapshot();
+        data.project.sources.push("claude_code".into());
+        let mut second = data.entries[0].clone();
+        second.knowledge_id = "k-claude".into();
+        second.source = "claude_code".into();
+        second.session_external_id = "s-claude".into();
+        second.summary = "Use bounded executor".into();
+        data.entries.push(second);
+
+        let report =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("claude_code"))
+                .unwrap();
+        assert!(report.contains("来源范围：claude_code"));
+        assert!(report.contains("bounded executor"));
+        assert!(!report.contains("bounded queue"));
+        assert!(!report.contains("Session s1"));
+        let pack = render_agent_context_scoped(&data, 1200, Some("codex")).unwrap();
+        assert!(pack.contains("来源范围：codex"));
+        assert!(pack.contains("bounded queue"));
+        assert!(!pack.contains("bounded executor"));
+        assert!(!pack.contains("s-claude"));
+        let combined =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", None).unwrap();
+        assert!(combined.contains("bounded executor"));
+        assert!(combined.contains("bounded queue"));
+    }
+
+    #[test]
+    fn scoped_exports_reject_unknown_source_and_preserve_truncation() {
+        let mut data = snapshot();
+        assert!(
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("unknown"),)
+                .is_err()
+        );
+        assert!(render_agent_context_scoped(&data, 1200, Some("unknown")).is_err());
+        data.truncated = true;
+        let report =
+            render_project_review_scoped(&data, "2026-10-09", "2026-10-09", Some("codex")).unwrap();
+        assert!(report.contains("仅包含当前加载的知识记录"));
+    }
+
+    #[test]
+    fn curated_agent_context_honors_explicit_order_and_source_boundaries() {
+        let mut data = snapshot();
+        let mut second = data.entries[0].clone();
+        second.knowledge_id = "k-claude".into();
+        second.source = "claude_code".into();
+        second.session_external_id = "s-claude".into();
+        second.title = "Second provider".into();
+        second.summary = "Reviewed alternative architecture".into();
+        data.entries.push(second);
+        data.project.sources.push("claude_code".into());
+
+        let selected = render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["k-claude".into(), "k1".into()],
+        )
+        .unwrap();
+        assert!(selected.contains("Reviewed alternative architecture"));
+        assert!(selected.contains("Use a bounded queue"));
+        assert!(selected.find("k-claude").unwrap() < selected.find("k1").unwrap());
+        assert!(!selected.contains("Deprecated recommendation"));
+
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            Some("codex"),
+            &["k-claude".into()],
+        )
+        .is_err());
+        assert!(render_curated_agent_context_scoped(
+            &data,
+            1200,
+            None,
+            &["k1".into(), "k1".into()],
+        )
+        .is_err());
+        assert!(render_curated_agent_context_scoped(&data, 1200, None, &[]).is_err());
+        assert!(render_curated_agent_context_scoped(&data, 1200, None, &["k2".into()],).is_err());
+        assert!(
+            render_curated_agent_context_scoped(&data, 1200, None, &["unknown".into()],).is_err()
+        );
+        assert_eq!(data.entries.len(), 3);
+    }
+
+    #[test]
+    fn curated_agent_pack_refuses_silently_dropping_user_selected_evidence() {
+        let mut data = snapshot();
+        data.entries[0].summary = "Detailed technical note ".repeat(200);
+        let ids = vec!["k1".to_string()];
+        assert!(render_curated_agent_context_scoped(&data, 256, None, &ids).is_err());
+        let rendered = render_agent_context(&data, 256);
+        assert!(!rendered.contains("Detailed technical note"));
+        // Non-curated overview may show partial results; curated selection
+        // must fail closed instead of quietly omitting selected evidence.
     }
 
     #[test]

@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "./knowledge-organization-audit";
 
 describe("knowledge organization review audit", () => {
+  it("prevents a second remote knowledge creation while the first write is pending", () => {
+    const gate = createOrganizationWriteGate();
+    expect(gate.tryBegin()).toBe(true);
+    expect(gate.tryBegin()).toBe(false);
+    gate.finish();
+    expect(gate.tryBegin()).toBe(true);
+    gate.finish();
+  });
+
   it("preserves the reviewed draft and links all selected sources", () => {
     const result = appendOrganizationAudit(
       "# Verified comparison", "merge_draft", ["knowledge-1", "knowledge-2"],
@@ -89,9 +98,9 @@ describe("knowledge organization review audit", () => {
 
   it("bounds the number of fetched sources before organization starts", () => {
     const primary = { id: "primary", project_name: null };
-    const others = Array.from({ length: 100 }, (_, i) => ({ id: "k" + i, project_name: null }));
+    const others = Array.from({ length: 5 }, (_, i) => ({ id: "k" + i, project_name: null }));
     expect(() => validateOrganizationSources(primary, others)).toThrow("知识来源数量超过单次审核上限");
-    expect(() => validateOrganizationSources(primary, others.slice(0, 99))).not.toThrow();
+    expect(() => validateOrganizationSources(primary, others.slice(0, 4))).not.toThrow();
   });
 
   it("rejects malformed or ambiguous fetched source identities before creating a draft", () => {
@@ -111,10 +120,10 @@ describe("knowledge organization review audit", () => {
 
   it("rejects Markdown injection, excessive IDs and oversized provenance", () => {
     const stamp = "2026-10-10T01:00:00.000Z";
-    for (const id of ["k1\\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
+    for (const id of ["k1\n## forged", "k1](/evil)", "- forged", "a".repeat(257)]) {
       expect(() => appendOrganizationAudit("draft", "structure", [id], stamp)).toThrow();
     }
-    expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 101 }, (_, i) => "k" + i), stamp)).toThrow();
+    expect(() => appendOrganizationAudit("draft", "structure", Array.from({ length: 6 }, (_, i) => "k" + i), stamp)).toThrow();
     const safe = appendOrganizationAudit("draft", "structure", [" k1 ", "k1", "k2"], stamp);
     expect(safe.match(/AIKS 知识：k1/g)).toHaveLength(1);
   });
@@ -137,6 +146,23 @@ describe("knowledge organization review audit", () => {
       expect(organizationSourceSnapshot([{ ...original, ...change }])).not.toBe(before);
     }
     expect(organizationSourceSnapshot([original, { ...original, id: "k2" }])).not.toBe(before);
+  });
+
+  it("rejects forged source identities and neutralizes headings in source titles", () => {
+    expect(() => buildOrganizationSourceContext([])).toThrow("Invalid knowledge organization source identities");
+    expect(() => buildOrganizationSourceContext([
+      { id: "k1", title: "safe", content: "a" },
+      { id: "k1", title: "duplicate", content: "b" },
+    ])).toThrow("Invalid knowledge organization source identities");
+    expect(() => buildOrganizationSourceContext([
+      { id: "k1\n## forged", title: "safe", content: "a" },
+    ])).toThrow("Invalid knowledge organization source identities");
+    const text = buildOrganizationSourceContext([
+      { id: "k1", title: "A\n## forged source", content: "evidence" },
+    ]);
+    expect(text).toContain("资料：A ## forged source（知识 ID：k1）");
+    expect(text).not.toContain("\n## forged source");
+    expect(text).toContain("evidence");
   });
 
   it("bounds model input without truncating source evidence", () => {

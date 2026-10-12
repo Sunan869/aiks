@@ -1,4 +1,6 @@
 use std::time::Instant;
+
+use anyhow::Context;
 /// Embedding Stage — chunks knowledge items and embeds them
 ///
 /// Two sub-stages:
@@ -82,7 +84,6 @@ impl EmbeddingStage {
         let mut total_embedded = 0;
         let mut total_failed = 0;
         let model = self.client.config.model.clone();
-        let dimensions = self.client.config.dimensions.unwrap_or(1024) as i32;
         let batch_size = self.client.config.batch_size;
 
         for item in &items {
@@ -118,6 +119,10 @@ impl EmbeddingStage {
                                 total_failed += 1;
                                 continue;
                             }
+                            // Persist the validated wire dimension. Without an explicit
+                            // dimension setting, do not mislabel vectors as 1024-D.
+                            let dimensions = i32::try_from(vector.len())
+                                .context("Embedding vector dimensions exceed SQLite range")?;
                             knowledge_repo.save_embedding(chunk_id, &model, dimensions, vector)?;
                             total_embedded += 1;
                         }

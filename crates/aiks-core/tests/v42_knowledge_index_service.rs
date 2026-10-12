@@ -307,3 +307,75 @@ async fn mark_deleted_removes_all_search_derivatives() {
     assert_eq!(fts, 0);
     assert_eq!(chunks, 0);
 }
+
+/// Alternate embedding providers must not bypass the indexer's vector checks.
+struct InvalidEmbedding {
+    vector: Vec<f32>,
+}
+
+#[async_trait]
+impl EmbeddingProvider for InvalidEmbedding {
+    fn enabled(&self) -> bool {
+        true
+    }
+
+    fn model_name(&self) -> &str {
+        "embed-v4"
+    }
+
+    fn dimensions(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
+        Ok(texts.into_iter().map(|_| self.vector.clone()).collect())
+    }
+}
+
+#[tokio::test]
+async fn malformed_vectors_fail_closed_and_allow_safe_reindex() {
+    for vector in [
+        vec![0.0, 0.0],
+        vec![f32::NAN, 1.0],
+        vec![f32::INFINITY, 1.0],
+        vec![1.0; 16_385],
+    ] {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        create_bound_knowledge(&db, "invalid-knowledge", "invalid-doc");
+        let input = KnowledgeIndexInput {
+            knowledge_id: "invalid-knowledge".into(),
+            siyuan_doc_id: "invalid-doc".into(),
+            markdown: "canonical content to index".into(),
+        };
+        let bad = KnowledgeIndexService::new(db.clone(), Arc::new(InvalidEmbedding { vector }));
+        let error = bad.index_document(input.clone()).await.unwrap_err();
+        assert!(error.to_string().contains("Embedding response"));
+
+        let (status, error): (String, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT index_status, last_index_error FROM knowledge_item WHERE id = 'invalid-knowledge'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert!(error.unwrap().contains("Embedding response"));
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM embedding_record er JOIN knowledge_chunk kc ON kc.id = er.chunk_id WHERE kc.knowledge_id = 'invalid-knowledge'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+
+        let repaired =
+            KnowledgeIndexService::new(db.clone(), Arc::new(FakeEmbedding::ready("embed-v4", 2)));
+        let retry = repaired.index_document(input).await.unwrap();
+        assert!(!retry.skipped);
+        assert_eq!(retry.embedded_count, 1);
+    }
+}

@@ -10,6 +10,8 @@ export interface RagAskRequest {
   history?: RagTurn[];
   /** Exact project filter. Omit to search all projects. */
   project?: string;
+  /** Exact Provider/source filter. Omit to search all sources. */
+  source?: string;
 }
 
 export interface RagCitation {

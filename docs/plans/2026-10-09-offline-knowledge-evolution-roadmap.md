@@ -395,3 +395,334 @@ AIKS 从“跨工具 Session 归档 + 提炼”进化为“跨工具、跨会话
 - 新增日期区间前端校验、Token 预算界限、项目切换时的请求代次保护（旧生成请求结果不可覆盖新项目预览）和成功/失败反馈。
 - 对应提交 `de650f54d387a11fbe12556d6c0814b17b4bc787`；**待该 HEAD 的 CI 与 Windows Desktop 真机交互测试**，包括下载权限、可编辑预览、切换项目时并发生成。S3.2/S3.3 尚缺真实多来源完整报告、独立的内容质量基线与用户环境验收，不能标成全部完成。
 - S3.4 仍需补齐可审计、可撤销的自然语言受控知识操作。S1.3 完整备份仍保持暂停，最后实施，不开放入口。
+
+
+### 2026-10-10 S3.4 来源证据边界与 CI 核查
+
+- CI `38047715942` 四个作业均成功（Rust 质量和测试、Windows Desktop 编译、仓库卫生、Desktop 前端），Windows Provider Contracts `38047715904` 成功；对应 HEAD `e5e4672572a7bd06e26a91b5047df595771d1a3e`。
+- S3.4 的模型上下文构建层新增独立来源身份校验：拒绝空来源、重复 ID、非法 ID、超量来源；将知识标题内换行转为空格以防伪造上下文资料段落，保留原文证据。
+- `knowledge-organization-audit.test.ts` 补齐上述负例。原有的来源内容版本复核、人工审核后创建独立知识、归档与恢复继续保留；未开放自动改写原文或批量删除。
+- **尚未宣布第一步完成**：S2.1 真实模型提炼质量、性能与重试压力数据仍未收齐；S3.4 的用户操作体验及跨会话安全恢复仍需集成/实机验收；S1.1/S1.2 的真实内嵌 SiYuan 与 Windows 场景未验收。S1.3 完整备份保持暂停，不提前暴露入口。
+
+### S1.2 持久任务 Lease 领取代次保护（2026-10-11）
+
+- 对 `pipeline_job` 的心跳续租、成功提交、失败/重试状态转移增加原子 SQL 领取代次 `attempt`、`RUNNING` 状态和未过期 Lease 条件；旧 Worker 不得续租、完成或更改后继代次的任务状态。不新增 migration。
+- Worker 在心跳发现租约失效或续租报错后停止继续执行当前异步 Pipeline；只有成功占有有效 Lease 的失败处理才能更新 Pipeline 回退错误状态。
+- 增加超时 Lease、重新领取后的陈旧成功/失败/续租拒绝与重试次数的回归测试。此记录仅描述代码级变更，CI 结果以后续工作流为准；异步阶段已执行的外部副作用仍需在真实故障注入与 Windows/SiYuan 环境继续验收。
+- 保持 S1.3 完整备份/恢复最后开发，不开放备份入口；六项优化、五项功能及实机验收仍未完成。
+
+### 2026-10-11 S1.2 Lease 重试预算与 CI 回归
+
+- 上一提交 `0d063290` 的 Windows Provider 契约检查成功，但综合 CI `38102164925` 在新增测试的 `cargo fmt --all --check` 阶段失败，Clippy 和 Rust tests 因此未执行；不将 Windows Desktop 编译通过等同于 Rust 测试通过。
+- 本批根据日志修正测试格式，并统一 `claim_next` 与独立恢复的 Lease 超时逻辑：超时领取按已消费的 `attempt` 计入上限，第三次超时应终止为 `FAILED`，不允许崩溃后无界重新领取；未耗尽预算的 Lease 仍可安全恢复。
+- 增加第三次超时、重复恢复幂等、明确重新入队可用等 SQLite 回归用例。未改变表结构，不写 Provider、不覆盖 SiYuan 原文；新提交的综合 CI 和 Windows 实机仍待验证。
+
+### 2026-10-11 S1.2 CI 失败定位与超时诊断补全
+
+- HEAD `e1c912a3` 的 Windows Provider `38103074206` 已通过；综合 CI `38103074202` 因 `p1_pipeline_job_queue.rs` 一处 `rustfmt` 闭包换行要求失败，Rust Clippy/tests 均未执行。按原样应用 CI 提供的格式修正。
+- 对可恢复的 Lease 超时记录固定非敏感诊断原因（`Worker lease expired; retry scheduled`），避免只残留先前无关错误；第三次超时仍保留终止原因。测试增加超时诊断及终止后显式新任务从 attempt=1 开始的断言。
+- 代码已提交仍须以相应新 HEAD 的 GitHub Actions 结果验证；不会将 CI/模拟测试视为 Windows 真机或真实模型通过。S1.3 完整备份继续保持暂停、最后实施。
+
+
+### 2026-10-11 S2.1 真实模型质量/性能验收入口增强
+
+- 在已存在的 opt-in `extraction_live_benchmark` 基础上完成独立报告模块：按样例与重复轮次统计真实请求失败、生产 Schema 有效率、工具噪声跳过正确率、技术术语命中、完全同名重复知识、请求 P50/P95 和仅来自服务端 usage 的 Token。全部指标来自实际返回值，不用固定输出冒充真实模型。
+- 支持 `AIKS_BENCH_REPEATS=1..5` 与显式 `AIKS_BENCH_REPORT_PATH`；JSON 文件 create-new，拒绝覆盖已有报告，不保存会话原文、模型输出、API Key 或端点 URL。未运行真实模型时只有合成评分/报告测试，不会自动访问任何模型端点。
+- 新增 `docs/acceptance/extraction-live-benchmark.md` 作为 Windows 真机验收入口说明，声明术语命中不等于准确率，模型请求时延不等于整体 Pipeline 时延，匿名化质量和真实业务质量需分别验证。保持 S1.3 完整备份最后实施。
+- 本次仅完成评测工具代码和自动化测试入口，**尚无真实模型实测结果、人工遗漏率评审或 Windows 实机验收数据**；新 HEAD 综合 CI 仍须确认，不勾选 S2.1 完成。
+
+### 2026-10-11 S2.1 质量门禁修复与 CI 状态
+
+- 综合 CI `38104969064` 在 `extraction_live_benchmark.rs` 的五处 `rustfmt` 检查失败；Windows Provider `38104969158` 成功，综合 CI 的 Clippy/Rust 测试未运行。根据 CI 原始 diff 逐处修正，不把 Windows 编译成功误认为 Rust 测试成功。
+- 修复实时模型评测的正例判定：模型声称 `worth_extracting=true` 但知识列表为空时不能计入正确提炼；增加生产 schema 可以通过但实际没有提炼到应有内容的负例回归，保留原始 `term_total` 遗漏统计。
+- 更新对应验收文档。新 HEAD 仍需通过完整自动化 CI，真实模型输出/Windows 实机评审没有执行；完整备份继续留待最后。
+
+### 2026-10-11 S2.1 实时评测 CI 失败收尾（最新 HEAD 待自动化验证）
+
+- 检查 `a0440174` 的 `38105589829`：Windows Desktop、前端和仓库卫生均通过；Rust 质量任务在唯一一处 `cargo fmt --all --check` 代码换行失败，Clippy/Rust tests 被跳过；Windows Provider `38105589845` 成功。
+- 本次按 CI 的格式差异直接修复 `extraction_live_benchmark.rs`，保留上轮已经实现的正例空知识项拒绝逻辑及其回归断言。未来必须以新 HEAD 的完整 Rust 测试和 Clippy 结果判定是否合格。
+- 未执行真实模型或 Windows 实机评测；S1.3 完整备份与恢复仍待全部其他功能/优化后最后实施。
+
+### 2026-10-11 S3.2 / S3.3 项目报告与 Agent 知识包按来源筛选
+
+- 基线 HEAD `f662994c` 的综合 CI `38106036554` 与 Windows Provider `38106036564` 全部通过。根据尚未实现的「项目+来源」报告范围需求，在已有工作台新增按实际 Provider 来源筛选回顾和 Agent 上下文。切换来源时清空旧预览、作废未完成请求，避免用户将别的来源输出误作当前导出。
+- Rust Core 通过 `render_project_review_scoped` 与 `render_agent_context_scoped` 校验来源必须存在于当前项目，过滤原始证据后再渲染，拒绝伪造来源；保留旧函数和未指定来源的兼容行为。Markdown 输出注明来源范围；有界快照已截断时，筛选后仍保留不完整提醒。
+- Tauri 可选参数、TypeScript API、Mock 和回归覆盖此链路；不改 SQLite migration、不写 Provider 源、不自动修改 AGENTS.md/CLAUDE.md 或 SiYuan 原文。
+- 新提交尚需综合 CI，真实跨工具 Windows/SiYuan 质量与体验验收仍待集中进行；完整备份/恢复继续最后实施。
+
+### 2026-10-11 S3.2/S3.3 来源过滤完整性与 CI 复核
+
+- `8108e17` 的 Windows Provider `38106785877` 已通过，但综合 CI `38106785880` 在新增 Rust 测试的 `rustfmt` 处失败，Clippy/Rust tests 被跳过。本次按照 CI diff 修正所有四处格式。
+- 实质修复：项目全来源前 200 条列表先截断再按 Provider 过滤，会让低频数据源的回顾和 Agent 上下文漏掉本来存在的知识。新增 `ProjectMemoryService::get_scoped`，来源需属于选定项目，并在 SQL 层**先过滤来源再按 200 条上限截断**。Tauri 的两个生成命令调用该路径；原有 `get` API 保持兼容。
+- 增加真实 SQLite 数据层回归，覆盖跨 Provider 排序、来源范围、来源内截断、未知来源拒绝及未指定来源兼容。无 SQLite migration、无 Provider/SiYuan 原文写入；S1.3 完整备份最后实施，Windows/真实模型验收尚未执行。
+
+### 2026-10-11 S3.2 项目历史回顾范围与 CI 格式修复
+
+- 最新远端 HEAD `bf19966e` 已实现按来源与日期范围在 SQL 证据读取前过滤，避免历史区间被最新项目知识的有界样本挤出；CI `38109390183` 仅在 `project_memory.rs` 的 `anyhow::ensure!` 一处 `rustfmt` 失败，Rust Clippy/测试尚未运行。Windows Provider `38109390182`、Desktop 前端/Windows 编译和仓库卫生已通过。
+- 本轮根据 CI 原始格式 diff 修正唯一阻塞，维持该完整模块已编写的真实 SQLite 范围、非法日期和来源隔离回归；无 Schema 迁移，Provider 只读，SiYuan 原文保护不变。最新提交的 Rust 测试及完整 CI 尚需单独验证。
+- Windows 真机和真实模型质量/性能验收尚未执行；S1.3 完整备份/恢复留至所有其他功能、优化的代码级交付之后。
+
+### 2026-10-11 S3.1 项目记忆主题归档与可追溯更新时间线
+
+- 综合 CI `38110213966` 和 Windows Provider `38110213961` 均在 `aae3ce20` HEAD 成功；在同一现有功能分支继续 S3.1 的实际 UI 业务缺口。
+- 项目长期记忆增加按现有知识类别确定性归组的主题概览：架构/决策、环境配置、实施、问题解决、研究、明确标记的约束与待办、其他。仅根据结构化 `category` 字段分类，不利用自由文本推断已完成事项、未完成任务、技术事实或矛盾结论。每条知识只属于一个组，未知类别归“其他”。
+- 增加类别筛选与用户人工质量标记的组合过滤，以及按**知识最后更新时间**排序/分组的独立时间线；同时间使用稳定 Knowledge ID 排序，缺失或不合法日期单列“时间未记录”。列表与时间线都保留知识详情、原始 Session 的可点击证据入口，项目切换时重置视图范围。
+- 主题计数/时间线严格基于后端已加载最多 200 条知识样本，明确提示截断，不能视为项目全量、知识生效时间或事件发生时间。保留 S3.2/S3.3 已存在的按来源和日期范围 SQL 后端生成逻辑，不复制或改写原 Session/SiYuan 文档。
+- 新增独立 TypeScript 过滤、类别、时间线与无效时间的回归用例，及 `docs/acceptance/project-memory-topic-timeline.md` 验收入口。无迁移、Provider 写入或新云依赖。本批尚需 CI 与实际 Windows/真实 Session 确认，S3.1 不能直接宣称完全验收；S1.3 完整备份/恢复仍按用户要求最后实施。
+
+### 2026-10-11 S3.3 Agent 指令文件安全建议片段与预览过期保护
+
+- 基线 `af813f60` 的综合 CI `38111416816` 和 Windows Provider `38111416827` 均通过。复核 S3.3 发现：虽然已有通用 Markdown 上下文包、可编辑预览和手动复制/保存，但还缺可直接选择的 `AGENTS.md` / `CLAUDE.md` **建议片段格式**，并且切换报告日期或 Agent Token 预算不会让旧预览失效，容易导出参数不一致的旧草稿。
+- 本批提供独立的纯 TypeScript `agent-export.ts`：通用 Markdown 原样保留；建议片段含目标类型、人工审核警示，并将所有外部/模型知识正文逐行放入 Markdown blockquote 作为**待核实的引用证据**，不当作执行指令。始终生成独立的 `AIKS-<project>-AGENTS-suggestion.md` / `CLAUDE-suggestion.md` 文件名，不直接生成或覆盖项目目录的 `AGENTS.md` / `CLAUDE.md`。
+- 项目记忆工作台增加三个明确格式选项，继续使用已有 Core 后端（可选来源、边界内 Token 预算与质量筛除），只对后端返回的可审核正文作显示封装。切换项目、来源、日期范围、Token 预算或建议格式时清空已编辑的旧预览，并递增请求代次使未完成的旧返回无法覆盖新上下文；实际复制/保存仍由用户点击触发。
+- 新增匿名化字符串、伪造标题/指令、跨平台不安全文件名与手动导出格式等前端回归测试，附 `docs/acceptance/agent-context-suggestion.md` 集中验收入口。保持个人本地模式、Provider 只读、SiYuan 手工编辑保护、SQLite migration 兼容，未开放任何自动 Agent 指令文件写入、Release 或 main 合并。
+- **代码级新实现仍需本轮综合 CI 验证**；真实项目 Agent 是否理解历史背景、真实模型提炼质量和 Windows 实机运行均待最终集中验收。其他未完成项继续实施，S1.3 完整备份与恢复最后实施。
+
+### 2026-10-11 S2.4 「问 AIKS」按来源证据范围检索与引用完整性（代码级）
+
+- 上一 HEAD `73dc1d23` 的综合 CI `38111962832` 和 Windows Provider `38111962833` 均通过。本批在已有项目过滤、统一混合检索和来源跳转基础上补齐 **Provider 来源过滤**，避免跨来源的 Session/Knowledge 误混入本次检索。Rust `RagAskRequest` 保留可选 `project` 的旧版 JSON 兼容，并新增可选 `source`；trim/长度校验后将两者作为绑定参数传给既有 `UnifiedSearchService` 的 Knowledge 与 Session 双语料，不创建第二套检索和状态。
+- 「问 AIKS」来源选项来自本地项目 Session 元信息（不是硬编码或知识表前 200 条猜测），可选择所有来源/某个 Provider；切换项目或来源即清空旧对话，避免把另一查询域的先前答案当作当前历史。Tauri 的流式/非流式 API 都复用同一 Core RAG 请求结构；浏览器 Mock 检索同步实现真实项目+来源过滤而非忽略用户参数。
+- 新增模型引用编号完整性审查：最终回答中 `[n]` 必须在后端实际选入的证据编号内；检测虚构编号或没有有效编号时标为 degraded 并附显式警告，不创建假的来源链接。UI 不再只显示第一条 warning，以免“语义降级”遮住模型引用错误。该检查**不能证明模型结论真实或与证据对应**，仍须人工核验。
+- 新增真实 Core 单测、浏览器 Mock 作用域回归和 UI/类型连通性回归，新增 `docs/acceptance/rag-source-provenance.md` 验收入口。没有新 SQLite migration、不写 Provider、SiYuan 原文不被 AI 自动覆盖，也不引入新数据库、强制联网或 Release。
+- **本批新 HEAD 的完整 CI 仍待执行/确认，真实模型提示词有效性、召回质量/时延和 Windows 实机跨来源人工验证未执行**；S2.4 尚不等于已完成所有真实验收。S1.3 完整备份与恢复仍需所有其他功能/优化完成后最后实现。
+
+### 2026-10-11 S2.4 CI 格式与大编号引用保护
+
+- `a8294eae` 的 Windows Provider `38112690353` 成功、Desktop 前端及 Windows 编译成功，综合 CI `38112690367` 仅在 Rust `cargo fmt --all --check` 的 4 处格式检查失败，Clippy 和 Rust tests 尚未执行。根据 CI 原始 diff 修复 4 处格式。
+- 补齐模型引用完整性的一处边界：以前只识别不超过 3 位的 `[n]`，`[1234]` 或整数溢出编号可能不被检查；现在识别任意位数字编号，对不存在的编号和超出整数范围编号分别发出可见警告，保持实际检索证据列表不变，不把模型输出当成数据库来源。
+- Rust 单元测试新增大编号/溢出引用回归，验收文档补充相应真机用例。无迁移或 Provider 写回；新 HEAD 自动化仍待验证，S1.3 完整备份最后实施。
+
+### 2026-10-11 S2.4 证据二次范围复核与 CI 格式修复
+
+- 当前 HEAD `6408b295` 的 Windows Provider `38113198262` 已通过，综合 CI `38113198256` 因新增引用告警与测试两处 rustfmt 差异失败，Clippy/Rust tests 未运行。按 CI 原始格式 diff 一并修正。
+- 发现范围过滤只发生在 Unified Search 候选返回时，RAG 在单独读取全文片段阶段未复核对象当前状态；若两个阶段之间知识被归档、源 Session 被标为缺失或更换项目/Provider，存在陈旧证据被送进模型的 TOCTOU 风险。本批在读全文前按 Knowledge/Session 类型、当前 active/missing 状态、项目和来源精确过滤条件执行只读 SQLite EXISTS 校验，拒绝陈旧候选。
+- 新增真实 SQLite 状态变化负例回归，覆盖知识归档、Session 来源变化、项目变化、来源缺失和无效 ID，不修改数据库/Provider/SiYuan 原文；新 HEAD 的完整 CI 与真实 Windows/SiYuan 并发测试尚需独立验收。S1.3 备份/恢复仍最后实施。
+
+### 2026-10-11 S2.4 RAG 证据读时失效保护与 rustfmt 清障
+
+- HEAD `d88f5924`：Windows Provider `38115039027` 成功，综合 CI `38115039010` 在 `rag.rs` 三处测试 SQL 的格式检查失败，前端、仓库卫生、Windows Desktop 编译均成功；Clippy/Rust tests 因 fmt 未运行。本批一次修复三处 rustfmt 差异。
+- 同时排除残留的过期证据兜底问题：先前检索命中在读取真实 Knowledge/Session 内容时若已被删除、移动或清空，对 `None` 使用搜索阶段旧 snippet 兜底，可能绕过此前加入的实时身份复核。现在要求从 SQLite 当前实体/Chunk 确实读到非空原文才能纳入模型上下文；读取失败时忽略候选，不使用旧索引片段代替真实来源。
+- 保留原有检索阶段和模型提示词接口及受控证据数量/长度上限；此变更不写 Provider、不覆盖 SiYuan 编辑、不更改 SQLite migration。对应自动化仍需新 HEAD CI 验证；Windows 与真实模型人工证据准确性验收尚未完成。完整备份仍最后实施。
+
+### 2026-10-11 S1.2 处理中心安全诊断包：可审核状态聚合
+
+- HEAD `5dc17899` 的综合 CI `38117811333` 和 Windows Provider `38117811261` 均成功。检查发现处理中心此前只有 `aiks-task-diagnostics-v1` 的六项全局计数，没有来源/同步和 AI 状态分布、重试和耗时分布，也无法从共享诊断中判断哪些类型的故障占主导。
+- 新增 `task-diagnostics.ts` 聚合器，严格**正向字段白名单**：全库任务统计与最近最多 200 条任务的按来源（固定允许集合）、同步状态、AI 状态、故障类型、尝试次数分布、阶段延迟 p50/p95。未知来源/状态归并为固定标签；错误正文、原始会话 ID、标题、路径、源文件、历史 Prompt、服务地址、Token 和各项可识别身份均不复制到 JSON；任何自由文本字段均不序列化。
+- 处理中心沿用只读 `getTaskCenterEntries` / `getTaskCenterStats`，打开预览时创建**冻结快照**。轮询更新不会替换已经审核的导出内容；手动点击「更新预览快照」才重建 JSON。只有看到预览后可显式复制或保存独立 JSON 文件；不写入项目目录或 SiYuan。注明统计和有界样本不同范围，非全量诊断且非已验证的性能基线。
+- 增加字段脱敏、恶意来源字符串、边界数量、故障计数与 p50/p95、空样本和用户预览行为回归，提供 `docs/acceptance/task-diagnostics-safe-export.md` 验收步骤。本次不涉及 migration 和 S1.3 备份；新 HEAD 的 CI、真实 Windows/SiYuan 与工作负载故障注入仍待确认，不能宣称 S1.2 完整实机验收。
+
+### 2026-10-11 S3.1 项目知识演进视图：人工确认与待审核关系
+
+- 基线 HEAD `5b512784` 的综合 CI `38118508697` 与 Windows Provider `38118508692` 已通过。在现有跨 Provider Project Memory 工作台补齐原来缺少的项目级「修正 / 替代 / 解决」证据列表；**不将标题相似、模型摘要或未经验证的猜测视为矛盾事实**。
+- 新建只读 `ProjectEvolutionService`，依赖现有正式 migration 013 的 `knowledge_relation` 与当前 Knowledge/Session SQLite 记录；仅展示 `corrects/supersedes/resolved_by` 和 `confirmed/suggested`，拒绝 rejected、已归档 Knowledge、缺失 Session。每条关系的**两个 Knowledge 端点**都重新用当前 canonical session source/path 计算项目身份，必须属于所选同一项目；Session 迁走、来源丢失后不会错误混入旧项目。原始关系审核表和知识内容保持不变。
+- Tauri 命令 `list_project_evolution`、TypeScript API/Mock 与项目记忆 UI 一并接入。明确区分用户确认与待人工审核、提示审核时间不等于生效时间，提供双方 Knowledge 详情入口和证据文本。结果最多展示 100 条且提示截断，项目切换时抛弃旧的异步结果；不自动确认、发布、删除、覆盖任何知识或 SiYuan 原文。
+- 增加真实 SQLite 回归覆盖同项目跨 Provider、跨项目假关联、确认/建议/拒绝状态、项目迁移、Session 缺失、知识归档与截断行为，另有前端交互/API 边界测试和 `docs/acceptance/project-evolution-reviewed.md` 验收入口。无 Schema 迁移、Provider 只读、个人离线模式不变。
+- 本模块仍需新 HEAD 综合 CI 和真实 Windows/内嵌 SiYuan 跨来源验收；项目手工归属修正及自动矛盾候选检测等更大功能仍待独立核对，不能把本项标作整个 S3.1 完成。S1.3 完整备份/恢复继续排在所有其他代码模块最后。
+
+### 2026-10-11 S3.1 演进关系 CI 修复与项目内人工审核闭环
+
+- `b60000dd` 的 Windows Provider `38119254947`、Windows Desktop 编译、前端与仓库卫生已通过，但综合 CI `38119254904` 的 Rust fmt 报告 `project_memory_commands.rs`、`knowledge/mod.rs` 与 `project_evolution.rs` 中导入排序、导出换行、元组解构及测试元组布局不符；Rust Clippy/tests 因而尚未运行。本次直接按完整日志修正全部差异。
+- 项目知识演进原来只有展示，人工需另跳转知识详情才能审核建议。本批补齐项目内审核闭环：只对 suggested 关系显示「核对原文后确认关系」「拒绝关系建议」；点击需要显式确认，操作写入**已有** `knowledge_relation_review` 审计日志并刷新只读演进视图，拒绝后关系不再显示。按钮处理期间防重复提交；项目切换的异步返回不会污染新项目。
+- 新增前端接口/交互边界回归；现有 Core SQLite 回归保持原关联身份、状态和跨项目隔离要求。不得自动确认、删除知识、修改 Provider 原始文件或覆盖 SiYuan 用户文档；无需 migration。新 HEAD 自动化和 Windows 真机人工审核体验仍待验收，S1.3 完整备份最后开发。
+
+### 2026-10-11 S3.1 人工项目归属修正（仅本地覆盖，含撤销）
+
+- 基线 HEAD `59fa109f` 的综合 CI `38119878967` 和 Windows Provider `38119878971` 成功。在现有以 Provider cwd/project_path 归集的 Project Memory 模块中补齐此前缺失的**用户手工修正**：通过项目记忆页选择一个本地 Session 和一个已有**绝对路径且仍然存在**的目标项目，显式确认将此 Session 作为该项目的记忆成员；可随时撤销恢复自动归组。没有自动识别同名项目或擅自合并路径不明 Session。
+- 新增向前兼容的幂等 SQLite migration `014_project_session_binding.sql`（StateDb V15），存储本地 Session ID、用户选择的目标项目路径和更新时间。Tauri 只接受 Session ID 和**不暴露目录路径的现有项目不透明 ID**；Core 在 SQLite 事务内核验来源仍存在、目标实际是当前发现的绝对路径项目，拒绝不存在的项目/Session，避免调用方传入任意目录或注入路径。覆盖表与源 Session 表分离，**不修改** canonical `source_session.project_path`、任何 Provider 文件、SiYuan 用户原文/Workspace 或知识 ID。无自动发现回写。
+- Project Memory 列表、知识样本/报告/Agent 导出和跨 Session 关系读取使用 `COALESCE(binding.project_path, source_session.project_path)` 计算**当前本地归组**；关联关系在人工确认时同样使用已修正项目身份约束，不能绕过跨项目隔离。绑定删除后原始 Provider 路径立刻生效，旧关系与知识不被删除。
+- Desktop 项目记忆页增加明确的 Session/目标项目选择、手工确认、已绑定状态及撤销；来源候选最多显示 200 条、提示列表不完整；归属成功后重载项目概览/证据与关系视图。Mock/API 类型/命令和后端 SQLite 持久性、重开数据库、非法对象拒绝、撤销及原始目录不变回归一并添加。
+- 新增 `docs/acceptance/project-session-binding.md` 作为 Windows 真实环境验收入口；迁移旧库数据不搬迁、不覆盖，SQLite 新表可以重复创建；本次新 HEAD CI/Windows 实机集中验收尚待核查。不将单元测试或 GitHub Windows 编译冒充用户机器三 Provider 真机验证；S1.3 完整备份与恢复仍安排在其他模块代码级收尾后最后实施。
+
+### 2026-10-11 S3.1 手工归组 CI 格式修复与身份元数据一致性
+
+- 当前远端 HEAD `715f7609`；综合 CI `38120701419` 的 Windows Desktop 编译、Desktop 前端和卫生检查成功，Windows Provider `38120701418` 成功，Rust 质量任务仅在 `project_binding.rs` 两组测试断言的 rustfmt 换行失败，Clippy/Rust tests 尚未开始。本批严格按该 CI 原始 diff 完整修正格式，未将 CI 失败声称为 Rust 测试通过。
+- 检查项目人工归属后的真实业务一致性发现：项目分组的展示标题取本组先遇到的 Session，而原 SQL 按最近 `source_session.updated_at` 排序。如果绑定过来的 Session 较新且它的旧项目名与目标项目不同，可能错误把目标项目标题改成旧名字。修复为先从仍然按 Provider 原始绝对路径归组的 Session 选择项目显示标题，再聚合手工绑定成员；组内来源、数量、知识和分组身份仍完整计算，用户人工归属不会更名原项目或更改 canonical 路径。
+- 同步修复前端 Mock 数据的一致性：只按 canonical 未绑定 Session 优先确定项目标题，项目知识计数根据实际源 Session 所属组汇总，而非靠可变项目显示名字符串推断。增加迁入/撤销 Session 时知识数、归组证据与原始来源 `project_name` 不变的回归测试。这些只是 SQLite/Mock 代码验证，不是用户真实 Windows 试运行或模型质量测量。
+- 新 HEAD 自动化必须独立验证；沿用 local-first、Provider 只读、SiYuan 人工文档不覆盖、V15 migration 前向兼容和完整备份 S1.3 最后实施的约束。
+
+### 2026-10-11 S3.4 受控多来源知识整理：后端权威项目身份校验
+
+- `2b80a7f` 的综合 CI `38121719301` 与 Windows Provider `38121719376` 均成功。再次审查受控多来源整理入口发现：已有 `validateOrganizationSources` 仅比较客户端获取的可变 `project_name`，未校验底层真实 Session 工作目录。两个**同名不同绝对路径**的项目知识可能被当作同项目传给用户配置的模型并创建合并草稿，存在跨项目证据混合风险。
+- 本批实现独立 `OrganizationScopeGuard`，后端直接查询**当前** `knowledge_item`、`source_session` 与 S3.1 已有的人工项目归属 `project_session_binding`。拒绝无效/重复/超过 5 个知识 ID、归档知识、缺失 Session；对于多来源要求双方当前都有**相同已验证绝对路径身份**，或者确实来自同一个 canonical Session。来源是手动知识或路径无法核实时只允许单条整理；不能仅凭展示标题/项目名相同合并多个来源。
+- 通过只读 Tauri 命令 `validate_organization_scope` 和 TypeScript API 调用，在**模型请求前**、以及**用户审阅草稿后即将创建独立知识前**分别验证一次。原有前端内容快照/人工确认/双击写入门禁继续使用；这项改动补足权威项目身份门禁，不承诺跨网络/SiYuan 事务的完全原子化。若校验失败应显式提示用户并停止该次流程，不自动更改任何资料。
+- 包含真实 SQLite 测试：同名不同路径拒绝、跨 Provider 同路径接受、归档/缺失拒绝、人工归属覆盖后安全通过、原始 Provider 路径不变、无来源/手动知识与超限拒绝。Mock 与 UI 回归验证两次后端调用，新增 `docs/acceptance/organization-source-scope.md` 作为 Windows/真实模型负例入口。
+- 不涉及数据库迁移，不把模型输出、固定 Mock 或 CI 测试结果视为 Windows 真机与真实模型验收。仍保留个人离线、Provider 只读、SiYuan 原文人工编辑保护；S1.3 完整备份和恢复继续最后实现。
+
+### 2026-10-11 S3.4 最终创建入口的后端来源强制校验与 CI 格式修复
+
+- HEAD `ed4ba933` 的 Windows Provider Contracts `38122454943`、Desktop 前端、Windows 编译及仓库卫生均成功，但综合 CI `38122454975` 仅在 `organization_scope.rs` 4 处 `rustfmt` 差异失败，Rust Clippy/tests 尚未执行；本批按原始日志一次修正全部 Rust 格式问题。
+- 复核受控知识整理链路：原本 UI 在模型调用前及写入前已调用 `validate_organization_scope`，但最终写入仍走通用 `create_knowledge`，Tauri 命令本身并不要求携带任何证据来源身份。这意味着调用方绕过前端校验或使用旧调用路径时，可能把未经核验的跨项目合并草稿作为已审核结果提交。
+- 新增专用 Tauri `create_organized_knowledge`，**必选 `sourceKnowledgeIds`**，在最终 SiYuan 创建动作前再次由 Rust `OrganizationScopeGuard` 查询当前本地 SQLite 活跃知识、Session 缺失与项目/人工归属；来源为空、重复、过量或跨项目一律拒绝。Tauri 不接受从前端直接传入项目真实路径。原 `create_knowledge` 命令原样保留给普通用户手动创建以确保 API 兼容，不把多来源审核规则施加到普通文档。
+- S3.4 UI 仅针对经用户预览确认的整理草稿改用专用创建命令，传入已审核的原始知识 ID。保留前端完整内容快照/来源复核/确认/防双击门禁，以及生成后单独归档或恢复。前端 Mock 和接口同步实现强制证据校验，增加被绕过的空来源、同名不同目录、正常同项目整理创建及用户普通手工创建不受影响的回归。
+- 此门禁是**最终写入请求开始前的**来源合法性检查，不是覆盖后续 HTTP/SiYuan 异步时段的原子锁；真正的并发故障注入、真实模型质量、SiYuan 远端人工编辑保护仍须 Windows 真机集中验收。没有新的 SQLite migration、Provider 写回、main 合并或 Release；S1.3 完整备份与恢复继续最后实施。新提交 CI 尚待执行/确认，不能宣称已通过。
+
+### 2026-10-11 S3.4 人工整理记录持久化与重启后归档/恢复入口（代码级）
+
+- 已确认基线 `3cfc40fa` 对应综合 CI `38122920089` 与 Windows Provider `38122920088` 全部成功，远端 HEAD 未变化。本批继续补齐 S3.4 的**实际业务缺口**：此前整理草稿创建后，仅保存 `createdKnowledgeId` 在 React 临时状态；关闭窗口或切换知识后无法再从原始知识视图查找此次整理操作、恢复与撤销入口。Markdown 内虽然附有用户审核备注，但无法可靠检索派生条目与关联状态。
+- 新增 additive、幂等 SQLite V16 migration `015_organization_audit.sql`，独立持久保存原始知识到审核后新建文档的**顺序来源映射**、操作类型、用户确认时间；不修改现有 Knowledge ID、源 Session、原始 SiYuan 文档或 Provider 文件。新库和旧库均可重复打开，旧数据无需破坏性重建。
+- Core `OrganizationAuditRepo` 强制审计操作白名单、来源 ID 数量/去重/格式、比较或合并必须有至少两个来源、新文档必须确实已存在且是 active/user-managed/manual，事务内一次写入审计和来源映射；主键禁止重复记录冒充第二次审核。历史查询从**当前 canonical Knowledge.status** 读取 active/archived/missing，绝不维护伪造的第二套归档状态；源文档变化与重启不删除审计记录。
+- Tauri `create_organized_knowledge` 在请求 SiYuan 前校验操作和来源；新建成功后记录本地不可覆盖的审核关系。若远端文档**已经创建**、但本地审核写入失败，明确返回新文档 ID 与「不要重试」说明，防止前端重试生成重复 SiYuan 文档。新增 `list_organization_audit` 只读查询；普通 `create_knowledge` 不受审核条件影响。
+- Desktop 知识详情展示当前知识相关的最近最多 100 条持久整理记录，提供重新打开独立知识、人工归档、恢复当前状态入口；旧的当次创建后归档仍兼容，新增审核记录变更时刷新查询。经用户确认的归档只改变 AIKS 本地新知识状态，不自动删除 SiYuan 文件或其他原始知识。前端 Mock/接口及 Rust/TS 回归含数据库重开、来源次序、重复拒绝、归档恢复、无效操作与新命令门禁。
+- 已补充 `docs/acceptance/organization-persistent-audit.md` 真实 Windows + SiYuan 故障注入入口。本批没有运行真实模型或 Windows 用户环境；新 HEAD CI 及跨 HTTP 不确定提交情况仍须验证。**当前方案不能保证 SiYuan HTTP 写入与 SQLite 审计原子提交**，更高等级的异常中断/跨机一致性仍需真实验收和后续恢复策略复核。S1.3 完整备份恢复仍最后实施。
+
+### 2026-10-11 S3.4 V16 审核记录 CI Clippy/TypeScript 修复
+
+- 上一 HEAD `04bb4943`：Windows Provider `38123961195` 成功，综合 CI `38123961198` 失败。**Windows Desktop 编译、仓库卫生、Rust 格式、前端 152 项测试成功**，但前端 TypeScript 构建因 `AiAssistOperation`（含 `summary/title/tags/category`）被赋值给只允许 5 种「整理操作」的持久审计字段而失败；Rust Clippy（`-D warnings`）拒绝一处单元素 `[first.clone()]`，Rust tests 因 Clippy 失败未运行。两项均来自工作流原始日志，而非推断。
+- 一次批次修复两个独立 CI 阻塞点：新增 `ReviewedOrganizationOperation` 编译期受限类型及运行时收窄判别函数，**只有** `structure/rewrite/key_conclusions/compare/merge_draft` 可以进入已审核的整理审计；普通 `summary/title/tags/category` 仍可用于原有 AI 辅助，但不允许伪装为已人工确认的跨知识整理。Rust 单元素切片改为 `std::slice::from_ref`，不关闭 Clippy 规则或跳过测试。
+- 增加五种允许操作和四种非整理操作的负例回归，继续保留非法来源拒绝及正式 SQLite V16 审计数据层；未新增迁移、对 Provider/SiYuan 的写回或新的云依赖。新 HEAD 尚需综合 CI 和 Windows Provider 独立确认，真实模型/Windows 真机验收仍待集中进行；S1.3 完整备份和恢复继续留至其他代码级模块最后。
+
+### 2026-10-11 S3.4 已创建文档的审计修复（不重建 SiYuan 文档）
+
+- 基线 `0ee7146e`：Windows Provider `38124472173` 已成功，综合 CI `38124472136` 仅因 `organization_audit.rs` 单处 `rustfmt` 换行失败，Clippy/Rust tests 尚未运行；修复该格式差异并把恢复流程作为一整批收尾，避免单次格式提交浪费 Actions。
+- 实际业务缺口：当独立 SiYuan 知识创建成功但本地审核记录写入失败时，旧 UI 只有报错和新知识 ID，点击重新创建可能产生第二份文档；缺少无需重新触发 SiYuan HTTP 的恢复入口。新增 `OrganizationAuditRepo::recover_existing`：必须由用户提供**现有本地 Knowledge ID**、整理方式和按顺序列出的来源 ID；先重新检查当前 canonical Knowledge/Session/人工项目归属，再核对已创建文档在本地保存的 `## AIKS 整理审核记录` 尾注、操作类型和来源顺序，最后通过既有 SQLite 事务式 `record` 补录审计。已存在记录、伪造尾注、错误顺序、非 active 或非用户管理的目标/来源必须拒绝。**不调用任何 SiYuan 写 API、不修改已创建文档、更不覆盖原始资料**。
+- 增加只做本地审计修复的 Tauri API、TypeScript API/Mock、知识详情页明确的人工修复入口。若异常错误中明确返回「知识已创建（ID: ...）」则预填现有 ID，停用旧草稿的重复创建确认。其余不确定 HTTP 错误仍提示先人工查看已有文档，不声称已经创建/已经失败；用户仍须确认修复，避免自动绑定任何来源。
+- Rust/TypeScript 回归覆盖已存在且有正确人工审核尾注的单来源补录、重复补录拒绝、错误操作/来源/伪造文档拒绝、补录不增加知识数、重启后来源关联可查、默认 Provider/SiYuan 原文安全边界。真实 SiYuan HTTP 创建成功但 SQLite 未落库的情况，只有文档已被 AIKS 存成本地 canonical Knowledge 记录的**特定失败窗口**才能修复；完全没有本地记录的远端孤儿、跨系统原子事务仍未解决，必须在 Windows 真机实验中实证，不能将这一批当作完成 S3.4 所有故障恢复验收。
+- 无新 migration、无 main 合并或 Release，完整备份恢复 S1.3 依用户要求继续最后实施。新 HEAD CI 状态以后续工作流为准。
+
+### 2026-10-11 S3.4 审核补录安全收尾与新旧限额一致性（待新 HEAD CI）
+
+- 远端基线 `47acc101`：Windows Provider `38125244442` 成功；综合 CI `38125244462` 失败仅发生在 `organization_audit.rs` 的 `rustfmt`，Rust Clippy/tests 未执行，前端、Windows 编译、仓库卫生成功。按作业日志修正原有单行断言与来源比较链式换行，并把必要的真实业务安全问题汇集为**一个**提交以降低 Actions 次数。
+- 核对恢复功能后发现：旧实现仅匹配正文中的操作文字和来源行，**未核验审核创建时间、审核副本声明或 SiYuan 文档绑定元数据**。一个没有远端创建记录的普通本地手工草稿可能被人工冒充为已创建的审核派生文档。本批收紧为只接受 active/manual/user 且有 `siyuan_doc_id`、`generated_hash` 的本地 Knowledge；严格验证追加的分隔符、审核操作、UTC 时间、保持原文的声明以及按顺序逐项匹配的来源 ID，拒绝任何额外证据行。恢复仍仅调用 SQLite 审核记录事务，不创建也不覆盖远端。
+- 在 `create_organized_knowledge` 内对 **SiYuan HTTP 创建返回后** 和审计入库前补一次 canonical 来源/项目归属的后置校验；异步期间来源被归档或用户修正了项目归属则必须作为「已经创建文档但尚未落审核记录」的显式异常返回，避免记录过期身份。不能使跨 HTTP/SQLite 写入成为原子操作。
+- 前端草稿、来源快照与模型来源合成的数量上限由原先不一致的 100 项统一为与后端一致的 **5 项**；Mock 模拟真实 SiYuan 创建后的绑定元数据、使用单调知识 ID、防止同毫秒 Mock ID 撞车，并修复模拟编辑后保存的内容读模型不同步，减少 CI/浏览器演示对恢复结果的误判。对应更新测试及人工验收入口。
+- 仅对已有本地且带 SiYuan 绑定的知识做人工审计恢复，**不实时联网确认 SiYuan 文档存活或内容未变更**；远端孤儿、HTTP 不确定提交、模型实际输出质量、Windows 真机三 Provider/内嵌 SiYuan 测试仍不得声明通过。保持个人离线、Provider 只读、用户 SiYuan 原文不可自动覆盖、旧数据库兼容；S1.3 完整备份与恢复仍排在其他功能代码级完成之后。
+
+### 2026-10-11 S1.2 处理详情安全重试、首次入队与遗留命令防绕过（代码级）
+
+- 基线 HEAD `aef65cc` 的 Windows Provider `38126077463` 成功，综合 CI `38126077458` 仅在 `organization_audit.rs` 一处 `rustfmt` 换行失败；Windows Desktop、前端和仓库卫生均通过，Rust Clippy/tests 尚未执行。本批根据日志修正该格式问题，并同时交付独立 S1.2 任务处理模块，避免每次格式修复触发单独 Actions。
+- 复核发现历史处理详情页将 `FAILED` 和 `RAW_ONLY` 一律动态调用遗留 `run_pipeline_for_session`，而后端该遗留命令只核对 Session 存在，不验证原文同步、SiYuan 编辑冲突、历史 Pipeline/Queue 状态。可能绕过已实现的 `retry_failed_ai_task` 安全重试和持久队列去重，导致历史失败或 READY Session 错误重入队。
+- 新增统一前端 `submitProcessingDetailAction`：FAILED 只调用已有持久队列安全失败重试；RAW_ONLY 仅走已收紧的首次/原始入队；READY、PROCESSING、CONFLICT 和非法 Session ID fail closed。历史 UI 改为经 `getApi()` 调用单一路由，不再自行 `import("@tauri-apps/api/core")` 绕开 API。成功和失败提示分别反馈实际动作，禁止任何安全重试失败时退回无条件入队。
+- Rust Core 新增 `pipeline/first_run.rs` 只读检查：源 Session 必须仍在、SiYuan sync_target 是 SYNCED/UNCHANGED、没有 PENDING/RUNNING 持久任务，且不存在除明确 RAW_ONLY 外的现有 V3 Pipeline 记录；遗留 Tauri 命令改为调用该 Core 检查后再走原有 `enqueue_pipeline_for_session`，**不能通过直接 IPC 重放绕过验证**。另给 `retry_failed_ai_task` 加当前 READY/PROCESSING 的优先拒绝，即使数据库仍保留旧 FAILED job，也不得将已完成/当前进行中 Pipeline 当成失败重试。
+- 新增真实 SQLite Core 测试覆盖原文未同步/冲突、正确同步、缺失源、历史 FAILED/READY/PROCESSING/DISCOVERED、RAW_ONLY、持久队列 PENDING/RUNNING/CANCELLED；前端 Vitest 覆盖状态路由、错误传播和原生命令契约。无 SQLite 迁移，不创建第二套队列，不修改 Provider/SiYuan 原始数据；新增 `docs/acceptance/processing-detail-safe-retry.md` 作为后续 Windows、嵌入式 SiYuan 故障注入入口。
+- 本轮只解决代码边界与自动化测试，**不能把固定 SQLite/Mock 通过视为 Windows 真机连续同步或真实模型通过**；异步入队与用户真实环境的竞态仍需集中验收。S1.3 完整备份/恢复继续等所有其他代码级事项完成后最后开发，不合并 main、不发布 Release。
+
+### 2026-10-11 S2.3 关系来源隔离：阻止同名/无路径 Session 的错误关联
+
+- 基线 `396bd84f` 的综合 CI `38127158109`、Windows Provider `38127158018` 已成功。复核真实 SQLite 的 `RelationRepo::ensure_related_knowledge_is_current` 发现：如果关系的任意一端没有**已核实绝对路径**，旧代码回退为对比可变 `project_name`；不同的 Codex/Claude Code/OpenCode 会话即使都没有来源路径，只要项目显示名称相同就可提交乃至确认关系。若一个端点有可靠路径、另一个没有路径，同名时也会通过。另一个缺口是没有检查源 Session `is_missing`，可继续确认已缺失 Session 所属的旧关系。
+- 本批重新定义权威关系边界：两端都有可靠路径身份（含人工项目归属 `project_session_binding`）时必须相同；两端路径都无法核实时仅允许**确属同一 canonical Session** 的两条知识；两端皆为用户手动知识且明示相同非空项目名时，仍允许用户主动提出证据关系，保留原有手工工作流；**不同路径状态的混合、不同的无路径 Session 同名匹配、缺失源 Session 一律拒绝**。人工可以先使用 S3.1 已有本地项目归属修正显式归组，再重新提交。确认时在事务中再次校验当前范围，拒绝时保留原有审核证据而不要求来源可用。
+- Rust Core 补真实 SQLite 回归，覆盖同名无路径跨 Provider 拒绝、同 Session 无路径允许、人工归属之后允许、混合已验证/未验证拒绝、源 Session 丢失后禁止新增及确认但允许拒绝；保留现有人工手工同项目关系案例。Desktop Mock 建立同等建议/确认边界，避免前端测试误将显示名作为关系凭据；知识详情候选不再仅凭 mutable `project_name` 隐藏同路径跨 Provider 合法来源，说明候选列表本身不是授权结果。
+- `docs/acceptance/project-relation-source-isolation.md` 提供真实 Windows 三 Provider + SQLite/SiYuan 负例入口。**不将来源绑定/同路径关系推导为客观事实矛盾**，关系仍先建议、待用户确认；不修改来源知识、Provider、SiYuan 文档，也不新增 migration。新 HEAD 尚待独立 CI 和 Windows 真机人工确认，S1.3 完整备份恢复继续排在其他代码级功能之后。
+
+### 2026-10-11 S2.3 关系审核历史的持久可查看闭环
+
+- 基线 HEAD `bb1a69df` 的 Windows Provider `38127971955` 成功，综合 CI `38127971922` 在新增 `relation_repo.rs` 的 `rustfmt` 检查失败，其余 Windows Desktop 编译/前端/仓库卫生完成，Rust Clippy/tests 尚未执行。本批按完整 CI diff 修复全部格式差异，与关系审核历史功能合为**一次**多文件提交。
+- 业务缺口：SQLite `knowledge_relation_review` 自 migration 013 起已真实、事务化记录确认/拒绝的前后状态，但客户端只看到关系当前状态和 `updated_at`，**无法查出之前确认 → 撤销 → 再确认的完整人工决定轨迹**。知识关系和原始 Session 的来源可读，不等于用户能够审计何时由谁（当前仅本地匿名用户）确认和撤销。
+- 本批扩展现有 Core `RelationRepo::review_history`：只读联结现有 `knowledge_relation_review` 与 `knowledge_relation`，按来源或目标知识 ID 读取人工审核历史，返回原知识两端 ID、关系 ID、previous/next status、审核时间。固定最多 100 条并给出截断状态；包含 rejected/归档来源后仍保留的历史，永不基于审核时间伪造决策生效时间、不改变 Knowledge 文本。重复提交相同状态不会新增伪审核记录，继续依赖事务写入。
+- 新增 Tauri `list_knowledge_relation_reviews` 和统一 API/Mock，知识详情展示独立的「人工审核历史（本地持久记录）」板块，提供每次审核时间、前后状态和两端 Knowledge 详情链接。知识详情/项目切换时取消过期异步结果；人工审核后刷新历史；UI 区分关系演进的已确认视图与不可篡改的用户决策历史。
+- 增加 Rust SQLite reopen、两端查询、重复审核幂等、状态转移及有界截断回归，与前端 Mock/UI 契约测试；补 `docs/acceptance/knowledge-relation-review-history.md`。**不新建 migration、Provider 写回、SiYuan 自动覆盖，也不将 CI 通过冒充真实 Windows/模型验收**。剩余六优化/五功能仍需最终逐项核对，S1.3 完整备份/恢复最后实现。
+
+### 2026-10-11 S3.2 日报/周报本地草稿修订与重启恢复（代码级）
+
+- 核对当前 `a10bb5cf`：Windows Provider `38129480892` 成功，综合 CI `38129480853` 的 Windows Desktop、Desktop 前端和仓库卫生成功，但 Rust quality 在 `relation_repo.rs` 两段测试断言 rustfmt 差异失败，Clippy/Rust tests 因此未执行。本批根据 CI 完整 diff 同时修复这两处 Rust 格式并完成一个完整 S3.2 功能模块，避免微提交重复触发 Actions。
+- 真正的业务缺口：现有工作回顾 `render_project_review_scoped` 已可从本地 Project Memory 按日期/来源引用可核实的知识并生成 Markdown，Desktop 允许临时编辑/复制/导出，但**编辑后的报告只存在 React 状态；退出/切换项目后丢失，无法恢复早期修订**。日报/周报也没有便捷本地日历区间选择，只能手填日期。
+- 新增独立 **V17 additive SQLite migration** `016_project_report_drafts.sql`，分别保存稳定的 `project_report_draft` 身份、固定的项目/时间/来源范围、当前修订号和独立不可覆盖的 `project_report_revision` Markdown。Core `ProjectReportDraftService` 用 SQLite immediate transaction 写入，编辑采用 expected_revision 乐观并发保护：旧版本保留，过期窗口保存失败而不是覆盖新稿；不同项目/日期/来源不得用同一草稿 ID 静默换范围。内容仅在用户明确点击保存后写入本地 SQLite，禁止任何自动网络发布/自动修改 Provider/SiYuan/项目文件。
+- Desktop 新增「今天（日报）」「本周（周报）」日期预设，按用户 Windows **本地日期**而非 UTC 截断；保留原有任意日期/项目/Provider 选择。已审核回顾 Markdown 可点击本地保存或继续人工修改后追加 v2/v3，切换项目/重启后可列出已保存草稿并载入任一历史修订。载入将替换未保存预览时要求明确确认；从旧版本另存也追加为新修订，不覆写之前内容。草稿列表最多显示 100 份，每篇报表字节大小限制 250000；仍支持原来的仅下载独立 Markdown 文件。
+- 新增 Tauri `list/get/save_project_report_draft` 命令、Desktop API/Mock、真实 SQLite reopen/修订 CAS/越权范围测试及前端日期/版本/无静默发布回归。此功能仍是**按 Knowledge 更新时间组织证据的可编辑工作回顾草稿**，不等于已验证的项目交付/真实发生时间、模型自动周报质量、真实性标注已由人核验；真实 Windows 连续采集、多时区和 SiYuan 仍须集中人工验收。
+- 沿用 S3.2 的只读项目报告生成，不新增云依赖。不合并 main、不发布 Release、不自动写入 SiYuan 用户文档；S1.3 完整备份恢复仍在其余代码模块完成后最后实施。新 HEAD 综合 CI 和 Provider 状态需单独验证。
+
+### 2026-10-11 S3.1 项目知识复核队列：用户反馈及有证据关系联合展示（代码级）
+
+- 基线 43ab08be：Windows Provider 38137396309 成功，综合 CI 38137396299 仅在 project_report_drafts.rs、relation_repo.rs 的 Rust 格式阶段失败；Windows Desktop、前端与仓库卫生成功，Rust Clippy/tests 因前置格式失败未执行。本批根据原始 diff 一次修正所有已知格式差异，并完成独立的 S3.1 知识复核模块，避免小修小补反复触发 Actions。
+- S3.1 原有项目记忆主题分类、用户明确质量反馈统计和审阅过的跨 Session 关系，但需在两个板块分别查找「可能过时」「修正/替代/解决」证据，缺少统一的人工复核入口。新增只读 project-review-queue.ts，仅从当前项目已有的 incorrect/outdated/needs_detail/duplicate 用户反馈，以及经后端当前 canonical project scope 过滤的 corrects/supersedes/resolved_by 已有关系汇总线索。不根据标题、相似内容或 LLM 的生成文本臆造事实矛盾。
+- 队列区分 suggested（待人工核对）与 confirmed（人已确认关联，但并不等于结论真实或已失效），展示关系证据、反馈原因、知识 ID、原 Session 跳转、记录更新时间及类别筛选。现有关系审核仍必须通过手工点击、确认对话框及 Rust 后端的来源范围复核，不自动归档、覆盖、合并任何知识。
+- 项目切换时增加 evolutionProjectId 证据身份保护，防止上一项目的慢速异步结果进入新项目复核队列。所有候选按稳定时间/ID 顺序最多展示 100 条；保留原有 Knowledge(200)、Relation(100) 只读上限，显式警告部分样本和空队列不能推断「项目没有风险」，原始证据不修改。
+- 加入 Vitest 正/负例及 UI 契约、Windows 三 Provider + SiYuan 验收文档 docs/acceptance/project-knowledge-review-inbox.md。本轮未新增 migration、没有 Provider 或 SiYuan 写入和新模型依赖；这只是已有证据的人工复核工作台，并非已经完成真实模型的自动矛盾准确性评测。六优化/五功能仍须逐项复核，S1.3 完整备份恢复最后做，不合并 main、不发布 Release。新 HEAD CI 与 Windows Provider 仍须实际验证。
+
+### 2026-10-11 S3.3 人工精选 Agent 项目知识包（代码级）
+
+- 已确认基线 HEAD `4cad7564` 的综合 CI `38139892581` 与 Windows Provider `38139892590` 全部成功，且远端 HEAD 未前进。此批针对 S3.3 实际业务缺口：之前虽能生成整个项目最近最多 200 条知识的 Agent Markdown/AGENTS.md/CLAUDE.md 建议，但**无法显式选择单条知识及其顺序**，易把不相关的其他 Session 或尚未核实的知识混在 Agent 上下文中。旧的全项目导出功能仍保留，不改默认模式。
+- 新增 Core `render_curated_agent_context_scoped`，要求 1–30 条不同的、长度有限的 Knowledge ID，**由 Rust Core 根据当前 ProjectMemoryService / SQLite 再次验证每一个 ID 都属于被选的 canonical Project**，并遵守 Provider 来源筛选。对失效、缺失、越界、重复、错误/过时用户质量标记的知识直接拒绝整个生成请求，而不是悄悄跳过错误来源；保留用户挑选的条目顺序及明确 Knowledge / Session 来源，文本仍走现有敏感数据清理和 Token 预算（保守字符估算）处理。对于样本超过 200 条，UI 明确指出只能在当前样本内选择，后端拒绝任何在样本外的未知 ID，不冒充全量检索。
+- 增加专用只读 Tauri `create_curated_agent_context_pack` 与 TypeScript API/Mock；Project Memory 新增人工勾选、来源变化时清除选中项、最多 30 条门禁，以及「生成所选知识的 Agent 背景预览」。生成仍使用原有用户选择的普通 Markdown / AGENTS.md / CLAUDE.md 引用建议片段，并仅能手动复制或下载一个**不同于原 AGENTS.md/CLAUDE.md 的建议文件**；不会自动读取、创建或覆盖项目指令文件，不写 Provider、SiYuan，不依赖云端模型。
+- 增加 Rust 数据级跨来源、错误质量反馈、无效/重复/超量 ID 正反测试和前端选取/顺序/身份回归，并补 `docs/acceptance/curated-agent-context-pack.md` Windows 真机入口。保留当前个人离线方案、Provider 只读、SiYuan 用户原文不被自动覆盖、迁移兼容；S1.3 完整备份恢复仍然在所有非备份模块之后最后完成。
+- 本轮只是代码级本地预览，**不将 CI 通过或 Mock 构造输出视为真实新 Agent Session 已成功复用知识**。新提交的 Windows CI、跨 Session 真实来源正确性、Agent 指令污染防护和真实模型问答均仍须检查。
+
+### 2026-10-11 S3.3 Agent 背景输出来源元数据注入与 CI 收尾
+
+- 远端基线 a29d1126，Windows Provider `38141367811` 成功，综合 CI `38141368185` 前端 175/176 个用例通过、Windows Desktop 与仓库卫生通过；唯一前端失败是已有 `agent-export-ui.test.ts` 对旧源码相邻行的文本断言，因新增「选择 Provider 时清空精选知识」安全步骤插入中间导致断言失效；Rust quality 则在 `project_memory_commands.rs` 的导入/函数调用及 `knowledge/mod.rs` 和 `project_outputs.rs` 的格式差异处失败，Clippy/Rust tests 被跳过。本轮合批修复上述所有已知失败，不删除安全清空逻辑、不跳过质量检查。
+- 深入审计 S3.3 导出边界发现：原报告和 Agent 上下文已正确净化正文与多数单项引用，但 `render_project_review` 与 `render_agent_context_counted` 顶部的 Provider 来源范围直接拼接 `project.sources.join`。极端自定义来源值若包含回车、换行、伪 Markdown 标题或巨大元数据，可将不受信任的 Provider 标签混入报告开头甚至超过极小 Token 预算。增加 `safe_source_range` 对所有来源标签执行既有 SecretSanitizer、单行化并限制输出长度；同时限定报告标题、Knowledge ID、Session External ID、Provider 来源 ID 在报告引用中的最大显示长度，保持原 canonical ID 数据不变。这是仅针对导出**展示文本**的净化，不会改动 SQLite、真实来源文件或已存引用。
+- 补充真实 Rust 模拟恶意来源超长值/伪标题的回归，要求工作报告及 Agent 背景均不得生成伪 Markdown 标题或超预算的元数据；兼容既有正常 Codex/Claude/OpenCode 来源引用。改进前端测试为验证 `invalidatePreview → setSelectedAgentKnowledgeIds([]) → setSourceFilter` 的完整新安全路径，不能为让旧断言通过而删除勾选清理。
+- 仍不引入全新 migration、外部云服务或自动写项目指令文件。对 AGENTS.md、CLAUDE.md 继续仅提供由人审阅、显式复制的引用建议。当前只是代码级元数据/安全回归，真实 Windows Provider 自定义来源、模型引用污染及 Agent 问答复用仍须集中真机验收。S1.3 完整备份恢复继续最后实现。
+
+### 2026-10-11 S3.4 行级整理差异预览与代码级 CI 修复
+
+- 本批开发前 HEAD 为 4d84c0f，Windows Provider 38143528593 成功，综合 CI 38143528583 因前端测试中错误转义的正则表达式不能解析而失败；Rust fmt 则只在 project_outputs.rs 的一处恶意来源测试 format! 换行失败。前端 174 项其他测试通过，但未构建成功；Rust Clippy / Rust tests 因 fmt 阻塞而未运行。按工作流原始日志一并修正这两个确定错误，保留 Provider 来源切换时清理 Agent 精选 ID 的安全功能，不通过删掉检查或绕过静态工具「修复」CI。
+- 针对 S3.4 路线图原要求「所有编辑类操作先预览 diff」的代码级缺口：此前前端只有原知识正文与 AI 建议 Markdown 的两列文本框，用户需要自行肉眼比较，未显示可审核的行级差异。新增独立的纯 TypeScript `knowledge-organization-diff.ts`：基于确定性逐行 LCS，明确区分原文未保留的行、草稿新增行、内容不变行以及行变更。只处理每侧前 320 行/64000 字符、最多展示 500 行，每行最多显示 800 Unicode codepoints，防止超长日志或模型输出导致页面爆炸；若输入或渲染截断，必须显式说明「不能推断未显示部分没有修改」，完整文本仍可在原有两列正文/草稿中人工检查。
+- 知识详情在用户确认前展示「整理差异预览（仅供人工核对）」，支持新草稿继续编辑时立即重新计算，原来的确认复选框在草稿编辑后自动取消，原始 Knowledge/SiYuan 文档不被差异渲染修改。对比原始知识正文是**审核参考**，若多来源合并，还须在来源选择和完整源资料中分别核对，并不能声称存在一个可以覆盖所有来源的单一合并 diff。创建仍只能走已有 `create_organized_knowledge`、人工确认、来源身份重检和独立新文档路径；绝不将 diff 直接 apply/overwrite 到原文。
+- 新增针对插入/删除/保留/Windows CRLF/长文本截断/恶意 Markdown/大样本确定性/界面门禁的 Vitest 回归；补 `docs/acceptance/organization-diff-review.md` 后续 Windows 真实模型审核步骤。无需 SQLite migration、无 Provider 写入、无 SiYuan 原文覆盖，不合并 main、不发布 Release。此次不会将固定 diff 用例或新 CI 成功冒充真实模型编辑质量及 Windows 验收通过；S1.3 备份恢复保持最后。
+
+### 2026-10-11 S3.4 多来源逐项差异复核与阻止遗漏确认（代码级）
+
+- 当前 HEAD `065d1dca` 的 Windows Provider `38144290034` 与 Windows Desktop、Rust fmt/Clippy/测试、仓库卫生均成功；综合 CI `38144290039` 前端 1 项源码边界测试失败，原因是断言期望 `previewKnowledgeOrganizationDiff(data.content, organizeDraft)`，实际使用空值安全的 `data?.content ?? ""`（参见前端作业失败日志），并非行级 diff 算法回归。该项补正断言，保留真正的空值和渲染安全；与 S3.4 多来源审核缺口合批一次提交。
+- 已实现的行级差异仅对照主 Knowledge 正文；compare/merge_draft 允许 2–5 条知识，但原 UI 难以把每条**实际送给模型的源全文**与同一个新草稿逐一对照，用户可能只阅读主知识就确认多来源综合结论。本批在模型成功返回草稿时暂存已调用的真实 `getKnowledgeDetail` 来源快照，显示「逐一审阅全部来源知识」及按原始来源 ID/标题切换的只读正文/差异视图。保留原有渲染的 +/−/未变行和长文截断提示；对于每条来源均显示审核进度，不将「主知识差异为零」误当作所有来源无变化。
+- 新增严格的本地审核 checkpoint：`allOrganizationSourcesReviewed` 在预期 ID、加载快照来源顺序一致且全部 ID 都由用户点击查看后才允许多来源确认；改变草稿正文要取消确认并要求再次逐项阅读，切换整理方式/来源/当前知识要清空旧来源快照和查看进度。源列表中的其他 ID 不得冒充已审核；最多 5 条。这个前端 checkpoint 仅代表用户**打开并查看**每份来源，不证明用户真实理解或模型结论正确，不替代 Rust `OrganizationScopeGuard`、最终创建前的来源内容快照复核和独立文档创建。
+- 新增 TypeScript 纯逻辑单测覆盖完整/不完整查看、重复或错序来源、不在原列表的注入 ID、切换与草稿编辑触发重新复核；差异测试一并核对动态来源正确选取和后端复核未被绕过。补 `docs/acceptance/organization-diff-review.md` Windows 真实模型多来源逐条核验入口。无需新 migration、不会写 Provider、不会覆盖 SiYuan 用户原文、不合并 main、不发 Release。新 HEAD 综合 CI 尚待验证；不把固定测试当作 Windows 真机或真实模型正确性证明。
+
+### 2026-10-11 S2.1 实际 Prompt 预算与持久任务多层并发保护（待本 HEAD CI）
+
+- 基线 `13a9a870` 对应综合 CI `38145465676`、Windows Provider `38145465672` 都已完整成功，最新 HEAD 未变；没有其他运行中的本 HEAD Actions 才开始本批修改。已检查 `AiStage::fit_to_budget` / `map_reduce` / `PipelineWorker` 及现有固定与可选真实模型评测入口。
+- **实际提炼缺口 1**：当长 Session 的模型 Prompt 超过上下文窗口时，原 `fit_to_budget` 先保留 `max_chars` 字符，再额外拼接标注省略中段的文字，导致**真正发给模型的 Prompt 比最大预算更长**；上下文极小时还会把关键证据几乎全部截掉后当作正常请求发送。重写为把「已截断／原文总长」标识纳入完整预算（保持首尾片段、`/no_think` 末尾标识），`chars().count() <= prompt_char_budget`，配置后剩余不足 512 字符时明确拒绝，禁止无意义模型调用与伪成功。不改变真实模型推理结果的评价口径，也不会把裁剪输出说成全文已分析。
+- **实际提炼缺口 2**：持久 Pipeline Worker 原来可同时启动 `max_concurrent` 条 Session，每条 Session 的 Map-Reduce 又可各并发 `max_concurrent` 个模型请求；选择 4 时实际有可能发起 16 个同端点 LLM 请求，压垮用户本地模型或诱发 429/超时。新增 `worker_job_parallelism`，在已配置批量分块并发条件下分配保守的 worker 任务许可证，`start_with_limit` 的显式上限同时约束每任务分块扇出；正常 `start()` 保证最大同时模型请求不会因为 Session × Chunk 双层乘法突破用户配置的 1–4 范围。默认 1 串行仍保持，用户选 2–4 的长 Session Map-Reduce 能按配置批量并发；代价是并发长 Session 数更少，但优先保护实际用户端点。
+- 增加真实 Rust 单测覆盖多字节 Unicode／长 Prompt／省略标记占位／末尾 Qwen3 禁用思考后缀／极小上下文拒绝与不同 `max_concurrent` 条件的 worker 任务预算。无数据库结构变更、Provider 只读、SiYuan 原文绝不自动覆盖、不依赖新的云端模型或网络服务；固定用例是代码级安全回归，真实 Token、LLM 精度、性能改善必须通过 S2.1 可选真实模型与 Windows 实机采样比较，**不将 CI Success 当成真实基准**。S1.3 完整备份恢复继续放所有非备份功能之后最后实施。
+
+### 2026-10-11 S2.1 单块持久提炼缓存与 CI 修复（新 HEAD 自动化待验证）
+
+- 基线 `e6c3ca3b` 的 Windows Provider `38146952857` 成功，综合 CI `38146952852` 在 `worker.rs` 多余空行的 Rust fmt 检查失败，Clippy 和 Rust tests 被跳过。本批合并修正该格式问题，不为单一格式修复单独触发 Actions。
+- 发现真实业务缺口：原有 `ai_chunk_extract_cache` 只在 Map-Reduce 多块提炼中生效，单块 Session 每次被处理时即使内容/配置不变也重新请求模型。重构统一 v5 内容与模型配置指纹、SQLite 读写和 2000 条有界清理，加入短会话缓存读写；旧的合规多块缓存无需迁移即可复用。纯缓存命中不再假记 `ai_request_log` 为一次新的实际模型调用，阶段缓存命中率、`llm_calls` 和服务端真实 usage 仍分别统计。
+- 模型声明值得提炼却返回空知识，或声明跳过但同时输出知识时，不会缓存这类自相矛盾结果；历史缓存里同类坏记录被忽略并允许后续重跑。加入缓存 key 配置失效、重启恢复、旧坏缓存过滤的 SQLite/Core 回归，以及 Windows 真实模型验证说明。
+- 未进行 Windows 真机和真实模型验收，不能凭本提交或固定自动化标记 S2.1 完成。没有新增 migration、不写 Provider、不覆盖用户 SiYuan 文档、不合并 main、不发布 Release。所有其他优化与功能完成后再实施 S1.3 完整备份与恢复。
+
+### 2026-10-11 S2.1 单块缓存编译阻断与矛盾模型返回值错误成功修复（待新 CI）
+
+- 已确认远端 HEAD 为 `54c61d3f`，CI `38149096378`、Windows Provider `38149096373` 均 completed/failure；无需重放旧成功 HEAD。Windows Core 与 Provider 均由 `ai_stage.rs:64` 同一个真实 Rust 编译错误阻断：`knowledge-chunk-v5` 缓存键 `format!` 含 11 个占位符却只有 10 个实参。该字符串会导致桌面程序无法编译，绝非「测试用例小问题」。恢复此前 Map-Reduce **10 参数原始 v5 文本格式**，并加入旧表达式逐字节 SHA256 指纹及 reopen SQLite 命中的兼容回归，确保已有用户持久 chunk 缓存不会因为本修复改版而失效。
+- CI Rust quality 同时在单块缓存路径的 3 处调用和 2 个断言处存在 rustfmt 差异；统一依据原始日志修正，避免未处理格式直接触发下一轮 CI。前端和仓库卫生在本 HEAD 已成功；没有证据说明其他跳过/被编译阻断的 Windows/Rust 检查成功。
+- 审核新增单块缓存实现发现另一个**真实业务安全缺口**：生产 `parse_v3_result_typed` 允许 schema 可解析却自相矛盾的结果进入 `run`，例如 `worth_extracting=true, items=[]`（模型超长 JSON 截断后容错解析可能生成），进而把该 Session 记为 `AI_EXTRACTED SUCCESS 0` 且丢弃值得提炼的内容；`worth_extracting=false` 但 items 非空也会被当正常无价值会话。虽然缓存层会避开这类结果，但**流水线成功语义本身不正确**，不能依赖再次运行碰运气。将正反一致性提升至生产结果验收条件：仍保留容错解析器的诊断恢复能力，但进入单块及 Map-Reduce 业务处理前明确失败，使持久 Pipeline 后续可以重试；并在真实模型测试入口明确要求故障注入核验。
+- Rust 测试补正常通过/跳过与两种自相矛盾、截断容错解析但不应成功、历史缓存兼容；同步补 `docs/acceptance/extraction-live-benchmark.md` Windows 实机测试步骤。固定测试不等于真实模型或 Windows 验收；仍保持个人离线、Provider 只读、SiYuan 原文禁止覆盖、迁移兼容、不合并 main、不发 Release，S1.3 最后实施。
+
+### 2026-10-12 S2.1 真实模型截断 JSON 不再静默发布部分知识（等待新 HEAD CI）
+
+- 核对远端 HEAD `1b41e07b`：Windows Provider `38150715476` 成功；综合 CI `38150715474` 前端、Windows Desktop、仓库卫生成功，但 Rust quality 在 `ai_stage.rs:1541,1569` 两处 rustfmt 差异失败，Clippy/Rust tests **没有执行**。合批修复这两处，不以旧综合 CI 成功作结论。
+- 审计 S2.1 单块/Map-Reduce 的 **真实遗漏风险**：模型响应因 `max_tokens` 在 `items` 数组中间截断时，即使仅生成部分知识项，历史生产 `parse_v3_result_typed` 仍可利用 `truncated_close_candidates`、单独对象回收机制拼出一个 `worth_extracting=true + 非空 items` 的结果，随后标记 AI_EXTRACTED SUCCESS、持久化 v5 缓存，导致未来重试永远不请求模型、遗漏后续知识。上批只禁止 `worth=true + 空 items`，未覆盖截断但有前缀知识的情况。
+- 本批增加**完整顶层 items 包裹结构**的判定：保留目前可诊断的 `parse_v3_result_unchecked` 片段回收能力，但生产 `parse_v3_result_typed` 不接受没有完整平衡包裹结构的 items 前缀。即使已有完整子项，也以可识别的模型截断/提高 max_tokens 提示失败、允许后续 Pipeline 正常重试；不会写入 SQLite 提炼缓存或新知识。结构完整但内容有可修复尾逗号的响应、带噪推理前缀后有完整 JSON、裸知识对象／对象列表等既有容错路径仍允许处理，不能把合法的非标准输出无差别判为截断。
+- 补 Rust 正反回归：末尾缺少数组／顶层闭合、截断但有 2 条完整前缀知识、负例跳过的截断、合法完整 Schema 修复、推理前缀污染与裸条目修复。同步修正 `extraction_live_benchmark.rs` **被此前 fmt 失败遮蔽的两个陈旧断言**：矛盾 JSON 即便严格 serde 通过，也不再满足生产业务门禁；真实模型统计须把此类响应与截断但含关键词前缀的样本计入无效生产输出，不得冒充知识命中。该修订不改变基准的匿名化/不存原文与端点规则。
+- 保持已有 `knowledge-chunk-v5` key、合法老缓存、SQLite schema 与个人离线兼容；不操作 Provider 文件，不覆盖 SiYuan 原文，不合并 main、不发 Release。此前已持久化的 v5 行**不含模型原始结束标记，不能仅凭缓存结果判断曾否截断**；本轮阻断新增截断成功与缓存，但不声称能够识别全部历史旧行。Windows/真实模型故障注入仍待用户集中验收；本批未运行真实模型或 Windows 真机，综合 CI 以新 HEAD 实测为准，其他优化/功能完成后再进行 S1.3 完整备份恢复。
+
+
+### 2026-10-12 S2.1 模型结束原因完整性门禁与 Clippy 修复（代码级，CI 待验证）
+
+- 基线 HEAD `1cad54f5`：Windows Provider #38155806610 成功；CI #38155806605 的前端、Windows Desktop 和仓库卫生成功，Rust Clippy 在 v5 缓存指纹对照测试的常量 Some(...).unwrap_or(...) 两处报错，导致 Rust tests 跳过。本轮修复冗余 Option 包装，保留旧缓存指纹 SHA256 和重启读回兼容测试，不禁用 Clippy。
+- 发现此前 JSON 结构完整性检查无法覆盖的遗漏风险：OpenAI-compatible 响应可以返回内容结构完好的完整 JSON，却同时标记 choices[0].finish_reason 为 length，表示模型因输出 Token 上限停止。旧客户端忽略结束原因，生产提炼会将可能缺项的完整 JSON 当作成功并永久缓存。现在保留可选结束原因，单块和 Map-Reduce 统一拒绝 length、content_filter、tool_calls、function_call、error，确保异常中止不写新知识或缓存；stop 正常通过原有结构、分数、items 一致性门禁，未上报结束原因的旧本地模型仍兼容。
+- 独立真实模型基准改为复用相同的最终产出门禁：HTTP 成功和严格 JSON 合法仍分别计数，但 finish_reason=length 时生产 schema、跳过匹配和关键词命中一律不可算通过。增加 API choice 元数据解析、合法/缺省/异常结束原因、结构完整但因长度中断、真实基准指标正反例回归；同步更新 Windows 故障注入验收指引。
+- 保持旧 v5 key、SQLite schema、local-first、Provider 只读、SiYuan 原文不覆盖及旧数据库兼容。既有缓存未储存历史结束原因，不能反推是否曾截断，不自动清除原有缓存。本次为代码级门禁和 fixture 回归，尚无 Windows 真机或真实模型验收结论；S1.3 完整备份/恢复仍最后实现，不合并 main、不发 Release。
+
+### 2026-10-12 S2.4 流式问答结束信号可靠性 + S2.1 CI 收尾（代码级，等待新 CI）
+
+- 基线远端 HEAD `4f4b445a` 的 Windows Provider `38160700689`、前端、Windows Desktop 与仓库卫生均成功；综合 CI `38160700697` 仅在 Rust 格式检查失败，Clippy / Rust tests 未运行。失败日志涉及 `ai/client.rs` 的 content_filter 测试数组、`pipeline/ai_stage.rs` 的两个长断言和一个原因数组、`tests/extraction_live_benchmark.rs` 的两个调用，本批统一按照 rustfmt 预期修复；不单独为微小格式问题触发新 Actions。
+- 实际 S2.4 业务缺口：`chat_stream_with_max_tokens` 过去只拼接 SSE delta 内容，忽略终止原因和 `[DONE]`。网关在输出回答前缀后异常断线时，HTTP 仍可能为 200，客户端会把前缀当完整回答；`finish_reason=length`、`content_filter` 等也不会阻断用户误把部分文字当作完成。加上有些不支持 SSE 的本地服务退回 `application/json`，该路径同样需要检查非正常结束原因。
+- 本批重构流式事件解析：每个事件保留首次 choice 的 `delta.content`、`finish_reason`；响应须由 stop 或 `[DONE]` 明确正常结束，非 stop 显式拒绝，EOF 没有结束标记即报错；可接受旧本地兼容网关省略 finish_reason 但保留 `[DONE]`，JSON 退化响应仍允许结束原因缺省/null。拒绝结束标记后的额外正文、不把多 choice 交叉合并、不把 usage-only event 当知识文本，对无换行超长 SSE 事件作有界拒绝。实时增量回调可能已经展示初始文字，因此终态错误必须继续由原 UI 显式呈现，不能宣称临时前缀已事实验证。
+- 补客户端 Rust 正反单测覆盖 stop/DONE、EOF、length/content_filter/tool_calls/function_call/error、第一候选/usage-only、安全长度门禁；更新 `docs/acceptance/rag-source-provenance.md` 中 Windows 真实网关故障注入步骤。所有行为在本地 Rust 客户端，无数据库 migration、Provider 文件写入或 SiYuan 原文自动覆盖。该批 CI 尚待新 HEAD 验证，不将固定模拟视为 Windows、真实模型或网关中断验收；S1.3 完整备份恢复继续留到其他优化与功能代码完整以后。
+
+- 补齐同一 S2.4 边界的非流式 `chat_with_max_tokens`：返回通用文本之前同样验证 `finish_reason`，避免非流式「问 AIKS」在 `length` 截断时绕过完整性门禁；具体结构化提炼仍沿用 `parse_completed_extraction_reply` 的更严格 Schema/内容校验。
+
+### 2026-10-12 S2.4 SSE 全流量与回答上限保护、Rust CI 格式恢复（新 HEAD 待自动化）
+
+- 已先核对远端 HEAD `2b8ea79a`，其 Windows Provider #38166971167、Desktop frontend、Windows desktop compile、Repository hygiene 成功；综合 CI #38166971186 的 Rust quality 仅在 `crates/aiks-core/src/ai/client.rs` 代码与测试的 rustfmt 差异失败，故 Clippy 和 Rust tests 尚未执行。依照失败作业的全部 6 处 rustfmt diff 更正，避免将仅部分步骤成功误报为全量通过。
+- 审核 S2.4 最近引入的终止标记保护后发现真实运行资源缺口：SSE 原实现限制单条未终止数据行在 1 MiB 以下，但异常网关如果连续无限发送较小有效 SSE/heartbeat/usage-only 事件，将无限消耗下载流量和处理时间；如果连续产生普通输出，`content.push_str` 会无限增长，忽略配置 `max_tokens` 的端点有可能长时间增长内存并实时渲染过大页面。普通非流式与 JSON fallback 也不限制接收后的正文大小。
+- 增加独立的双重资源预算：每次流式请求累计原始 SSE 网络输入不超过 16 MiB（无论是否为被忽略的事件），流式/非流式/JSON fallback 的有效回答 UTF-8 字节长度不超过 8 MiB；使用 `checked_add` 防止极端整数溢出，**在调用 delta 回调前**先拒绝超额内容。网络长度上限只是整个 SSE body 的粗粒度防护，不代表上传／下载进度或真实 token 用量；非流式路径仍先由 HTTP 读取并反序列化，故不能声称已经对任意恶意超大完整 HTTP body 做零内存分配防护。既有 1 MiB 单事件门禁、`stop`/`[DONE]` 和 `finish_reason` 语义不变，拒绝时明确为错误而非完成回答。
+- 新增 Rust 回归覆盖有效预算边界、溢出、中文多字节、SSE 心跳／usage-only 消耗网络预算、普通 JSON 与 SSE 使用相同答案预算、不合规网关超大正文拒绝。没有 SQLite migration，也不写 Provider 或 SiYuan 用户文档；不合并 main、不发布 Release。只是客户端资源安全代码级保护，8 MiB/16 MiB 与真实模型输出质量无直接相关，Windows 大规模/断流/慢请求测试仍须在隔离机器上执行；完整 S1.3 继续最后实施。
+
+
+### 2026-10-12 S2.4 OpenAI-compatible HTTP JSON 响应读取上限（代码级，等待新 CI）
+
+- 基线远端 HEAD `d634d572` 的综合 CI `38170204736` 和 Windows Provider `38170204792` 均为 completed/success，且没有当前 HEAD 在运行的 Actions。此前 S2.4 已限定流式原始 SSE 16 MiB 和解码后回答正文 8 MiB；但非流式 `resp.text()` / 不支持 SSE 的 `application/json` 回退在**接收完整任意大小 body 之后**才检查正文长度，攻击性或失控的兼容网关可以在 UTF-8/JSON 解码前消耗过量内存。模型探测 `/models` 同样无界读取，超大错误页也可能先被完整缓冲。
+- 引入统一 `util/http_body.rs` 接收上限：先检查可信度不高但可提前拒绝的 `Content-Length`，然后按真实已接收 chunk 的长度逐块累加、进行 checked_add 和边界校验，再从有限缓冲转换 UTF-8 文本。对正常聊天完整 JSON 和 fallback 采用 16 MiB body 限额，对模型探测列表采用 2 MiB，对网关错误体仅允许 32 KiB；完整文本仍须通过原有 8 MiB 答案长度、finish_reason、结构和来源门禁。/models 解析仅作辅助诊断，超长列表不影响「HTTP 服务可达」这一原健康检测语义；错误体过大直接失败，不再回退为误导性的空错误。
+- 纯缓冲正反单测覆盖多 chunk 跨越 UTF-8 字符边界、准确上限、溢出/超限及无效编码；使用本地 loopback HTTP fixture 覆盖无 Content-Length 的 chunked 响应和显式超大 Content-Length 提前拒绝。未依赖真实互联网和模型，**不能**从单测推出 Windows 网关兼容性、模型质量、断流时序通过。读取上限无法保证 reqwest 内部的单个解压/网络 chunk 零拷贝，也不代表任意上传/模型响应都能精确控制峰值内存；仍依赖用户设置的 HTTP 总超时。
+- 审计发现相邻的 Embedding API 路径仍有 `resp.json()` 无界接收和批次索引/维度校验不足的问题，留作下一完整功能批次处理，不能冒充已覆盖所有模型端点。无迁移和 Provider/SiYuan 原文写入；不合并 main、不发布 Release，S1.3 完整备份与恢复最后实现。
+
+
+### 2026-10-12 Embedding API 有界读取与批次完整性门禁（代码级，CI 待验证）
+
+- 核对远端 HEAD 59e74fb1：Windows Provider 38174720030 通过，综合 CI 38174720006 的 Windows 编译、前端、仓库卫生通过；Rust 质量任务仅在 ai/client.rs:452 的单处 rustfmt 失败，Clippy/Rust tests 未执行。本轮与新的完整功能模块合并修正该阻断，不单独为格式问题推送。
+- EmbeddingClient 以前对成功 JSON 运行无界 resp.json()、错误体无界 resp.text()，且以字节直接截取错误预览（中文边界可能 panic）。本轮复用通用 HTTP 有界读取器，成功响应最多 16 MiB，错误体最多 32 KiB；错误信息按 Unicode 字符安全截断，既校验 Content-Length 也检查实际接收流量。
+- 成功批次必须完整且无歧义：条数等于输入，index 唯一且在合法范围，支持乱序归位；空向量、维数不一致或不符合配置、非有限值、零范数或数值溢出、超出 16384 维均明确失败。拒绝整批错误数据，而不是忽略越界、覆盖重复下标、将缺失结果当空向量继续部分写入。无效 batch_size 和配置维数提前报错。
+- EmbeddingStage 对未设置 dimensions 的合法向量持久化真实维数，而不是硬编码为 1024。新增独立回环 HTTP 合约测试，覆盖乱序、重复/缺失/越界、不同维数、异常向量、无界 Content-Length 和 UTF-8 错误信息；这些合成测试不是模型质量测试。
+- 改动不增加 SQLite migration、不写 Provider、不自动覆盖 SiYuan 用户原文，保留个人 local-first 配置和已有知识。当前执行环境没有 Rust 工具链，综合 CI 的格式、Clippy 和 Rust 测试结果须以新提交实际运行结果为准；未执行真实模型、Windows 客户端或真实向量检索质量测量。S1.3 完整备份与恢复仍在所有其他优化和功能代码级完成后最后实现。

@@ -184,7 +184,11 @@ pub async fn sync_now(
     source: Option<String>,
     overwrite: Option<bool>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<SyncResponse, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -490,7 +494,11 @@ pub async fn extract_session_now(
     source: String,
     session_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let source_kind = aiks_core::SourceKind::from_str(&source)
         .ok_or_else(|| format!("Unknown source: {}", source))?;
@@ -594,7 +602,11 @@ pub async fn get_full_status(state: State<'_, AppState>) -> Result<serde_json::V
 pub async fn sync_and_extract(
     source: Option<String>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -650,7 +662,11 @@ pub async fn get_task_center_stats(
 pub async fn retry_failed_ai_task(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let session = {
@@ -668,6 +684,11 @@ pub async fn retry_failed_ai_task(
                    SELECT 1 FROM pipeline_job pj
                    WHERE pj.session_id = ss.id AND pj.status = 'FAILED'
                ))
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_run current
+                   WHERE current.session_id = ss.id AND current.pipeline_version = 'v3'
+                     AND current.status IN ('READY', 'PROCESSING')
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM pipeline_job active
                    WHERE active.session_id = ss.id AND active.status IN ('PENDING', 'RUNNING')
@@ -696,7 +717,11 @@ pub async fn retry_failed_ai_task(
 pub async fn cancel_pending_ai_task(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<bool, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     aiks_core::pipeline::job_repo::PipelineJobRepo::new(&db)
@@ -1158,7 +1183,13 @@ pub async fn get_knowledge_detail(
 /// R09: manually trigger extraction backfill for historical sessions.
 /// Submits real PipelineJobs (not just DB rows) to the running worker.
 #[tauri::command]
-pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn backfill_extractions(
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let submitted = engine
         .backfill_pending_extractions()
@@ -1171,7 +1202,11 @@ pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_js
 #[tauri::command]
 pub async fn sync_knowledge_to_siyuan(
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let stats = engine
         .sync_knowledge_to_siyuan(false)
@@ -1186,32 +1221,30 @@ pub async fn sync_knowledge_to_siyuan(
     }))
 }
 
-/// Manually trigger pipeline for a specific session
+/// Start first-time AI processing only for an already-synced raw Session.
+/// Retry and completed-state handling belong to their dedicated safe commands.
 #[tauri::command]
 pub async fn run_pipeline_for_session(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
-    let conn = db.conn();
-
-    let result = conn.query_row(
-        "SELECT source, external_session_id, title, project_name FROM source_session WHERE id = ?1",
-        rusqlite::params![session_id],
-        |row| Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        )),
-    ).map_err(|e| format!("Session not found: {}", e))?;
-
-    let (source, ext_id, title, project) = result;
-
+    let session = aiks_core::pipeline::first_run::load_initial_pipeline_session(&db, session_id)
+        .map_err(|error| error.to_string())?;
     engine
-        .enqueue_pipeline_for_session(session_id, ext_id, source, title, project)
-        .map_err(|e| e.to_string())
+        .enqueue_pipeline_for_session(
+            session_id,
+            session.external_id,
+            session.source,
+            session.title,
+            session.project_name,
+        )
+        .map_err(|error| error.to_string())
 }
 
 /// Get hybrid search results (FTS5 + vector) through Core.

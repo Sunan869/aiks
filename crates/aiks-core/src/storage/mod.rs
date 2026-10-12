@@ -1,5 +1,8 @@
-// Full-backup prototype intentionally excluded until the final roadmap phase.
-// Its code remains in storage/backup.rs, but there is no public/runtime entry.
+// S1.3 development entry: SQLite snapshots only. Full application restore is NOT available.
+pub mod app_backup;
+pub mod backup;
+pub mod backup_bundle;
+pub mod backup_quiescence;
 pub mod db;
 pub mod repo;
 

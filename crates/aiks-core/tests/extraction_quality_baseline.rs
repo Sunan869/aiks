@@ -1,4 +1,5 @@
 use aiks_core::ai::schema_v3::V3ExtractionResult;
+use aiks_core::pipeline::ai_stage::parse_v3_result_typed;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Instant;
@@ -84,6 +85,26 @@ fn extraction_quality_gate_rejects_invalid_confidence_and_missing_fields() {
     output["items"][0]["confidence"] = serde_json::json!(1.5);
     let out_of_range: V3ExtractionResult = serde_json::from_value(output.clone()).unwrap();
     assert!(!(0.0..=1.0).contains(&out_of_range.items[0].confidence));
+}
+
+#[test]
+fn production_extraction_rejects_invalid_item_confidence_without_silent_recovery() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/extraction_quality_baseline.json")).unwrap();
+    let valid = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| !case["output"]["items"].as_array().unwrap().is_empty())
+        .unwrap()["output"]
+        .clone();
+    assert!(parse_v3_result_typed(&valid.to_string()).is_ok());
+
+    for invalid in [serde_json::json!(-0.1), serde_json::json!(1.1)] {
+        let mut output = valid.clone();
+        output["items"][0]["confidence"] = invalid;
+        assert!(parse_v3_result_typed(&output.to_string()).is_err());
+    }
 }
 
 #[test]

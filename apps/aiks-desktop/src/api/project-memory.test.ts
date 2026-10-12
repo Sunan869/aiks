@@ -15,6 +15,15 @@ describe("project memory workbench", () => {
     expect(report).toContain(first.title);
     const context = await api.createAgentContextPack(first.id, 1000);
     expect(context).toContain(first.title);
+    const source = first.sources[0];
+    expect(await api.createProjectReview(first.id, "2020-01-01", "2030-12-31", source))
+      .toContain("来源范围：" + source);
+    expect(await api.createAgentContextPack(first.id, 1000, source))
+      .toContain("来源范围：" + source);
+    await expect(api.createProjectReview(first.id, "2020-01-01", "2030-12-31", "invalid-source"))
+      .rejects.toThrow();
+    await expect(api.createAgentContextPack(first.id, 1000, "invalid-source"))
+      .rejects.toThrow();
     await expect(api.createProjectReview(first.id, "2030-01-01", "2020-01-01"))
       .rejects.toThrow();
   });

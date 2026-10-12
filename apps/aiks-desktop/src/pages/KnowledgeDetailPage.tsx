@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
-import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeSummary } from "../api/types";
+import type { KnowledgeDetail, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationReviewHistory, KnowledgeSummary, OrganizationAuditEntry } from "../api/types";
 import KnowledgeEditor from "../components/KnowledgeEditor";
 import type { AiAssistOperation } from "../api/ai-assist";
-import { appendOrganizationAudit, buildOrganizationSourceContext, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
+import { appendOrganizationAudit, buildOrganizationSourceContext, createOrganizationWriteGate, organizationSourceSnapshot, validateOrganizationSources } from "../knowledge-organization-audit";
 import { visibleEvolutionTimeline } from "../knowledge-evolution";
+import { previewKnowledgeOrganizationDiff } from "../knowledge-organization-diff";
+import { allOrganizationSourcesReviewed, reviewOrganizationSource } from "../knowledge-organization-review";
 
 interface Props {
   knowledgeId: string;
@@ -41,6 +43,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [relationEvidence, setRelationEvidence] = useState("");
   const [relationBusy, setRelationBusy] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  const [relationReviewHistory, setRelationReviewHistory] = useState<KnowledgeRelationReviewHistory | null>(null);
+  const [relationReviewHistoryError, setRelationReviewHistoryError] = useState("");
+  const [relationReviewHistoryRevision, setRelationReviewHistoryRevision] = useState(0);
   const [organizeOperation, setOrganizeOperation] = useState<AiAssistOperation>("structure");
   const [organizeDraft, setOrganizeDraft] = useState("");
   const [organizeBusy, setOrganizeBusy] = useState(false);
@@ -48,11 +53,22 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const [organizeError, setOrganizeError] = useState<string | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [organizeSourceIds, setOrganizeSourceIds] = useState<string[]>([]);
+  const [reviewedSources, setReviewedSources] = useState<KnowledgeDetail[]>([]);
+  const [diffSourceId, setDiffSourceId] = useState("");
+  const [sourceReviewVisitedIds, setSourceReviewVisitedIds] = useState<string[]>([]);
   const [organizeSourceSnapshot, setOrganizeSourceSnapshot] = useState<string | null>(null);
   const [reviewedOperation, setReviewedOperation] = useState<AiAssistOperation | null>(null);
   const [createdKnowledgeId, setCreatedKnowledgeId] = useState<string | null>(null);
   const [derivedArchived, setDerivedArchived] = useState(false);
+  const [organizationHistory, setOrganizationHistory] = useState<OrganizationAuditEntry[]>([]);
+  const [organizationHistoryError, setOrganizationHistoryError] = useState("");
+  const [organizationHistoryRevision, setOrganizationHistoryRevision] = useState(0);
+  const [organizationHistoryBusy, setOrganizationHistoryBusy] = useState<string | null>(null);
+  const [recoveryKnowledgeId, setRecoveryKnowledgeId] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
   const organizationGeneration = useRef(0);
+  const organizationWriteGate = useRef(createOrganizationWriteGate());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,9 +87,15 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setDerivedArchived(false);
     setOrganizeBusy(false);
     setOrganizeSourceIds([]);
+    setReviewedSources([]);
+    setDiffSourceId("");
+    setSourceReviewVisitedIds([]);
     setOrganizeSourceSnapshot(null);
     setReviewedOperation(null);
     setSelectedSources([]);
+    setRecoveryKnowledgeId("");
+    setRecoveryBusy(false);
+    setRecoveryError("");
     void load();
   }, [load]);
   useEffect(() => {
@@ -87,6 +109,38 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     });
     return () => { active = false; };
   }, [knowledgeId]);
+
+  useEffect(() => {
+    let active = true;
+    setOrganizationHistory([]);
+    setOrganizationHistoryError("");
+    void getApi().getOrganizationAudit(knowledgeId).then(items => {
+      if (active) setOrganizationHistory(items);
+    }).catch(reason => {
+      if (active) setOrganizationHistoryError("整理历史读取失败：" + String(reason));
+    });
+    return () => { active = false; };
+  }, [knowledgeId, organizationHistoryRevision]);
+
+  const changeOrganizationRecordStatus = async (
+    entry: OrganizationAuditEntry, nextStatus: "active" | "archived",
+  ) => {
+    if (organizationHistoryBusy !== null) return;
+    if (nextStatus === "archived" && !window.confirm(
+      "只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。"
+    )) return;
+    setOrganizationHistoryBusy(entry.derived_knowledge_id);
+    setOrganizationHistoryError("");
+    try {
+      if (nextStatus === "archived") await getApi().archiveKnowledge(entry.derived_knowledge_id);
+      else await getApi().restoreKnowledge(entry.derived_knowledge_id);
+      setOrganizationHistoryRevision(value => value + 1);
+    } catch (reason) {
+      setOrganizationHistoryError("整理记录状态更新失败：" + String(reason));
+    } finally {
+      setOrganizationHistoryBusy(null);
+    }
+  };
 
   const submitFeedback = async () => {
     setFeedbackBusy(true);
@@ -120,6 +174,18 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     return () => { active = false; };
   }, [knowledgeId]);
 
+  useEffect(() => {
+    let active = true;
+    setRelationReviewHistory(null);
+    setRelationReviewHistoryError("");
+    void getApi().getKnowledgeRelationReviews(knowledgeId).then(history => {
+      if (active) setRelationReviewHistory(history);
+    }).catch(reason => {
+      if (active) setRelationReviewHistoryError("关系人工审核历史读取失败：" + String(reason));
+    });
+    return () => { active = false; };
+  }, [knowledgeId, relationReviewHistoryRevision]);
+
   const suggestRelation = async () => {
     setRelationBusy(true);
     setRelationError(null);
@@ -143,6 +209,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       const updated = await getApi().reviewKnowledgeRelation(id, decision);
       setRelations(current => current.map(item => item.id === id ? updated : item));
+      setRelationReviewHistoryRevision(value => value + 1);
     } catch (error) {
       setRelationError("关系审核失败：" + String(error));
     } finally {
@@ -162,6 +229,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeConfirmed(false);
     setOrganizeDraft("");
     setOrganizeSourceIds([]);
+    setReviewedSources([]);
+    setDiffSourceId("");
+    setSourceReviewVisitedIds([]);
     setReviewedOperation(null);
     setCreatedKnowledgeId(null);
     setDerivedArchived(false);
@@ -174,6 +244,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       // giving their contents to the model: a record can change while loading.
       validateOrganizationSources(data, others);
       const sources = [data, ...others];
+      await getApi().validateOrganizationScope(sources.map(source => source.id));
       const sourceIds = sources.map(item => item.id);
       const sourceContext = buildOrganizationSourceContext(sources);
       const suggestion = await getApi().assistKnowledge({
@@ -188,6 +259,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       if (!suggestion.text?.trim()) throw new Error("模型未返回可审核的内容");
       if (generation !== organizationGeneration.current) return;
       setOrganizeSourceIds(sourceIds);
+      setReviewedSources(sources);
+      setDiffSourceId(sourceIds[0]);
+      setSourceReviewVisitedIds([sourceIds[0]]);
       setOrganizeSourceSnapshot(organizationSourceSnapshot(sources));
       setReviewedOperation(organizeOperation);
       setOrganizeDraft(suggestion.text);
@@ -199,7 +273,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   };
 
   const createDerivedKnowledge = async () => {
-    if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id) return;
+    if (!data || !organizeConfirmed || !reviewedOperation || !organizeSourceSnapshot || !organizeDraft.trim() || organizeBusy || organizeSourceIds[0] !== data.id || !sourcesReviewed) return;
+    if (!organizationWriteGate.current.tryBegin()) return;
+    const generation = organizationGeneration.current;
     setOrganizeBusy(true);
     setOrganizeError(null);
     try {
@@ -212,8 +288,12 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         throw new Error("知识来源身份已变化，请重新生成并审核草稿");
       }
       validateOrganizationSources(currentSources[0], currentSources.slice(1));
+      await getApi().validateOrganizationScope(currentSources.map(source => source.id));
       if (organizationSourceSnapshot(currentSources) !== organizeSourceSnapshot) {
         throw new Error("来源知识内容或元数据已变化，请重新生成并审核草稿");
+      }
+      if (generation !== organizationGeneration.current) {
+        throw new Error("整理上下文已经切换，请重新审核草稿");
       }
       if (currentSources[0].project_name !== data.project_name) {
         throw new Error("来源项目已变化，请重新生成并审核草稿");
@@ -226,22 +306,61 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         rewrite: "润色草稿",
         key_conclusions: "关键结论",
       };
-      const created = await getApi().createKnowledge({
+      const created = await getApi().createOrganizedKnowledge({
         title: data.title + " · " + (labels[reviewedOperation] ?? "整理草稿"),
         category: data.category,
         project_name: data.project_name,
         summary: "由用户确认的 AIKS 知识整理结果；请通过来源知识 ID 核验。",
         tags: parseTags(data.tags),
         content,
-      });
+      }, organizeSourceIds, reviewedOperation);
+      // Navigation may have changed the current knowledge during this write.
+      // Never report the previous project's result on the newly shown page.
+      if (generation !== organizationGeneration.current) return;
       setOrganizeConfirmed(false);
       setCreatedKnowledgeId(created.id);
       setDerivedArchived(false);
-      setMessage("已创建独立知识文档，原文保持不变。可从下方打开或归档本次输出。");
+      setOrganizationHistoryRevision(value => value + 1);
+      setMessage("已在 SiYuan 新建独立知识文档，原文保持不变。归档仅改变 AIKS 本地状态，不删除 SiYuan 文档。");
     } catch (error) {
-      setOrganizeError("创建独立知识失败：" + String(error));
+      if (generation === organizationGeneration.current) {
+        const explanation = String(error);
+        // When remote creation succeeded but audit persistence failed, stop
+        // create retries and expose the existing ID for audit-only recovery.
+        const created = explanation.match(/知识已创建（ID:\s*([A-Za-z0-9-]+)）/);
+        if (created) {
+          setOrganizeConfirmed(false);
+          setRecoveryKnowledgeId(created[1]);
+        }
+        setOrganizeError(
+          "创建独立知识未完整完成：" + explanation +
+          "。若 SiYuan 已写入，请先核对知识列表，避免重复创建。"
+        );
+      }
     } finally {
-      setOrganizeBusy(false);
+      organizationWriteGate.current.finish();
+      if (generation === organizationGeneration.current) setOrganizeBusy(false);
+    }
+  };
+
+  const recoverOrganizationAudit = async () => {
+    if (!data || recoveryBusy || !recoveryKnowledgeId.trim()) return;
+    const id = recoveryKnowledgeId.trim();
+    const sourceIds = [data.id, ...selectedSources];
+    if (!window.confirm(
+      "只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。"
+    )) return;
+    setRecoveryBusy(true);
+    setRecoveryError("");
+    try {
+      await getApi().recoverOrganizationAudit(id, sourceIds, organizeOperation);
+      setRecoveryKnowledgeId("");
+      setOrganizationHistoryRevision(value => value + 1);
+      setMessage("仅已修复本地审计来源映射，未创建或修改 SiYuan 文档。");
+    } catch (error) {
+      setRecoveryError("无法关联现有审核记录：" + String(error));
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
@@ -251,8 +370,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     setOrganizeError(null);
     try {
       await getApi().archiveKnowledge(createdKnowledgeId);
-      setMessage("已将本次生成的知识文档归档；来源知识仍保留。");
+      setMessage("已在 AIKS 本地归档新知识；来源知识和 SiYuan 文档仍保留。");
       setDerivedArchived(true);
+      setOrganizationHistoryRevision(value => value + 1);
     } catch (error) {
       setOrganizeError("归档生成的知识失败：" + String(error));
     } finally {
@@ -267,7 +387,8 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     try {
       await getApi().restoreKnowledge(createdKnowledgeId);
       setDerivedArchived(false);
-      setMessage("已恢复本次整理生成的知识；来源知识未修改。");
+      setOrganizationHistoryRevision(value => value + 1);
+      setMessage("已恢复 AIKS 本地知识状态；来源知识和 SiYuan 文档未修改。");
     } catch (error) {
       setOrganizeError("恢复生成的知识失败：" + String(error));
     } finally {
@@ -316,6 +437,16 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       setAction(null);
     }
   };
+
+  const sourcesReviewed = allOrganizationSourcesReviewed(
+    organizeSourceIds, reviewedSources.map(source => source.id), sourceReviewVisitedIds,
+  );
+  const diffReferenceSource = reviewedSources.find(source => source.id === diffSourceId);
+  const diffReferenceContent = diffReferenceSource?.content ?? data?.content ?? "";
+  const organizationDiff = useMemo(
+    () => previewKnowledgeOrganizationDiff(diffReferenceContent, organizeDraft),
+    [diffReferenceContent, organizeDraft],
+  );
 
   if (loading) return <div className="flex h-48 items-center justify-center p-6 text-sm text-gray-400">加载中...</div>;
   if (!data) return <div className="p-6 text-gray-400">未找到知识条目：{knowledgeId}</div>;
@@ -398,11 +529,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
-        <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。</p>
+        <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。</p>
         <div className="flex flex-wrap gap-2">
           <input aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
           <datalist id="knowledge-relation-candidates">
-            {relationCandidates.filter(item => item.id !== knowledgeId && (!data.project_name || !item.project_name || item.project_name === data.project_name)).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+            {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
           <select aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
             <option value="related">相关</option>
@@ -412,6 +543,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="resolved_by">由其解决</option>
           </select>
         </div>
+        <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <button type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</button>
         {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
@@ -467,6 +599,40 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             );
           })}
         </div>
+        <div className="mt-4 border-t border-gray-200 pt-3 text-xs dark:border-gray-700">
+          <h3 className="font-semibold">人工审核历史（本地持久记录）</h3>
+          <p className="mt-1 text-gray-500">
+            显示关系状态由「建议」到「确认」或「拒绝」的人工审核轨迹；审核时间不等于知识生效时间。
+            记录不会因后来修改项目归属、拒绝建议或归档知识而自动清除。
+          </p>
+          {relationReviewHistoryError && (
+            <p role="alert" className="mt-2 text-red-600">{relationReviewHistoryError}</p>
+          )}
+          {relationReviewHistory && relationReviewHistory.reviews.length === 0 && (
+            <p className="mt-2 text-gray-400">尚无本知识的关系人工审核记录。</p>
+          )}
+          <ol className="mt-2 space-y-2">
+            {relationReviewHistory?.reviews.map(review => (
+              <li key={review.id} className="rounded border p-2 dark:border-gray-700">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{review.previous_status} → {review.next_status}</span>
+                  <span className="text-gray-500">审核于 {review.created_at}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 break-all">
+                  <button type="button" disabled={!onOpenKnowledge}
+                    onClick={() => onOpenKnowledge?.(review.source_id)}
+                    className="text-blue-600 disabled:text-gray-500">来源知识 {review.source_id}</button>
+                  <button type="button" disabled={!onOpenKnowledge}
+                    onClick={() => onOpenKnowledge?.(review.target_id)}
+                    className="text-blue-600 disabled:text-gray-500">目标知识 {review.target_id}</button>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {relationReviewHistory?.truncated && (
+            <p className="mt-2 text-amber-700">仅展示最近 100 次审核，历史记录可能更多。</p>
+          )}
+        </div>
       </section>
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
@@ -497,13 +663,16 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
-        <p className="mb-3 text-xs text-gray-500">AI 整理建议不会直接覆盖 SiYuan；审核后可复制或另存独立知识，撤销时归档新知识并可恢复。来源已归档或审核期间发生变化时须重新生成。</p>
+        <p className="mb-3 text-xs text-gray-500">生成建议只预览、不写入；确认「创建」会在 SiYuan 新增独立文档，不覆盖原文。归档与恢复仅变更 AIKS 本地状态，不会删除 SiYuan 文档。来源变化后须重新审核。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="整理方式" value={organizeOperation} onChange={event => {
+          <select aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
             organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
             setOrganizeSourceIds([]);
+            setReviewedSources([]);
+            setDiffSourceId("");
+            setSourceReviewVisitedIds([]);
             setOrganizeSourceSnapshot(null);
             setOrganizeConfirmed(false);
             setOrganizeBusy(false);
@@ -517,13 +686,16 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
-              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources}
+              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
                 onChange={event => {
                   setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
                   organizationGeneration.current += 1;
                   setOrganizeConfirmed(false);
                   setOrganizeDraft("");
                   setOrganizeSourceIds([]);
+                  setReviewedSources([]);
+                  setDiffSourceId("");
+                  setSourceReviewVisitedIds([]);
                   setOrganizeSourceSnapshot(null);
                   setOrganizeBusy(false);
                 }}
@@ -540,26 +712,90 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             {organizeBusy ? "生成中..." : "生成整理建议"}
           </button>
         </div>
-        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可生成只读整理草稿；不会自动创建或覆盖 SiYuan 文档。</p>}
+        {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可先生成草稿；创建新知识需要 SiYuan 可用，并会新增独立 SiYuan 文档，原文不变。</p>}
         {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
+            {reviewedSources.length > 1 && (
+              <section aria-label="逐一审阅整理来源" className="rounded border border-amber-200 p-3 text-xs dark:border-amber-800">
+                <h3 className="font-medium">逐一审阅全部来源知识（{sourceReviewVisitedIds.length}/{reviewedSources.length}）</h3>
+                <p className="mt-1 text-gray-500">
+                  多来源比较/合并的差异视图一次仅对照一份真实原文；每份来源的内容必须分别核对，
+                  不能把主知识差异当作其他来源已经核查。点击来源查看原始文本并完成该来源的阅读步骤。
+                  审核范围仅是用户当前看到的草稿；创建前仍由 Rust 再次核实所有来源。
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {reviewedSources.map(source => (
+                    <button type="button" key={source.id}
+                      aria-pressed={diffSourceId === source.id}
+                      onClick={() => {
+                        setDiffSourceId(source.id);
+                        setSourceReviewVisitedIds(current => reviewOrganizationSource(organizeSourceIds, current, source.id));
+                        setOrganizeConfirmed(false);
+                      }}
+                      className={diffSourceId === source.id ? "rounded border border-indigo-600 bg-indigo-50 p-2 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-100"
+                        : "rounded border border-gray-300 p-2 dark:border-gray-700"}>
+                      {sourceReviewVisitedIds.includes(source.id) ? "✓ 已查看 " : "○ 待核对 "}
+                      {source.title}（{source.id}）
+                    </button>
+                  ))}
+                </div>
+                {!sourcesReviewed && <p role="status" className="mt-2 text-amber-700">请逐一打开所有来源，才能确认多来源整理草稿。</p>}
+              </section>
+            )}
             <div className="grid gap-2 lg:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium">当前正文（只读）</label>
-                <textarea aria-label="当前知识正文" value={data.content} readOnly rows={12}
+                <label className="mb-1 block text-xs font-medium">当前正文（只读）：{diffReferenceSource?.title ?? data.title} · {diffReferenceSource?.id ?? data.id}</label>
+                <textarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
                   className="w-full rounded border bg-gray-50 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900" />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
-                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000}
-                  onChange={event => { setOrganizeDraft(event.target.value); setOrganizeConfirmed(false); }}
+                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
+                  onChange={event => {
+                    setOrganizeDraft(event.target.value);
+                    setOrganizeConfirmed(false);
+                    setSourceReviewVisitedIds(organizeSourceIds.slice(0, 1));
+                    setDiffSourceId(organizeSourceIds[0] || "");
+                  }}
                   rows={12} className="w-full rounded border bg-transparent p-2 font-mono text-xs dark:border-gray-700" />
               </div>
             </div>
+            <section aria-label="整理差异预览（仅供人工核对）"
+              className="rounded border border-indigo-200 p-3 text-xs dark:border-indigo-800">
+              <h3 className="font-medium">整理差异预览（仅供人工核对）</h3>
+              <p className="mt-1 text-gray-500">
+                与当前选中的来源知识正文按行对照：+ 为新草稿增加，− 为原正文没有保留，
+                未标记的行表示相同。此处只是审核辅助，原知识不会被修改；
+                创建动作始终生成新的独立 SiYuan 文档。
+              </p>
+              <div className="mt-2 flex flex-wrap gap-3 text-gray-500">
+                <span>当前预览新增 {organizationDiff.added} 行</span>
+                <span>当前预览减少 {organizationDiff.removed} 行</span>
+                {organizationDiff.identical && <span>内容相同（换行风格差异忽略）</span>}
+              </div>
+              {organizationDiff.truncated && (
+                <p role="status" className="mt-2 rounded bg-amber-50 p-2 text-amber-800">
+                  差异预览已截断（最多 320 行/单侧、500 行展示），
+                  这不代表未展示的部分没有修改；必须通过上方完整正文和草稿继续审核。
+                </p>
+              )}
+              <pre aria-label="当前整理草稿行级差异"
+                className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 font-mono dark:bg-gray-900">
+                {organizationDiff.rows.map((row, index) => (
+                  <span key={index}
+                    className={row.kind === "added" ? "block bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100"
+                      : row.kind === "removed" ? "block bg-rose-100 text-rose-950 dark:bg-rose-900 dark:text-rose-100"
+                      : "block text-gray-500"}>
+                    {row.kind === "added" ? "+ " : row.kind === "removed" ? "− " : "  "}
+                    {row.text || " "}
+                  </span>
+                ))}
+              </pre>
+            </section>
             <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={organizeConfirmed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
-              我已经核对原文与草稿，理解复制不会修改 SiYuan 中的知识。
+              <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy || !sourcesReviewed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
+              我已核对原文与草稿，理解复制不写入、确认创建会新增独立 SiYuan 文档。
             </label>
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
               onClick={() => void copyOrganizationDraft()}
@@ -569,20 +805,85 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim() || organizeBusy || Boolean(createdKnowledgeId)}
               onClick={() => void createDerivedKnowledge()}
               className="ml-2 rounded border border-emerald-300 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
-              创建为新的知识文档（不覆盖原文）
+              确认创建新的 SiYuan 知识文档（不覆盖原文）
             </button>
             {createdKnowledgeId && (
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 {onOpenKnowledge && <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</button>}
                 {derivedArchived ? (
-                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复本次整理生成的知识</button>
+                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复新知识（本地状态）</button>
                 ) : (
-                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>撤销本次整理（归档新知识）</button>
+                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>归档新知识（SiYuan 文档保留）</button>
                 )}
               </div>
             )}
           </div>
         )}
+      </section>
+
+      <section className="mb-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <h2 className="font-semibold">人工审核的知识整理历史</h2>
+        <div className="mt-3 rounded border border-amber-200 bg-amber-50/40 p-3 text-xs dark:border-amber-800">
+          <p className="text-amber-700 dark:text-amber-300">
+            已确认 SiYuan 文档存在、但审计记录缺失时，可以只修复本地审核来源。
+            请在上方整理方式与来源选择器中核对操作和原知识；须输入已有知识 ID。
+            后端仅核查 AIKS 本地记录已绑定 SiYuan 文档，并核验本地人工审核尾注与来源顺序；此步骤不会向 SiYuan 查询文档当前状态。
+            此操作不会再创建 SiYuan 文档。
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input aria-label="待修复审计的现有知识 ID"
+              value={recoveryKnowledgeId} onChange={event => setRecoveryKnowledgeId(event.target.value)}
+              placeholder="已有新知识 ID" maxLength={256}
+              className="min-w-0 flex-1 rounded border border-amber-300 bg-white p-2 dark:bg-gray-900"
+            />
+            <button type="button" disabled={!recoveryKnowledgeId.trim() || recoveryBusy}
+              onClick={() => void recoverOrganizationAudit()}
+              className="rounded border border-amber-500 px-3 py-2 text-amber-800 disabled:opacity-40">
+              {recoveryBusy ? "仅修复审核记录中…" : "审核并修复本地来源（不重建文档）"}
+            </button>
+          </div>
+          {recoveryError && <p role="alert" className="mt-2 text-red-600">{recoveryError}</p>}
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          此处读取本地持久审核记录；关闭或重开程序后仍可找到从当前知识衍生的独立文档。
+          归档/恢复只改变新建知识的 AIKS 状态，不删除 SiYuan 文档或原 Session。
+          最多展示最近 100 条记录。
+        </p>
+        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{organizationHistoryError}</p>}
+        {organizationHistory.length === 0 && !organizationHistoryError && (
+          <p className="mt-2 text-xs text-gray-400">尚无本地持久的知识整理审核记录。</p>
+        )}
+        <div className="mt-3 space-y-2">
+          {organizationHistory.map(entry => (
+            <div key={entry.derived_knowledge_id} className="rounded border p-3 text-xs dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <strong>{entry.title}</strong>
+                <span className="text-gray-500">{entry.operation} · {entry.status} · {entry.reviewed_at.slice(0, 10)}</span>
+              </div>
+              <div className="mt-1 break-all text-gray-500">
+                来源知识：{entry.source_knowledge_ids.join("、")}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {onOpenKnowledge && entry.status !== "missing" && (
+                  <button type="button" className="text-blue-600"
+                    onClick={() => onOpenKnowledge(entry.derived_knowledge_id)}>打开独立知识</button>
+                )}
+                {entry.status === "active" && (
+                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-amber-700 disabled:opacity-40"
+                    onClick={() => void changeOrganizationRecordStatus(entry, "archived")}>
+                    本地归档（保留 SiYuan 文档）
+                  </button>
+                )}
+                {entry.status === "archived" && (
+                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-blue-700 disabled:opacity-40"
+                    onClick={() => void changeOrganizationRecordStatus(entry, "active")}>
+                    恢复本地知识状态
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <div className="flex gap-4 text-xs text-gray-400">

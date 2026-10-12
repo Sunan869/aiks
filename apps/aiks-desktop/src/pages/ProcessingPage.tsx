@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
+import { createSafeTaskDiagnosticJson } from "../task-diagnostics";
 import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
@@ -51,20 +52,37 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
   const [showDiagnosticPreview, setShowDiagnosticPreview] = useState(false);
   const [diagnosticNotice, setDiagnosticNotice] = useState("");
-  const diagnosticJson = JSON.stringify({
-    schema: "aiks-task-diagnostics-v1",
-    counts: taskStats,
-  }, null, 2);
-  const saveDiagnostic = () => {
+  const [diagnosticJson, setDiagnosticJson] = useState<string | null>(null);
+
+  // Snapshot data at the exact moment the user requests a preview. The live
+  // task polling must never silently replace an already inspected export.
+  const refreshDiagnosticPreview = () => {
     if (!taskStats) return;
-    const blob = new Blob([diagnosticJson], { type: "application/json" });
+    setDiagnosticJson(createSafeTaskDiagnosticJson(taskStats, tasks));
+    setDiagnosticNotice("已生成新的脱敏任务状态快照；请检查内容后再选择复制或保存。");
+    setShowDiagnosticPreview(true);
+  };
+
+  const toggleDiagnosticPreview = () => {
+    if (showDiagnosticPreview) {
+      setShowDiagnosticPreview(false);
+      setDiagnosticJson(null);
+      setDiagnosticNotice("");
+    } else {
+      refreshDiagnosticPreview();
+    }
+  };
+
+  const saveDiagnostic = () => {
+    if (!diagnosticJson) return;
+    const blob = new Blob([diagnosticJson], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "aiks-task-diagnostics.json";
+    link.download = "aiks-task-diagnostics-v2.json";
     link.click();
-    URL.revokeObjectURL(url);
-    setDiagnosticNotice("已生成仅包含统计信息的诊断摘要");
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setDiagnosticNotice("已请求保存审核后的脱敏任务诊断快照。");
   };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
@@ -176,27 +194,34 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           <span>同步异常 {taskStats?.sync_issues ?? "—"}</span>
           <span>AI 异常 {taskStats?.ai_issues ?? "—"}</span>
         </div>
-        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline"
-          onClick={() => setShowDiagnosticPreview(value => !value)}>
-          {showDiagnosticPreview ? "收起诊断摘要" : "预览安全诊断摘要"}
+        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
+          disabled={!taskStats && !showDiagnosticPreview}
+          onClick={toggleDiagnosticPreview}>
+          {showDiagnosticPreview ? "收起诊断摘要" : "预览脱敏任务诊断包"}
         </button>
-        {showDiagnosticPreview && (
+        {showDiagnosticPreview && diagnosticJson !== null && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
-            <p className="text-xs text-gray-500 mb-2">仅显示统计数据，不含 Session 正文、路径、错误内容或密钥。</p>
-            <pre className="text-xs whitespace-pre-wrap">{diagnosticJson}</pre>
-            <div className="flex items-center gap-3 mt-2">
-              <button type="button" disabled={!taskStats} onClick={saveDiagnostic}
-                className="text-xs text-blue-600 hover:underline disabled:opacity-50">导出 JSON 摘要</button>
-              <button type="button" disabled={!taskStats}
+            <p className="text-xs text-gray-500 mb-2">
+              此诊断包仅含全库统计及最近最多 200 条任务的匿名化聚合。
+              不导出 Session/任务 ID、标题、文件路径、原文、错误文本或密钥；
+              最新任务轮询不会静默改变当前快照。
+            </p>
+            <pre aria-label="脱敏任务诊断预览" className="text-xs whitespace-pre-wrap max-h-72 overflow-auto">{diagnosticJson}</pre>
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              <button type="button" onClick={refreshDiagnosticPreview}
+                className="text-xs text-blue-600 hover:underline">更新预览快照</button>
+              <button type="button" onClick={saveDiagnostic}
+                className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</button>
+              <button type="button"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(diagnosticJson);
-                    setDiagnosticNotice("诊断摘要已复制");
+                    setDiagnosticNotice("已复制当前审核后的脱敏快照");
                   } catch {
-                    setDiagnosticNotice("复制失败，请使用导出 JSON");
+                    setDiagnosticNotice("复制失败，请使用保存 JSON");
                   }
                 }}
-                className="text-xs text-blue-600 hover:underline disabled:opacity-50">复制摘要</button>
+                className="text-xs text-blue-600 hover:underline">复制当前快照</button>
             </div>
             {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
           </div>

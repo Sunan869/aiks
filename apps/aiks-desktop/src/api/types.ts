@@ -154,6 +154,15 @@ export interface KnowledgeWriteInput {
   tags: string[];
 }
 
+export interface OrganizationAuditEntry {
+  derived_knowledge_id: string;
+  title: string;
+  status: KnowledgeStatus | "missing";
+  operation: "structure" | "rewrite" | "key_conclusions" | "compare" | "merge_draft";
+  reviewed_at: string;
+  source_knowledge_ids: string[];
+}
+
 export interface KnowledgeUpdateInput {
   title: string;
   category: string;
@@ -344,6 +353,21 @@ export interface KnowledgeRelation {
   updated_at: string;
 }
 
+export interface KnowledgeRelationReview {
+  id: string;
+  relation_id: string;
+  source_id: string;
+  target_id: string;
+  previous_status: KnowledgeRelationStatus;
+  next_status: "confirmed" | "rejected";
+  created_at: string;
+}
+
+export interface KnowledgeRelationReviewHistory {
+  reviews: KnowledgeRelationReview[];
+  truncated: boolean;
+}
+
 export interface ProjectOverview {
   id: string;
   title: string;
@@ -367,5 +391,49 @@ export interface ProjectMemoryEntry {
 export interface ProjectMemorySnapshot {
   project: ProjectOverview;
   entries: ProjectMemoryEntry[];
+  truncated: boolean;
+}
+
+/** Human-approved local grouping; original Session project_path is never edited. */
+/** Locally stored human edits, not a published or verified project report. */
+export interface ProjectReportDraft {
+  id: string;
+  project_id: string;
+  from_date: string;
+  through_date: string;
+  source_filter: string | null;
+  current_revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectReportVersion {
+  draft: ProjectReportDraft;
+  revision: number;
+  body: string;
+  saved_at: string;
+}
+
+export interface ProjectSessionBinding {
+  session_id: number;
+  project_id: string;
+  updated_at: string;
+}
+
+/** Human-reviewed, evidence-bearing cross-session evolution only. */
+export interface ProjectEvolutionLink {
+  id: string;
+  source_id: string;
+  target_id: string;
+  source_title: string;
+  target_title: string;
+  relation_type: "supersedes" | "corrects" | "resolved_by";
+  status: "confirmed" | "suggested";
+  evidence: string;
+  updated_at: string;
+}
+
+export interface ProjectEvolutionSnapshot {
+  links: ProjectEvolutionLink[];
   truncated: boolean;
 }

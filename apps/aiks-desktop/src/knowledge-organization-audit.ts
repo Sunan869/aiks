@@ -29,7 +29,8 @@ export function appendOrganizationAudit(
     throw new Error("Review timestamp must be a valid UTC ISO instant");
   }
   // Audit references are IDs, never free-form Markdown or injected headings.
-  if (sourceIds.length > 100) {
+  // The native OrganizationScopeGuard and audit table enforce the same 5-item cap.
+  if (sourceIds.length > 5) {
     throw new Error("Too many source identities for one review");
   }
   const ids = sourceIds.map(id => id.trim());
@@ -52,7 +53,7 @@ export function validateOrganizationSources(
   others: ReadonlyArray<{ id: string; project_name: string | null; status?: string }>,
 ): void {
   const sources = [primary, ...others];
-  if (sources.length > 100) {
+  if (sources.length > 5) {
     throw new Error("知识来源数量超过单次审核上限");
   }
   // Do not trust IDs returned by a stale view or injected client state.
@@ -107,11 +108,32 @@ export function buildOrganizationSourceContext(
   if (!Number.isSafeInteger(maxChars) || maxChars < 1 || maxChars > 250_000) {
     throw new Error("Invalid knowledge organization context limit");
   }
+  // Enforce provenance boundaries here as well as at the UI call site:
+  // other callers must not be able to forge source sections using IDs or titles.
+  if (sources.length === 0 || sources.length > 5
+    || new Set(sources.map(item => item.id)).size !== sources.length
+    || sources.some(item => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(item.id))) {
+    throw new Error("Invalid knowledge organization source identities");
+  }
   const text = sources.map(item =>
-    "## 资料：" + item.title + "（知识 ID：" + item.id + "）\n\n" + item.content
+    "## 资料：" + item.title.replace(/[\r\n]+/g, " ") + "（知识 ID：" + item.id + "）\n\n" + item.content
   ).join("\n\n---\n\n");
   if (text.length > maxChars) {
     throw new Error("知识来源内容过长，请减少来源或缩短文档后重新整理");
   }
   return text;
+}
+
+// Synchronous write gate: React state updates are asynchronous, so an ordinary
+// disabled button alone cannot prevent double-clicks from creating two docs.
+export function createOrganizationWriteGate() {
+  let active = false;
+  return {
+    tryBegin(): boolean {
+      if (active) return false;
+      active = true;
+      return true;
+    },
+    finish(): void { active = false; },
+  };
 }
