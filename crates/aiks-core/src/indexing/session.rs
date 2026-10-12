@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use super::service::EmbeddingProvider;
+use super::service::{validate_embedding_vector, EmbeddingProvider};
 use crate::storage::StateDb;
 
 const CHARS_PER_TOKEN: f64 = 3.5;
@@ -331,19 +331,7 @@ impl SessionIndexService {
                 );
             }
             for vector in &batch_vectors {
-                if vector.is_empty() {
-                    anyhow::bail!("Embedding response contained an empty vector");
-                }
-                match dimensions {
-                    Some(expected) if expected != vector.len() => {
-                        anyhow::bail!(
-                            "Embedding dimension mismatch: expected {expected}, got {}",
-                            vector.len()
-                        );
-                    }
-                    None => dimensions = Some(vector.len()),
-                    _ => {}
-                }
+                validate_embedding_vector(vector, &mut dimensions)?;
             }
             vectors.extend(batch_vectors);
         }
@@ -604,7 +592,7 @@ mod tests {
         }
     }
 
-    struct MalformedEmbedding;
+    struct MalformedEmbedding(Vec<f32>);
 
     #[async_trait]
     impl EmbeddingProvider for MalformedEmbedding {
@@ -621,7 +609,49 @@ mod tests {
         }
 
         async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
-            Ok(vec![vec![f32::NAN, 0.0]; texts.len()])
+            Ok(vec![self.0.clone(); texts.len()])
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_embedding_vectors_never_enter_session_index() {
+        for invalid in [
+            vec![f32::INFINITY, 1.0],
+            vec![0.0, 0.0],
+            vec![1.0],
+            vec![1.0; 16_385],
+        ] {
+            let dir = tempdir().unwrap();
+            let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+            let session_id = seed_session(&db);
+            let indexer =
+                SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding(invalid)));
+            let result = indexer
+                .index_session(SessionIndexInput {
+                    session_id,
+                    external_id: "session-v42".into(),
+                    source: "claude_code".into(),
+                    title: None,
+                    normalized_text: "important searchable content".into(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(result.embedded_count, 0);
+            let conn = db.conn();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+            let lexical_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(lexical_count, 1);
         }
     }
 
@@ -653,7 +683,7 @@ mod tests {
             title: Some("Session Search".into()),
             normalized_text: "still searchable".into(),
         };
-        let bad = SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding));
+        let bad = SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding(vec![f32::NAN, 0.0])));
         let result = bad.index_session(input.clone()).await.unwrap();
         assert_eq!(result.embedded_count, 0);
         let (status, error): (String, Option<String>) = db

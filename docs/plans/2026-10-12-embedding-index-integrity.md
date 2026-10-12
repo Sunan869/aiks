@@ -21,3 +21,10 @@
 - 原始 Provider 只读，SiYuan 用户编辑原文不自动覆盖。
 - 不新增 SQLite migration，不合并 main，不发布 Release，保留单机离线模式。
 - 本轮提交后必须以 GitHub Actions 最终状态确认格式/Clippy/Rust 测试结果；完整备份 S1.3 仍在六个优化项和五个功能代码级完备后最后进行。
+
+## Session 索引边界补齐（2026-10-12）
+
+- 当前 CI #38193447949：Clippy 与 rustfmt 通过，Rust 库测试 277 通过、1 失败；失败用例证明 Session 路径未调用共享向量完整性校验。
+- Session 分块 Embedding 与 Knowledge 统一使用 `validate_embedding_vector`：拒绝 NaN/Inf、零范数、维度超限和维度不一致，同时保持原始 FTS 文本可检索，成功重试能够补齐向量。
+- 新增 Session 索引的 Inf、零范数、维度不一致、超过 16384 维回归；任何非法模型输出不得入库，不声称真实模型或 Windows 真机已验证。
+- 此批不改 Provider、SiYuan 原文、迁移和完整备份入口。
