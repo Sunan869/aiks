@@ -59,6 +59,36 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
     Ok(files)
 }
 
+/// Back up one explicitly selected SiYuan workspace that the caller has
+/// already stopped. The destination must be outside the workspace, otherwise
+/// a backup could recursively include its own staging or output.
+pub fn create_offline_backup_from_quiesced_workspace(
+    db: &StateDb,
+    workspace_root: &Path,
+    destination: &Path,
+) -> Result<BundleManifest> {
+    let root = fs::canonicalize(workspace_root)?;
+    let root_meta = fs::symlink_metadata(workspace_root)?;
+    if !root_meta.file_type().is_dir() {
+        bail!("SiYuan workspace root must be a real directory");
+    }
+    let parent = destination
+        .parent()
+        .context("backup destination has no parent")?;
+    let destination_parent = fs::canonicalize(parent)?;
+    if destination_parent.starts_with(&root) || root.starts_with(&destination_parent.join(
+        destination.file_name().context("backup destination name missing")?,
+    )) {
+        bail!("backup output must be independent of the SiYuan workspace");
+    }
+    let selected = enumerate_quiesced_siyuan_workspace(workspace_root)?;
+    let borrowed: Vec<(&Path, &Path)> = selected
+        .iter()
+        .map(|(source, relative)| (source.as_path(), relative.as_path()))
+        .collect();
+    create_offline_backup(db, &borrowed, destination)
+}
+
 /// The caller is responsible for stopping SiYuan writes while enumerating and
 /// backing up these files. Configuration is intentionally excluded until an
 /// explicit secret-filtering contract is available.
@@ -171,6 +201,49 @@ mod tests {
         assert!(selected
             .iter()
             .any(|(_, relative)| relative == Path::new("data/assets/photo.png")));
+    }
+
+    #[test]
+    fn whole_workspace_backup_captures_documents_and_assets_and_restores() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let workspace = dir.path().join("siyuan-workspace");
+        fs::create_dir_all(workspace.join("data/assets")).unwrap();
+        fs::write(workspace.join("data/note.sy"), b"quiesced note").unwrap();
+        fs::write(workspace.join("data/assets/image.png"), b"asset bytes").unwrap();
+        let bundle = dir.path().join("bundle");
+        let manifest =
+            create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+        assert_eq!(manifest.entries.len(), 4);
+        let restored = dir.path().join("restored");
+        restore_offline_backup_to_new_directory(&bundle, &restored).unwrap();
+        assert_eq!(
+            fs::read(restored.join("siyuan/data/note.sy")).unwrap(),
+            b"quiesced note"
+        );
+        assert_eq!(
+            fs::read(restored.join("siyuan/data/assets/image.png")).unwrap(),
+            b"asset bytes"
+        );
+        assert_eq!(
+            fs::read(workspace.join("data/note.sy")).unwrap(),
+            b"quiesced note"
+        );
+    }
+
+    #[test]
+    fn whole_workspace_backup_refuses_nested_output_before_creating_anything() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let workspace = dir.path().join("siyuan");
+        fs::create_dir(&workspace).unwrap();
+        fs::write(workspace.join("note.sy"), b"unchanged").unwrap();
+        let nested = workspace.join("backup");
+        assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &nested).is_err());
+        assert!(!nested.exists());
+        let enclosing = dir.path().join("siyuan");
+        assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err());
+        assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
     }
 
     #[cfg(unix)]
