@@ -178,6 +178,61 @@ pub fn verify_file_bundle(destination: &Path) -> Result<BundleManifest> {
     Ok(manifest)
 }
 
+/// Restore a validated, detached archive into a brand-new directory only.
+/// Never replace live AIKS or SiYuan files. A failed copy removes only the
+/// directory exclusively created by this call.
+pub fn restore_file_bundle_to_new_directory(
+    bundle: &Path,
+    destination: &Path,
+) -> Result<BundleManifest> {
+    let manifest = verify_file_bundle(bundle)?;
+    // A destination nested in the source archive could be mistaken for
+    // mutable source data. Canonicalize the archive before permitting writes.
+    let bundle_root = fs::canonicalize(bundle)?;
+    let parent = destination.parent().context("restore destination has no parent")?;
+    let parent_root = fs::canonicalize(parent)?;
+    if parent_root.starts_with(&bundle_root) {
+        bail!("restore destination must be outside the source bundle");
+    }
+    if fs::symlink_metadata(destination).is_ok() {
+        bail!("restore destination already exists");
+    }
+    fs::create_dir(destination).context("create exclusive restore directory")?;
+    let result = (|| -> Result<()> {
+        for entry in &manifest.entries {
+            let relative = Path::new(&entry.relative_path);
+            safe_relative(relative)?;
+            let source = bundle.join(relative);
+            regular_file(&source)?;
+            let target = destination.join(relative);
+            let target_parent = target.parent().context("invalid restored file path")?;
+            fs::create_dir_all(target_parent)?;
+            let mut input = fs::File::open(&source)?;
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            let (size, hash) = digest(&target)?;
+            if size != entry.bytes || hash != entry.sha256 {
+                bail!("restored file integrity mismatch");
+            }
+            // Revalidate source to catch a concurrent modification while copying.
+            let (source_size, source_hash) = digest(&source)?;
+            if source_size != entry.bytes || source_hash != entry.sha256 {
+                bail!("bundle source changed during restore");
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(destination);
+        return Err(error);
+    }
+    Ok(manifest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +282,57 @@ mod tests {
         .is_err());
         assert!(!bundle.exists());
         assert_eq!(fs::read(&source).unwrap(), b"preserve original");
+    }
+
+    #[test]
+    fn detached_restore_round_trip_and_existing_directory_are_safe() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("workspace-source");
+        fs::write(&source, b"offline knowledge snapshot").unwrap();
+        let bundle = dir.path().join("bundle");
+        create_file_bundle(
+            &[(source.as_path(), Path::new("workspace/data.md"))],
+            &bundle,
+        )
+        .unwrap();
+        let restored = dir.path().join("restored");
+        let manifest = restore_file_bundle_to_new_directory(&bundle, &restored).unwrap();
+        assert_eq!(manifest.entries.len(), 1);
+        assert_eq!(
+            fs::read(restored.join("workspace/data.md")).unwrap(),
+            b"offline knowledge snapshot"
+        );
+        assert!(restore_file_bundle_to_new_directory(&bundle, &restored).is_err());
+        assert_eq!(
+            fs::read(restored.join("workspace/data.md")).unwrap(),
+            b"offline knowledge snapshot"
+        );
+    }
+
+    #[test]
+    fn detached_restore_rejects_tampering_without_creating_destination() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source");
+        fs::write(&source, b"untampered").unwrap();
+        let bundle = dir.path().join("bundle");
+        create_file_bundle(&[(source.as_path(), Path::new("safe.txt"))], &bundle).unwrap();
+        fs::write(bundle.join("safe.txt"), b"tampered").unwrap();
+        let restored = dir.path().join("restored");
+        assert!(restore_file_bundle_to_new_directory(&bundle, &restored).is_err());
+        assert!(!restored.exists());
+    }
+
+    #[test]
+    fn detached_restore_refuses_destination_nested_in_bundle() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source");
+        fs::write(&source, b"original").unwrap();
+        let bundle = dir.path().join("bundle");
+        create_file_bundle(&[(source.as_path(), Path::new("file.txt"))], &bundle).unwrap();
+        let restored = bundle.join("restored");
+        assert!(restore_file_bundle_to_new_directory(&bundle, &restored).is_err());
+        assert!(!restored.exists());
+        verify_file_bundle(&bundle).unwrap();
     }
 
     #[cfg(unix)]
