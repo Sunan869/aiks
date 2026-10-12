@@ -186,7 +186,9 @@ pub async fn sync_now(
     state: State<'_, AppState>,
     gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<SyncResponse, String> {
-    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -492,7 +494,11 @@ pub async fn extract_session_now(
     source: String,
     session_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let source_kind = aiks_core::SourceKind::from_str(&source)
         .ok_or_else(|| format!("Unknown source: {}", source))?;
@@ -598,7 +604,9 @@ pub async fn sync_and_extract(
     state: State<'_, AppState>,
     gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
-    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -654,7 +662,11 @@ pub async fn get_task_center_stats(
 pub async fn retry_failed_ai_task(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let session = {
@@ -705,7 +717,11 @@ pub async fn retry_failed_ai_task(
 pub async fn cancel_pending_ai_task(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<bool, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     aiks_core::pipeline::job_repo::PipelineJobRepo::new(&db)
@@ -1167,7 +1183,13 @@ pub async fn get_knowledge_detail(
 /// R09: manually trigger extraction backfill for historical sessions.
 /// Submits real PipelineJobs (not just DB rows) to the running worker.
 #[tauri::command]
-pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn backfill_extractions(
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let submitted = engine
         .backfill_pending_extractions()
@@ -1182,7 +1204,9 @@ pub async fn sync_knowledge_to_siyuan(
     state: State<'_, AppState>,
     gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
-    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let stats = engine
         .sync_knowledge_to_siyuan(false)
@@ -1203,7 +1227,11 @@ pub async fn sync_knowledge_to_siyuan(
 pub async fn run_pipeline_for_session(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let session = aiks_core::pipeline::first_run::load_initial_pipeline_session(&db, session_id)

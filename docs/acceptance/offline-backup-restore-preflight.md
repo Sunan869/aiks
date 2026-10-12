@@ -105,3 +105,10 @@
 - 基线 `230dd21` Windows Provider #38221275162 成功；综合 CI #38221274992 因 lifecycle.rs import 排序一处 rustfmt 差异失败。精确修正该差异。
 - 在 Tauri 用户主动触发的 sync_now、sync_and_extract、sync_knowledge_to_siyuan 命令持有全局 BackupQuiescence 写者许可，暂停时返回明确错误。
 - 启动内容迁移在实际 migrate 调用前取得写者许可，避免它绕过后台同步的门禁。依旧存在 Pipeline Worker、其他直接变更命令、运行中 SiYuan 内核等未覆盖写入点；当前停写门禁不得用于批准应用级备份。
+
+
+## 2026-10-12 用户 AI 任务入口写入排空接入
+
+- 基线 `9e58bd4` CI #38221967218 因 Rust 格式差异失败；按差异修复 commands.rs 与 lifecycle.rs。
+- 在 `extract_session_now`、`retry_failed_ai_task`、`cancel_pending_ai_task`、`run_pipeline_for_session`、`backfill_extractions` 的 Tauri 人工写入入口增加跨异步调用的写者许可。
+- 仍有 Pipeline Worker 内部、知识编辑命令及 SiYuan 内核运行时尚未纳入完整停写；不可将当前功能当作运行中一键备份。

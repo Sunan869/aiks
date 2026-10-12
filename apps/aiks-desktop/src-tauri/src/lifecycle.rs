@@ -282,10 +282,15 @@ fn spawn_startup_migration_then_tasks(
             SiYuanSink::embedded(engine.siyuan_base_url(), &config.siyuan.notebook_name)
         };
 
-        let migration_gate = app_bg.try_state::<Arc<BackupQuiescence>>().map(|gate| Arc::clone(&gate));
+        let migration_gate = app_bg
+            .try_state::<Arc<BackupQuiescence>>()
+            .map(|gate| Arc::clone(&gate));
         match sink_result {
             Ok(sink) if sink.health_check().await => {
-                let Some(_writer) = migration_gate.as_ref().and_then(|gate| gate.try_begin_write()) else {
+                let Some(_writer) = migration_gate
+                    .as_ref()
+                    .and_then(|gate| gate.try_begin_write())
+                else {
                     warn!("Content migration postponed: backup gate missing or paused");
                     spawn_background_tasks(&app_bg, Some(engine), watcher_rx);
                     return;
