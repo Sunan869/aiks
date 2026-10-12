@@ -45,9 +45,7 @@ impl BackupQuiescence {
 
     /// Owns the gate so the drain remains active across async operations.
     /// Always call from a blocking thread; the wait is synchronous.
-    pub fn pause_and_drain_owned(
-        gate: &Arc<Self>,
-    ) -> Result<OwnedQuiescedGuard, &'static str> {
+    pub fn pause_and_drain_owned(gate: &Arc<Self>) -> Result<OwnedQuiescedGuard, &'static str> {
         let mut state = gate.state.lock().map_err(|_| "backup gate poisoned")?;
         if state.paused {
             return Err("backup already in progress");
@@ -55,6 +53,41 @@ impl BackupQuiescence {
         state.paused = true;
         while state.writers != 0 {
             state = gate.idle.wait(state).map_err(|_| "backup gate poisoned")?;
+        }
+        Ok(OwnedQuiescedGuard {
+            gate: Arc::clone(gate),
+        })
+    }
+
+    /// Bounded drain for backup orchestration. A timeout always unpauses
+    /// the gate, even if a worker never returns from an external operation.
+    pub fn pause_and_drain_owned_with_timeout(
+        gate: &Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<OwnedQuiescedGuard, &'static str> {
+        let mut state = gate.state.lock().map_err(|_| "backup gate poisoned")?;
+        if state.paused {
+            return Err("backup already in progress");
+        }
+        state.paused = true;
+        let deadline = std::time::Instant::now() + timeout;
+        while state.writers != 0 {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                state.paused = false;
+                gate.idle.notify_all();
+                return Err("backup drain timed out");
+            }
+            let result = gate.idle.wait_timeout(state, remaining);
+            match result {
+                Ok((next, _)) => state = next,
+                Err(poisoned) => {
+                    let (mut next, _) = poisoned.into_inner();
+                    next.paused = false;
+                    gate.idle.notify_all();
+                    return Err("backup gate poisoned");
+                }
+            }
         }
         Ok(OwnedQuiescedGuard {
             gate: Arc::clone(gate),
@@ -191,6 +224,27 @@ mod tests {
         drop(worker);
         assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap());
         thread.join().unwrap();
+        assert!(gate.try_begin_write().is_some());
+    }
+
+    #[test]
+    fn drain_timeout_unpauses_and_preserves_active_writer() {
+        let gate = Arc::new(BackupQuiescence::default());
+        let worker = BackupQuiescence::try_begin_owned(&gate).unwrap();
+        assert!(BackupQuiescence::pause_and_drain_owned_with_timeout(
+            &gate,
+            Duration::from_millis(10),
+        )
+        .is_err());
+        assert!(gate.try_begin_write().is_some());
+        drop(worker);
+        let guard = BackupQuiescence::pause_and_drain_owned_with_timeout(
+            &gate,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(gate.try_begin_write().is_none());
+        drop(guard);
         assert!(gate.try_begin_write().is_some());
     }
 
