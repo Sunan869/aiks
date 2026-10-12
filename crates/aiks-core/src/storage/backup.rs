@@ -21,7 +21,7 @@ pub struct SqliteBackupManifest {
 }
 
 pub fn create_sqlite_backup(db: &StateDb, destination: &Path) -> Result<SqliteBackupManifest> {
-    if destination.exists() {
+    if fs::symlink_metadata(destination).is_ok() {
         bail!("backup destination already exists; refusing to overwrite");
     }
     let parent = destination
@@ -120,6 +120,10 @@ pub fn restore_sqlite_backup_to_new_path(
     destination: &Path,
 ) -> Result<()> {
     verify_sqlite_backup(source, manifest)?;
+    let source_metadata = fs::symlink_metadata(source)?;
+    if !source_metadata.file_type().is_file() {
+        bail!("backup source must be a regular file");
+    }
     let parent = destination
         .parent()
         .context("restore destination has no parent")?;
@@ -444,6 +448,30 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn detached_restore_rejects_directory_source_without_creating_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let snapshot = dir.path().join("snapshot.sqlite");
+        let output = dir.path().join("output.sqlite");
+        let manifest = create_sqlite_backup(&db, &snapshot).unwrap();
+        assert!(restore_sqlite_backup_to_new_path(dir.path(), &manifest, &output).is_err());
+        assert!(!output.exists());
+        verify_sqlite_backup(&snapshot, &manifest).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_refuses_dangling_symlink_destination() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let destination = dir.path().join("snapshot.sqlite");
+        symlink(dir.path().join("missing.sqlite"), &destination).unwrap();
+        assert!(create_sqlite_backup(&db, &destination).is_err());
+        assert!(fs::symlink_metadata(&destination).is_ok());
     }
 
     #[test]
