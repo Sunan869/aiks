@@ -159,3 +159,10 @@
 - 基线 `f40c21c` 综合 CI #38230854196 与 Windows Provider #38230854269 成功。
 - AiksEngine 新增可选初始 BackupQuiescence 注入构造入口，PipelineWorker 的启动参数在 spawn 之前携带已绑定的门禁，Desktop 所有三条 engine 初始化路径都在调用 initialize 时传入共享门禁，消除初始化完成后 set_backup_gate 带来的 Worker 无保护启动空窗。
 - 原 CLI 与测试依然可调用 initialize/start_without_gate，避免意外改变非 Desktop 运行语义。尚未实现完整 SiYuan 停止和备份过程协调，不允许据此开放活动数据一键备份。
+
+
+## 2026-10-12 Worker 初始化门禁时序防回退
+
+- 基线 `146b68c` Windows Provider #38231925966 成功，综合 CI #38231926216 在生命周期初始化的三处 Rust 格式差异中断；依据 CI 逐处修正，尚待 Clippy 和 Windows compile 验证。
+- 新增 Desktop Vitest 源码契约，断言 Worker 初始门禁在 Tokio spawn 前就存在、AiksEngine 在创建 Worker 时传递 gate、Desktop 三条初始化路径都使用初始化式注入而不是后置注入。
+- 这项防回退只证明代码静态结构，不证明真实 SiYuan 停写、全部异步任务排空或完整备份恢复可靠。
