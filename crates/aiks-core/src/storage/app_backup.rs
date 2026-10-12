@@ -80,7 +80,7 @@ pub fn create_offline_backup_from_quiesced_workspace(
     let destination_parent = fs::canonicalize(parent)?;
     if destination_parent.starts_with(&root)
         || root.starts_with(
-            &destination_parent.join(
+            destination_parent.join(
                 destination
                     .file_name()
                     .context("backup destination name missing")?,
@@ -498,6 +498,25 @@ token = "should-not-leak"
         assert!(
             create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err()
         );
+        assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_backup_rejects_symlinked_output_parent_inside_workspace() {
+        use std::os::unix::fs::symlink;
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let workspace = dir.path().join("siyuan");
+        fs::create_dir(&workspace).unwrap();
+        fs::write(workspace.join("note.sy"), b"unchanged").unwrap();
+        let alias = dir.path().join("alias");
+        symlink(&workspace, &alias).unwrap();
+        let destination = alias.join("nested-backup");
+        assert!(
+            create_offline_backup_from_quiesced_workspace(&db, &workspace, &destination).is_err()
+        );
+        assert!(!workspace.join("nested-backup").exists());
         assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
     }
 

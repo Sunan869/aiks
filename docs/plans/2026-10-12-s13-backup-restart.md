@@ -104,3 +104,9 @@
 - CI #38210771444 Rust quality 仅在 app_backup.rs 的一处长 assert 触发 rustfmt 差异；Windows Provider #38210771449、前端、Windows desktop compile、仓库卫生通过。
 - 修正后必须等待 Rust format / Clippy / tests 真实执行，不得把前轮的 Windows 编译通过视为备份集成测试通过。
 - 本次没有新增大型业务能力；完整停写协调、可用的 Desktop 恢复确认入口、磁盘容量预检和跨平台真实恢复验收仍是阻断项。
+
+## 2026-10-12 Rust Clippy 与工作空间输出路径隔离回归
+
+- HEAD `d43d994` Windows Provider #38211227424 成功；综合 CI #38211226874 已通过 rustfmt，但 Clippy 报 `app_backup.rs:83` 不必要借用，Rust tests 尚未执行。
+- 本批按 Clippy 建议去掉临时 PathBuf 的多余借用，并补 Unix 符号链接父目录的工作空间输出路径拒绝测试，避免通过指向 SiYuan 工作区的别名在其内部创建备份。
+- CI 仍需新 HEAD 实际验证；桌面确认、停写生命周期及容量预检仍为独立阻断项。
