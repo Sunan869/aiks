@@ -163,8 +163,8 @@ pub async fn restore_offline_backup_isolated(
             &confirmed,
             preview.available_bytes,
         )
-            .map(|manifest| manifest.entries.len())
-            .map_err(|error| error.to_string())
+        .map(|manifest| manifest.entries.len())
+        .map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| format!("恢复任务未正常完成：{error}"))?

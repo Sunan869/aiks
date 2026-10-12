@@ -57,3 +57,10 @@
 - 原有设置页面的恢复预览调用新命令展示实际容量与所需空间；用户最终确认执行时再次读取实际容量，不信任过期前端数据，也不接受前端随意提供的剩余空间数值。
 - Windows API 不可用或磁盘容量不足时拒绝恢复；其他平台暂时显式拒绝 Desktop 恢复执行，而非假定有空间。原只读清单预检命令保留兼容。
 - 不允许覆盖运行中的数据，尚未完成 SiYuan 正式停写协调、备份创建界面或最终真实 Windows 恢复验收；此提交须待新 CI 验证。
+
+
+## 2026-10-12 Windows 容量门禁命令注册与 CI 修复
+
+- 基线 `780ccd9`：Windows Provider #38217257362 成功；综合 CI #38217257315 因 backup_commands.rs 一处 Rust 格式差异阻断，未进行后续 Clippy/测试。
+- 本批修正 Rust formatting，补充 `inspect_offline_backup_capacity` 的 Tauri generate_handler 注册，避免 Settings UI 调用时出现 unknown command；容量预检仍由 Windows 系统查询并在确认恢复前再次执行。
+- 仍需完整 SiYuan 停写协调与 Desktop 创建备份。仅 CI 通过不能替代真实 Windows 验收。

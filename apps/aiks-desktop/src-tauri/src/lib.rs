@@ -132,6 +132,7 @@ pub fn run() {
             embedding_commands::test_embedding_connection_with_settings,
             embedding_commands::rebuild_semantic_index,
             backup_commands::inspect_offline_backup,
+            backup_commands::inspect_offline_backup_capacity,
             backup_commands::verify_offline_backup_manifest,
             backup_commands::restore_offline_backup_isolated,
             storage_commands::get_data_storage_settings,
