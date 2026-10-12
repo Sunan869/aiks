@@ -46,3 +46,9 @@
 - HEAD `34b805d` 的 CI #38195391358 在 Clippy `await_holding_lock` 失败；前端、Windows Desktop、卫生检查及 Windows Provider #38195391250 通过，但 Rust tests 未运行。
 - 多批次异常恢复回归在验证 SQLite 状态时曾持有连接锁直至下一次异步索引调用，即使显式 `drop(conn)`，Clippy 仍追踪词法作用域。现在显式缩短 SQLite 查询 guard 的词法作用域，确保异步重试前已释放锁；这是异步索引安全边界修复，保持生产索引与数据不变。
 - CI 未运行之前不声称此回归已通过，也不冒充真实模型或 Windows 实机验证。
+
+## 2026-10-12 Session 同内容并发重建隔离
+
+- HEAD `8728272` 的综合 CI #38195701363 与 Windows Provider #38195701393 均完成且通过。随后检查发现同一 Session 两轮相同正文 hash 的索引在异步模型返回时间错序时，旧请求可能通过仅检查 hash 的结束门禁，覆盖较新一代的索引向量。
+- 结束阶段现在在 `BEGIN IMMEDIATE` 事务内部核对 status/hash 和当前持久 chunk IDs 与本轮生成的 IDs；不匹配即回滚拒绝，不允许旧代次模型输出写入新代次 chunk。增加模拟同内容重建交错、过期代次被拒、当前代次成功持久化的 SQLite 单测。
+- 不引入 schema migration，不修改 Provider 文件或 SiYuan 用户原文；该测试不替代真实模型和 Windows 并发故障注入。

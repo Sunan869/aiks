@@ -357,21 +357,35 @@ impl SessionIndexService {
 
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
-        let current: Option<(String, String)> = conn
-            .query_row(
-                "SELECT status, COALESCE(indexed_hash, '') FROM session_index_state WHERE session_id = ?1",
-                params![session_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if current.as_ref().map(|value| value.0.as_str()) != Some("indexing")
-            || current.as_ref().map(|value| value.1.as_str()) != Some(content_hash)
-        {
-            anyhow::bail!("Session index rebuild was superseded: {session_id}");
-        }
-
         conn.execute_batch("BEGIN IMMEDIATE")?;
         let result: anyhow::Result<()> = (|| {
+            let current: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT status, COALESCE(indexed_hash, '') FROM session_index_state WHERE session_id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if current.as_ref().map(|value| value.0.as_str()) != Some("indexing")
+                || current.as_ref().map(|value| value.1.as_str()) != Some(content_hash)
+            {
+                anyhow::bail!("Session index rebuild was superseded: {session_id}");
+            }
+            let stored_chunks: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM session_search_chunk WHERE session_id = ?1 ORDER BY chunk_index",
+                )?;
+                stmt.query_map(params![session_id], |row| row.get(0))?
+                    .collect::<rusqlite::Result<Vec<String>>>()?
+            };
+            if stored_chunks.len() != chunks.len()
+                || stored_chunks
+                    .iter()
+                    .zip(chunks.iter())
+                    .any(|(stored, prepared)| stored != &prepared.id)
+            {
+                anyhow::bail!("Session index rebuild generation was superseded: {session_id}");
+            }
             if let Some(model) = embedding_model {
                 for (chunk, vector) in chunks.iter().zip(vectors.iter()) {
                     conn.execute(
@@ -772,6 +786,85 @@ mod tests {
             })
             .unwrap();
         assert_eq!(recovered_vectors, retry.chunk_count as i64);
+    }
+
+    #[test]
+    fn concurrent_same_content_rebuild_rejects_stale_embedding_generation() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let service = SessionIndexService::new(
+            db.clone(),
+            Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let old_chunks = vec![PreparedSessionChunk {
+            id: "old-generation".into(),
+            index: 0,
+            hash: "same".into(),
+            text: "searchable".into(),
+        }];
+        let new_chunks = vec![PreparedSessionChunk {
+            id: "new-generation".into(),
+            index: 0,
+            hash: "same".into(),
+            text: "searchable".into(),
+        }];
+        for chunks in [&old_chunks, &new_chunks] {
+            service
+                .begin_rebuild(&SessionRebuildContext {
+                    session_id,
+                    external_id: "session-v42",
+                    source: "claude_code",
+                    title: "Session Search",
+                    project_name: Some("AIKS"),
+                    normalized_text: "searchable",
+                    content_hash: "same",
+                    chunks,
+                })
+                .unwrap();
+        }
+        let stale_vectors = vec![vec![1.0, 0.0]];
+        let stale = service.finish_rebuild(&SessionFinishContext {
+            session_id,
+            content_hash: "same",
+            chunks: &old_chunks,
+            embedding_model: Some("session-test-embed"),
+            dimensions: Some(2),
+            vectors: &stale_vectors,
+            last_error: None,
+        });
+        assert!(stale.unwrap_err().to_string().contains("superseded"));
+        let pending: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, "indexing");
+        service
+            .finish_rebuild(&SessionFinishContext {
+                session_id,
+                content_hash: "same",
+                chunks: &new_chunks,
+                embedding_model: Some("session-test-embed"),
+                dimensions: Some(2),
+                vectors: &stale_vectors,
+                last_error: None,
+            })
+            .unwrap();
+        let conn = db.conn();
+        let stored: String = conn
+            .query_row(
+                "SELECT chunk_id FROM session_embedding_record",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "new-generation");
     }
 
     fn seed_session(db: &StateDb) -> i64 {
