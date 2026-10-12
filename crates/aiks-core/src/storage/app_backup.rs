@@ -147,7 +147,10 @@ pub fn create_offline_backup_with_settings(
         let settings_file = staging.join("settings.toml");
         if let Some(settings) = cleaned.as_ref() {
             fs::write(&settings_file, toml::to_string(settings)?)?;
-            sources.push((settings_file.as_path(), PathBuf::from("config/settings.toml")));
+            sources.push((
+                settings_file.as_path(),
+                PathBuf::from("config/settings.toml"),
+            ));
         }
         let items: Vec<(&Path, &Path)> = sources
             .iter()
@@ -232,9 +235,28 @@ fn validate_offline_manifest(manifest: &BundleManifest) -> Result<()> {
     Ok(())
 }
 
+/// Validate optional settings even when a forged manifest correctly hashes
+/// the file. Never import credential-bearing or unapproved keys.
+fn verify_sanitized_settings(bundle: &Path, manifest: &BundleManifest) -> Result<()> {
+    if manifest
+        .entries
+        .iter()
+        .any(|entry| entry.relative_path == "config/settings.toml")
+    {
+        let content = fs::read_to_string(bundle.join("config/settings.toml"))?;
+        let settings: toml::Value = toml::from_str(&content)?;
+        let cleaned = sanitized_backup_settings(&settings)?;
+        if settings != cleaned {
+            bail!("offline backup contains unapproved settings");
+        }
+    }
+    Ok(())
+}
+
 pub fn verify_offline_backup(bundle: &Path) -> Result<BundleManifest> {
     let manifest = verify_file_bundle(bundle)?;
     validate_offline_manifest(&manifest)?;
+    verify_sanitized_settings(bundle, &manifest)?;
     load_and_verify_backup(
         &bundle.join("sqlite/state.sqlite"),
         &bundle.join("sqlite/state-manifest.json"),
@@ -312,6 +334,34 @@ token = "should-not-leak"
             fs::read_to_string(restored.join("config/settings.toml")).unwrap(),
             exported
         );
+    }
+
+    #[test]
+    fn forged_backup_with_hashed_credentials_fails_preflight() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let config: toml::Value = toml::from_str("language = \"zh-CN\"").unwrap();
+        let bundle = dir.path().join("backup");
+        create_offline_backup_with_settings(&db, &[], Some(&config), &bundle).unwrap();
+        let config_path = bundle.join("config/settings.toml");
+        fs::write(&config_path, "language = \"zh-CN\"\napi_key = \"injected\"\n").unwrap();
+        let manifest_path = bundle.join("bundle-manifest.json");
+        let mut manifest: BundleManifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let tampered = fs::read(&config_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.relative_path == "config/settings.toml")
+            .unwrap();
+        entry.bytes = tampered.len() as u64;
+        use sha2::{Digest, Sha256};
+        entry.sha256 = hex::encode(Sha256::digest(&tampered));
+        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+        assert!(verify_offline_backup(&bundle).is_err());
+        let destination = dir.path().join("restored");
+        assert!(preflight_offline_restore(&bundle, &destination).is_err());
+        assert!(!destination.exists());
     }
 
     #[test]

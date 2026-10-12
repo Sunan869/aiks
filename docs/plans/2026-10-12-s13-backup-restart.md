@@ -81,3 +81,9 @@
 - 新增 `create_offline_backup_with_settings`，在生成独立 SQLite + SiYuan 文件归档时可选地写入仅包含语言/主题的脱敏 `config/settings.toml`；不复制完整配置、模型密钥、Provider 路径或网络端点。
 - 归档验证白名单增加唯一合法配置路径；新增快照生成、敏感内容排除、恢复文件核对的 SQLite/文件系统回归。默认 `create_offline_backup` 仍不包含配置，保留原调用方行为。
 - 尚未接入运行中的 SiYuan 生命周期停写与确认式 Desktop 入口；代码级测试不代表 Windows 真机恢复验收。
+
+## 2026-10-12 恢复前配置白名单重新校验
+
+- HEAD `c148e81` Windows Provider #38209481361 成功，综合 CI #38209481368 因 app_backup.rs 一处 rustfmt 差异失败；此批按原 CI diff 修正。
+- 备份文件允许额外的 `config/settings.toml` 后，恢复前必须重新解析与校验其实际字段，而不是仅信任 SHA256 清单。新增 `verify_sanitized_settings`，拒绝含 API Key、密钥、模型端点或任何白名单外配置键的文件；即使攻击者重算文件大小和清单摘要，也不能绕过白名单。
+- 新增伪造清单（重新计算 SHA256）与敏感字段注入回归，要求 read-only preflight 拒绝、恢复目录不产生。该 CI 尚未通过，不等于真实 Windows/SiYuan 验收。
