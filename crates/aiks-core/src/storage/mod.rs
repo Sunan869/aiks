@@ -2,6 +2,7 @@
 pub mod app_backup;
 pub mod backup;
 pub mod backup_bundle;
+pub mod backup_quiescence;
 pub mod db;
 pub mod repo;
 

@@ -1,0 +1,105 @@
+//! Shared drain gate for coordinated offline backup.
+//! Every mutating operation must acquire a writer permit; backups obtain
+//! exclusive quiescence only after all active writers leave.
+use std::sync::{Condvar, Mutex};
+
+#[derive(Default)]
+pub struct BackupQuiescence {
+    state: Mutex<GateState>,
+    idle: Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    writers: usize,
+    paused: bool,
+}
+
+pub struct WriterPermit<'a> {
+    gate: &'a BackupQuiescence,
+}
+
+pub struct QuiescedGuard<'a> {
+    gate: &'a BackupQuiescence,
+}
+
+impl BackupQuiescence {
+    pub fn try_begin_write(&self) -> Option<WriterPermit<'_>> {
+        let mut state = self.state.lock().ok()?;
+        if state.paused {
+            return None;
+        }
+        state.writers += 1;
+        Some(WriterPermit { gate: self })
+    }
+
+    /// Blocking drain must run outside async event loops. Callers must hold
+    /// the returned guard for the entire stopped-runtime snapshot operation.
+    pub fn pause_and_drain(&self) -> Result<QuiescedGuard<'_>, &'static str> {
+        let mut state = self.state.lock().map_err(|_| "backup gate poisoned")?;
+        if state.paused {
+            return Err("backup already in progress");
+        }
+        state.paused = true;
+        while state.writers != 0 {
+            state = self.idle.wait(state).map_err(|_| "backup gate poisoned")?;
+        }
+        Ok(QuiescedGuard { gate: self })
+    }
+}
+
+impl Drop for WriterPermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.gate.state.lock() {
+            state.writers -= 1;
+            if state.writers == 0 {
+                self.gate.idle.notify_all();
+            }
+        }
+    }
+}
+
+impl Drop for QuiescedGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.gate.state.lock() {
+            state.paused = false;
+            self.gate.idle.notify_all();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn pause_drains_running_writes_and_blocks_new_writes() {
+        let gate = Arc::new(BackupQuiescence::default());
+        let writer = gate.try_begin_write().unwrap();
+        let other = Arc::clone(&gate);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let guard = other.pause_and_drain().unwrap();
+            tx.send(other.try_begin_write().is_none()).unwrap();
+            drop(guard);
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(rx.try_recv().is_err());
+        drop(writer);
+        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        handle.join().unwrap();
+        assert!(gate.try_begin_write().is_some());
+    }
+
+    #[test]
+    fn concurrent_pause_rejected_and_drop_resumes() {
+        let gate = BackupQuiescence::default();
+        let guard = gate.pause_and_drain().unwrap();
+        assert!(gate.pause_and_drain().is_err());
+        assert!(gate.try_begin_write().is_none());
+        drop(guard);
+        assert!(gate.try_begin_write().is_some());
+    }
+}
