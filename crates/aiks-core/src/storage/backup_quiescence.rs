@@ -120,6 +120,28 @@ mod tests {
     }
 
     #[test]
+    fn owned_worker_permit_prevents_snapshot_until_long_job_finishes() {
+        let gate = Arc::new(BackupQuiescence::default());
+        let worker = BackupQuiescence::try_begin_owned(&gate).unwrap();
+        let other = Arc::clone(&gate);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            let guard = other.pause_and_drain().unwrap();
+            done_tx.send(other.try_begin_write().is_none()).unwrap();
+            drop(guard);
+        });
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(done_rx.try_recv().is_err());
+        drop(worker);
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        handle.join().unwrap();
+        assert!(BackupQuiescence::try_begin_owned(&gate).is_some());
+    }
+
+    #[test]
     fn concurrent_pause_rejected_and_drop_resumes() {
         let gate = BackupQuiescence::default();
         let guard = gate.pause_and_drain().unwrap();

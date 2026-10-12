@@ -138,3 +138,10 @@
 - 已添加 Arc 自持有 writer permit，长任务跨 Tokio spawn 生命周期持有许可，直到真实 Job 退出后才释放。
 - Worker 在 claim_next 之前尝试获得许可，暂停时不再领取新任务；已经运行的任务持有许可并参与 drain。Desktop 内嵌和外部启动路径将共享门禁注入 AiksEngine/Worker。
 - 当前仍无全面的一键停写流程；后台 AI 之外的其他内核运行时、对外 SiYuan 并发编辑、UI 边界的原子一致性尚需端到端检查。该提交需完整 CI 验证，不能提前认可 Windows 备份测试。
+
+
+## 2026-10-12 Worker 自持有许可实际回归
+
+- `a08d9b6` Windows Provider #38226112922 成功，综合 CI #38226112921 只在 Rust formatting 失败；依据差异修正 worker.rs import 和 Self 初始化格式。
+- 补充长作业 OwnedWriterPermit 的并发单测：任务许可仍持有时暂停等待，许可结束才完成排空、暂停期间禁止新写入，退出后恢复许可。
+- **重要启动时序风险**：Worker 在 AiksEngine::initialize 时已启动，而 Desktop 仅在 initialize 返回后注入 backup gate。这段间隙仍可能领取任务，故此阶段不能启动活动工作区完整备份；后续必须使门禁在 Worker 开始轮询之前绑定，并完成 SiYuan 运行时真正停写协调。

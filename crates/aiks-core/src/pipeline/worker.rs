@@ -7,7 +7,11 @@
 ///       → EMBED_CHUNKED → EMBEDDED → INDEXED → READY
 ///
 /// Runs automatically when new sessions are discovered via sync.
-use std::{collections::HashMap, sync::{Arc, RwLock}, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
@@ -201,7 +205,11 @@ impl PipelineWorker {
             .await;
         });
 
-        let worker = Self { db, wake_tx, backup_gate };
+        let worker = Self {
+            db,
+            wake_tx,
+            backup_gate,
+        };
         let _ = worker.wake_tx.try_send(());
         worker
     }
