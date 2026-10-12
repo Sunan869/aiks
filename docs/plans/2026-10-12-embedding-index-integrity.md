@@ -52,3 +52,9 @@
 - HEAD `8728272` 的综合 CI #38195701363 与 Windows Provider #38195701393 均完成且通过。随后检查发现同一 Session 两轮相同正文 hash 的索引在异步模型返回时间错序时，旧请求可能通过仅检查 hash 的结束门禁，覆盖较新一代的索引向量。
 - 结束阶段现在在 `BEGIN IMMEDIATE` 事务内部核对 status/hash 和当前持久 chunk IDs 与本轮生成的 IDs；不匹配即回滚拒绝，不允许旧代次模型输出写入新代次 chunk。增加模拟同内容重建交错、过期代次被拒、当前代次成功持久化的 SQLite 单测。
 - 不引入 schema migration，不修改 Provider 文件或 SiYuan 用户原文；该测试不替代真实模型和 Windows 并发故障注入。
+
+## 2026-10-12 并发代次保护构建修复与持久化断言
+
+- `38c03aa` 的 CI #38196207401 与 Windows Provider #38196207404 均失败：`session.rs:378` 的 rusqlite `MappedRows` 临时值延长借用导致 E0597 编译错误；Rust 格式检查亦有一处 `query_row` 差异，相关测试尚未执行。
+- 显式绑定 `query_map` 返回的 rows 再 collect，确保迭代器在 stmt 析构前释放；按 rustfmt 日志修正断言格式，保持事务级代次验证。
+- 增强旧代次拒绝后的持久化断言：数据库仍记录新代次 chunk ID、未写入任何提前完成的向量，然后才允许新代次完成。该回归仍需新 CI 与真实 Windows/模型环境验证。

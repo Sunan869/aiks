@@ -375,8 +375,8 @@ impl SessionIndexService {
                 let mut stmt = conn.prepare(
                     "SELECT id FROM session_search_chunk WHERE session_id = ?1 ORDER BY chunk_index",
                 )?;
-                stmt.query_map(params![session_id], |row| row.get(0))?
-                    .collect::<rusqlite::Result<Vec<String>>>()?
+                let rows = stmt.query_map(params![session_id], |row| row.get(0))?;
+                rows.collect::<rusqlite::Result<Vec<String>>>()?
             };
             if stored_chunks.len() != chunks.len()
                 || stored_chunks
@@ -845,6 +845,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(pending, "indexing");
+        let persisted_generation: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM session_search_chunk WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted_generation, "new-generation");
+        let premature_vectors: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(premature_vectors, 0);
         service
             .finish_rebuild(&SessionFinishContext {
                 session_id,
@@ -858,11 +874,9 @@ mod tests {
             .unwrap();
         let conn = db.conn();
         let stored: String = conn
-            .query_row(
-                "SELECT chunk_id FROM session_embedding_record",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT chunk_id FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(stored, "new-generation");
     }
