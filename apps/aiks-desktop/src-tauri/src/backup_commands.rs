@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use aiks_core::storage::app_backup::{
-    preflight_offline_restore, verify_offline_backup, OfflineRestorePreview,
+    preflight_offline_restore, restore_offline_backup_after_confirmation, verify_offline_backup,
+    OfflineRestorePreview,
 };
 
 fn validated_path(raw: &str) -> Result<PathBuf, String> {
@@ -53,9 +54,45 @@ pub fn verify_offline_backup_manifest(bundle_path: String) -> Result<usize, Stri
         .map_err(|e| e.to_string())
 }
 
+/// Isolated restore is opt-in and never replaces live AIKS or SiYuan data.
+/// The user must enter the *same* absolute destination during confirmation.
+#[tauri::command]
+pub async fn restore_offline_backup_isolated(
+    bundle_path: String,
+    destination_path: String,
+    confirmed_destination_path: String,
+) -> Result<usize, String> {
+    if destination_path != confirmed_destination_path {
+        return Err("恢复目标与用户确认的路径不一致".to_string());
+    }
+    // Re-run all checks immediately before writing, not merely when the
+    // preview was displayed. Large copies run off the UI event loop.
+    tauri::async_runtime::spawn_blocking(move || {
+        inspect(&bundle_path, &destination_path)?;
+        let bundle = validated_path(&bundle_path)?;
+        let destination = validated_path(&destination_path)?;
+        let confirmed = validated_path(&confirmed_destination_path)?;
+        restore_offline_backup_after_confirmation(&bundle, &destination, &confirmed)
+            .map(|manifest| manifest.entries.len())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("恢复任务未正常完成：{error}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_data_destination_cannot_pass_preview() {
+        let current = aiks_core::config::data_root();
+        if let Ok(current) = std::fs::canonicalize(current) {
+            let target = current.join("restore-preview");
+            let result = inspect("relative-bundle", &target.to_string_lossy());
+            assert!(result.is_err());
+        }
+    }
 
     #[test]
     fn only_absolute_paths_are_accepted() {

@@ -133,6 +133,7 @@ pub fn run() {
             embedding_commands::rebuild_semantic_index,
             backup_commands::inspect_offline_backup,
             backup_commands::verify_offline_backup_manifest,
+            backup_commands::restore_offline_backup_isolated,
             storage_commands::get_data_storage_settings,
             storage_commands::pick_data_directory,
             storage_commands::set_data_storage_root,
