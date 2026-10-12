@@ -414,7 +414,9 @@ token = "should-not-leak"
         assert!(!other.exists());
         restore_offline_backup_after_confirmation(&bundle, &destination, &destination).unwrap();
         assert!(destination.join("sqlite/state.sqlite").is_file());
-        assert!(restore_offline_backup_after_confirmation(&bundle, &destination, &destination).is_err());
+        assert!(
+            restore_offline_backup_after_confirmation(&bundle, &destination, &destination).is_err()
+        );
     }
 
     #[test]

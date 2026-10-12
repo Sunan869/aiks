@@ -98,3 +98,9 @@
 - 远端 HEAD `19a7e11`：Windows Provider #38210290483 成功；综合 CI #38210290506 在一处旧测试的 rustfmt 格式差异失败，Clippy/Rust tests 未执行；已修正该差异。
 - 新增 `restore_offline_backup_after_confirmation`：仅当用户明确确认的目标路径与实际恢复路径完全一致时，才允许经过只读预检的独立目录恢复；失配时不创建输出目录。新增路径失配拒绝、正确确认恢复、已有目标拒绝测试。
 - 这只是 Core 确认门禁，不是桌面 UI 按钮，也不能替代 SiYuan 停写、空间预检、旧版本升级测试以及 Windows 真机验收。
+
+## 2026-10-12 Rust 质量门禁修复记录
+
+- CI #38210771444 Rust quality 仅在 app_backup.rs 的一处长 assert 触发 rustfmt 差异；Windows Provider #38210771449、前端、Windows desktop compile、仓库卫生通过。
+- 修正后必须等待 Rust format / Clippy / tests 真实执行，不得把前轮的 Windows 编译通过视为备份集成测试通过。
+- 本次没有新增大型业务能力；完整停写协调、可用的 Desktop 恢复确认入口、磁盘容量预检和跨平台真实恢复验收仍是阻断项。
