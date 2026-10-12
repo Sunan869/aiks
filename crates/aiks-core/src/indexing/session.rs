@@ -971,7 +971,11 @@ mod tests {
                 normalized_text: "searchable current content".into(),
             };
             assert_eq!(
-                service.index_session(input.clone()).await.unwrap().embedded_count,
+                service
+                    .index_session(input.clone())
+                    .await
+                    .unwrap()
+                    .embedded_count,
                 1
             );
             {
@@ -987,6 +991,16 @@ mod tests {
             assert!(!repaired.skipped);
             assert_eq!(repaired.embedded_count, 1);
             assert_eq!(*provider.calls.lock().unwrap(), 2);
+            let (stored_dimensions, stored_bytes): (i64, i64) = db
+                .conn()
+                .query_row(
+                    "SELECT dimensions, LENGTH(vector) FROM session_embedding_record",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(stored_dimensions, 2);
+            assert_eq!(stored_bytes, 8);
             assert!(service.index_session(input).await.unwrap().skipped);
         }
     }
