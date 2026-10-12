@@ -80,7 +80,10 @@ async fn create_managed_quiesced_backup(
     if kernel.state() != RuntimeState::Ready {
         return Err("SiYuan 内核未就绪，禁止完整备份".to_string());
     }
-    kernel.stop().await;
+    kernel
+        .stop_for_backup()
+        .await
+        .map_err(|error| format!("未确认 SiYuan 子进程退出，禁止备份：{error}"))?;
     let snapshot = if kernel.state() == RuntimeState::Stopped {
         tauri::async_runtime::spawn_blocking(move || {
             let metadata = std::fs::symlink_metadata(&db_path).map_err(|e| e.to_string())?;
@@ -93,7 +96,7 @@ async fn create_managed_quiesced_backup(
                 .map_err(|e| e.to_string())
         })
         .await
-        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|error| Err(format!("备份工作线程异常退出：{error}")))
     } else {
         Err("SiYuan 未确认停止，禁止读取工作空间".to_string())
     };

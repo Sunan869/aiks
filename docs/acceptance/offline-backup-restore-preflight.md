@@ -209,3 +209,11 @@
 
 - HEAD `4aceafd` Windows Provider #38240349490 success，CI #38240349805 在 Rust 格式检查因 backup_commands.rs 三处差异失败，未运行 Clippy/Rust tests。按 CI 全部差异修正，不以仅 Provider 成功宣称完整验证。
 - 新增已有备份目标目录的无覆盖回归：校验失败后目录仍保留，不删除用户原有内容。完整停写、SQLite/SiYuan 一致性与桌面一键备份依旧有未闭合风险。
+
+
+## 2026-10-12 受控停写子进程退出证明与工作空间敏感目录保护（代码级，待 CI）
+
+- 备份专用 `stop_for_backup` 仅接受本进程持有且 PID 完全匹配的 SiYuan `Child`，使用 `try_wait` 确认退出；恢复的无 Child PID、PID 不一致或已退出的假 Ready 一律在 stop 之前拒绝。优雅退出超时后仅杀死已验证的 owned child，失败时保留 runtime.json 与句柄，禁止将可能运行的进程标成 Stopped。
+- 未注册的内部停写编排使用此接口而非原来的无条件 `stop()`；备份线程异常也进入重启分支，停写证明失败不触碰任何归档文件。
+- 用户文档与附件归档限制在 `workspace/data/`，`workspace/conf/` 中的敏感配置不进入归档；恢复前同样拒绝未被批准的 `siyuan/` 目录。此限制不代表 SQLite 和知识正文不存在敏感信息，更不能称作整工作区全部插件设置无损备份。
+- 补无 Child/PID 不符/进程已退出、排除 conf、伪造目录预检拒绝等回归。仍未注册运行中一键完整备份，亦未完成全部写路径/真实 Windows 停写/磁盘容量/失败回滚验收。
