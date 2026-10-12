@@ -99,8 +99,10 @@ async fn unicode_error_body_is_truncated_without_panicking() {
 
 #[test]
 fn invalid_client_configuration_fails_fast() {
-    let mut config = EmbeddingConfig::default();
-    config.batch_size = 0;
+    let mut config = EmbeddingConfig {
+        batch_size: 0,
+        ..EmbeddingConfig::default()
+    };
     assert!(EmbeddingClient::new(config.clone()).is_err());
     config.batch_size = 16;
     config.dimensions = Some(0);
