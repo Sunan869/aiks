@@ -166,3 +166,11 @@
 - 基线 `146b68c` Windows Provider #38231925966 成功，综合 CI #38231926216 在生命周期初始化的三处 Rust 格式差异中断；依据 CI 逐处修正，尚待 Clippy 和 Windows compile 验证。
 - 新增 Desktop Vitest 源码契约，断言 Worker 初始门禁在 Tokio spawn 前就存在、AiksEngine 在创建 Worker 时传递 gate、Desktop 三条初始化路径都使用初始化式注入而不是后置注入。
 - 这项防回退只证明代码静态结构，不证明真实 SiYuan 停写、全部异步任务排空或完整备份恢复可靠。
+
+
+## 2026-10-12 可跨异步任务持有的停写守卫
+
+- 基线 `59c3d9a` 综合 CI #38233961014、Windows Provider #38233961121 均通过。
+- 新增 `BackupQuiescence::pause_and_drain_owned`，同步阻塞至既有写者退出后返回 Arc 自持有的停写守卫；守卫生命周期不依赖局部引用，可在编排过程中跨异步阶段保存，释放时恢复接纳写入。明确调用必须置于阻塞线程。
+- 补充独立线程并发回归：活跃长任务阻塞 drain、开始停写后拒绝新许可、退出后恢复正常。
+- 下一阶段仍需使用该守卫实现 SiYuan stop → 校验已停止 → snapshot → start 的保证恢复流程。内部异步写入覆盖审计尚未完成，故未开放活动工作空间一键备份入口。

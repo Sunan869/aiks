@@ -23,6 +23,10 @@ pub struct OwnedWriterPermit {
     gate: Arc<BackupQuiescence>,
 }
 
+pub struct OwnedQuiescedGuard {
+    gate: Arc<BackupQuiescence>,
+}
+
 pub struct QuiescedGuard<'a> {
     gate: &'a BackupQuiescence,
 }
@@ -35,6 +39,24 @@ impl BackupQuiescence {
         }
         state.writers += 1;
         Some(OwnedWriterPermit {
+            gate: Arc::clone(gate),
+        })
+    }
+
+    /// Owns the gate so the drain remains active across async operations.
+    /// Always call from a blocking thread; the wait is synchronous.
+    pub fn pause_and_drain_owned(
+        gate: &Arc<Self>,
+    ) -> Result<OwnedQuiescedGuard, &'static str> {
+        let mut state = gate.state.lock().map_err(|_| "backup gate poisoned")?;
+        if state.paused {
+            return Err("backup already in progress");
+        }
+        state.paused = true;
+        while state.writers != 0 {
+            state = gate.idle.wait(state).map_err(|_| "backup gate poisoned")?;
+        }
+        Ok(OwnedQuiescedGuard {
             gate: Arc::clone(gate),
         })
     }
@@ -81,6 +103,15 @@ impl Drop for WriterPermit<'_> {
             if state.writers == 0 {
                 self.gate.idle.notify_all();
             }
+        }
+    }
+}
+
+impl Drop for OwnedQuiescedGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.gate.state.lock() {
+            state.paused = false;
+            self.gate.idle.notify_all();
         }
     }
 }
@@ -139,6 +170,28 @@ mod tests {
         assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap());
         handle.join().unwrap();
         assert!(BackupQuiescence::try_begin_owned(&gate).is_some());
+    }
+
+    #[test]
+    fn owned_pause_drains_workers_and_recovers_on_guard_drop() {
+        let gate = Arc::new(BackupQuiescence::default());
+        let worker = BackupQuiescence::try_begin_owned(&gate).unwrap();
+        let other = Arc::clone(&gate);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            let paused = BackupQuiescence::pause_and_drain_owned(&other).unwrap();
+            done_tx.send(other.try_begin_write().is_none()).unwrap();
+            drop(paused);
+        });
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(done_rx.try_recv().is_err());
+        drop(worker);
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        thread.join().unwrap();
+        assert!(gate.try_begin_write().is_some());
     }
 
     #[test]
