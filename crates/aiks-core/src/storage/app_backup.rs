@@ -196,6 +196,21 @@ pub fn preflight_offline_restore(
 
 /// Restore into a new, isolated directory only, after a read-only preflight.
 /// Never apply the snapshot automatically to the running AIKS workspace.
+/// A restore command must require an explicit confirmation matching the
+/// destination chosen during the validated preview. This does not authorize
+/// overwriting a running AIKS database or SiYuan workspace.
+pub fn restore_offline_backup_after_confirmation(
+    bundle: &Path,
+    destination: &Path,
+    confirmed_destination: &Path,
+) -> Result<BundleManifest> {
+    if destination != confirmed_destination {
+        bail!("restore destination differs from the confirmed destination");
+    }
+    preflight_offline_restore(bundle, destination)?;
+    restore_offline_backup_to_new_directory(bundle, destination)
+}
+
 pub fn restore_offline_backup_to_new_directory(
     bundle: &Path,
     destination: &Path,
@@ -381,10 +396,25 @@ token = "should-not-leak"
         assert!(create_offline_backup_with_settings(&db, &[], Some(&invalid), &dest).is_err());
         assert!(!dest.exists());
         let too_long = "a".repeat(65);
-        let invalid: toml::Value =
-            toml::from_str(&format!("theme = \"{too_long}\"")).unwrap();
+        let invalid: toml::Value = toml::from_str(&format!("theme = \"{too_long}\"")).unwrap();
         assert!(create_offline_backup_with_settings(&db, &[], Some(&invalid), &dest).is_err());
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn confirmation_never_restores_to_a_different_destination() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let bundle = dir.path().join("backup");
+        create_offline_backup(&db, &[], &bundle).unwrap();
+        let destination = dir.path().join("restore");
+        let other = dir.path().join("other");
+        assert!(restore_offline_backup_after_confirmation(&bundle, &destination, &other).is_err());
+        assert!(!destination.exists());
+        assert!(!other.exists());
+        restore_offline_backup_after_confirmation(&bundle, &destination, &destination).unwrap();
+        assert!(destination.join("sqlite/state.sqlite").is_file());
+        assert!(restore_offline_backup_after_confirmation(&bundle, &destination, &destination).is_err());
     }
 
     #[test]

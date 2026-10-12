@@ -92,3 +92,9 @@
 
 - `6b6fd9f` 的综合 CI #38209890418 在两处新增测试 `fs::write` 的 rustfmt 差异失败，Rust Clippy/测试未执行；Windows Provider #38209890397 已成功。
 - 按 CI 日志逐项修正格式，并新增备份创建前非法语言类型、超长主题字段拒绝的测试；不得留下输出备份目录。此批未验证真实 Rust 测试结果，完整 UI 与 SiYuan 停写协调仍待实现。
+
+## 2026-10-12 显式恢复路径确认 Core 门禁
+
+- 远端 HEAD `19a7e11`：Windows Provider #38210290483 成功；综合 CI #38210290506 在一处旧测试的 rustfmt 格式差异失败，Clippy/Rust tests 未执行；已修正该差异。
+- 新增 `restore_offline_backup_after_confirmation`：仅当用户明确确认的目标路径与实际恢复路径完全一致时，才允许经过只读预检的独立目录恢复；失配时不创建输出目录。新增路径失配拒绝、正确确认恢复、已有目标拒绝测试。
+- 这只是 Core 确认门禁，不是桌面 UI 按钮，也不能替代 SiYuan 停写、空间预检、旧版本升级测试以及 Windows 真机验收。
