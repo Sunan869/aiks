@@ -117,3 +117,9 @@
 - 新增 `preflight_offline_restore_with_capacity`：读取并完整校验归档后，以实际文件总量加 20% 或至少 64 MiB 预留空间进行门禁；容量不足时在任何目标目录创建前拒绝。
 - 新增包含容量预检和明确目标确认的独立恢复入口 `restore_offline_backup_with_capacity_and_confirmation`，并补充真实 SQLite 快照恢复的低容量拒绝、无副作用、高容量成功测试。
 - 可用空间数值必须由调用端在确认前实时读取；本 Core 函数不读取物理磁盘状态，不允许在线覆盖现有 AIKS/SiYuan 工作空间。SiYuan 生命周期协调和 Desktop 界面仍未完成。
+
+## 2026-10-12 SiYuan 备份前后内容稳定性核验
+
+- 基线 `35eddc0`：Windows Provider #38212265048 成功；综合 CI #38212265029 仅在新增容量测试的 rustfmt 失败，Clippy/测试未执行。依据完整差异统一修正该测试。
+- `create_offline_backup_from_quiesced_workspace` 在明确要求调用方停写的前提下，额外对工作空间文件清单和逐文件 SHA-256 做备份前后对比。若新增/删减文件或内容变化（包括同尺寸修改）及重新枚举错误，拒绝成功并清理本批新建归档，不将变化中的工作空间误认成一致快照。
+- 新增相同字节长度但内容变化的回归。该措施是失稳检测，不替代 SiYuan 生命周期层面的真正停写。运行中备份的 Desktop 入口仍禁止开放。

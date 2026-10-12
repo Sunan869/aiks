@@ -2,12 +2,14 @@
 //! plus explicitly selected, already quiesced SiYuan workspace files.
 //! Never discovers or mutates Provider sources; no live restore API.
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::backup::{create_sqlite_backup, load_and_verify_backup, save_backup_manifest};
@@ -61,6 +63,33 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
     Ok(files)
 }
 
+/// Compute a bounded-memory fingerprint for all selected files, to detect
+/// workspace changes between initial enumeration and completed archiving.
+/// The caller must still stop SiYuan first: this is a drift detector, not a
+/// substitute for application-level quiescence.
+fn workspace_fingerprints(
+    selected: &[(PathBuf, PathBuf)],
+) -> Result<Vec<(PathBuf, String)>> {
+    let mut output = Vec::with_capacity(selected.len());
+    for (source, relative) in selected {
+        if !fs::symlink_metadata(source)?.file_type().is_file() {
+            bail!("SiYuan workspace file is no longer regular");
+        }
+        let mut input = fs::File::open(source)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hash.update(&buffer[..read]);
+        }
+        output.push((relative.clone(), hex::encode(hash.finalize())));
+    }
+    Ok(output)
+}
+
 /// Back up one explicitly selected SiYuan workspace that the caller has
 /// already stopped. The destination must be outside the workspace, otherwise
 /// a backup could recursively include its own staging or output.
@@ -90,11 +119,21 @@ pub fn create_offline_backup_from_quiesced_workspace(
         bail!("backup output must be independent of the SiYuan workspace");
     }
     let selected = enumerate_quiesced_siyuan_workspace(workspace_root)?;
+    let before = workspace_fingerprints(&selected)?;
     let borrowed: Vec<(&Path, &Path)> = selected
         .iter()
         .map(|(source, relative)| (source.as_path(), relative.as_path()))
         .collect();
-    create_offline_backup(db, &borrowed, destination)
+    let result = create_offline_backup(db, &borrowed, destination)?;
+    let stable = (|| -> Result<bool> {
+        let after = enumerate_quiesced_siyuan_workspace(workspace_root)?;
+        Ok(after == selected && workspace_fingerprints(&after)? == before)
+    })();
+    if !matches!(stable, Ok(true)) {
+        let _ = fs::remove_dir_all(destination);
+        bail!("SiYuan workspace changed during backup; discard snapshot");
+    }
+    Ok(result)
 }
 
 /// The caller is responsible for stopping SiYuan writes while enumerating and
@@ -465,23 +504,13 @@ token = "should-not-leak"
         assert!(preview.total_bytes > 0);
         assert!(preflight_offline_restore_with_capacity(&bundle, &target, 0).is_err());
         assert!(!target.exists());
-        assert!(
-            restore_offline_backup_with_capacity_and_confirmation(
-                &bundle,
-                &target,
-                &target,
-                0,
-            )
-            .is_err()
-        );
-        assert!(!target.exists());
-        restore_offline_backup_with_capacity_and_confirmation(
-            &bundle,
-            &target,
-            &target,
-            u64::MAX,
+        assert!(restore_offline_backup_with_capacity_and_confirmation(
+            &bundle, &target, &target, 0,
         )
-        .unwrap();
+        .is_err());
+        assert!(!target.exists());
+        restore_offline_backup_with_capacity_and_confirmation(&bundle, &target, &target, u64::MAX)
+            .unwrap();
         assert!(target.join("sqlite/state.sqlite").is_file());
     }
 
@@ -565,6 +594,21 @@ token = "should-not-leak"
             create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err()
         );
         assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
+    }
+
+    #[test]
+    fn workspace_fingerprint_detects_same_size_content_change() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path().join("siyuan");
+        fs::create_dir(&workspace).unwrap();
+        let note = workspace.join("note.sy");
+        fs::write(&note, b"version-one").unwrap();
+        let initial = enumerate_quiesced_siyuan_workspace(&workspace).unwrap();
+        let before = workspace_fingerprints(&initial).unwrap();
+        fs::write(&note, b"version-two").unwrap();
+        let after = enumerate_quiesced_siyuan_workspace(&workspace).unwrap();
+        assert_eq!(initial, after);
+        assert_ne!(before, workspace_fingerprints(&after).unwrap());
     }
 
     #[cfg(unix)]
