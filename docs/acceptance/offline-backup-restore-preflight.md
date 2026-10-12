@@ -152,3 +152,47 @@
 - 基线 `2ed9a71`：Windows Provider #38230245064 成功，综合 CI #38230245218 已通过 Rust formatting，但 Clippy `too_many_arguments` 阻断于 run_worker 新增第八个参数。
 - 将 Worker 的 Semaphore 与共享 BackupQuiescence 状态组合为一个控制参数，在入口解构，保留现有 Worker 领取任务前获取写许可和任务结束释放的行为，不使用 `#[allow]` 绕过质量门禁。
 - 仍未解决 AiksEngine::initialize 内部启动 Worker 到 Desktop 注入门禁的时间窗口。应用级一键备份仍禁止启用，必须后续完成真正运行时一致性编排。
+
+
+## 2026-10-12 Worker 启动前门禁绑定
+
+- 基线 `f40c21c` 综合 CI #38230854196 与 Windows Provider #38230854269 成功。
+- AiksEngine 新增可选初始 BackupQuiescence 注入构造入口，PipelineWorker 的启动参数在 spawn 之前携带已绑定的门禁，Desktop 所有三条 engine 初始化路径都在调用 initialize 时传入共享门禁，消除初始化完成后 set_backup_gate 带来的 Worker 无保护启动空窗。
+- 原 CLI 与测试依然可调用 initialize/start_without_gate，避免意外改变非 Desktop 运行语义。尚未实现完整 SiYuan 停止和备份过程协调，不允许据此开放活动数据一键备份。
+
+
+## 2026-10-12 Worker 初始化门禁时序防回退
+
+- 基线 `146b68c` Windows Provider #38231925966 成功，综合 CI #38231926216 在生命周期初始化的三处 Rust 格式差异中断；依据 CI 逐处修正，尚待 Clippy 和 Windows compile 验证。
+- 新增 Desktop Vitest 源码契约，断言 Worker 初始门禁在 Tokio spawn 前就存在、AiksEngine 在创建 Worker 时传递 gate、Desktop 三条初始化路径都使用初始化式注入而不是后置注入。
+- 这项防回退只证明代码静态结构，不证明真实 SiYuan 停写、全部异步任务排空或完整备份恢复可靠。
+
+
+## 2026-10-12 可跨异步任务持有的停写守卫
+
+- 基线 `59c3d9a` 综合 CI #38233961014、Windows Provider #38233961121 均通过。
+- 新增 `BackupQuiescence::pause_and_drain_owned`，同步阻塞至既有写者退出后返回 Arc 自持有的停写守卫；守卫生命周期不依赖局部引用，可在编排过程中跨异步阶段保存，释放时恢复接纳写入。明确调用必须置于阻塞线程。
+- 补充独立线程并发回归：活跃长任务阻塞 drain、开始停写后拒绝新许可、退出后恢复正常。
+- 下一阶段仍需使用该守卫实现 SiYuan stop → 校验已停止 → snapshot → start 的保证恢复流程。内部异步写入覆盖审计尚未完成，故未开放活动工作空间一键备份入口。
+
+
+## 2026-10-12 停写超时自动恢复写入门禁
+
+- 基线 `9f7e02f`：Windows Provider #38234676740 成功，综合 CI #38234676753 因 `pause_and_drain_owned` 格式差异失败。按 CI 精确修正。
+- 新增 `pause_and_drain_owned_with_timeout`：在阻塞线程等待已有任务排空，超时后清除暂停状态并唤醒等待者，避免失败导致写入门禁永久关闭；成功时仍由 RAII 守卫控制备份期间写入禁令。包含任务未结束时的超时恢复及成功释放单测。
+- 必须在实际生命周期编排中传入合适的超时。尚未把 SiYuan 退出、备份和启动流程连接到该门禁，也未完成所有写入路径审计，因此没有开放当前活动工作空间的一键备份。
+
+
+## 2026-10-12 内部运行时停止/备份/重启编排（尚未开放）
+
+- 基线 `23ec7c9`：Windows Provider #38235311140 成功，CI #38235311138 因停写超时回归测试一处 rustfmt 差异失败，现依日志修正。
+- 新增内部 **未注册命令** `create_managed_quiesced_backup`：阻塞线程限时排空 → 获取受控 SiYuan 运行时 → 检查 Ready → stop → 确认 Stopped → 在阻塞线程完成 workspace+SQLite 归档 → 无论成功失败均尝试 start → 最后释放停写守卫；清楚区分备份与重启两种错误。
+- 这是内部编排骨架，不是已经通过验收的可用一键备份。尚需验证全部写路径、失败处理、运行时监控交互、应用级数据一致性与 Windows 真机，才允许把命令注册到 UI。禁止绕过停写保护直接备份当前数据。
+
+
+## 2026-10-12 Windows 分阶段真机测试的明确边界
+
+- HEAD `d620dfa`：Windows Provider #38238751337 成功，综合 CI #38238751357 在 `backup_commands.rs` 单处 rustfmt 差异处失败；已按日志修正，后续 Rust Clippy/测试等待新 HEAD 验证。
+- 可以在独立的 `E:\\AIKS-Test\\data` 目录启动个人离线模式，对**除活动工作空间完整备份恢复以外**的已实现功能做非破坏性的 Windows 冒烟测试；只将结果视为阶段性反馈，不是 S1.3 最终验收。
+- 活动工作空间一键完整备份仍未注册到 Tauri/UI：内部 stop-snapshot-start coordinator 未通过综合 CI 且缺少外部写入审计、重启失败恢复保障。不得修改或覆盖现有用户生产工作区。
+- 冒烟测试先验证隔离目录生效、首次启动、手动同步与知识检索、启动/退出重入、日志中无异常；真实 SiYuan 资产与备份恢复仅在最终专门验收阶段处理。
