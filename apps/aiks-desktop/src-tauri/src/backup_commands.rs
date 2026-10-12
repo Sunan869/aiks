@@ -49,8 +49,7 @@ async fn create_managed_quiesced_backup(
             if !metadata.file_type().is_file() {
                 return Err("AIKS 数据库不是普通文件".to_string());
             }
-            let db = aiks_core::storage::StateDb::open(&db_path)
-                .map_err(|e| e.to_string())?;
+            let db = aiks_core::storage::StateDb::open(&db_path).map_err(|e| e.to_string())?;
             create_offline_backup_from_quiesced_workspace(&db, &workspace, &destination)
                 .map(|manifest| manifest.entries.len())
                 .map_err(|e| e.to_string())
