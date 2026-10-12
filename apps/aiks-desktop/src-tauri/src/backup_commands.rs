@@ -122,6 +122,9 @@ pub async fn create_offline_backup_from_stopped_workspace(
     workspace_path: String,
     destination_path: String,
 ) -> Result<usize, String> {
+    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
+        return Err("外部 SiYuan 开发模式不能保证停写，禁止创建完整备份".to_string());
+    }
     let workspace = validated_path(&workspace_path)?;
     let destination = validated_path(&destination_path)?;
     let active =
@@ -151,8 +154,7 @@ pub async fn create_offline_backup_from_stopped_workspace(
         if !metadata.file_type().is_file() {
             return Err("AIKS 状态数据库必须是普通文件，不能是目录或符号链接".to_string());
         }
-        let db = aiks_core::storage::StateDb::open(&db_path)
-            .map_err(|error| error.to_string())?;
+        let db = aiks_core::storage::StateDb::open(&db_path).map_err(|error| error.to_string())?;
         create_offline_backup_from_quiesced_workspace(&db, &workspace, &output)
             .map(|manifest| manifest.entries.len())
             .map_err(|error| error.to_string())
