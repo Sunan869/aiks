@@ -718,31 +718,32 @@ mod tests {
         let result = bad.index_session(input.clone()).await.unwrap();
         assert!(result.chunk_count > 1);
         assert_eq!(result.embedded_count, 0);
-        let conn = db.conn();
-        let vectors: i64 = conn
-            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(vectors, 0);
-        let (status, last_error): (String, Option<String>) = conn
-            .query_row(
-                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
-                params![session_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "ready");
-        assert!(last_error.unwrap().contains("non-finite"));
-        let lexical_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(lexical_count, 1);
-        drop(conn);
+        {
+            let conn = db.conn();
+            let vectors: i64 = conn
+                .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(vectors, 0);
+            let (status, last_error): (String, Option<String>) = conn
+                .query_row(
+                    "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(status, "ready");
+            assert!(last_error.unwrap().contains("non-finite"));
+            let lexical_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(lexical_count, 1);
+        }
 
         let repaired = SessionIndexService::new(
             db.clone(),

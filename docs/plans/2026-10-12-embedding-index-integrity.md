@@ -40,3 +40,9 @@
 - 基于 #38194807202 日志，将导致 Rust 测试未执行的 `query_row` 格式阻塞与恢复状态回归一起处理。
 - 多批次 Embedding 出错后，不仅断言 FTS 仍可检索、失败不留下半批向量，还验证再次构建成功后持久化向量数与 chunk 数一致，且 `session_index_state.last_error` 清除、状态为 `ready`。
 - 测试为模拟 Provider 的确定性回归，尚需完整 CI 和真实 Windows/模型端点验收。
+
+## 2026-10-12 Rust Clippy await 锁边界修复
+
+- HEAD `34b805d` 的 CI #38195391358 在 Clippy `await_holding_lock` 失败；前端、Windows Desktop、卫生检查及 Windows Provider #38195391250 通过，但 Rust tests 未运行。
+- 多批次异常恢复回归在验证 SQLite 状态时曾持有连接锁直至下一次异步索引调用，即使显式 `drop(conn)`，Clippy 仍追踪词法作用域。现在显式缩短 SQLite 查询 guard 的词法作用域，确保异步重试前已释放锁；这是异步索引安全边界修复，保持生产索引与数据不变。
+- CI 未运行之前不声称此回归已通过，也不冒充真实模型或 Windows 实机验证。
