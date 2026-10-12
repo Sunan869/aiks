@@ -189,7 +189,9 @@ pub fn restore_file_bundle_to_new_directory(
     // A destination nested in the source archive could be mistaken for
     // mutable source data. Canonicalize the archive before permitting writes.
     let bundle_root = fs::canonicalize(bundle)?;
-    let parent = destination.parent().context("restore destination has no parent")?;
+    let parent = destination
+        .parent()
+        .context("restore destination has no parent")?;
     let parent_root = fs::canonicalize(parent)?;
     if parent_root.starts_with(&bundle_root) {
         bail!("restore destination must be outside the source bundle");

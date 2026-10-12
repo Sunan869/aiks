@@ -1,6 +1,7 @@
 // S1.3 development entry: SQLite snapshots only. Full application restore is NOT available.
 pub mod backup;
 pub mod backup_bundle;
+pub mod app_backup;
 pub mod db;
 pub mod repo;
 
