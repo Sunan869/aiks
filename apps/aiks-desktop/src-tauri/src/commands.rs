@@ -184,7 +184,9 @@ pub async fn sync_now(
     source: Option<String>,
     overwrite: Option<bool>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<SyncResponse, String> {
+    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -594,7 +596,9 @@ pub async fn get_full_status(state: State<'_, AppState>) -> Result<serde_json::V
 pub async fn sync_and_extract(
     source: Option<String>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -1176,7 +1180,9 @@ pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_js
 #[tauri::command]
 pub async fn sync_knowledge_to_siyuan(
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate.try_begin_write().ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let stats = engine
         .sync_knowledge_to_siyuan(false)

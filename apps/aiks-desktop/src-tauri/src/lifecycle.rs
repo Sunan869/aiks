@@ -15,10 +15,10 @@
 use std::sync::Arc;
 
 use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, DevOverride};
-use aiks_core::storage::backup_quiescence::BackupQuiescence;
 use aiks_core::knowledge::ContentMigrationService;
 use aiks_core::runtime::{RuntimeState, SiyuanRuntime};
 use aiks_core::sink::SiYuanSink;
+use aiks_core::storage::backup_quiescence::BackupQuiescence;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};
@@ -282,8 +282,14 @@ fn spawn_startup_migration_then_tasks(
             SiYuanSink::embedded(engine.siyuan_base_url(), &config.siyuan.notebook_name)
         };
 
+        let migration_gate = app_bg.try_state::<Arc<BackupQuiescence>>().map(|gate| Arc::clone(&gate));
         match sink_result {
             Ok(sink) if sink.health_check().await => {
+                let Some(_writer) = migration_gate.as_ref().and_then(|gate| gate.try_begin_write()) else {
+                    warn!("Content migration postponed: backup gate missing or paused");
+                    spawn_background_tasks(&app_bg, Some(engine), watcher_rx);
+                    return;
+                };
                 let db = engine.db();
                 let migration = ContentMigrationService::new(db.as_ref());
                 let _ = app_bg.emit(

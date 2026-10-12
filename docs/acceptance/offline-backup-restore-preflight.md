@@ -98,3 +98,10 @@
 
 - 在 Tauri 应用根状态管理共享 `Arc<BackupQuiescence>`，并让启动初扫、Watcher 同步、周期扫描调用 `sync_and_enqueue_extraction_with_trigger` 时持有写者许可跨越整个异步执行阶段。暂停时拒绝新的这三类同步，等待已开始的任务释放许可。
 - 当前覆盖的是三个具体后台扫描入口；内容迁移、异步 AI/Pipeline worker、Tauri 用户写命令、SiYuan 内核仍可能产生写入，必须继续接入。**现阶段严禁把该门禁当成可执行的一键停写备份。**
+
+
+## 2026-10-12 用户主动同步与内容迁移实际接入
+
+- 基线 `230dd21` Windows Provider #38221275162 成功；综合 CI #38221274992 因 lifecycle.rs import 排序一处 rustfmt 差异失败。精确修正该差异。
+- 在 Tauri 用户主动触发的 sync_now、sync_and_extract、sync_knowledge_to_siyuan 命令持有全局 BackupQuiescence 写者许可，暂停时返回明确错误。
+- 启动内容迁移在实际 migrate 调用前取得写者许可，避免它绕过后台同步的门禁。依旧存在 Pipeline Worker、其他直接变更命令、运行中 SiYuan 内核等未覆盖写入点；当前停写门禁不得用于批准应用级备份。
