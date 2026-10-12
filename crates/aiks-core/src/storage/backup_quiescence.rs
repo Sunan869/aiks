@@ -238,11 +238,9 @@ mod tests {
         .is_err());
         assert!(gate.try_begin_write().is_some());
         drop(worker);
-        let guard = BackupQuiescence::pause_and_drain_owned_with_timeout(
-            &gate,
-            Duration::from_secs(1),
-        )
-        .unwrap();
+        let guard =
+            BackupQuiescence::pause_and_drain_owned_with_timeout(&gate, Duration::from_secs(1))
+                .unwrap();
         assert!(gate.try_begin_write().is_none());
         drop(guard);
         assert!(gate.try_begin_write().is_some());

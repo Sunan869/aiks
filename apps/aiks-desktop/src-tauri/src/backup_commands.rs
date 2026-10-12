@@ -1,6 +1,12 @@
 //! Read-only backup inspection for the desktop. Never start SiYuan, read
 //! Provider directories, or restore into the running application's data root.
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use aiks_core::runtime::{RuntimeState, SiyuanRuntime};
+use aiks_core::storage::backup_quiescence::BackupQuiescence;
+use tokio::sync::Mutex;
 
 use serde::Serialize;
 
@@ -9,6 +15,65 @@ use aiks_core::storage::app_backup::{
     preflight_offline_restore_with_capacity, restore_offline_backup_with_capacity_and_confirmation,
     verify_offline_backup, OfflineRestorePreview,
 };
+
+/// Internal-only safety orchestration. Not exposed through Tauri until all
+/// writing paths and external SiYuan clients are covered by an audit.
+#[allow(dead_code)]
+async fn create_managed_quiesced_backup(
+    runtime: Arc<Mutex<Option<SiyuanRuntime>>>,
+    gate: Arc<BackupQuiescence>,
+    db_path: PathBuf,
+    workspace: PathBuf,
+    destination: PathBuf,
+) -> Result<usize, String> {
+    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
+        return Err("外部 SiYuan 无法由 AIKS 安全停写".to_string());
+    }
+    let paused = tauri::async_runtime::spawn_blocking(move || {
+        BackupQuiescence::pause_and_drain_owned_with_timeout(&gate, Duration::from_secs(120))
+            .map_err(str::to_string)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let runtime_guard = runtime.lock().await;
+    let Some(kernel) = runtime_guard.as_ref() else {
+        return Err("未找到由 AIKS 管理的 SiYuan 内核".to_string());
+    };
+    if kernel.state() != RuntimeState::Ready {
+        return Err("SiYuan 内核未就绪，禁止完整备份".to_string());
+    }
+    kernel.stop().await;
+    let snapshot = if kernel.state() == RuntimeState::Stopped {
+        tauri::async_runtime::spawn_blocking(move || {
+            let metadata = std::fs::symlink_metadata(&db_path).map_err(|e| e.to_string())?;
+            if !metadata.file_type().is_file() {
+                return Err("AIKS 数据库不是普通文件".to_string());
+            }
+            let db = aiks_core::storage::StateDb::open(&db_path)
+                .map_err(|e| e.to_string())?;
+            create_offline_backup_from_quiesced_workspace(&db, &workspace, &destination)
+                .map(|manifest| manifest.entries.len())
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    } else {
+        Err("SiYuan 未确认停止，禁止读取工作空间".to_string())
+    };
+    // Always attempt restart, even when snapshot failed. Hold the paused
+    // guard until the restart attempt has finished.
+    let restarted = kernel.start().await.map_err(|e| e.to_string());
+    drop(runtime_guard);
+    drop(paused);
+    match (snapshot, restarted) {
+        (Ok(count), Ok(_)) => Ok(count),
+        (Err(error), Ok(_)) => Err(error),
+        (Ok(_), Err(error)) => Err(format!("备份完成，但 SiYuan 重启失败：{error}")),
+        (Err(snapshot_error), Err(restart_error)) => Err(format!(
+            "备份失败：{snapshot_error}；SiYuan 重启也失败：{restart_error}"
+        )),
+    }
+}
 
 fn validated_path(raw: &str) -> Result<PathBuf, String> {
     let value = raw.trim();
