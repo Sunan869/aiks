@@ -203,3 +203,9 @@
 - 基线 `c7bcfec` 综合 CI #38239409242、Windows Provider #38239409192 均 success。
 - 对内部 stop/snapshot/restart 编排新增前置路径验证：仅允许当前数据根目录下的 aiks.db 和 siyuan/workspace 作为来源，输出必须在数据根目录外且为不存在的新目录；防止未来 UI 接入时将不可信的任意路径用于归档。
 - 桌面 Rust 路径测试验证正确路径允许、目标嵌套与错误来源拒绝。内部编排仍未注册对外命令，全部写入覆盖/真实 SiYuan 退出与异常恢复仍待专项验证。
+
+
+## 2026-10-12 受控备份路径前置验证的质量收尾
+
+- HEAD `4aceafd` Windows Provider #38240349490 success，CI #38240349805 在 Rust 格式检查因 backup_commands.rs 三处差异失败，未运行 Clippy/Rust tests。按 CI 全部差异修正，不以仅 Provider 成功宣称完整验证。
+- 新增已有备份目标目录的无覆盖回归：校验失败后目录仍保留，不删除用户原有内容。完整停写、SQLite/SiYuan 一致性与桌面一键备份依旧有未闭合风险。

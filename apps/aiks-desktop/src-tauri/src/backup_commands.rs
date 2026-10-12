@@ -27,8 +27,7 @@ fn validate_managed_backup_paths(
     let root = std::fs::canonicalize(data_root).map_err(|e| e.to_string())?;
     let database = std::fs::canonicalize(db_path).map_err(|e| e.to_string())?;
     let actual_workspace = std::fs::canonicalize(workspace).map_err(|e| e.to_string())?;
-    if database != root.join("aiks.db")
-        || actual_workspace != root.join("siyuan").join("workspace")
+    if database != root.join("aiks.db") || actual_workspace != root.join("siyuan").join("workspace")
     {
         return Err("备份来源与当前 AIKS 数据目录不一致".to_string());
     }
@@ -350,7 +349,10 @@ mod managed_path_tests {
 
     #[test]
     fn managed_backup_rejects_alien_sources_and_nested_output() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("aiks-backup-path-test-{nonce}"));
         std::fs::create_dir_all(&dir).unwrap();
         let root = dir.join("aiks");
@@ -360,21 +362,16 @@ mod managed_path_tests {
         std::fs::write(&database, b"fixture").unwrap();
         let output = dir.join("backup");
         assert!(validate_managed_backup_paths(&root, &database, &workspace, &output).is_ok());
-        assert!(validate_managed_backup_paths(
-            &root,
-            &database,
-            &workspace,
-            &root.join("backup"),
-        )
-        .is_err());
-        assert!(validate_managed_backup_paths(
-            &root,
-            &database,
-            &dir.join("other"),
-            &output,
-        )
-        .is_err());
-        assert!(!output.exists());
+        assert!(
+            validate_managed_backup_paths(&root, &database, &workspace, &root.join("backup"),)
+                .is_err()
+        );
+        assert!(
+            validate_managed_backup_paths(&root, &database, &dir.join("other"), &output,).is_err()
+        );
+        std::fs::create_dir(&output).unwrap();
+        assert!(validate_managed_backup_paths(&root, &database, &workspace, &output).is_err());
+        assert!(output.is_dir());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
