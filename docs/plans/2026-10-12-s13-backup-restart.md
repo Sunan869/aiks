@@ -74,3 +74,10 @@
 - HEAD `f652473` 的 Windows Provider #38208691544 成功；CI #38208691558 在三文件 rustfmt 检查中失败，Rust tests/Clippy 未执行。依据日志统一修复格式差异。
 - 新增 `sanitized_backup_settings`，严格仅保留语言和主题的短字符串值，不复制 API Key、模型端点、Provider 路径或其他嵌套配置。增加带伪密钥及嵌套 token 的脱敏回归。
 - 当前仅提供安全配置快照的 Core 基础功能，未直接写入用户备份；完整配置白名单、安全空间预算、SiYuan 停写协调和人工确认仍需完成。绝不能把当前状态称为完整用户可用的备份/恢复。
+
+## 2026-10-12 配置白名单实际纳入 S1.3 归档
+
+- 上轮 HEAD `44ec676` Windows Provider #38209092366 成功，综合 CI #38209091300 在一处 rustfmt 差异失败，已合批修复。
+- 新增 `create_offline_backup_with_settings`，在生成独立 SQLite + SiYuan 文件归档时可选地写入仅包含语言/主题的脱敏 `config/settings.toml`；不复制完整配置、模型密钥、Provider 路径或网络端点。
+- 归档验证白名单增加唯一合法配置路径；新增快照生成、敏感内容排除、恢复文件核对的 SQLite/文件系统回归。默认 `create_offline_backup` 仍不包含配置，保留原调用方行为。
+- 尚未接入运行中的 SiYuan 生命周期停写与确认式 Desktop 入口；代码级测试不代表 Windows 真机恢复验收。

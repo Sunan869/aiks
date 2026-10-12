@@ -105,6 +105,18 @@ pub fn create_offline_backup(
     quiesced_workspace_files: &[(&Path, &Path)],
     destination: &Path,
 ) -> Result<BundleManifest> {
+    create_offline_backup_with_settings(db, quiesced_workspace_files, None, destination)
+}
+
+/// Optional non-sensitive settings are reconstructed from a strict allowlist.
+/// The full original configuration is never placed in the archive.
+pub fn create_offline_backup_with_settings(
+    db: &StateDb,
+    quiesced_workspace_files: &[(&Path, &Path)],
+    settings: Option<&toml::Value>,
+    destination: &Path,
+) -> Result<BundleManifest> {
+    let cleaned = settings.map(sanitized_backup_settings).transpose()?;
     if fs::symlink_metadata(destination).is_ok() {
         bail!("backup destination exists");
     }
@@ -131,6 +143,11 @@ pub fn create_offline_backup(
         ];
         for (source, relative) in quiesced_workspace_files {
             sources.push((*source, PathBuf::from("siyuan").join(relative)));
+        }
+        let settings_file = staging.join("settings.toml");
+        if let Some(settings) = cleaned.as_ref() {
+            fs::write(&settings_file, toml::to_string(settings)?)?;
+            sources.push((settings_file.as_path(), PathBuf::from("config/settings.toml")));
         }
         let items: Vec<(&Path, &Path)> = sources
             .iter()
@@ -206,6 +223,7 @@ fn validate_offline_manifest(manifest: &BundleManifest) -> Result<()> {
     for entry in &manifest.entries {
         if entry.relative_path != "sqlite/state.sqlite"
             && entry.relative_path != "sqlite/state-manifest.json"
+            && entry.relative_path != "config/settings.toml"
             && !entry.relative_path.starts_with("siyuan/")
         {
             bail!("offline backup contains an unapproved file category");
@@ -236,9 +254,7 @@ pub fn sanitized_backup_settings(config: &toml::Value) -> Result<toml::Value> {
             let Some(text) = value.as_str() else {
                 bail!("backup setting {name} must be a string");
             };
-            if text.chars().count() > 64
-                || text.chars().any(|c| c.is_control())
-            {
+            if text.chars().count() > 64 || text.chars().any(|c| c.is_control()) {
                 bail!("invalid backup setting {name}");
             }
             filtered.insert(name.to_owned(), toml::Value::String(text.to_owned()));
@@ -273,6 +289,29 @@ token = "should-not-leak"
         assert!(!encoded.contains("private-endpoint"));
         assert!(!encoded.contains("token"));
         assert!(!encoded.contains("base_url"));
+    }
+
+    #[test]
+    fn backup_with_settings_round_trip_excludes_credentials() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let raw: toml::Value = toml::from_str(
+            "language = \"zh-CN\"\ntheme = \"dark\"\napi_key = \"sensitive\"\n[ai]\ntoken = \"never-export\"\n",
+        )
+        .unwrap();
+        let bundle = dir.path().join("backup");
+        create_offline_backup_with_settings(&db, &[], Some(&raw), &bundle).unwrap();
+        verify_offline_backup(&bundle).unwrap();
+        let exported = fs::read_to_string(bundle.join("config/settings.toml")).unwrap();
+        assert!(exported.contains("zh-CN"));
+        assert!(!exported.contains("sensitive"));
+        assert!(!exported.contains("never-export"));
+        let restored = dir.path().join("restored");
+        restore_offline_backup_to_new_directory(&bundle, &restored).unwrap();
+        assert_eq!(
+            fs::read_to_string(restored.join("config/settings.toml")).unwrap(),
+            exported
+        );
     }
 
     #[test]
