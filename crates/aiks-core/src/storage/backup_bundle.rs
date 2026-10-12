@@ -39,8 +39,7 @@ fn safe_relative(path: &Path) -> Result<String> {
             || matches!(part.chars().last(), Some('.' | ' '))
             || part.encode_utf16().count() > 255
             || part.chars().any(|ch| {
-                ch.is_control()
-                    || matches!(ch, '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+                ch.is_control() || matches!(ch, '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
             })
         {
             bail!("bundle path contains a non-portable filename component");
@@ -54,8 +53,10 @@ fn safe_relative(path: &Path) -> Result<String> {
         let numbered_device = device.len() == 4
             && (device.starts_with("COM") || device.starts_with("LPT"))
             && (b'1'..=b'9').contains(&device.as_bytes()[3]);
-        if matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
-            || numbered_device
+        if matches!(
+            device.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || numbered_device
         {
             bail!("bundle path contains a reserved Windows device name");
         }

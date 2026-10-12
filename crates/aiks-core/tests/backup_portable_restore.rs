@@ -91,11 +91,7 @@ fn tampered_manifest_rejects_backslashes_before_restore() {
     let source = dir.path().join("note.sy");
     fs::write(&source, b"untouched").unwrap();
     let bundle = dir.path().join("bundle");
-    create_file_bundle(
-        &[(source.as_path(), Path::new("notes/safe.sy"))],
-        &bundle,
-    )
-    .unwrap();
+    create_file_bundle(&[(source.as_path(), Path::new("notes/safe.sy"))], &bundle).unwrap();
     let manifest_path = bundle.join("bundle-manifest.json");
     let mut manifest: BundleManifest =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();

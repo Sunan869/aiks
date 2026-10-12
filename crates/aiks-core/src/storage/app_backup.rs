@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use anyhow::{bail, Context, Result};
-use uuid::Uuid;
 use serde::Serialize;
+use uuid::Uuid;
 
 use super::backup::{create_sqlite_backup, load_and_verify_backup, save_backup_manifest};
 use super::backup_bundle::{
@@ -224,10 +224,56 @@ pub fn verify_offline_backup(bundle: &Path) -> Result<BundleManifest> {
     Ok(manifest)
 }
 
+/// Build a secret-free, portable configuration summary for an offline
+/// backup. This is a strict allowlist, never a copy of user configuration.
+pub fn sanitized_backup_settings(config: &toml::Value) -> Result<toml::Value> {
+    let table = config
+        .as_table()
+        .context("AIKS configuration must be a TOML table")?;
+    let mut filtered = toml::map::Map::new();
+    for name in ["language", "theme"] {
+        if let Some(value) = table.get(name) {
+            let Some(text) = value.as_str() else {
+                bail!("backup setting {name} must be a string");
+            };
+            if text.chars().count() > 64
+                || text.chars().any(|c| c.is_control())
+            {
+                bail!("invalid backup setting {name}");
+            }
+            filtered.insert(name.to_owned(), toml::Value::String(text.to_owned()));
+        }
+    }
+    Ok(toml::Value::Table(filtered))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn sanitized_settings_exclude_model_credentials_and_endpoints() {
+        let config: toml::Value = toml::from_str(
+            r#"
+language = "zh-CN"
+theme = "dark"
+api_key = "secret"
+base_url = "http://private-endpoint"
+[ai]
+token = "should-not-leak"
+"#,
+        )
+        .unwrap();
+        let result = sanitized_backup_settings(&config).unwrap();
+        let encoded = toml::to_string(&result).unwrap();
+        assert!(encoded.contains("zh-CN"));
+        assert!(encoded.contains("dark"));
+        assert!(!encoded.contains("secret"));
+        assert!(!encoded.contains("private-endpoint"));
+        assert!(!encoded.contains("token"));
+        assert!(!encoded.contains("base_url"));
+    }
 
     #[test]
     fn coordinated_snapshot_and_quiesced_workspace_restore() {
