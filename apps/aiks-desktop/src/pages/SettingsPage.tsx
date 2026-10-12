@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
+import { OfflineRestore } from "../components/OfflineRestore";
 import { shouldUseMock } from "../api/client";
 
 const LCO_MODEL = "LCO-Embedding/LCO-Embedding-Omni-3B-2605";
@@ -495,6 +496,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <div className="mb-5"><OfflineRestore /></div>
 
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
         AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
