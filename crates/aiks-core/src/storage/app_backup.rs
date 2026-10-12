@@ -67,9 +67,7 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
 /// workspace changes between initial enumeration and completed archiving.
 /// The caller must still stop SiYuan first: this is a drift detector, not a
 /// substitute for application-level quiescence.
-fn workspace_fingerprints(
-    selected: &[(PathBuf, PathBuf)],
-) -> Result<Vec<(PathBuf, String)>> {
+fn workspace_fingerprints(selected: &[(PathBuf, PathBuf)]) -> Result<Vec<(PathBuf, String)>> {
     let mut output = Vec::with_capacity(selected.len());
     for (source, relative) in selected {
         if !fs::symlink_metadata(source)?.file_type().is_file() {
@@ -594,6 +592,19 @@ token = "should-not-leak"
             create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err()
         );
         assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
+    }
+
+    #[test]
+    fn workspace_fingerprint_detects_missing_source_file() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path().join("siyuan");
+        fs::create_dir(&workspace).unwrap();
+        let note = workspace.join("note.sy");
+        fs::write(&note, b"document").unwrap();
+        let selected = enumerate_quiesced_siyuan_workspace(&workspace).unwrap();
+        assert_eq!(workspace_fingerprints(&selected).unwrap().len(), 1);
+        fs::remove_file(&note).unwrap();
+        assert!(workspace_fingerprints(&selected).is_err());
     }
 
     #[test]
