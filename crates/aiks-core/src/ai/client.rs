@@ -965,9 +965,11 @@ mod stream_tests {
 
     #[test]
     fn json_transport_limits_are_distinct_from_decoded_answer_limits() {
-        assert!(super::MAX_CHAT_JSON_RESPONSE_BYTES > super::MAX_CHAT_OUTPUT_BYTES);
-        assert!(super::MAX_ERROR_RESPONSE_BYTES < super::MAX_CHAT_OUTPUT_BYTES);
-        assert!(super::MAX_MODEL_LIST_RESPONSE_BYTES < super::MAX_CHAT_JSON_RESPONSE_BYTES);
+        const {
+            assert!(super::MAX_CHAT_JSON_RESPONSE_BYTES > super::MAX_CHAT_OUTPUT_BYTES);
+            assert!(super::MAX_ERROR_RESPONSE_BYTES < super::MAX_CHAT_OUTPUT_BYTES);
+            assert!(super::MAX_MODEL_LIST_RESPONSE_BYTES < super::MAX_CHAT_JSON_RESPONSE_BYTES);
+        }
     }
 
     #[test]
