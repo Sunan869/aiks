@@ -213,12 +213,13 @@ impl SessionIndexService {
             "SELECT COUNT(c.id), COUNT(e.id),
                         COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND
                             (e.dimensions <= 0 OR e.dimensions != ?2 OR
+                             e.model != ?3 OR
                              LENGTH(e.vector) != e.dimensions * 4)
                             THEN 1 ELSE 0 END), 0)
                  FROM session_search_chunk c
                  LEFT JOIN session_embedding_record e ON e.chunk_id = c.id
                  WHERE c.session_id = ?1",
-            params![session_id, state.embedding_dimensions],
+            params![session_id, state.embedding_dimensions, state.embedding_model],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         if chunk_count != state.chunk_count as i64 {
@@ -1003,6 +1004,50 @@ mod tests {
             assert_eq!(stored_bytes, 8);
             assert!(service.index_session(input).await.unwrap().skipped);
         }
+    }
+
+    #[tokio::test]
+    async fn stale_persisted_embedding_model_rebuilds_without_falsely_skipping() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let provider = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let service = SessionIndexService::new(db.clone(), provider.clone());
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "project context and session evidence".into(),
+        };
+        let first = service.index_session(input.clone()).await.unwrap();
+        assert_eq!(first.embedded_count, 1);
+        assert!(service.index_session(input.clone()).await.unwrap().skipped);
+        {
+            let conn = db.conn();
+            conn.execute(
+                "UPDATE session_embedding_record SET model = ?1
+                 WHERE chunk_id IN (SELECT id FROM session_search_chunk WHERE session_id = ?2)",
+                params!["old-embedding-model", session_id],
+            )
+            .unwrap();
+        }
+        let rebuilt = service.index_session(input.clone()).await.unwrap();
+        assert!(!rebuilt.skipped);
+        assert_eq!(rebuilt.embedded_count, 1);
+        let restored_model: String = db
+            .conn()
+            .query_row(
+                "SELECT model FROM session_embedding_record",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored_model, "session-test-embed");
+        assert_eq!(*provider.calls.lock().unwrap(), 2);
+        assert!(service.index_session(input).await.unwrap().skipped);
     }
 
     fn seed_session(db: &StateDb) -> i64 {
