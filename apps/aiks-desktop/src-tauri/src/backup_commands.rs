@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use aiks_core::storage::app_backup::{
-    preflight_offline_restore, preflight_offline_restore_with_capacity,
+    create_offline_backup_from_quiesced_workspace, preflight_offline_restore,
+    preflight_offline_restore_with_capacity,
     restore_offline_backup_with_capacity_and_confirmation, verify_offline_backup,
     OfflineRestorePreview,
 };
@@ -113,6 +114,47 @@ fn inspect_with_capacity(
         available_bytes: available,
         required_bytes: required,
     })
+}
+
+/// Manual offline backup is restricted to a separate, already-quiesced
+/// workspace. The running application's SiYuan workspace is never sampled.
+#[tauri::command]
+pub async fn create_offline_backup_from_stopped_workspace(
+    workspace_path: String,
+    destination_path: String,
+) -> Result<usize, String> {
+    let workspace = validated_path(&workspace_path)?;
+    let destination = validated_path(&destination_path)?;
+    let active = std::fs::canonicalize(aiks_core::config::data_root())
+        .map_err(|error| error.to_string())?;
+    let workspace = std::fs::canonicalize(workspace)
+        .map_err(|error| error.to_string())?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "备份目录缺少父目录".to_string())?;
+    let parent = std::fs::canonicalize(parent).map_err(|error| error.to_string())?;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| "备份目录缺少名称".to_string())?;
+    let output = parent.join(name);
+    if workspace.starts_with(&active) || active.starts_with(&workspace) {
+        return Err("不能备份正在运行的 AIKS 工作空间，请选择单独停写的工作空间".to_string());
+    }
+    if output.starts_with(&active) || active.starts_with(&output) {
+        return Err("备份输出不能与当前 AIKS 数据目录重叠".to_string());
+    }
+    if output.starts_with(&workspace) || workspace.starts_with(&output) {
+        return Err("备份输出不能与来源工作空间重叠".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = aiks_core::storage::StateDb::open(&active.join("aiks.db"))
+            .map_err(|error| error.to_string())?;
+        create_offline_backup_from_quiesced_workspace(&db, &workspace, &output)
+            .map(|manifest| manifest.entries.len())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("离线备份任务异常退出：{error}"))?
 }
 
 #[tauri::command]

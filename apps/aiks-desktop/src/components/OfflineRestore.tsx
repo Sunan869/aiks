@@ -3,6 +3,10 @@ import { shouldUseMock } from "../api/client";
 import { canConfirmIsolatedRestore, type OfflineRestorePreview } from "../offline-restore";
 
 export function OfflineRestore() {
+  const [sourceWorkspace, setSourceWorkspace] = useState("");
+  const [backupOutput, setBackupOutput] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [creationMessage, setCreationMessage] = useState("");
   const [bundle, setBundle] = useState("");
   const [destination, setDestination] = useState("");
   const [confirmed, setConfirmed] = useState("");
@@ -41,6 +45,24 @@ export function OfflineRestore() {
     }
   };
 
+  const create = async () => {
+    if (creating || isMock || !sourceWorkspace.trim() || !backupOutput.trim()) return;
+    setCreating(true);
+    setCreationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const count = await invoke<number>("create_offline_backup_from_stopped_workspace", {
+        workspacePath: sourceWorkspace,
+        destinationPath: backupOutput,
+      });
+      setCreationMessage("已创建离线备份，共 " + count + " 个文件。请妥善保存备份目录。");
+    } catch (error) {
+      setCreationMessage("备份失败：" + String(error));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const restore = async () => {
     if (!canConfirmIsolatedRestore(bundle, destination, confirmed, previewDestination, preview, busy)) return;
     setBusy(true);
@@ -75,6 +97,24 @@ export function OfflineRestore() {
       <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
         此入口仅支持校验已有备份并恢复到全新独立目录，不覆盖当前工作空间。开始前请关闭 SiYuan 写入。
       </p>
+      <div className="mb-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+        <h4 className="mb-2 text-xs font-semibold">创建备份（仅停写的独立工作空间）</h4>
+        <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">运行中的 AIKS/SiYuan 工作空间禁止直接备份。请先另外准备已停写的独立 SiYuan 工作空间；此操作不会自动停止后台任务。</p>
+        <input aria-label="停写的独立 SiYuan 工作空间路径" value={sourceWorkspace}
+          onChange={e => setSourceWorkspace(e.target.value)} disabled={creating}
+          placeholder="停写的独立工作空间绝对路径"
+          className="mb-2 w-full rounded border bg-transparent p-2 text-xs" />
+        <input aria-label="备份输出路径" value={backupOutput}
+          onChange={e => setBackupOutput(e.target.value)} disabled={creating}
+          placeholder="全新备份目录绝对路径"
+          className="mb-2 w-full rounded border bg-transparent p-2 text-xs" />
+        <button type="button" disabled={creating || isMock || !sourceWorkspace.trim() || !backupOutput.trim()}
+          onClick={() => void create()}
+          className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">
+          {creating ? "正在创建…" : "创建独立工作空间备份"}
+        </button>
+        {creationMessage && <p role="status" className="mt-2 break-words text-xs">{creationMessage}</p>}
+      </div>
       <label className="block text-xs mb-1" htmlFor="offline-bundle">备份目录（绝对路径）</label>
       <input id="offline-bundle" className="w-full rounded border p-2 text-xs mb-3 bg-transparent"
         value={bundle} disabled={busy} placeholder="例如 E:\\AIKS-Backup\\snapshot"

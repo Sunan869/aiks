@@ -64,3 +64,10 @@
 - 基线 `780ccd9`：Windows Provider #38217257362 成功；综合 CI #38217257315 因 backup_commands.rs 一处 Rust 格式差异阻断，未进行后续 Clippy/测试。
 - 本批修正 Rust formatting，补充 `inspect_offline_backup_capacity` 的 Tauri generate_handler 注册，避免 Settings UI 调用时出现 unknown command；容量预检仍由 Windows 系统查询并在确认恢复前再次执行。
 - 仍需完整 SiYuan 停写协调与 Desktop 创建备份。仅 CI 通过不能替代真实 Windows 验收。
+
+
+## 2026-10-12 独立已停写工作空间创建备份入口
+
+- 新增 `create_offline_backup_from_stopped_workspace` Tauri 命令及设置页创建操作，允许从用户事先停写的**独立** SiYuan 工作空间生成 SQLite 快照及文件归档，调用 Core 的前后 SHA-256 稳定性校验。
+- 对来源目录及输出目录均严格执行与当前 AIKS 数据根目录的双向路径隔离，禁止从运行中的工作空间直接创建备份；输出与来源不得嵌套，必须是不存在的独立目录。
+- 此手动入口不负责进程停写、不保证已停写来源与当前 SQLite 状态处于同一时间点；因此仍不属于完整 S1.3 在线应用一致性备份。后续需实现真正的生命周期编排并通过 Windows 真机验证。
