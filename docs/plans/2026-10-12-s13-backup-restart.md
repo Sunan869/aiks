@@ -87,3 +87,8 @@
 - HEAD `c148e81` Windows Provider #38209481361 成功，综合 CI #38209481368 因 app_backup.rs 一处 rustfmt 差异失败；此批按原 CI diff 修正。
 - 备份文件允许额外的 `config/settings.toml` 后，恢复前必须重新解析与校验其实际字段，而不是仅信任 SHA256 清单。新增 `verify_sanitized_settings`，拒绝含 API Key、密钥、模型端点或任何白名单外配置键的文件；即使攻击者重算文件大小和清单摘要，也不能绕过白名单。
 - 新增伪造清单（重新计算 SHA256）与敏感字段注入回归，要求 read-only preflight 拒绝、恢复目录不产生。该 CI 尚未通过，不等于真实 Windows/SiYuan 验收。
+
+## 2026-10-12 非法配置拒绝与 CI 格式修复
+
+- `6b6fd9f` 的综合 CI #38209890418 在两处新增测试 `fs::write` 的 rustfmt 差异失败，Rust Clippy/测试未执行；Windows Provider #38209890397 已成功。
+- 按 CI 日志逐项修正格式，并新增备份创建前非法语言类型、超长主题字段拒绝的测试；不得留下输出备份目录。此批未验证真实 Rust 测试结果，完整 UI 与 SiYuan 停写协调仍待实现。

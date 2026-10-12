@@ -344,7 +344,11 @@ token = "should-not-leak"
         let bundle = dir.path().join("backup");
         create_offline_backup_with_settings(&db, &[], Some(&config), &bundle).unwrap();
         let config_path = bundle.join("config/settings.toml");
-        fs::write(&config_path, "language = \"zh-CN\"\napi_key = \"injected\"\n").unwrap();
+        fs::write(
+            &config_path,
+            "language = \"zh-CN\"\napi_key = \"injected\"\n",
+        )
+        .unwrap();
         let manifest_path = bundle.join("bundle-manifest.json");
         let mut manifest: BundleManifest =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
@@ -357,11 +361,30 @@ token = "should-not-leak"
         entry.bytes = tampered.len() as u64;
         use sha2::{Digest, Sha256};
         entry.sha256 = hex::encode(Sha256::digest(&tampered));
-        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
         assert!(verify_offline_backup(&bundle).is_err());
         let destination = dir.path().join("restored");
         assert!(preflight_offline_restore(&bundle, &destination).is_err());
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn settings_backup_rejects_invalid_allowlisted_values_without_output() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let invalid: toml::Value = toml::from_str("language = 123").unwrap();
+        let dest = dir.path().join("backup");
+        assert!(create_offline_backup_with_settings(&db, &[], Some(&invalid), &dest).is_err());
+        assert!(!dest.exists());
+        let too_long = "a".repeat(65);
+        let invalid: toml::Value =
+            toml::from_str(&format!("theme = \"{too_long}\"")).unwrap();
+        assert!(create_offline_backup_with_settings(&db, &[], Some(&invalid), &dest).is_err());
+        assert!(!dest.exists());
     }
 
     #[test]
