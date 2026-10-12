@@ -58,7 +58,7 @@ describe("S3.4 authoritative source scope before AI and reviewed writes", () => 
     expect(rustCommand).toContain("pub fn validate_organization_scope(");
     expect(rustCommand).toContain("pub async fn create_organized_knowledge(");
     expect(rustCommand).toContain(".validate(&source_knowledge_ids)");
-    expect(rustCommand).toContain("create_knowledge(input, state).await");
+    expect(rustCommand).toContain("create_knowledge(input, state, gate.clone()).await");
     expect(rustCommand).toContain("OrganizationAuditRepo::validate_input");
     expect(rustCommand).toContain("OrganizationScopeGuard::new(&db)");
     expect(coreScope).toContain("COALESCE(pb.project_path,ss.project_path)");

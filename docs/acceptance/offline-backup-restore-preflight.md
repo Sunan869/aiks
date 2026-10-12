@@ -125,3 +125,9 @@
 
 - 基线 `1bcbc4b` Windows Provider #38223597579 成功，但综合 CI #38223597444 的 Rust Clippy 和 Windows desktop compile 均报 E0061：`create_organized_knowledge` 调用 `create_knowledge` 时漏传第三个 BackupQuiescence State 参数。
 - 修正内部转调时传递同一个状态门禁，使两个级别都获取写者许可并在异步写入返回后释放。此项修复不等于全部 Pipeline Worker 写入已经接入，不应据此开放运行中备份。
+
+
+## 2026-10-12 源码契约与真实门禁一致性
+
+- `3779d27` 的 Rust quality/Windows desktop compile/Windows Provider 均通过；综合 CI #38224345308 仅前端源码契约组织知识测试仍断言旧的 `create_knowledge(input, state)` 签名。修正为实际已编译的带 `gate.clone()` 内部调用。
+- 新增独立 Vitest 门禁契约，静态核查此前覆盖的 21 个用户写入命令都具备写者许可，并核查嵌套知识创建传递相同的门禁。此覆盖为防回退检查，不替代 Pipeline Worker 和 SiYuan 内核的停写实现。
