@@ -3,6 +3,8 @@ export interface OfflineRestorePreview {
   total_bytes: number;
   siyuan_files: number;
   requires_siyuan_shutdown: boolean;
+  available_bytes?: number;
+  required_bytes?: number;
 }
 
 export function canConfirmIsolatedRestore(

@@ -28,7 +28,7 @@ export function OfflineRestore() {
     setBusy(true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<OfflineRestorePreview>("inspect_offline_backup", {
+      const result = await invoke<OfflineRestorePreview>("inspect_offline_backup_capacity", {
         bundlePath: bundle, destinationPath: destination,
       });
       setPreview(result);
@@ -90,6 +90,7 @@ export function OfflineRestore() {
       {preview && (
         <div className="mt-3 rounded border border-gray-200 p-3 text-xs dark:border-gray-700">
           <p>文件数量：{preview.file_count}，SiYuan 文件：{preview.siyuan_files}，总大小：{preview.total_bytes.toLocaleString()} 字节</p>
+          <p className="mt-2">磁盘可用：{preview.available_bytes?.toLocaleString()} 字节；恢复预留需求：{preview.required_bytes?.toLocaleString()} 字节</p>
           <p className="mt-2 text-amber-700 dark:text-amber-300">必须确认 SiYuan 不再写入。恢复不会激活或覆盖正在运行的工作空间。</p>
           <label className="block mt-3 mb-1" htmlFor="offline-confirm">再次输入完整恢复目标路径确认</label>
           <input id="offline-confirm" value={confirmed} disabled={busy}

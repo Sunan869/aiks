@@ -2,8 +2,11 @@
 //! Provider directories, or restore into the running application's data root.
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use aiks_core::storage::app_backup::{
-    preflight_offline_restore, restore_offline_backup_after_confirmation, verify_offline_backup,
+    preflight_offline_restore, preflight_offline_restore_with_capacity,
+    restore_offline_backup_with_capacity_and_confirmation, verify_offline_backup,
     OfflineRestorePreview,
 };
 
@@ -38,6 +41,88 @@ fn inspect(bundle_path: &str, destination_path: &str) -> Result<OfflineRestorePr
     preflight_offline_restore(&bundle, &destination).map_err(|e| e.to_string())
 }
 
+/// Windows free space for the volume containing the selected restore parent.
+/// Query the operating system, not a user-supplied estimate.
+#[cfg(windows)]
+fn available_restore_bytes(destination: &Path) -> Result<u64, String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory_name: *const u16,
+            free_bytes_available: *mut u64,
+            total_bytes: *mut u64,
+            total_free_bytes: *mut u64,
+        ) -> i32;
+    }
+
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "恢复目标缺少父目录".to_string())?;
+    let parent = std::fs::canonicalize(parent).map_err(|e| e.to_string())?;
+    let wide: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0u64;
+    let status = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if status == 0 {
+        return Err(format!(
+            "无法查询恢复磁盘可用容量：{}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(available)
+}
+
+#[cfg(not(windows))]
+fn available_restore_bytes(_destination: &Path) -> Result<u64, String> {
+    Err("当前平台尚不支持安全的实时磁盘空间检查，已禁止执行恢复".to_string())
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopRestorePreview {
+    #[serde(flatten)]
+    pub backup: OfflineRestorePreview,
+    pub available_bytes: u64,
+    pub required_bytes: u64,
+}
+
+fn inspect_with_capacity(
+    bundle_path: &str,
+    destination_path: &str,
+) -> Result<DesktopRestorePreview, String> {
+    let summary = inspect(bundle_path, destination_path)?;
+    let destination = validated_path(destination_path)?;
+    let available = available_restore_bytes(&destination)?;
+    let bundle = validated_path(bundle_path)?;
+    preflight_offline_restore_with_capacity(&bundle, &destination, available)
+        .map_err(|e| e.to_string())?;
+    let reserve = (summary.total_bytes / 5).max(64 * 1024 * 1024);
+    let required = summary
+        .total_bytes
+        .checked_add(reserve)
+        .ok_or_else(|| "恢复空间预算溢出".to_string())?;
+    Ok(DesktopRestorePreview {
+        backup: summary,
+        available_bytes: available,
+        required_bytes: required,
+    })
+}
+
+#[tauri::command]
+pub fn inspect_offline_backup_capacity(
+    bundle_path: String,
+    destination_path: String,
+) -> Result<DesktopRestorePreview, String> {
+    inspect_with_capacity(&bundle_path, &destination_path)
+}
+
 #[tauri::command]
 pub fn inspect_offline_backup(
     bundle_path: String,
@@ -68,11 +153,16 @@ pub async fn restore_offline_backup_isolated(
     // Re-run all checks immediately before writing, not merely when the
     // preview was displayed. Large copies run off the UI event loop.
     tauri::async_runtime::spawn_blocking(move || {
-        inspect(&bundle_path, &destination_path)?;
+        let preview = inspect_with_capacity(&bundle_path, &destination_path)?;
         let bundle = validated_path(&bundle_path)?;
         let destination = validated_path(&destination_path)?;
         let confirmed = validated_path(&confirmed_destination_path)?;
-        restore_offline_backup_after_confirmation(&bundle, &destination, &confirmed)
+        restore_offline_backup_with_capacity_and_confirmation(
+            &bundle,
+            &destination,
+            &confirmed,
+            preview.available_bytes,
+        )
             .map(|manifest| manifest.entries.len())
             .map_err(|error| error.to_string())
     })
