@@ -59,7 +59,11 @@ pub async fn bind_project_session(
     session_id: i64,
     target_project_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<ProjectSessionBinding, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     ProjectSessionBindingService::new(&db)
@@ -71,7 +75,11 @@ pub async fn bind_project_session(
 pub async fn clear_project_session_binding(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<bool, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     ProjectSessionBindingService::new(&db)
@@ -86,7 +94,11 @@ pub async fn create_project_review(
     through: String,
     source: Option<String>,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let snapshot = ProjectMemoryService::new(&db)
@@ -140,7 +152,11 @@ pub struct SaveProjectReportDraftPayload {
 pub async fn save_project_report_draft(
     payload: SaveProjectReportDraftPayload,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<ProjectReportVersion, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     ProjectReportDraftService::new(&db)

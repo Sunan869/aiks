@@ -112,3 +112,10 @@
 - 基线 `9e58bd4` CI #38221967218 因 Rust 格式差异失败；按差异修复 commands.rs 与 lifecycle.rs。
 - 在 `extract_session_now`、`retry_failed_ai_task`、`cancel_pending_ai_task`、`run_pipeline_for_session`、`backfill_extractions` 的 Tauri 人工写入入口增加跨异步调用的写者许可。
 - 仍有 Pipeline Worker 内部、知识编辑命令及 SiYuan 内核运行时尚未纳入完整停写；不可将当前功能当作运行中一键备份。
+
+
+## 2026-10-12 知识与项目写命令接入停写协调
+
+- 基线 `44877ad` 的综合 CI #38222700174 与 Windows Provider #38222700212 均成功。
+- 本批把知识手动创建、整理衍生、收藏、归档、恢复、发布到 SiYuan、反馈、关系建议与关系审核，以及项目 Session 绑定/解绑、项目复盘创建、报告草稿保存等共 13 个 Tauri 写入入口纳入共享 BackupQuiescence 写者许可。操作未完成时许可不释放；备份暂停期间新操作拒绝进入。
+- 这只是具体命令层的覆盖；Pipeline Worker 和其他异步/内部写入、SiYuan 内核停写以及完整停止/恢复流程仍须后续核验，不得开放当前活动空间的一键备份。

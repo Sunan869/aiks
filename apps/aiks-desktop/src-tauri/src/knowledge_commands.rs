@@ -124,7 +124,11 @@ pub fn validate_organization_scope(
 pub async fn create_knowledge(
     input: KnowledgeWritePayload,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
@@ -168,7 +172,11 @@ pub async fn create_organized_knowledge(
     source_knowledge_ids: Vec<String>,
     operation: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     {
         let db = engine.db();
@@ -247,7 +255,11 @@ pub async fn set_knowledge_favorite(
     knowledge_id: String,
     favorite: bool,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let item = KnowledgeService::new(&db)
@@ -260,7 +272,11 @@ pub async fn set_knowledge_favorite(
 pub async fn archive_knowledge(
     knowledge_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let item = KnowledgeService::new(&db)
@@ -273,7 +289,11 @@ pub async fn archive_knowledge(
 pub async fn restore_knowledge(
     knowledge_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let item = KnowledgeService::new(&db)
@@ -335,7 +355,11 @@ pub async fn search_knowledge_v4(
 pub async fn publish_knowledge(
     knowledge_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
@@ -367,7 +391,11 @@ pub async fn add_knowledge_feedback(
     kind: String,
     note: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<aiks_core::pipeline::KnowledgeFeedback, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     aiks_core::pipeline::FeedbackRepo::new(&db)
@@ -394,7 +422,11 @@ pub async fn suggest_knowledge_relation(
     relation_type: String,
     evidence: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     aiks_core::pipeline::RelationRepo::new(&db)
@@ -432,7 +464,11 @@ pub async fn review_knowledge_relation(
     relation_id: String,
     decision: String,
     state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     aiks_core::pipeline::RelationRepo::new(&db)
