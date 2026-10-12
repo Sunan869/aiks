@@ -199,8 +199,7 @@ impl PipelineWorker {
                 bounded_ai_config,
                 embedding_config,
                 worker_wake_tx,
-                semaphore,
-                worker_gate,
+                (semaphore, worker_gate),
             )
             .await;
         });
@@ -316,9 +315,9 @@ async fn run_worker(
     ai_config: AiModelConfig,
     embedding_config: EmbeddingConfig,
     wake_tx: mpsc::Sender<()>,
-    semaphore: Arc<Semaphore>,
-    backup_gate: Arc<RwLock<Option<Arc<BackupQuiescence>>>>,
+    controls: (Arc<Semaphore>, Arc<RwLock<Option<Arc<BackupQuiescence>>>>),
 ) {
+    let (semaphore, backup_gate) = controls;
     info!("[PIPELINE] Durable worker started");
     let discovery_cache = Arc::new(ProviderDiscoveryCache::default());
     let mut poll = tokio::time::interval(Duration::from_millis(500));

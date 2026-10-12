@@ -145,3 +145,10 @@
 - `a08d9b6` Windows Provider #38226112922 成功，综合 CI #38226112921 只在 Rust formatting 失败；依据差异修正 worker.rs import 和 Self 初始化格式。
 - 补充长作业 OwnedWriterPermit 的并发单测：任务许可仍持有时暂停等待，许可结束才完成排空、暂停期间禁止新写入，退出后恢复许可。
 - **重要启动时序风险**：Worker 在 AiksEngine::initialize 时已启动，而 Desktop 仅在 initialize 返回后注入 backup gate。这段间隙仍可能领取任务，故此阶段不能启动活动工作区完整备份；后续必须使门禁在 Worker 开始轮询之前绑定，并完成 SiYuan 运行时真正停写协调。
+
+
+## 2026-10-12 Worker 控制参数合并与 CI Clippy 收敛
+
+- 基线 `2ed9a71`：Windows Provider #38230245064 成功，综合 CI #38230245218 已通过 Rust formatting，但 Clippy `too_many_arguments` 阻断于 run_worker 新增第八个参数。
+- 将 Worker 的 Semaphore 与共享 BackupQuiescence 状态组合为一个控制参数，在入口解构，保留现有 Worker 领取任务前获取写许可和任务结束释放的行为，不使用 `#[allow]` 绕过质量门禁。
+- 仍未解决 AiksEngine::initialize 内部启动 Worker 到 Desktop 注入门禁的时间窗口。应用级一键备份仍禁止启用，必须后续完成真正运行时一致性编排。
