@@ -471,6 +471,10 @@ impl AiksEngine {
         self.registry.clone()
     }
 
+    pub fn set_backup_gate(&self, gate: Arc<crate::storage::backup_quiescence::BackupQuiescence>) {
+        self.pipeline_worker.set_backup_gate(gate);
+    }
+
     /// Get the state DB
     pub fn db(&self) -> Arc<StateDb> {
         self.db.clone()

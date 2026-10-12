@@ -131,3 +131,10 @@
 
 - `3779d27` 的 Rust quality/Windows desktop compile/Windows Provider 均通过；综合 CI #38224345308 仅前端源码契约组织知识测试仍断言旧的 `create_knowledge(input, state)` 签名。修正为实际已编译的带 `gate.clone()` 内部调用。
 - 新增独立 Vitest 门禁契约，静态核查此前覆盖的 21 个用户写入命令都具备写者许可，并核查嵌套知识创建传递相同的门禁。此覆盖为防回退检查，不替代 Pipeline Worker 和 SiYuan 内核的停写实现。
+
+
+## 2026-10-12 Pipeline Worker 任务领取与异步处理门禁
+
+- 已添加 Arc 自持有 writer permit，长任务跨 Tokio spawn 生命周期持有许可，直到真实 Job 退出后才释放。
+- Worker 在 claim_next 之前尝试获得许可，暂停时不再领取新任务；已经运行的任务持有许可并参与 drain。Desktop 内嵌和外部启动路径将共享门禁注入 AiksEngine/Worker。
+- 当前仍无全面的一键停写流程；后台 AI 之外的其他内核运行时、对外 SiYuan 并发编辑、UI 边界的原子一致性尚需端到端检查。该提交需完整 CI 验证，不能提前认可 Windows 备份测试。

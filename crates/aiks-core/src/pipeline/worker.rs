@@ -7,7 +7,7 @@
 ///       → EMBED_CHUNKED → EMBEDDED → INDEXED → READY
 ///
 /// Runs automatically when new sessions are discovered via sync.
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::{Arc, RwLock}, time::Duration};
 
 use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
@@ -24,6 +24,7 @@ use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
 use crate::renderer::MarkdownRenderer;
+use crate::storage::backup_quiescence::BackupQuiescence;
 use crate::storage::StateDb;
 
 #[derive(Debug, Clone)]
@@ -110,6 +111,7 @@ async fn resolve_session_summary(
 pub struct PipelineWorker {
     db: Arc<StateDb>,
     wake_tx: mpsc::Sender<()>,
+    backup_gate: Arc<RwLock<Option<Arc<BackupQuiescence>>>>,
 }
 
 /// Bound nested resource use. Every running durable job may spawn up to
@@ -182,6 +184,8 @@ impl PipelineWorker {
         let semaphore = Arc::new(Semaphore::new(permitted_jobs));
         let worker_wake_tx = wake_tx.clone();
         let worker_db = Arc::clone(&db);
+        let backup_gate = Arc::new(RwLock::new(None));
+        let worker_gate = Arc::clone(&backup_gate);
 
         tokio::spawn(async move {
             run_worker(
@@ -192,13 +196,21 @@ impl PipelineWorker {
                 embedding_config,
                 worker_wake_tx,
                 semaphore,
+                worker_gate,
             )
             .await;
         });
 
-        let worker = Self { db, wake_tx };
+        let worker = Self { db, wake_tx, backup_gate };
         let _ = worker.wake_tx.try_send(());
         worker
+    }
+
+    /// Install the desktop's shared backup gate before any backup is enabled.
+    pub fn set_backup_gate(&self, gate: Arc<BackupQuiescence>) {
+        if let Ok(mut current) = self.backup_gate.write() {
+            *current = Some(gate);
+        }
     }
 
     /// Persist first, then wake the worker. A full wake channel is fine: it
@@ -297,6 +309,7 @@ async fn run_worker(
     embedding_config: EmbeddingConfig,
     wake_tx: mpsc::Sender<()>,
     semaphore: Arc<Semaphore>,
+    backup_gate: Arc<RwLock<Option<Arc<BackupQuiescence>>>>,
 ) {
     info!("[PIPELINE] Durable worker started");
     let discovery_cache = Arc::new(ProviderDiscoveryCache::default());
@@ -318,6 +331,18 @@ async fn run_worker(
                 Ok(permit) => permit,
                 Err(tokio::sync::TryAcquireError::NoPermits) => break,
                 Err(tokio::sync::TryAcquireError::Closed) => return,
+            };
+
+            let selected_gate = backup_gate.read().ok().and_then(|guard| guard.clone());
+            let job_guard = match selected_gate {
+                Some(ref gate) => match BackupQuiescence::try_begin_owned(gate) {
+                    Some(guard) => Some(guard),
+                    None => {
+                        drop(permit);
+                        break;
+                    }
+                },
+                None => None,
             };
 
             let claimed = match PipelineJobRepo::new(&db).claim_next() {
@@ -344,6 +369,7 @@ async fn run_worker(
             let task_discovery_cache = Arc::clone(&discovery_cache);
 
             tokio::spawn(async move {
+                let _writer = job_guard;
                 let durable_job_id = claimed.durable_job_id.clone();
                 let attempt = claimed.attempt;
                 let job = claimed.job;

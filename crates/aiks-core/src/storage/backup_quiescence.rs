@@ -1,7 +1,7 @@
 //! Shared drain gate for coordinated offline backup.
 //! Every mutating operation must acquire a writer permit; backups obtain
 //! exclusive quiescence only after all active writers leave.
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Default)]
 pub struct BackupQuiescence {
@@ -19,11 +19,26 @@ pub struct WriterPermit<'a> {
     gate: &'a BackupQuiescence,
 }
 
+pub struct OwnedWriterPermit {
+    gate: Arc<BackupQuiescence>,
+}
+
 pub struct QuiescedGuard<'a> {
     gate: &'a BackupQuiescence,
 }
 
 impl BackupQuiescence {
+    pub fn try_begin_owned(gate: &Arc<Self>) -> Option<OwnedWriterPermit> {
+        let mut state = gate.state.lock().ok()?;
+        if state.paused {
+            return None;
+        }
+        state.writers += 1;
+        Some(OwnedWriterPermit {
+            gate: Arc::clone(gate),
+        })
+    }
+
     pub fn try_begin_write(&self) -> Option<WriterPermit<'_>> {
         let mut state = self.state.lock().ok()?;
         if state.paused {
@@ -45,6 +60,17 @@ impl BackupQuiescence {
             state = self.idle.wait(state).map_err(|_| "backup gate poisoned")?;
         }
         Ok(QuiescedGuard { gate: self })
+    }
+}
+
+impl Drop for OwnedWriterPermit {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.gate.state.lock() {
+            state.writers -= 1;
+            if state.writers == 0 {
+                self.gate.idle.notify_all();
+            }
+        }
     }
 }
 
