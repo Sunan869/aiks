@@ -604,6 +604,27 @@ mod tests {
         }
     }
 
+    struct MalformedEmbedding;
+
+    #[async_trait]
+    impl EmbeddingProvider for MalformedEmbedding {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn model_name(&self) -> &str {
+            "session-test-embed"
+        }
+
+        fn dimensions(&self) -> Option<usize> {
+            Some(2)
+        }
+
+        async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(vec![vec![f32::NAN, 0.0]; texts.len()])
+        }
+    }
+
     fn seed_session(db: &StateDb) -> i64 {
         SourceSessionRepo::new(db)
             .upsert(
@@ -618,6 +639,49 @@ mod tests {
                 Some("test"),
             )
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn malformed_embedding_preserves_lexical_session_and_allows_retry() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: Some("Session Search".into()),
+            normalized_text: "still searchable".into(),
+        };
+        let bad = SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding));
+        let result = bad.index_session(input.clone()).await.unwrap();
+        assert_eq!(result.embedded_count, 0);
+        let (status, error): (String, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "ready");
+        assert!(error.unwrap().contains("Embedding response"));
+        let fts_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fts_count, 1);
+        let good = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let repaired = SessionIndexService::new(db.clone(), good);
+        let retry = repaired.index_session(input).await.unwrap();
+        assert!(!retry.skipped);
+        assert_eq!(retry.embedded_count, 1);
     }
 
     #[tokio::test]

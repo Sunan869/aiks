@@ -39,8 +39,7 @@ async fn embed_from_mock(
 
 #[tokio::test]
 async fn reordered_indexes_preserve_input_order() {
-    let body =
-        r#"{"data":[{"index":1,"embedding":[0.0,1.0]},{"index":0,"embedding":[1.0,0.0]}]}"#;
+    let body = r#"{"data":[{"index":1,"embedding":[0.0,1.0]},{"index":0,"embedding":[1.0,0.0]}]}"#;
     let vectors = embed_from_mock("200 OK", body, None, Some(2), 2)
         .await
         .unwrap();

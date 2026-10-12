@@ -215,6 +215,11 @@ impl<'a> UnifiedSearchService<'a> {
         );
         let mut vectors =
             result.map_err(|_| anyhow::anyhow!("query embedding timed out after 8 seconds"))??;
+        anyhow::ensure!(
+            vectors.len() == 1,
+            "embedding provider returned {} query vectors instead of one",
+            vectors.len()
+        );
         let query_vector = vectors
             .pop()
             .ok_or_else(|| anyhow::anyhow!("embedding provider returned no query vector"))?;
@@ -255,7 +260,10 @@ impl<'a> UnifiedSearchService<'a> {
     ) -> anyhow::Result<Vec<RankedCandidate>> {
         let model = self.embeddings.model_name();
         let query_norm = l2_norm(query_vector);
-        anyhow::ensure!(query_norm > 0.0, "query embedding has zero norm");
+        anyhow::ensure!(
+            query_norm.is_finite() && query_norm > 0.0,
+            "query embedding has invalid norm"
+        );
         let mut candidates = Vec::new();
         if corpora.contains(&SearchCorpus::Knowledge) {
             candidates.extend(self.semantic_knowledge(query_vector, query_norm, model, filter)?);
@@ -318,12 +326,14 @@ impl<'a> UnifiedSearchService<'a> {
         let score_started = Instant::now();
         let mut out = Vec::new();
         for (id, title, summary, siyuan_doc_id, chunk_id, text, bytes) in rows {
-            let vector = decode_vector(&bytes)?;
-            if vector.len() != query_vector.len() {
+            let Ok(vector) = decode_vector(&bytes) else {
                 continue;
-            }
+            };
+            let Some(raw_score) = valid_cosine_score(query_vector, query_norm, &vector) else {
+                continue;
+            };
             out.push(RankedCandidate {
-                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
+                raw_score,
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Knowledge,
                     entity_id: id,
@@ -398,12 +408,14 @@ impl<'a> UnifiedSearchService<'a> {
         let score_started = Instant::now();
         let mut out = Vec::new();
         for (session_id, title, siyuan_doc_id, chunk_id, text, bytes) in rows {
-            let vector = decode_vector(&bytes)?;
-            if vector.len() != query_vector.len() {
+            let Ok(vector) = decode_vector(&bytes) else {
                 continue;
-            }
+            };
+            let Some(raw_score) = valid_cosine_score(query_vector, query_norm, &vector) else {
+                continue;
+            };
             out.push(RankedCandidate {
-                raw_score: cosine_sim_with_left_norm(query_vector, query_norm, &vector),
+                raw_score,
                 hit: UnifiedSearchHit {
                     corpus: SearchCorpus::Session,
                     entity_id: session_id.to_string(),
@@ -718,6 +730,19 @@ fn add_ranked_list(
     }
 }
 
+/// Keep valid candidates usable even if an old on-disk vector is corrupt.
+fn valid_cosine_score(query: &[f32], query_norm: f32, candidate: &[f32]) -> Option<f32> {
+    if candidate.len() != query.len()
+        || candidate.is_empty()
+        || candidate.iter().any(|value| !value.is_finite())
+        || !candidate.iter().any(|value| *value != 0.0)
+    {
+        return None;
+    }
+    let score = cosine_sim_with_left_norm(query, query_norm, candidate);
+    score.is_finite().then_some(score)
+}
+
 fn decode_vector(bytes: &[u8]) -> anyhow::Result<Vec<f32>> {
     if !bytes.len().is_multiple_of(4) {
         anyhow::bail!("invalid f32 vector byte length: {}", bytes.len());
@@ -747,6 +772,24 @@ mod tests {
                 siyuan_doc_id: None,
             },
         }
+    }
+
+    #[test]
+    fn corrupted_legacy_vectors_are_not_ranked() {
+        let query = [1.0_f32, 0.0];
+        let norm = l2_norm(&query);
+        let score = valid_cosine_score(&query, norm, &query).unwrap();
+        assert!((score - 1.0).abs() < 1e-6);
+        for vector in [
+            vec![],
+            vec![0.0, 0.0],
+            vec![f32::NAN, 1.0],
+            vec![f32::INFINITY, 1.0],
+            vec![1.0, 0.0, 0.0],
+        ] {
+            assert!(valid_cosine_score(&query, norm, &vector).is_none());
+        }
+        assert!(decode_vector(&[0_u8; 3]).is_err());
     }
 
     #[test]

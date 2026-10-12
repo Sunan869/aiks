@@ -117,9 +117,14 @@ pub struct EmbeddingClient {
 
 impl EmbeddingClient {
     pub fn new(config: EmbeddingConfig) -> anyhow::Result<Self> {
-        anyhow::ensure!(config.batch_size > 0, "Embedding batch_size must be positive");
         anyhow::ensure!(
-            config.dimensions.is_none_or(|size| (1..=MAX_EMBEDDING_DIMENSIONS).contains(&size)),
+            config.batch_size > 0,
+            "Embedding batch_size must be positive"
+        );
+        anyhow::ensure!(
+            config
+                .dimensions
+                .is_none_or(|size| (1..=MAX_EMBEDDING_DIMENSIONS).contains(&size)),
             "Embedding configured dimensions must be between 1 and {MAX_EMBEDDING_DIMENSIONS}"
         );
         let http = Client::builder()
