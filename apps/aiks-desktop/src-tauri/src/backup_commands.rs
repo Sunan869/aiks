@@ -6,9 +6,8 @@ use serde::Serialize;
 
 use aiks_core::storage::app_backup::{
     create_offline_backup_from_quiesced_workspace, preflight_offline_restore,
-    preflight_offline_restore_with_capacity,
-    restore_offline_backup_with_capacity_and_confirmation, verify_offline_backup,
-    OfflineRestorePreview,
+    preflight_offline_restore_with_capacity, restore_offline_backup_with_capacity_and_confirmation,
+    verify_offline_backup, OfflineRestorePreview,
 };
 
 fn validated_path(raw: &str) -> Result<PathBuf, String> {
@@ -125,10 +124,9 @@ pub async fn create_offline_backup_from_stopped_workspace(
 ) -> Result<usize, String> {
     let workspace = validated_path(&workspace_path)?;
     let destination = validated_path(&destination_path)?;
-    let active = std::fs::canonicalize(aiks_core::config::data_root())
-        .map_err(|error| error.to_string())?;
-    let workspace = std::fs::canonicalize(workspace)
-        .map_err(|error| error.to_string())?;
+    let active =
+        std::fs::canonicalize(aiks_core::config::data_root()).map_err(|error| error.to_string())?;
+    let workspace = std::fs::canonicalize(workspace).map_err(|error| error.to_string())?;
     let parent = destination
         .parent()
         .ok_or_else(|| "备份目录缺少父目录".to_string())?;
@@ -147,7 +145,13 @@ pub async fn create_offline_backup_from_stopped_workspace(
         return Err("备份输出不能与来源工作空间重叠".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let db = aiks_core::storage::StateDb::open(&active.join("aiks.db"))
+        let db_path = active.join("aiks.db");
+        let metadata = std::fs::symlink_metadata(&db_path)
+            .map_err(|error| format!("找不到已有 AIKS 状态数据库：{error}"))?;
+        if !metadata.file_type().is_file() {
+            return Err("AIKS 状态数据库必须是普通文件，不能是目录或符号链接".to_string());
+        }
+        let db = aiks_core::storage::StateDb::open(&db_path)
             .map_err(|error| error.to_string())?;
         create_offline_backup_from_quiesced_workspace(&db, &workspace, &output)
             .map(|manifest| manifest.entries.len())
