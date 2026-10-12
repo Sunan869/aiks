@@ -720,7 +720,9 @@ mod tests {
         assert_eq!(result.embedded_count, 0);
         let conn = db.conn();
         let vectors: i64 = conn
-            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(vectors, 0);
         let (status, last_error): (String, Option<String>) = conn
@@ -752,6 +754,23 @@ mod tests {
         assert!(!retry.skipped);
         assert_eq!(retry.embedded_count, retry.chunk_count);
         assert_eq!(retry.chunk_count, 1);
+        let (recovered_status, recovered_error): (String, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(recovered_status, "ready");
+        assert!(recovered_error.is_none());
+        let recovered_vectors: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(recovered_vectors, retry.chunk_count as i64);
     }
 
     fn seed_session(db: &StateDb) -> i64 {
