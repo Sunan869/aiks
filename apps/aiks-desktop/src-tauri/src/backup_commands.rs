@@ -16,6 +16,39 @@ use aiks_core::storage::app_backup::{
     verify_offline_backup, OfflineRestorePreview,
 };
 
+/// Bind internal lifecycle backup strictly to this process's managed data
+/// directory, never to arbitrary paths supplied by a future UI command.
+fn validate_managed_backup_paths(
+    data_root: &Path,
+    db_path: &Path,
+    workspace: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    let root = std::fs::canonicalize(data_root).map_err(|e| e.to_string())?;
+    let database = std::fs::canonicalize(db_path).map_err(|e| e.to_string())?;
+    let actual_workspace = std::fs::canonicalize(workspace).map_err(|e| e.to_string())?;
+    if database != root.join("aiks.db")
+        || actual_workspace != root.join("siyuan").join("workspace")
+    {
+        return Err("备份来源与当前 AIKS 数据目录不一致".to_string());
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "备份目标没有父目录".to_string())?;
+    let parent = std::fs::canonicalize(parent).map_err(|e| e.to_string())?;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| "备份目标没有目录名".to_string())?;
+    let output = parent.join(name);
+    if output.starts_with(&root) || root.starts_with(&output) {
+        return Err("备份目标不能与当前 AIKS 数据目录重叠".to_string());
+    }
+    if std::fs::symlink_metadata(&output).is_ok() {
+        return Err("备份目标必须是不存在的新目录".to_string());
+    }
+    Ok(())
+}
+
 /// Internal-only safety orchestration. Not exposed through Tauri until all
 /// writing paths and external SiYuan clients are covered by an audit.
 #[allow(dead_code)]
@@ -29,6 +62,12 @@ async fn create_managed_quiesced_backup(
     if aiks_core::bootstrap::DevOverride::from_env().is_active() {
         return Err("外部 SiYuan 无法由 AIKS 安全停写".to_string());
     }
+    validate_managed_backup_paths(
+        &aiks_core::config::data_root(),
+        &db_path,
+        &workspace,
+        &destination,
+    )?;
     let paused = tauri::async_runtime::spawn_blocking(move || {
         BackupQuiescence::pause_and_drain_owned_with_timeout(&gate, Duration::from_secs(120))
             .map_err(str::to_string)
@@ -301,5 +340,41 @@ mod tests {
         assert!(validated_path("").is_err());
         assert!(validated_path("../workspace").is_err());
         assert!(validated_path("relative").is_err());
+    }
+}
+
+#[cfg(test)]
+mod managed_path_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn managed_backup_rejects_alien_sources_and_nested_output() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("aiks-backup-path-test-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("aiks");
+        let workspace = root.join("siyuan").join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let database = root.join("aiks.db");
+        std::fs::write(&database, b"fixture").unwrap();
+        let output = dir.join("backup");
+        assert!(validate_managed_backup_paths(&root, &database, &workspace, &output).is_ok());
+        assert!(validate_managed_backup_paths(
+            &root,
+            &database,
+            &workspace,
+            &root.join("backup"),
+        )
+        .is_err());
+        assert!(validate_managed_backup_paths(
+            &root,
+            &database,
+            &dir.join("other"),
+            &output,
+        )
+        .is_err());
+        assert!(!output.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
