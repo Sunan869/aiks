@@ -105,7 +105,7 @@ impl SessionIndexService {
             .optional()?
         };
 
-        if state.as_ref().is_some_and(|state| {
+        let skip_candidate = state.as_ref().is_some_and(|state| {
             can_skip(
                 state,
                 &content_hash,
@@ -113,7 +113,14 @@ impl SessionIndexService {
                 embedding_model.as_deref(),
                 configured_dimensions,
             )
-        }) {
+        });
+        if skip_candidate
+            && self.persisted_index_is_complete(
+                input.session_id,
+                state.as_ref().expect("skip_candidate requires index state"),
+                embedding_enabled,
+            )?
+        {
             self.upsert_fts(
                 input.session_id,
                 external_id,
@@ -193,6 +200,39 @@ impl SessionIndexService {
             embedded_count: vectors.len(),
             skipped: false,
         })
+    }
+
+    fn persisted_index_is_complete(
+        &self,
+        session_id: i64,
+        state: &SessionIndexState,
+        embedding_enabled: bool,
+    ) -> anyhow::Result<bool> {
+        let conn = self.db.conn();
+        let (chunk_count, embedding_count, invalid_dimensions): (i64, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(c.id), COUNT(e.id),
+                        COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND
+                            (e.dimensions <= 0 OR e.dimensions != ?2 OR
+                             LENGTH(e.vector) != e.dimensions * 4)
+                            THEN 1 ELSE 0 END), 0)
+                 FROM session_search_chunk c
+                 LEFT JOIN session_embedding_record e ON e.chunk_id = c.id
+                 WHERE c.session_id = ?1",
+                params![session_id, state.embedding_dimensions],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        if chunk_count != state.chunk_count as i64 {
+            return Ok(false);
+        }
+        if embedding_enabled {
+            return Ok(
+                state.embedding_dimensions.is_some_and(|dim| dim > 0)
+                    && embedding_count == chunk_count
+                    && invalid_dimensions == 0,
+            );
+        }
+        Ok(embedding_count == 0)
     }
 
     pub fn remove_session(&self, session_id: i64) -> anyhow::Result<()> {
@@ -879,6 +919,41 @@ mod tests {
             })
             .unwrap();
         assert_eq!(stored, "new-generation");
+    }
+
+    #[tokio::test]
+    async fn missing_persisted_embedding_rebuilds_instead_of_falsely_skipping() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let provider = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let service = SessionIndexService::new(db.clone(), provider.clone());
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "searchable current content".into(),
+        };
+        let initial = service.index_session(input.clone()).await.unwrap();
+        assert_eq!(initial.embedded_count, 1);
+        assert!(service.index_session(input.clone()).await.unwrap().skipped);
+        {
+            let conn = db.conn();
+            conn.execute(
+                "DELETE FROM session_embedding_record WHERE chunk_id IN
+                 (SELECT id FROM session_search_chunk WHERE session_id = ?1)",
+                params![session_id],
+            )
+            .unwrap();
+        }
+        let recovered = service.index_session(input.clone()).await.unwrap();
+        assert!(!recovered.skipped);
+        assert_eq!(recovered.embedded_count, 1);
+        assert_eq!(*provider.calls.lock().unwrap(), 2);
+        assert!(service.index_session(input).await.unwrap().skipped);
     }
 
     fn seed_session(db: &StateDb) -> i64 {
