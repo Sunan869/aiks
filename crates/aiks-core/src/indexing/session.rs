@@ -655,6 +655,105 @@ mod tests {
         }
     }
 
+    struct LateBadEmbedding {
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for LateBadEmbedding {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn model_name(&self) -> &str {
+            "session-test-embed"
+        }
+
+        fn dimensions(&self) -> Option<usize> {
+            Some(2)
+        }
+
+        fn batch_size(&self) -> usize {
+            1
+        }
+
+        fn chunk_target_tokens(&self) -> usize {
+            2
+        }
+
+        fn chunk_overlap_tokens(&self) -> usize {
+            0
+        }
+
+        async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
+            let mut count = self.calls.lock().unwrap();
+            *count += 1;
+            let vector = if *count == 1 {
+                vec![1.0, 0.0]
+            } else {
+                vec![f32::NAN, 0.0]
+            };
+            Ok(vec![vector; texts.len()])
+        }
+    }
+
+    #[tokio::test]
+    async fn later_invalid_embedding_batch_is_atomic_and_recoverable() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "first chunk and then a later chunk".into(),
+        };
+        let bad = SessionIndexService::new(
+            db.clone(),
+            Arc::new(LateBadEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let result = bad.index_session(input.clone()).await.unwrap();
+        assert!(result.chunk_count > 1);
+        assert_eq!(result.embedded_count, 0);
+        let conn = db.conn();
+        let vectors: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(vectors, 0);
+        let (status, last_error): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "ready");
+        assert!(last_error.unwrap().contains("non-finite"));
+        let lexical_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(lexical_count, 1);
+        drop(conn);
+
+        let repaired = SessionIndexService::new(
+            db.clone(),
+            Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let retry = repaired.index_session(input).await.unwrap();
+        assert!(!retry.skipped);
+        assert_eq!(retry.embedded_count, retry.chunk_count);
+        assert_eq!(retry.chunk_count, 1);
+    }
+
     fn seed_session(db: &StateDb) -> i64 {
         SourceSessionRepo::new(db)
             .upsert(
@@ -683,7 +782,10 @@ mod tests {
             title: Some("Session Search".into()),
             normalized_text: "still searchable".into(),
         };
-        let bad = SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding(vec![f32::NAN, 0.0])));
+        let bad = SessionIndexService::new(
+            db.clone(),
+            Arc::new(MalformedEmbedding(vec![f32::NAN, 0.0])),
+        );
         let result = bad.index_session(input.clone()).await.unwrap();
         assert_eq!(result.embedded_count, 0);
         let (status, error): (String, Option<String>) = db
