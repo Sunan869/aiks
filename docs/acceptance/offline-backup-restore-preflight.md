@@ -119,3 +119,9 @@
 - 基线 `44877ad` 的综合 CI #38222700174 与 Windows Provider #38222700212 均成功。
 - 本批把知识手动创建、整理衍生、收藏、归档、恢复、发布到 SiYuan、反馈、关系建议与关系审核，以及项目 Session 绑定/解绑、项目复盘创建、报告草稿保存等共 13 个 Tauri 写入入口纳入共享 BackupQuiescence 写者许可。操作未完成时许可不释放；备份暂停期间新操作拒绝进入。
 - 这只是具体命令层的覆盖；Pipeline Worker 和其他异步/内部写入、SiYuan 内核停写以及完整停止/恢复流程仍须后续核验，不得开放当前活动空间的一键备份。
+
+
+## 2026-10-12 业务门禁签名变更的内部调用修复
+
+- 基线 `1bcbc4b` Windows Provider #38223597579 成功，但综合 CI #38223597444 的 Rust Clippy 和 Windows desktop compile 均报 E0061：`create_organized_knowledge` 调用 `create_knowledge` 时漏传第三个 BackupQuiescence State 参数。
+- 修正内部转调时传递同一个状态门禁，使两个级别都获取写者许可并在异步写入返回后释放。此项修复不等于全部 Pipeline Worker 写入已经接入，不应据此开放运行中备份。

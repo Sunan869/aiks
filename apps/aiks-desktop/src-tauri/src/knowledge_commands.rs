@@ -187,7 +187,7 @@ pub async fn create_organized_knowledge(
         OrganizationAuditRepo::validate_input(&operation, &source_knowledge_ids)
             .map_err(|error| error.to_string())?;
     }
-    let created = create_knowledge(input, state).await?;
+    let created = create_knowledge(input, state, gate.clone()).await?;
     let derived_id = created["id"]
         .as_str()
         .ok_or_else(|| "SiYuan created a document without a knowledge identity".to_string())?;
