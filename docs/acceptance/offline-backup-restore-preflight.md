@@ -1,0 +1,29 @@
+# AIKS S1.3 跨平台备份恢复预检：开发验收入口
+
+本清单记录离线隔离恢复安全门禁，不是 Windows 真机或真实模型验收报告，也不表示 Desktop 备份入口已经可用。
+
+## 自动化门禁
+
+从仓库根目录运行：
+
+- cargo fmt --all --check
+- cargo clippy --workspace --all-targets -- -D warnings
+- cargo test -p aiks-core --test backup_portable_restore
+- cargo test -p aiks-core storage::backup
+
+还需等待 CI 的 Rust 测试、Windows desktop 编译和 Windows Provider 任务全部通过。固定临时目录及 SQLite 样本不能替代真实 SiYuan 工作空间。
+
+## 应用级安全契约
+
+1. 先明确停止 SiYuan 写入。归档目的地必须在工作空间外，Provider 文件始终只读。
+2. 应用归档清单只能包含 sqlite/state.sqlite、sqlite/state-manifest.json 与 siyuan/ 目录下的文件；SQLite 快照必须通过 SHA256、完整性、Schema 和外键检查。
+3. 清单必须是规范化正斜杠路径。跨 Linux、macOS、Windows 时，CON、NUL.txt、COM1、ADS、末尾空格/点、大小写别名、文件/目录重叠、反斜线歧义都必须拒绝。
+4. preflight_offline_restore 返回文件数、SiYuan 文件数和总归档数据字节数，只用于用户选择前的检查与提示。恢复位置必须在归档外且尚不存在。此接口不检查磁盘剩余空间。
+5. restore_offline_backup_to_new_directory 再验证来源，仅复制到全新隔离目录，并检查恢复后的 SQLite；绝不自动覆盖正在运行的 SQLite、SiYuan 或原 Provider 文件。
+
+## 后续 Windows 集中验收
+
+- 关闭内嵌 SiYuan 并确认停写，备份真实含大量 Session、分卷及附件的工作空间；测量容量与执行耗时，检查配置秘密不会被打包。
+- 在另一台 Windows 以及 Linux/macOS 环境通过预检，将快照恢复至独立目录，校验 Session、Knowledge、分卷、附件、全文与向量索引数及检索行为。
+- 故障注入覆盖符号链接、损坏清单、大小写碰撞、磁盘不足、强退中断和旧 Schema；核对失败时用户原文与现有工作区不变。
+- 独立实现 Desktop 用户确认、系统实际剩余空间检查与 SiYuan 停写/重启编排；这些部分尚未完成，不能向用户宣称 S1.3 已完整可用。

@@ -24,15 +24,80 @@ pub struct BundleManifest {
 const MAX_BUNDLE_FILES: usize = 100_000;
 const MAX_BUNDLE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 
-fn safe_relative(path: &Path) -> Result<()> {
-    if path.as_os_str().is_empty()
-        || path
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-    {
-        bail!("bundle path must contain only normal relative components");
+/// Serialize native paths to portable forward-slash spelling, rejecting
+/// filename aliases that Windows would interpret differently from Linux.
+fn safe_relative(path: &Path) -> Result<String> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        let Component::Normal(value) = component else {
+            bail!("bundle path must contain only normal relative components");
+        };
+        let part = value
+            .to_str()
+            .context("bundle path must be UTF-8 for cross-platform restore")?;
+        if part.is_empty()
+            || matches!(part.chars().last(), Some('.' | ' '))
+            || part.encode_utf16().count() > 255
+            || part.chars().any(|ch| {
+                ch.is_control()
+                    || matches!(ch, '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+            })
+        {
+            bail!("bundle path contains a non-portable filename component");
+        }
+        let device = part
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(' ')
+            .to_ascii_uppercase();
+        let numbered_device = device.len() == 4
+            && (device.starts_with("COM") || device.starts_with("LPT"))
+            && (b'1'..=b'9').contains(&device.as_bytes()[3]);
+        if matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+            || numbered_device
+        {
+            bail!("bundle path contains a reserved Windows device name");
+        }
+        parts.push(part);
     }
-    Ok(())
+    if parts.is_empty() {
+        bail!("bundle path must not be empty");
+    }
+    Ok(parts.join("/"))
+}
+
+/// Detect Windows case-insensitive aliases and file/directory overlap on
+/// every supported host.
+#[derive(Default)]
+struct PortablePathSet {
+    files: std::collections::HashSet<String>,
+    directories: std::collections::HashSet<String>,
+}
+
+impl PortablePathSet {
+    fn reserve(&mut self, portable: &str) -> Result<()> {
+        let folded = portable.to_lowercase();
+        if self.files.contains(&folded) || self.directories.contains(&folded) {
+            bail!("bundle has colliding portable file paths");
+        }
+        let pieces: Vec<_> = folded.split('/').collect();
+        let mut parent = String::new();
+        let mut ancestors = Vec::new();
+        for piece in pieces.iter().take(pieces.len().saturating_sub(1)) {
+            if !parent.is_empty() {
+                parent.push('/');
+            }
+            parent.push_str(piece);
+            if self.files.contains(&parent) {
+                bail!("bundle file overlaps a portable directory path");
+            }
+            ancestors.push(parent.clone());
+        }
+        self.files.insert(folded);
+        self.directories.extend(ancestors);
+        Ok(())
+    }
 }
 
 fn regular_file(path: &Path) -> Result<()> {
@@ -78,15 +143,17 @@ pub fn create_file_bundle(
     let result = (|| -> Result<BundleManifest> {
         let mut entries = Vec::with_capacity(sources.len());
         let mut total = 0u64;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = PortablePathSet::default();
         for (source, relative) in sources {
-            safe_relative(relative)?;
-            if *relative == Path::new("bundle-manifest.json") {
+            let portable = safe_relative(relative)?;
+            if portable
+                .split('/')
+                .next()
+                .is_some_and(|part| part.eq_ignore_ascii_case("bundle-manifest.json"))
+            {
                 bail!("bundle destination is reserved for the manifest");
             }
-            if !seen.insert((*relative).to_path_buf()) {
-                bail!("duplicate bundle destination");
-            }
+            seen.reserve(&portable)?;
             regular_file(source)?;
             // Reject symlinked parent directories, including intermediate
             // workspace paths. Caller must supply trusted rooted inputs.
@@ -103,7 +170,7 @@ pub fn create_file_bundle(
             if total > MAX_BUNDLE_BYTES {
                 bail!("bundle size limit exceeded");
             }
-            let target = destination.join(relative);
+            let target = destination.join(&portable);
             let parent = target.parent().context("invalid bundle destination")?;
             fs::create_dir_all(parent)?;
             let mut reader = fs::File::open(source)?;
@@ -118,7 +185,7 @@ pub fn create_file_bundle(
                 bail!("bundle input changed while copying");
             }
             entries.push(BundleEntry {
-                relative_path: relative.to_string_lossy().into_owned(),
+                relative_path: portable,
                 bytes: size,
                 sha256: after,
             });
@@ -150,16 +217,20 @@ pub fn verify_file_bundle(destination: &Path) -> Result<BundleManifest> {
     if manifest.format_version != 1 || manifest.entries.len() > MAX_BUNDLE_FILES {
         bail!("unsupported bundle manifest");
     }
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = PortablePathSet::default();
     let mut total = 0u64;
     for entry in &manifest.entries {
         let relative = Path::new(&entry.relative_path);
-        safe_relative(relative)?;
-        if relative == Path::new("bundle-manifest.json")
-            || !seen.insert(entry.relative_path.as_str())
+        let portable = safe_relative(relative)?;
+        if portable != entry.relative_path
+            || portable
+                .split('/')
+                .next()
+                .is_some_and(|part| part.eq_ignore_ascii_case("bundle-manifest.json"))
         {
-            bail!("duplicate or reserved bundle path");
+            bail!("non-canonical or reserved bundle path");
         }
+        seen.reserve(&portable)?;
         let target = destination.join(relative);
         for parent in target.ancestors().skip(1) {
             if parent == destination {
@@ -178,16 +249,31 @@ pub fn verify_file_bundle(destination: &Path) -> Result<BundleManifest> {
     Ok(manifest)
 }
 
-/// Restore a validated, detached archive into a brand-new directory only.
-/// Never replace live AIKS or SiYuan files. A failed copy removes only the
-/// directory exclusively created by this call.
-pub fn restore_file_bundle_to_new_directory(
+/// Read-only restore preview. The byte count is not a free-space check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleRestorePreview {
+    pub file_count: usize,
+    pub total_bytes: u64,
+}
+
+pub fn preflight_file_bundle_restore(
     bundle: &Path,
     destination: &Path,
-) -> Result<BundleManifest> {
+) -> Result<BundleRestorePreview> {
     let manifest = verify_file_bundle(bundle)?;
-    // A destination nested in the source archive could be mistaken for
-    // mutable source data. Canonicalize the archive before permitting writes.
+    validate_restore_destination(bundle, destination)?;
+    let total_bytes = manifest.entries.iter().try_fold(0u64, |sum, entry| {
+        sum.checked_add(entry.bytes)
+            .context("bundle restore byte count overflow")
+    })?;
+    Ok(BundleRestorePreview {
+        file_count: manifest.entries.len(),
+        total_bytes,
+    })
+}
+
+/// Destination isolation only. Callers must independently verify the archive.
+pub(crate) fn validate_restore_destination(bundle: &Path, destination: &Path) -> Result<()> {
     let bundle_root = fs::canonicalize(bundle)?;
     let parent = destination
         .parent()
@@ -199,6 +285,18 @@ pub fn restore_file_bundle_to_new_directory(
     if fs::symlink_metadata(destination).is_ok() {
         bail!("restore destination already exists");
     }
+    Ok(())
+}
+
+/// Restore a validated, detached archive into a brand-new directory only.
+/// Never replace live AIKS or SiYuan files. A failed copy removes only the
+/// directory exclusively created by this call.
+pub fn restore_file_bundle_to_new_directory(
+    bundle: &Path,
+    destination: &Path,
+) -> Result<BundleManifest> {
+    let manifest = verify_file_bundle(bundle)?;
+    validate_restore_destination(bundle, destination)?;
     fs::create_dir(destination).context("create exclusive restore directory")?;
     let result = (|| -> Result<()> {
         for entry in &manifest.entries {

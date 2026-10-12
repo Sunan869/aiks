@@ -8,10 +8,12 @@ use walkdir::WalkDir;
 
 use anyhow::{bail, Context, Result};
 use uuid::Uuid;
+use serde::Serialize;
 
 use super::backup::{create_sqlite_backup, load_and_verify_backup, save_backup_manifest};
 use super::backup_bundle::{
-    create_file_bundle, restore_file_bundle_to_new_directory, verify_file_bundle, BundleManifest,
+    create_file_bundle, restore_file_bundle_to_new_directory, validate_restore_destination,
+    verify_file_bundle, BundleManifest,
 };
 use super::StateDb;
 
@@ -76,9 +78,15 @@ pub fn create_offline_backup_from_quiesced_workspace(
         .parent()
         .context("backup destination has no parent")?;
     let destination_parent = fs::canonicalize(parent)?;
-    if destination_parent.starts_with(&root) || root.starts_with(&destination_parent.join(
-        destination.file_name().context("backup destination name missing")?,
-    )) {
+    if destination_parent.starts_with(&root)
+        || root.starts_with(
+            &destination_parent.join(
+                destination
+                    .file_name()
+                    .context("backup destination name missing")?,
+            ),
+        )
+    {
         bail!("backup output must be independent of the SiYuan workspace");
     }
     let selected = enumerate_quiesced_siyuan_workspace(workspace_root)?;
@@ -134,12 +142,45 @@ pub fn create_offline_backup(
     outcome
 }
 
-/// Restore into a new, isolated directory only, then verify the embedded
-/// SQLite snapshot against its own format/schema/checksum manifest.
+/// Verified counts for display before explicit user confirmation. No data
+/// changes, free-space check or automatic SiYuan shutdown are performed here.
+#[derive(Debug, Clone, Serialize)]
+pub struct OfflineRestorePreview {
+    pub file_count: usize,
+    pub total_bytes: u64,
+    pub siyuan_files: usize,
+    pub requires_siyuan_shutdown: bool,
+}
+
+pub fn preflight_offline_restore(
+    bundle: &Path,
+    destination: &Path,
+) -> Result<OfflineRestorePreview> {
+    let manifest = verify_offline_backup(bundle)?;
+    validate_restore_destination(bundle, destination)?;
+    let total_bytes = manifest.entries.iter().try_fold(0u64, |sum, entry| {
+        sum.checked_add(entry.bytes)
+            .context("offline backup byte count overflow")
+    })?;
+    Ok(OfflineRestorePreview {
+        file_count: manifest.entries.len(),
+        total_bytes,
+        siyuan_files: manifest
+            .entries
+            .iter()
+            .filter(|entry| entry.relative_path.starts_with("siyuan/"))
+            .count(),
+        requires_siyuan_shutdown: true,
+    })
+}
+
+/// Restore into a new, isolated directory only, after a read-only preflight.
+/// Never apply the snapshot automatically to the running AIKS workspace.
 pub fn restore_offline_backup_to_new_directory(
     bundle: &Path,
     destination: &Path,
 ) -> Result<BundleManifest> {
+    preflight_offline_restore(bundle, destination)?;
     let manifest = restore_file_bundle_to_new_directory(bundle, destination)?;
     let result = load_and_verify_backup(
         &destination.join("sqlite/state.sqlite"),
@@ -152,8 +193,30 @@ pub fn restore_offline_backup_to_new_directory(
     Ok(manifest)
 }
 
+fn validate_offline_manifest(manifest: &BundleManifest) -> Result<()> {
+    for required in ["sqlite/state.sqlite", "sqlite/state-manifest.json"] {
+        if !manifest
+            .entries
+            .iter()
+            .any(|entry| entry.relative_path == required)
+        {
+            bail!("offline backup missing required manifest entry: {required}");
+        }
+    }
+    for entry in &manifest.entries {
+        if entry.relative_path != "sqlite/state.sqlite"
+            && entry.relative_path != "sqlite/state-manifest.json"
+            && !entry.relative_path.starts_with("siyuan/")
+        {
+            bail!("offline backup contains an unapproved file category");
+        }
+    }
+    Ok(())
+}
+
 pub fn verify_offline_backup(bundle: &Path) -> Result<BundleManifest> {
     let manifest = verify_file_bundle(bundle)?;
+    validate_offline_manifest(&manifest)?;
     load_and_verify_backup(
         &bundle.join("sqlite/state.sqlite"),
         &bundle.join("sqlite/state-manifest.json"),
@@ -242,7 +305,9 @@ mod tests {
         assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &nested).is_err());
         assert!(!nested.exists());
         let enclosing = dir.path().join("siyuan");
-        assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err());
+        assert!(
+            create_offline_backup_from_quiesced_workspace(&db, &workspace, &enclosing).is_err()
+        );
         assert_eq!(fs::read(workspace.join("note.sy")).unwrap(), b"unchanged");
     }
 
