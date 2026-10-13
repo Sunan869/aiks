@@ -112,7 +112,7 @@ fn offline_restore_preview_checks_schema_paths_and_requires_detached_destination
     let bundle = dir.path().join("bundle");
     create_offline_backup(
         &db,
-        &[(source.as_path(), Path::new("notes/note.sy"))],
+        &[(source.as_path(), Path::new("data/notes/note.sy"))],
         &bundle,
     )
     .unwrap();
@@ -127,7 +127,7 @@ fn offline_restore_preview_checks_schema_paths_and_requires_detached_destination
     fs::remove_dir(&target).unwrap();
     restore_offline_backup_to_new_directory(&bundle, &target).unwrap();
     assert_eq!(
-        fs::read(target.join("siyuan/notes/note.sy")).unwrap(),
+        fs::read(target.join("siyuan/data/notes/note.sy")).unwrap(),
         b"snapshot content"
     );
 

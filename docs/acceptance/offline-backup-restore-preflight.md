@@ -224,3 +224,9 @@
 - 在 HEAD 3bd05dd3 中综合 CI #38264977181 因 runtime/mod.rs 两处及 app_backup.rs 一处格式差异，跳过了 Clippy/tests。按照原始 CI 格式差异统一修复，不改动 SiYuan 严格确认子进程退出的语义。
 - 手动和自动开发均不得把仅创建 Git commit 对象当作已推送，须验证分支 HEAD 实际变化。没有本地 rustfmt 工具，以上代码仍必须由实际 CI 校验。
 - 内部 create_managed_quiesced_backup 仍未注册到 UI；重启失败释放停写状态等安全缺口依然阻断活动工作区一键完整备份。
+
+
+## 2026-10-13 归档白名单与可移植恢复测试对齐
+
+- 基线 `f9579fc` 综合 CI #38331840586 的 Rust fmt/Clippy 和 329 项库单元测试均通过；集成测试 `backup_portable_restore::offline_restore_preview_checks_schema_paths_and_requires_detached_destination` 因旧测试使用 siyuan/notes/note.sy，未符合现行仅允许 siyuan/data/ 的安全白名单而失败。Windows Provider #38331840542 通过。
+- 本次仅调整集成测试样例为 `data/notes/note.sy` 和对应独立恢复断言，绝不为让测试通过而放宽现行归档路径白名单。再次验证需要新 HEAD CI；Windows 真机和 SiYuan 受控备份尚未验收。
