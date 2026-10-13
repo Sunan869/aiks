@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import editor from "../components/KnowledgeEditor.tsx?raw";
 import search from "../components/UnifiedSearchDialog.tsx?raw";
+import modalFocus from "../components/ui/useModalFocus.ts?raw";
 
 describe("responsive modal workflow contracts", () => {
   it("keeps knowledge save operations and protects in-flight writes", () => {
@@ -8,7 +9,9 @@ describe("responsive modal workflow contracts", () => {
     expect(editor).toContain("createKnowledge(");
     expect(editor).toContain('aria-labelledby="knowledge-editor-title"');
     expect(editor).toContain('disabled={saving}');
-    expect(editor).toContain('event.key === "Escape" && !saving');
+    expect(editor).toContain("useModalFocus(open, onClose, !saving)");
+    expect(modalFocus).toContain('event.key === "Escape"');
+    expect(modalFocus).toContain("if (!enabledRef.current) return;");
     expect(editor).toContain('md:grid-cols-[260px_minmax(0,1fr)]');
   });
   it("keeps progressive global search in a labelled dialog", () => {
