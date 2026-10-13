@@ -252,3 +252,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Knowledge editor Markdown/Preview controls now use Radix Tabs, while preserving preview state and existing content view rendering.
 - Project Memory workspace navigation now uses Radix Tabs triggers with its existing tab state and lazy/hidden business sections retained.
 - Windows focus, density, and screen reader checks remain necessary. Dialog and react-day-picker still need dedicated migration.
+
+## Radix Switch/Tabs follow-up and composable Tailwind controls
+
+- Updated legacy source-contract tests to assert Radix Switch checked state and accessible Tabs triggers instead of obsolete hand-crafted switch/pressed-button markup.
+- Shared UiButton now uses class-variance-authority with clsx and tailwind-merge; variants and sizes remain stable, with explicit Tailwind utilities rather than relying exclusively on CSS @apply.
+- Shared Input and Textarea now compose Tailwind tokens via cn() while retaining legacy classes for compatibility until legacy CSS is removed.
+- Dialog, Calendar grid, and CSS reduction remain outstanding.

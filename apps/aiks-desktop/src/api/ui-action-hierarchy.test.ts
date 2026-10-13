@@ -14,11 +14,12 @@ describe("desktop shared action hierarchy", () => {
     expect(legacy).toContain('variant="primary" size="sm"');
   });
   it("preserves editor controls and accessible settings switches", () => {
-    expect(editor).toContain('variant={!preview ? "secondary" : "ghost"}');
-    expect(editor).toContain('variant={preview ? "secondary" : "ghost"}');
-    expect(editor).toContain("aria-pressed={!preview}");
+    expect(editor).toContain('<Tabs.Root value={preview ? "preview" : "edit"}');
+    expect(editor).toContain('setPreview(value === "preview")');
+    expect(editor).toContain('Tabs.Trigger value="edit"');
+    expect(editor).toContain('Tabs.Trigger value="preview"');
     expect(editor).toContain("createKnowledge(");
-    expect(settings).toContain('role="switch"');
-    expect(settings).toContain("aria-checked={value}");
+    expect(settings).toContain("<Switch.Root checked={value} onCheckedChange={onChange}");
+    expect(settings).toContain("<Switch.Thumb");
   });
 });

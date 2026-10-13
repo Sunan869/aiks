@@ -6,13 +6,13 @@ import restore from "../components/OfflineRestore.tsx?raw";
 
 describe("desktop UI readiness guardrails", () => {
   it("keeps accessible compact switches and primary save", () => {
-    expect(settings).toContain('role="switch"');
-    expect(settings).toContain("aiks-switch");
+    expect(settings).toContain("<Switch.Root checked={value} onCheckedChange={onChange}");
+    expect(settings).toContain("<Switch.Thumb");
     expect(settings).toContain('variant="primary" size="md"');
   });
   it("keeps knowledge editor save and preview controls", () => {
-    expect(editor).toContain("aria-pressed={!preview}");
-    expect(editor).toContain("aria-pressed={preview}");
+    expect(editor).toContain('Tabs.Trigger value="edit"');
+    expect(editor).toContain('Tabs.Trigger value="preview"');
     expect(editor).toContain("updateKnowledge(initial.id");
   });
   it("keeps embedded workbench retry", () => {
