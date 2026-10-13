@@ -1,7 +1,9 @@
 import { UiButton } from "../components/ui/fields";
-import { useState, useEffect, useCallback } from "react";
+import { UiNotice } from "../components/ui/surfaces";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import { submitProcessingDetailAction } from "../processing-detail-action";
+import { fetchVerifiedProcessingDetail } from "../processing-detail-refresh";
 import type { PipelineSummary, StageRun } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
@@ -75,31 +77,54 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [retryMsg, setRetryMsg] = useState<string | null>(null);
+  const [loadedRunId, setLoadedRunId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const requestGeneration = useRef(0);
+  const activeRunId = useRef(runId);
+  activeRunId.current = runId;
 
   const load = useCallback(async () => {
+    const requestId = ++requestGeneration.current;
     setLoading(true);
-    try {
-      const d = await getApi().getPipelineDetail(runId);
-      setDetail(d);
-    } finally {
-      setLoading(false);
+    setLoadedRunId(null);
+    setLoadError("");
+    const api = getApi();
+    const result = await fetchVerifiedProcessingDetail(id => api.getPipelineDetail(id), runId);
+    if (requestGeneration.current !== requestId) return;
+    if (result.status === "ok") {
+      setDetail(result.value);
+      setLoadedRunId(runId);
+    } else {
+      setDetail(null);
+      setLoadError("处理记录加载失败或身份不匹配；不会显示旧记录或允许对旧记录重试。");
     }
+    setLoading(false);
   }, [runId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { requestGeneration.current += 1; };
+  }, [load]);
 
   const handleRetry = async () => {
-    if (!detail) return;
+    if (!detail || loadedRunId !== runId || loading || retrying) return;
+    const targetRunId = runId;
     setRetrying(true);
     setRetryMsg(null);
     try {
       const disposition = await submitProcessingDetailAction(getApi(), detail);
-      setRetryMsg(disposition === "retry" ? "已通过持久任务安全重试失败阶段" : "已提交首次 AI 处理任务");
-      setTimeout(() => void load(), 2000);
-    } catch (e) {
-      setRetryMsg(`错误：${e}`);
+      if (activeRunId.current === targetRunId) {
+        setRetryMsg(disposition === "retry" ? "已通过持久任务安全重试失败阶段" : "已提交首次 AI 处理任务");
+      }
+    } catch {
+      if (activeRunId.current === targetRunId) {
+        setRetryMsg("操作未完成，请刷新任务状态后重试。");
+      }
     } finally {
-      setRetrying(false);
+      if (activeRunId.current === targetRunId) {
+        setRetrying(false);
+        await load();
+      }
     }
   };
 
@@ -107,8 +132,16 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
     <div className="p-6 flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
   );
 
-  if (!detail) return (
-    <div className="p-6 text-gray-400 text-sm">未找到处理记录: {runId}</div>
+  if (loadError) return (
+    <div className="aiks-page-shell space-y-3">
+      <UiNotice tone="danger">{loadError}</UiNotice>
+      <UiButton variant="outline" size="sm" onClick={() => void load()}>重新加载详情</UiButton>
+      <UiButton variant="outline" size="sm" onClick={onBack}>返回处理中心</UiButton>
+    </div>
+  );
+
+  if (!detail || loadedRunId !== runId) return (
+    <div className="p-6 text-gray-400 text-sm">处理记录尚未就绪，请刷新重试。</div>
   );
 
   const statusColor = {
@@ -147,7 +180,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
             {(detail.status === "FAILED" || detail.status === "RAW_ONLY") && (
               <UiButton variant="outline" size="sm"
                 onClick={handleRetry}
-                disabled={retrying}
+                disabled={retrying || loading || loadedRunId !== runId}
                 className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
               >
                 {retrying ? "提交中..." : detail.status === "FAILED" ? "安全重试失败阶段" : "首次处理原始 Session"}

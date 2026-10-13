@@ -3,6 +3,7 @@ import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import { createSafeTaskDiagnosticJson } from "../task-diagnostics";
+import { collectProcessingPanels, isFreshProcessingRead } from "../processing-refresh";
 import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 import { UiButton, UiInput } from "../components/ui/fields";
@@ -60,7 +61,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   // Snapshot data at the exact moment the user requests a preview. The live
   // task polling must never silently replace an already inspected export.
   const refreshDiagnosticPreview = () => {
-    if (!taskStats) return;
+    if (!taskPanelFresh || !taskStats) return;
     setDiagnosticJson(createSafeTaskDiagnosticJson(taskStats, tasks));
     setDiagnosticNotice("已生成新的脱敏任务状态快照；请检查内容后再选择复制或保存。");
     setShowDiagnosticPreview(true);
@@ -89,8 +90,12 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
-  const [loadError, setLoadError] = useState("");
-  const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<string | null>(null);
+  const [taskLoadError, setTaskLoadError] = useState("");
+  const [pipelineLoadError, setPipelineLoadError] = useState("");
+  const [lastTaskRefresh, setLastTaskRefresh] = useState<string | null>(null);
+  const [lastPipelineRefresh, setLastPipelineRefresh] = useState<string | null>(null);
+  const [taskPanelFresh, setTaskPanelFresh] = useState(false);
+  const [pipelinePanelFresh, setPipelinePanelFresh] = useState(false);
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [runQuery, setRunQuery] = useState("");
@@ -101,32 +106,55 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const mountedRef = useRef(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const autoRefreshRef = useRef(true);
-  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const [taskRefreshFailures, setTaskRefreshFailures] = useState(0);
+  const [pipelineRefreshFailures, setPipelineRefreshFailures] = useState(0);
+  // A poll overlapping a mutation must not re-enable actions on an old snapshot.
+  const mutationGeneration = useRef(0);
+  const mutationInFlight = useRef(false);
   const setPolling = (enabled: boolean) => { autoRefreshRef.current = enabled; setAutoRefresh(enabled); };
 
   const load = useCallback(async (showLoading = false) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    const startedGeneration = mutationGeneration.current;
     if (showLoading) setLoading(true);
     try {
-      const [r, s, t, totals] = await Promise.all([
-        getApi().getPipelineRuns(300),
-        getApi().getPipelineStats(),
-        getApi().getTaskCenterEntries(200),
-        getApi().getTaskCenterStats(),
-      ]);
+      const result = await collectProcessingPanels(getApi());
       if (!mountedRef.current) return;
-      setRuns(r);
-      setStats(s);
-      setTasks(t);
-      setTaskStats(totals);
-      setConsecutiveFailures(0);
-      setLoadError("");
-      setLastSuccessfulRefresh(new Date().toLocaleTimeString());
-    } catch (error) {
+      const refreshedAt = new Date().toLocaleTimeString("zh-CN");
+      if (result.tasks.status === "ok" &&
+          isFreshProcessingRead(startedGeneration, mutationGeneration.current, mutationInFlight.current)) {
+        setTasks(result.tasks.first);
+        setTaskStats(result.tasks.second);
+        setTaskPanelFresh(true);
+        setTaskLoadError("");
+        setTaskRefreshFailures(0);
+        setLastTaskRefresh(refreshedAt);
+      } else if (result.tasks.status === "error") {
+        setTaskPanelFresh(false);
+        setTaskRefreshFailures(previous => previous + 1);
+        setTaskLoadError("任务列表或全库统计读取失败，已保留旧数据；刷新恢复前禁止任务写操作。");
+      } else {
+        setTaskPanelFresh(false);
+      }
+      if (result.pipeline.status === "ok") {
+        setRuns(result.pipeline.first);
+        setStats(result.pipeline.second);
+        setPipelinePanelFresh(true);
+        setPipelineLoadError("");
+        setPipelineRefreshFailures(0);
+        setLastPipelineRefresh(refreshedAt);
+      } else {
+        setPipelinePanelFresh(false);
+        setPipelineRefreshFailures(previous => previous + 1);
+        setPipelineLoadError("流水线记录或统计读取失败，已保留旧数据；可独立查看任务列表。");
+      }
+    } catch {
       if (!mountedRef.current) return;
-      setConsecutiveFailures(previous => previous + 1);
-      setLoadError("无法刷新任务状态：" + String(error));
+      setTaskPanelFresh(false);
+      setPipelinePanelFresh(false);
+      setTaskLoadError("任务刷新未完成，请检查本地服务后重试。");
+      setPipelineLoadError("流水线刷新未完成，请检查本地服务后重试。");
     } finally {
       inFlightRef.current = false;
       if (showLoading && mountedRef.current) setLoading(false);
@@ -152,19 +180,26 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   }, [load]);
 
   const handleBackfill = useCallback(async () => {
-    if (backfilling) return;
+    if (backfilling || retryingTask !== null || !taskPanelFresh) return;
+    mutationGeneration.current += 1;
+    mutationInFlight.current = true;
+    setTaskPanelFresh(false);
     setBackfilling(true);
     setBackfillMsg("");
     try {
       const { submitted } = await getApi().backfillExtractions();
-      setBackfillMsg(`已重新提交 ${submitted} 个任务（失败 + 未处理队列）`);
-      await load(false);
-    } catch (e) {
-      setBackfillMsg(`提交失败: ${String(e)}`);
+      setBackfillMsg("已重新提交 " + submitted + " 个任务（失败 + 未处理队列）");
+    } catch {
+      // Transport errors can contain credentials, paths and Session text.
+      setBackfillMsg("补跑提交失败，请检查本地任务服务后重试。");
     } finally {
+      mutationGeneration.current += 1;
+      mutationInFlight.current = false;
+      setTaskPanelFresh(false);
       setBackfilling(false);
+      await load(false);
     }
-  }, [load]);
+  }, [backfilling, retryingTask, taskPanelFresh, load]);
 
   const filteredByStatus = filter === "all" ? runs
     : filter === "processing" ? runs.filter(r => r.status === "PROCESSING")
@@ -192,7 +227,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
           <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
-            disabled={backfilling}
+            disabled={backfilling || retryingTask !== null || !taskPanelFresh}
             className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
           >
             {backfilling ? "提交中..." : "重试失败并补跑队列"}
@@ -215,8 +250,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
-        {loadError && <UiNotice tone="danger" className="mb-2">{loadError}</UiNotice>}
-        <p role="status" className="mb-2 text-xs text-slate-500">自动刷新：{autoRefresh ? "每 2 秒（窗口可见时）" : "已暂停"} · 最近成功：{lastSuccessfulRefresh ?? "尚无"}{consecutiveFailures > 0 ? ` · 连续失败 ${consecutiveFailures} 次` : ""}</p>
+        {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
+        {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
+        <p role="status" className="mb-2 text-xs text-slate-500">
+          自动刷新：{autoRefresh ? "每 2 秒（窗口可见时）" : "已暂停"}
+          {" · "}任务最近成功：{lastTaskRefresh ?? "尚无"}{taskRefreshFailures > 0 ? " · 失败 " + taskRefreshFailures + " 次" : ""}
+          {" · "}流水线最近成功：{lastPipelineRefresh ?? "尚无"}{pipelineRefreshFailures > 0 ? " · 失败 " + pipelineRefreshFailures + " 次" : ""}
+        </p>
+        {!taskPanelFresh && tasks.length > 0 && (
+          <UiNotice tone="warning" className="mb-3">以下是上次成功刷新时的任务快照，状态可能已变化，重试与取消暂不可用。</UiNotice>
+        )}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="status" aria-label="任务统计">
           {([
             ["总会话", taskStats?.total_sessions],
@@ -233,7 +276,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           ))}
         </div>
         <UiButton variant="outline" size="sm" type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
-          disabled={!taskStats && !showDiagnosticPreview}
+          disabled={!taskPanelFresh && !showDiagnosticPreview}
           onClick={toggleDiagnosticPreview}>
           {showDiagnosticPreview ? "收起诊断摘要" : "预览脱敏任务诊断包"}
         </UiButton>
@@ -247,7 +290,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             <pre aria-label="脱敏任务诊断预览" className="text-xs whitespace-pre-wrap max-h-72 overflow-auto">{diagnosticJson}</pre>
             <div className="flex flex-wrap items-center gap-3 mt-2">
               <UiButton variant="outline" size="sm" type="button" onClick={refreshDiagnosticPreview}
-                className="text-xs text-blue-600 hover:underline">更新预览快照</UiButton>
+                disabled={!taskPanelFresh} className="text-xs text-blue-600 hover:underline disabled:opacity-50">更新预览快照</UiButton>
               <UiButton variant="outline" size="sm" type="button" onClick={saveDiagnostic}
                 className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</UiButton>
               <UiButton variant="outline" size="sm" type="button"
@@ -308,19 +351,26 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
-                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null || backfilling || !taskPanelFresh}
                           className="text-blue-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
+                            mutationGeneration.current += 1;
+                            mutationInFlight.current = true;
+                            setTaskPanelFresh(false);
                             setRetryingTask(task.session_id);
                             setRetryNotice("");
                             try {
                               await getApi().retryFailedAiTask(task.session_id);
                               setRetryNotice("已提交单条 AI 任务重试");
                               await load(false);
-                            } catch (error) {
-                              setRetryNotice(`重试未提交：${String(error)}`);
+                            } catch {
+                              setRetryNotice("重试未提交，请检查本地任务服务后刷新。");
                             } finally {
+                              mutationGeneration.current += 1;
+                              mutationInFlight.current = false;
+                              setTaskPanelFresh(false);
                               setRetryingTask(null);
+                              await load(false);
                             }
                           }}
                         >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</UiButton>
@@ -332,19 +382,26 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                           人工核查冲突
                         </UiButton>
                       ) : task.job_status === "PENDING" ? (
-                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null || backfilling || !taskPanelFresh}
                           className="text-orange-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
+                            mutationGeneration.current += 1;
+                            mutationInFlight.current = true;
+                            setTaskPanelFresh(false);
                             setRetryingTask(task.session_id);
                             setRetryNotice("");
                             try {
                               const cancelled = await getApi().cancelPendingAiTask(task.session_id);
                               setRetryNotice(cancelled ? "已取消排队中的 AI 任务" : "任务已开始运行或不再排队，未取消");
                               await load(false);
-                            } catch (error) {
-                              setRetryNotice("取消失败：" + String(error));
+                            } catch {
+                              setRetryNotice("取消未完成，请刷新任务状态后重试。");
                             } finally {
+                              mutationGeneration.current += 1;
+                              mutationInFlight.current = false;
+                              setTaskPanelFresh(false);
                               setRetryingTask(null);
+                              await load(false);
                             }
                           }}
                         >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</UiButton>
@@ -371,6 +428,9 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         )}
       </section>
 
+      {!pipelinePanelFresh && runs.length > 0 && (
+        <UiNotice tone="warning" className="mb-3">流水线表格显示的是旧快照；打开详情后将重新请求该记录。</UiNotice>
+      )}
       {/* Stats bar */}
       {stats && (
         <div className="grid grid-cols-4 gap-3 mb-5">
