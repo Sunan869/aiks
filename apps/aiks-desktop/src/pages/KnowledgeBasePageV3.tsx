@@ -115,12 +115,12 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
 
   return (
     <div className="aiks-page-shell min-w-0">
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
           {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {syncResult && (
             <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
               {syncResult}

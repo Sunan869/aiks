@@ -113,7 +113,7 @@ export default function SourcesPage({ fullStatus }: Props) {
   const issueCount = configurableSources.filter(source => ["warning", "danger"].includes(sourceStatusPresentation(source).tone)).length;
   const disabledCount = configurableSources.filter(source => !source.enabled).length;
   return <div className="aiks-page-shell w-full min-w-0">
-    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</UiButton></div>
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</UiButton></div>
     {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
     <section aria-label="数据源健康概览" className="grid grid-cols-2 gap-3 lg:grid-cols-4">

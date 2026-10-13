@@ -1,4 +1,4 @@
-import { UiButton } from "../components/ui/fields";
+import { UiButton, UiInput } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, FilePenLine, Plus, RefreshCw, Star } from "lucide-react";
@@ -36,6 +36,7 @@ function SourceBadge({ item }: { item: KnowledgeSummary }) {
 export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
   const [view, setView] = useState<ViewFilter>("all");
   const [category, setCategory] = useState("");
+  const [pageQuery, setPageQuery] = useState("");
   const [data, setData] = useState<KnowledgePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +82,12 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
     }
   };
 
+  const visibleItems = (data?.items ?? []).filter(item => {
+    const q = pageQuery.trim().toLocaleLowerCase();
+    return !q || [item.title, item.summary, item.project_name, item.category, ...parseTags(item.tags)]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(q));
+  });
+
   const tabs: Array<[ViewFilter, string]> = [
     ["all", "全部"], ["ai", "AI 提炼"], ["manual", "手动创建"], ["favorite", "收藏"], ["archived", "已归档"],
   ];
@@ -111,6 +118,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
             <UiButton variant="outline" size="sm"
               key={key}
               type="button"
+              aria-pressed={view === key}
               onClick={() => { setView(key); setPage(0); }}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === key
                 ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
@@ -121,7 +129,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <UiSelect
+          <UiSelect aria-label="知识分类"
             value={category}
             onChange={e => { setCategory(e.target.value); setPage(0); }}
             className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
@@ -129,31 +137,36 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
             <option value="">全部分类</option>
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </UiSelect>
-          <UiButton variant="outline" size="sm" type="button" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
+          <UiButton variant="outline" size="sm" type="button" aria-label="刷新知识列表" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </UiButton>
         </div>
       </div>
 
-      {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <UiInput aria-label="搜索当前页知识卡片" value={pageQuery} onChange={event => setPageQuery(event.target.value)} placeholder="搜索当前页的知识标题、摘要、标签或项目…" className="w-full flex-1 sm:min-w-[220px]" />
+        {pageQuery && <UiButton variant="ghost" size="sm" onClick={() => setPageQuery("")}>清空搜索</UiButton>}
+      </div>
+      {error && <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
 
       <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
-        <span>{data ? `共 ${data.total} 条知识` : "正在读取本地知识库..."}</span>
+        <span>{data ? `当前页显示 ${visibleItems.length} / ${data.items.length} 条知识 · 全库 ${data.total} 条` : "正在读取本地知识库..."}</span>
         <span>发布到 SiYuan 请进入知识详情</span>
       </div>
 
       {loading && !data ? (
         <div className="flex flex-1 items-center justify-center text-sm text-gray-400">加载中...</div>
-      ) : data?.items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 text-center dark:border-gray-700">
           <div className="rounded-full bg-gray-100 p-3 dark:bg-gray-800"><FilePenLine className="h-6 w-6 text-gray-400" /></div>
-          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">当前视图暂无知识</p>
+          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">{pageQuery ? "当前页没有匹配的知识" : "当前视图暂无知识"}</p>
           <p className="mt-1 text-xs text-gray-400">可以从工作记录自动提炼，也可以直接在 AIKS 中新建。</p>
-          <UiButton variant="outline" size="sm" type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</UiButton>
+          {!pageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</UiButton>}
+          {pageQuery && <UiButton variant="outline" size="sm" onClick={() => setPageQuery("")}>清除搜索条件</UiButton>}
         </div>
       ) : (
         <div className="grid min-h-0 grid-cols-1 content-start gap-3 overflow-y-auto pb-2 md:grid-cols-2 2xl:grid-cols-3">
-          {data?.items.map(item => {
+          {visibleItems.map(item => {
             const tags = parseTags(item.tags);
             return (
               <article

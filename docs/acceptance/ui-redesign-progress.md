@@ -112,3 +112,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Escape inside project selector and calendar now stops propagation so enclosing dialogs do not close unexpectedly. Calendar month headings announce month changes.
 - Added regression source contracts for declaration order and nested popup Escape. No native business logic, provider access or backup behavior altered.
 - Fast frontend build and Windows real-device keyboard test remain the validation gate; this record does not claim validation already passed.
+
+## 2026-10-13 knowledge workspace functional consolidation
+
+- Native Knowledge Workbench now supports clearly scoped **current-page** search across title, summary, project, category and tags, without pretending it searches the entire database. Search combines with server-backed status/category filters, and empty-query outcomes have a dedicated reset action.
+- Knowledge tabs expose selected states; category and refresh controls have accessible names. Counts explicitly distinguish visible/current-page items from database totals. Existing favorite, manual create, archive and pagination actions stay intact.
+- Knowledge Base and Sources headers wrap in narrow desktop windows. This batch does not change SiYuan documents, Provider permissions, data schema or backup behavior.
+- Formal shadcn/Radix dependency migration and Windows visual acceptance remain outstanding. CI pass and real-device testing are separate gates.
