@@ -35,7 +35,7 @@ body {
 /* Project memory design primitives: dependency-free Tailwind-compatible
    styling so the existing React 18/Tailwind 3 build remains unchanged. */
 @layer components {
-  .memory-workspace { @apply mx-auto max-w-7xl; }
+  .memory-workspace { @apply w-full min-w-0 max-w-none; }
   .memory-hero { @apply rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800; }
   .memory-stat { @apply flex flex-col gap-1 rounded-xl border border-white bg-white/80 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800/80; }
   .memory-stat span { @apply text-xs font-medium text-slate-500 dark:text-slate-400; }
@@ -51,7 +51,7 @@ body {
 /* AIKS shared workspace visual foundations. These styles deliberately do not
    override embedded SiYuan webview content or change application behavior. */
 @layer components {
-  .aiks-page-shell { @apply mx-auto w-full max-w-7xl space-y-5 p-4 sm:p-6; }
+  .aiks-page-shell { @apply mx-0 w-full max-w-none space-y-5 px-4 py-4 sm:px-5 sm:py-5; }
   .aiks-surface { @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900; }
   .aiks-app-shell button { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950; }
   .aiks-main-scroll input:not([type="checkbox"]):not([type="radio"]),
@@ -116,4 +116,16 @@ body {
   .aiks-page-shell table { @apply text-left; }
   .aiks-main-scroll { @apply min-w-0; }
   .memory-workspace { @apply min-w-0; }
+}
+
+/* Windows visual review: desktop canvas, consistent actions and popup focus. */
+@layer components {
+  .aiks-main-scroll .aiks-page-shell, .aiks-main-scroll .memory-workspace { max-width: none; margin-left: 0; margin-right: 0; }
+  .aiks-button { @apply shadow-sm; }
+  .aiks-button--primary { @apply font-semibold; }
+  .aiks-button--outline { @apply border-slate-300 text-slate-800 dark:border-slate-600 dark:text-slate-100; }
+  .aiks-button--ghost { @apply shadow-none; }
+  .aiks-source-grid > section { @apply flex h-full min-w-0 flex-col; }
+  .aiks-search-popup input { @apply min-h-0 border-0 bg-transparent shadow-none; }
+  .aiks-search-popup input:focus { @apply border-transparent outline-none ring-0 shadow-none; }
 }
