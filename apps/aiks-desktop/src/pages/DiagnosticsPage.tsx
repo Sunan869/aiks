@@ -1,3 +1,4 @@
+import { UiStatusBadge } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
@@ -114,9 +115,7 @@ export default function DiagnosticsPage() {
               <div className="text-xs text-gray-400">无法连接当前配置的 AI 服务</div>
             )}
           </div>
-          <div className={`text-xs ${aiOk ? "text-green-600" : aiOk === false ? "text-yellow-500" : "text-gray-400"}`}>
-            {aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}
-          </div>
+          <UiStatusBadge tone={aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
         </div>
       </div>
 

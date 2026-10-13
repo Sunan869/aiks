@@ -1,3 +1,4 @@
+import { UiStatGrid, UiEmptyState } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
@@ -41,7 +42,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                 <div className="text-xs text-gray-500 mb-2">
                   {new Date(fullStatus.last_sync_at).toLocaleString("zh-CN")}
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4">
+                <UiStatGrid>
                   {[
                     { label: "发现", value: fullStatus.last_sync_discovered },
                     { label: "新增", value: fullStatus.last_sync_new },
@@ -53,16 +54,16 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                       <div className="text-gray-400">{item.label}</div>
                     </div>
                   ))}
-                </div>
+                </UiStatGrid>
               </>
             ) : (
-              <div className="text-sm text-gray-400">尚未执行同步</div>
+              <UiEmptyState title="尚未执行同步" description="点击下方立即同步，扫描本地 AI 会话并启动知识整理。" />
             )}
           </UiSection>
 
           {/* AI extraction stats */}
           <UiSection title="AI 智能整理" className="mb-4">
-            <div className="grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4">
+            <UiStatGrid>
               {[
                 { label: "待整理", value: fullStatus.extraction_pending, color: "text-blue-600" },
                 { label: "成功", value: fullStatus.extraction_success, color: "text-green-600" },
@@ -74,7 +75,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                   <div className="text-gray-400">{item.label}</div>
                 </div>
               ))}
-            </div>
+            </UiStatGrid>
           </UiSection>
         </>
       )}

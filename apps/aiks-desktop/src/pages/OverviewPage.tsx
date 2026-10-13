@@ -1,3 +1,4 @@
+import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
@@ -44,11 +45,11 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
       <PageHeader title="概览" description="AI 工作知识库状态" actions={<span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">本地工作空间</span>} />
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <UiStatGrid>
         {stats.map((item) => (
           <UiMetric key={item.label} label={item.label} value={item.value} detail={item.icon} />
         ))}
-      </div>
+      </UiStatGrid>
 
       {/* Sync status */}
       {fullStatus && (

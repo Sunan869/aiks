@@ -1,3 +1,4 @@
+import { UiEmptyState, UiStatusBadge } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice } from "../components/ui/surfaces";
 import { appendLogEntries, classifyLogLevel, filterLogEntries, formatLogExport, type LogEntry, type LogLevel } from "../components/ui/log-utils";
@@ -82,12 +83,12 @@ export default function LogsPage() {
       <p role="status" className="mb-2 text-xs text-slate-500">当前显示 {visibleLogs.length} / {logs.length} 条日志{paused ? ` · 已暂停，忽略 ${dropped} 条` : ""}</p>
       <div role="region" aria-label="运行日志内容" tabIndex={0} className="min-h-[180px] flex-1 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
         {visibleLogs.length === 0 ? (
-          <p role="status" className="text-gray-400">{logs.length === 0 ? "暂无日志" : "没有符合筛选条件的日志"}</p>
+          <UiEmptyState title={logs.length === 0 ? "暂无日志" : "没有符合筛选条件的日志"} description={logs.length === 0 ? "运行期间的日志会显示在这里。" : "请调整等级或关键词筛选。"} />
         ) : (
           visibleLogs.map((log, i) => (
             <div key={i} className="mb-1 flex min-w-0 gap-2">
               <span className="text-gray-500">{log.time}</span>
-              <span className={levelColor(log.level)}>{log.level}</span>
+              <span className={levelColor(log.level)}><UiStatusBadge tone={log.level === "ERROR" ? "danger" : log.level === "WARN" ? "warning" : "success"}>{log.level}</UiStatusBadge></span>
               <span className="min-w-0 break-words text-gray-200">{log.message}</span>
             </div>
           ))

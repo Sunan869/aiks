@@ -1,3 +1,4 @@
+import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useEffect, useState } from "react";
@@ -118,7 +119,7 @@ export default function SourcesPage({ fullStatus }: Props) {
     <PageHeader title="数据源" description="统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。" actions={<UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>刷新状态</UiButton>} />
     {error && <UiNotice tone="danger" className="mb-4">读取数据源目录失败：{error}</UiNotice>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
-    <section aria-label="数据源健康概览" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <section aria-label="数据源健康概览"><UiStatGrid>
       {([
         ["已配置来源", configurableSources.length, "全部可配置来源"],
         ["健康", healthyCount, "可正常使用"],
@@ -131,7 +132,7 @@ export default function SourcesPage({ fullStatus }: Props) {
           <p className="mt-1 text-xs text-slate-400">{description}</p>
         </div>
       ))}
-    </section>
+    </UiStatGrid></section>
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
       <UiInput aria-label="搜索数据源" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)}
         placeholder="搜索工具名称或数据目录…" className="min-w-[190px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />

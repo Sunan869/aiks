@@ -195,3 +195,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Processing Center now allows pausing/resuming automatic two-second background status refresh while retaining explicit manual refresh and retry operations. It shows polling state, last successful refresh and consecutive failures.
 - Added an unmount guard around asynchronous task polling updates, preserving current in-flight gating and avoiding state updates after the workspace leaves the screen. Backfill actions reject duplicate starts.
 - No status data model, provider, Rust pipeline, task mutation or SiYuan overwrite behavior changed. Frontend CI and Windows functional walkthrough remain pending.
+
+## 2026-10-13 consolidated component and acceptance gate
+
+- Added workspace-level StatusBadge/EmptyState/StatGrid primitives and reused them in Overview, Sync, Diagnostics, Logs and Sources.
+- Added source/contract CI gate and an explicit Windows keyboard, themes, nested overlay, provider-read-only and native-validation acceptance checklist at docs/acceptance/windows-ui-final-acceptance.md.
+- **Important:** official shadcn/Radix migration remains incomplete because no dependency installation/lockfile verification is possible in this execution environment. Existing CI is not full Rust+Windows desktop compile. Do not call this work 100% complete.
