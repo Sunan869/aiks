@@ -13,12 +13,17 @@ import page10 from "../pages/SourcesPage.tsx?raw";
 
 const pages = [page0, page1, page2, page3, page4, page5, page6, page7, page8, page9, page10];
 describe("unified desktop action controls", () => {
-  it("migrates remaining action buttons without retaining native button tags", () => {
-    for (const page of pages) {
+  it("keeps shared actions and permits intentional accessible native disclosures", () => {
+    for (const [index, page] of pages.entries()) {
       expect(page).toContain("UiButton");
-      expect(page).not.toMatch(/<button(?:\\s|>)/);
-      expect(page).not.toContain("</button>");
+      const nativeOpenButtons = page.match(/<button\\b/g) ?? [];
+      const nativeCloseButtons = page.match(/<\\/button>/g) ?? [];
+      const expected = index === 3 || index === 5 ? 1 : 0;
+      expect(nativeOpenButtons).toHaveLength(expected);
+      expect(nativeCloseButtons).toHaveLength(expected);
     }
+    expect(page3).toContain('aria-label={`查看知识：${item.title}`}');
+    expect(page5).toContain("aria-expanded={expanded}");
   });
   it("preserves task retry, manual-conflict and provider configuration actions", () => {
     expect(pages.join("\\n")).toContain("retryFailedAiTask");
