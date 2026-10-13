@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 export interface SearchOption { value: string; label: string }
@@ -11,16 +12,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
   const searchInput = useRef<HTMLInputElement>(null);
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const root = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) { setOpen(false); setQuery(""); }
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [open]);
   useEffect(() => { if (open) searchInput.current?.focus(); }, [open]);
   const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selectedIndex = matching.findIndex(option => option.value === value);
@@ -38,15 +30,16 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     if (event.key === "End" && matching.length > 0) { event.preventDefault(); setActiveIndex(matching.length - 1); }
     if (event.key === "Enter" && matching[activeIndex]) { event.preventDefault(); choose(matching[activeIndex].value); }
   };
-  return <div ref={root} className="relative min-w-0 flex-1">
-    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list"
+  return <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (!next) setQuery(""); }}>
+    <div className="relative min-w-0 flex-1">
+    <Popover.Anchor asChild><button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list"
       onKeyDown={event => { if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) { event.preventDefault(); openPopup(); } }}
       onClick={() => { if (open) closePopup(); else openPopup(); }}
       className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
       <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400"/>
-    </button>
-    {open && <div data-aiks-popup="true" className="absolute left-0 top-full z-50 mt-2 w-full min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+    </button></Popover.Anchor>
+    <Popover.Portal><Popover.Content data-aiks-popup="true" side="bottom" align="start" sideOffset={8} collisionPadding={8} onOpenAutoFocus={event => { event.preventDefault(); searchInput.current?.focus(); }} onCloseAutoFocus={event => { event.preventDefault(); triggerRef.current?.focus(); }} className="z-[110] w-[var(--radix-popover-trigger-width)] min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl outline-none dark:border-slate-700 dark:bg-slate-900"
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); closePopup(); } }}>
       <label className="aiks-search-popup flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 dark:border-slate-700 dark:bg-slate-800">
         <Search className="h-4 w-4 text-slate-400"/>
@@ -62,6 +55,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
         </button>)}
         {matching.length === 0 && <p role="status" className="p-3 text-xs text-slate-500">没有匹配选项</p>}
       </div>
-    </div>}
-  </div>;
+    </Popover.Content></Popover.Portal>
+    </div>
+  </Popover.Root>;
 }

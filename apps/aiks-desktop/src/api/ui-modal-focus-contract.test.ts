@@ -30,6 +30,7 @@ describe("modal keyboard boundary", () => {
     expect(select).toContain('data-aiks-popup="true"');
     expect(calendar).toContain('data-aiks-popup="true"');
     expect(select).toContain("closePopup()");
+    expect(select).toContain("<Popover.Root");
     expect(select).toContain("const openPopup =");
     expect(select).toContain("selectedIndex");
     expect(calendar).toContain('aria-current={iso(today)');

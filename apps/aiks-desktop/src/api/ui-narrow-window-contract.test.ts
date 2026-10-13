@@ -6,6 +6,8 @@ import processing from "../pages/ProcessingPage.tsx?raw";
 describe("narrow-window UI safeguards", () => {
   it("keeps popovers bounded and keyboard navigation intact", () => {
     expect(picker).toContain("max-w-[min(90vw,28rem)]");
+    expect(picker).toContain("<Popover.Content");
+    expect(picker).toContain("collisionPadding={8}");
     expect(picker).toContain("activeIndex >= matching.length");
     expect(picker.indexOf("const matching =")).toBeLessThan(picker.indexOf("if (open && activeIndex"));
     expect(picker).toContain("event.stopPropagation(); closePopup()");
