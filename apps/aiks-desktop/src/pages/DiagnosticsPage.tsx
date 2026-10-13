@@ -59,10 +59,10 @@ export default function DiagnosticsPage() {
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
 
   return (
-    <div className="w-full min-w-0 p-6">
+    <div className="aiks-page-shell w-full min-w-0">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold">帮助与诊断</h1>
+          <h1 className="text-2xl font-bold tracking-tight">帮助与诊断</h1>
           <p className="text-xs text-gray-400 mt-0.5">系统组件、知识工作台与迁移状态</p>
         </div>
         <button
@@ -77,7 +77,7 @@ export default function DiagnosticsPage() {
 
       <div className="space-y-2 mb-6">
         {doctor?.checks.map((check) => (
-          <div key={check.name} className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+          <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {check.ok ? (
               <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
             ) : (
@@ -95,7 +95,7 @@ export default function DiagnosticsPage() {
           </div>
         ))}
 
-        <div className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {aiOk === null ? (
             <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
           ) : aiOk ? (

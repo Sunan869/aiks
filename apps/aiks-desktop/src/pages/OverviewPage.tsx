@@ -36,16 +36,16 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const isSyncing = syncing || syncInProgress;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="aiks-page-shell space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">概览</h1>
+        <h1 className="text-2xl font-bold tracking-tight">概览</h1>
         <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p>
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((item) => (
-          <div key={item.label} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div key={item.label} className="aiks-surface">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-gray-400">{item.label}</span>
               <span>{item.icon}</span>
@@ -57,7 +57,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
 
       {/* Sync status */}
       {fullStatus && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="aiks-surface">
           <div className="font-medium text-sm mb-2">同步状态</div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             {[
@@ -82,7 +82,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
 
       {/* AI status */}
       {aiStatus && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="aiks-surface">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Cpu className="w-4 h-4" />

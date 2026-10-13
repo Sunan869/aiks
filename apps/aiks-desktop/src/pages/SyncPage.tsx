@@ -25,23 +25,23 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
   };
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="aiks-page-shell max-w-5xl">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">同步记录</h1>
+        <h1 className="text-2xl font-bold tracking-tight">同步记录</h1>
         <p className="text-xs text-gray-400 mt-0.5">Raw Session 同步与 AI 整理状态</p>
       </div>
 
       {/* Sync stats */}
       {fullStatus && (
         <>
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
+          <div className="aiks-surface mb-4">
             <div className="font-medium text-sm mb-3">最近同步</div>
             {fullStatus.last_sync_at ? (
               <>
                 <div className="text-xs text-gray-500 mb-2">
                   {new Date(fullStatus.last_sync_at).toLocaleString("zh-CN")}
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                <div className="grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4">
                   {[
                     { label: "发现", value: fullStatus.last_sync_discovered },
                     { label: "新增", value: fullStatus.last_sync_new },
@@ -61,7 +61,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
           </div>
 
           {/* AI extraction stats */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
+          <div className="aiks-surface mb-4">
             <div className="font-medium text-sm mb-3">AI 智能整理</div>
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               {[

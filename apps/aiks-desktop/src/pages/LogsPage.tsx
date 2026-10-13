@@ -30,7 +30,7 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="p-6 h-full flex flex-col">
+    <div className="aiks-page-shell flex h-full flex-col">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">日志</h1>
@@ -44,7 +44,7 @@ export default function LogsPage() {
         </button>
       </div>
 
-      <div className="flex-1 bg-gray-950 rounded-lg p-4 font-mono text-xs overflow-auto">
+      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs shadow-sm">
         {logs.length === 0 ? (
           <div className="text-gray-500">暂无日志</div>
         ) : (

@@ -29,7 +29,7 @@ function parseTags(tags: string): string[] {
 function KnowledgeCard({ item }: { item: KnowledgeSummary }) {
   const tags = parseTags(item.tags);
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer">
+    <div className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-sky-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-700">
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">{item.title}</h3>
         <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded ${CATEGORY_COLORS[item.category] ?? CATEGORY_COLORS.general}`}>
@@ -107,7 +107,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
           {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
         </div>
         <div className="flex items-center gap-2">
