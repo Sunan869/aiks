@@ -152,3 +152,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - A reusable typed PageHeader now drives eight core workspaces (Overview, Sync, Diagnostics, Logs, Sources, Sessions, Knowledge Base V3 and Search). Header title, description, responsive action layout and light/dark text hierarchy are standardized in one implementation instead of duplicated per page.
 - Existing handlers for sync, provider refresh, import, diagnostics, clearing logs and knowledge publishing are retained. This is a structural frontend component consolidation, not a declaration of official shadcn/Radix migration.
 - Windows visual acceptance and full native validation remain separate steps. No Rust, schema or provider changes.
+
+## 2026-10-13 unified major-workspace headers
+
+- Added Processing Center, Native Knowledge Workbench, Project Memory and Settings to PageHeader, bringing the shared title/action component to 12 primary pages.
+- Retains prior backend API operations, backfill/refresh actions, knowledge creation, report tabs and settings controls. Project Memory retains its specialized hero metrics below the shared header.
+- This remains React/Tailwind consolidation, not official Radix/shadcn installation. Windows visual and keyboard QA are still outstanding.

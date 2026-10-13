@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -94,14 +95,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
   return (
     <div className="aiks-page-shell flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
-            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">V4 Native</span>
-          </div>
-          <p className="mt-1 text-sm text-gray-500">AI 提炼与手工知识统一管理；SiYuan 作为可选发布目标，不再是第二套编辑器。</p>
-        </div>
+      <PageHeader title="知识库" description="AI 提炼与手工知识统一管理；SiYuan 是可选发布目标。" actions={<>
         <UiButton variant="primary" size="md"
           type="button"
           onClick={() => setCreating(true)}
@@ -109,8 +103,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
         >
           <Plus className="h-4 w-4" />
           新建知识
-        </UiButton>
-      </div>
+        </UiButton></>} />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
         <div className="flex flex-wrap gap-1">

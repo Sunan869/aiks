@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
@@ -293,10 +294,7 @@ export default function SettingsPage() {
 
   return (
     <div className="aiks-page-shell w-full min-w-0 pb-24">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">设置</h1>
-        <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步、内容和语义搜索配置将在重启 AIKS 后生效。</p>
-      </div>
+      <PageHeader title="设置" description="桌面行为立即生效；AI、同步、内容和语义搜索配置需要重启 AIKS。" />
 
       <Section title="常规">
         <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={value => update("startup", value)} />

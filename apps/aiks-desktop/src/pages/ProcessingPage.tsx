@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import { createSafeTaskDiagnosticJson } from "../task-diagnostics";
@@ -174,12 +175,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
 
   return (
     <div className="aiks-page-shell min-w-0">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">处理中心</h1>
-          <p className="text-sm text-gray-500 mt-0.5">知识处理流水线状态</p>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader title="处理中心" description="会话同步、AI 提炼与知识处理流水线状态" actions={<>
           {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
           <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
@@ -190,9 +186,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           </UiButton>
           <UiButton variant="outline" size="sm" onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
             刷新
-          </UiButton>
-        </div>
-      </div>
+          </UiButton></>} />
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>

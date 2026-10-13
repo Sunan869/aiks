@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { CalendarDateField } from "../components/ui/CalendarDateField";
@@ -404,14 +405,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   return (
     <div className="memory-workspace min-w-0 space-y-5 p-4 text-sm md:p-6">
       <header className="memory-hero">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-blue-600 dark:text-blue-300">AIKS / Knowledge workspace</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">项目长期记忆</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">沿项目路径汇集知识证据、跟踪知识演进，并将高频管理操作与日常阅读分离。不会只凭同名项目合并不同来源。</p>
-          </div>
-          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">本地 · 来源可追溯</span>
-        </div>
+        <PageHeader title="项目长期记忆" description="沿项目路径汇集知识证据、追踪知识演进；同名项目不会自动合并。" actions={<span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">本地 · 来源可追溯</span>} />
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="memory-stat"><span>已发现项目</span><strong>{projects.length}</strong></div>
           <div className="memory-stat"><span>当前项目会话</span><strong>{detail?.project.session_count ?? "—"}</strong></div>
