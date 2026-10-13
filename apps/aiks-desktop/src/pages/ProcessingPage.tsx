@@ -179,20 +179,27 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
 
       {/* A task may fail sync independently from AI processing. */}
       {/* Raw synchronization status is separate from knowledge extraction. */}
-      <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
+      <section className="aiks-surface mb-5">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
         {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
         {lastSuccessfulRefresh && <p className="text-xs text-gray-400 mb-2">最近刷新：{lastSuccessfulRefresh}</p>}
-        <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
-          <span>总会话 {taskStats?.total_sessions ?? "—"}</span>
-          <span>待处理 {taskStats?.pending ?? "—"}</span>
-          <span>运行中 {taskStats?.running ?? "—"}</span>
-          <span>已取消 {taskStats?.cancelled ?? "—"}</span>
-          <span>同步异常 {taskStats?.sync_issues ?? "—"}</span>
-          <span>AI 异常 {taskStats?.ai_issues ?? "—"}</span>
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="status" aria-label="任务统计">
+          {([
+            ["总会话", taskStats?.total_sessions],
+            ["待处理", taskStats?.pending],
+            ["运行中", taskStats?.running],
+            ["已取消", taskStats?.cancelled],
+            ["同步异常", taskStats?.sync_issues],
+            ["AI 异常", taskStats?.ai_issues],
+          ] as const).map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/70">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{value ?? "—"}</div>
+            </div>
+          ))}
         </div>
         <button type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
           disabled={!taskStats && !showDiagnosticPreview}

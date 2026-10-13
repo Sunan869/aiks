@@ -1,3 +1,4 @@
+import { UiSelect } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { OfflineRestore } from "../components/OfflineRestore";
@@ -309,13 +310,13 @@ export default function SettingsPage() {
             <div className="text-sm">定时扫描间隔</div>
             <div className="text-xs text-gray-400">重启 AIKS 后生效</div>
           </div>
-          <select
+          <UiSelect
             className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
             value={settings.scan_interval_seconds / 60}
             onChange={event => update("scan_interval_seconds", +event.target.value * 60)}
           >
             {[1, 5, 10, 15, 30].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
-          </select>
+          </UiSelect>
         </div>
       </Section>
 
@@ -327,9 +328,9 @@ export default function SettingsPage() {
             <div className="text-sm">提炼并发数</div>
             <div className="text-xs text-gray-400">默认 1（保守）；vLLM 可先尝试 2 路并观察 tokens/s、显存和超时，4 路不保证更快；重启后生效</div>
           </div>
-          <select aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700">
+          <UiSelect aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700">
             {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value} 路</option>)}
-          </select>
+          </UiSelect>
         </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
@@ -350,7 +351,7 @@ export default function SettingsPage() {
         <div className="py-3 space-y-3">
           <div>
             <div className="text-xs text-gray-400 mb-1">向量模型预设</div>
-            <select
+            <UiSelect
               value={embeddingPreset}
               onChange={event => applyEmbeddingPreset(event.target.value)}
               className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
@@ -358,7 +359,7 @@ export default function SettingsPage() {
               <option value="lco">LCO Omni 3B 2605（推荐 · 2048 维）</option>
               <option value="bge">BGE-M3（轻量 · 1024 维）</option>
               <option value="custom">自定义</option>
-            </select>
+            </UiSelect>
             <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
           </div>
           <div>

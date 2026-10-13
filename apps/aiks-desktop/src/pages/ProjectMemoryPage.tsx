@@ -1,3 +1,4 @@
+import { UiSelect, DateField } from "../components/ui/fields";
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
@@ -416,10 +417,10 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
       <div className="memory-project-picker flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
-        <select id="project-memory-select" className="min-w-0 flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
+        <UiSelect id="project-memory-select" className="min-w-0 flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
           value={selected} onChange={event => setSelected(event.target.value)}>
           {projects.map(item => <option key={item.id} value={item.id}>{item.title} · {item.session_count} 会话</option>)}
-        </select>
+        </UiSelect>
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
       <section className="memory-panel">
@@ -435,7 +436,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         )}
         <div className="mt-3 flex flex-wrap items-end gap-2 text-xs">
           <label className="min-w-0 flex-1">选择 Session
-            <select aria-label="待调整 Session" value={bindingSession}
+            <UiSelect aria-label="待调整 Session" value={bindingSession}
               onChange={event => setBindingSession(event.target.value)}
               className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
               {sessionChoices.map(item => (
@@ -443,16 +444,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                   {item.source} · {item.title || item.session_id}（{item.project_name || "项目未知"}）
                 </option>
               ))}
-            </select>
+            </UiSelect>
           </label>
           <label className="min-w-0 flex-1">目标项目
-            <select aria-label="项目归属目标" value={bindingTarget}
+            <UiSelect aria-label="项目归属目标" value={bindingTarget}
               onChange={event => setBindingTarget(event.target.value)}
               className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
               {projects.filter(item => item.verified_path).map(item => (
                 <option key={item.id} value={item.id}>{item.title} · {item.sources.join("、")}</option>
               ))}
-            </select>
+            </UiSelect>
           </label>
           <button type="button" disabled={bindingBusy || !bindingSession || !bindingTarget}
             onClick={() => void applyProjectBinding()}
@@ -682,7 +683,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             <p className="mt-2 text-xs text-gray-500">先生成可编辑预览，再复制使用。不会自动写入项目文件或外部服务。</p>
             <label htmlFor="project-memory-source" className="my-3 flex items-center gap-2 text-xs">
               来源范围
-              <select id="project-memory-source" value={sourceFilter}
+              <UiSelect id="project-memory-source" value={sourceFilter}
                 className="rounded border bg-transparent p-2 dark:border-gray-700"
                 onChange={event => {
                   invalidatePreview();
@@ -691,21 +692,21 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 }}>
                 <option value="">全部来源</option>
                 {detail.project.sources.map(source => <option key={source} value={source}>{source}</option>)}
-              </select>
+              </UiSelect>
             </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
               <button type="button" onClick={() => chooseReportRange("today")}
                 className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</button>
               <button type="button" onClick={() => chooseReportRange("week")}
                 className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</button>
-              <label>开始日期 <input aria-label="回顾开始日期" type="date" value={from} onChange={e => { invalidatePreview(); setFrom(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
-              <label>结束日期 <input aria-label="回顾结束日期" type="date" value={through} onChange={e => { invalidatePreview(); setThrough(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
+              <label>开始日期 <DateField aria-label="回顾开始日期" value={from} onChange={e => { invalidatePreview(); setFrom(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
+              <label>结束日期 <DateField aria-label="回顾结束日期" value={through} onChange={e => { invalidatePreview(); setThrough(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
               <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
             </div>
             <div className="mb-3 space-y-2 text-xs">
               <label className="flex items-center gap-2">
                 Agent 导出格式
-                <select aria-label="Agent 导出格式" value={agentFormat}
+                <UiSelect aria-label="Agent 导出格式" value={agentFormat}
                   className="rounded border bg-transparent p-2 dark:border-gray-700"
                   onChange={event => {
                     invalidatePreview();
@@ -714,7 +715,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                   {AGENT_EXPORT_FORMATS.map(format => (
                     <option key={format.value} value={format.value}>{format.label}</option>
                   ))}
-                </select>
+                </UiSelect>
               </label>
               <p className="text-gray-500">
                 AGENTS.md / CLAUDE.md 仅生成可审核的引用建议片段，不自动读取、覆盖或合并已有文件。
@@ -774,7 +775,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 历史最多显示最近 100 份报告。
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <select aria-label="已保存回顾草稿" value={reportDraftId || ""}
+                <UiSelect aria-label="已保存回顾草稿" value={reportDraftId || ""}
                   className="max-w-full flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
                   onChange={event => void openSavedReport(event.target.value)}
                   disabled={reportBusy}>
@@ -784,16 +785,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                       {item.from_date}～{item.through_date} · v{item.current_revision} · {item.source_filter || "全部来源"}
                     </option>
                   ))}
-                </select>
+                </UiSelect>
                 {reportDraftId && (
-                  <select aria-label="回顾历史修订版本" value={reportViewedRevision}
+                  <UiSelect aria-label="回顾历史修订版本" value={reportViewedRevision}
                     className="rounded border bg-transparent p-2 dark:border-gray-700"
                     disabled={reportBusy} onChange={event => void openSavedReport(
                       reportDraftId, Number(event.target.value)
                     )}>
                     {Array.from({ length: reportCurrentRevision }, (_, index) => index + 1)
                       .map(number => <option key={number} value={number}>v{number}</option>)}
-                  </select>
+                  </UiSelect>
                 )}
               </div>
               {reportError && <p className="mt-2 text-red-600" role="alert">{reportError}</p>}
