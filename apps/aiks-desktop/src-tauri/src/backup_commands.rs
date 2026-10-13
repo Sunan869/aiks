@@ -118,6 +118,31 @@ async fn create_managed_quiesced_backup(
     }
 }
 
+/// Verify the already-running managed SiYuan is healthy before unblocking
+/// writes after a previously failed restart. Never launches external kernels.
+#[tauri::command]
+pub async fn verify_managed_siyuan_recovery(
+    runtime: tauri::State<'_, Arc<Mutex<Option<SiyuanRuntime>>>>,
+    gate: tauri::State<'_, Arc<BackupQuiescence>>,
+) -> Result<bool, String> {
+    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
+        return Err("外部 SiYuan 不受 AIKS 恢复门禁控制".to_string());
+    }
+    if !gate.is_recovery_required() {
+        return Err("当前不存在需要核验的停写故障".to_string());
+    }
+    let guard = runtime.lock().await;
+    let kernel = guard
+        .as_ref()
+        .ok_or_else(|| "未找到 AIKS 管理的 SiYuan 内核".to_string())?;
+    let health = kernel.health().await;
+    if health.state != RuntimeState::Ready || kernel.state() != RuntimeState::Ready {
+        return Err("SiYuan 尚未恢复就绪，继续禁止后台写入".to_string());
+    }
+    gate.clear_after_verified_recovery().map_err(str::to_string)?;
+    Ok(true)
+}
+
 fn validated_path(raw: &str) -> Result<PathBuf, String> {
     let value = raw.trim();
     if value.is_empty() {

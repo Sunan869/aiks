@@ -42,6 +42,13 @@ impl BackupQuiescence {
         }
     }
 
+    pub fn is_recovery_required(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.recovery_required)
+            .unwrap_or(true)
+    }
+
     pub fn clear_after_verified_recovery(&self) -> Result<(), &'static str> {
         let mut state = self.state.lock().map_err(|_| "backup gate poisoned")?;
         if state.writers != 0 {
@@ -271,6 +278,17 @@ mod tests {
         assert!(gate.try_begin_write().is_none());
         drop(guard);
         assert!(gate.try_begin_write().is_some());
+    }
+
+    #[test]
+    fn recovery_state_is_visible_and_clears_only_by_explicit_recovery() {
+        let gate = BackupQuiescence::default();
+        assert!(!gate.is_recovery_required());
+        gate.require_verified_recovery();
+        assert!(gate.is_recovery_required());
+        assert!(gate.try_begin_write().is_none());
+        gate.clear_after_verified_recovery().unwrap();
+        assert!(!gate.is_recovery_required());
     }
 
     #[test]
