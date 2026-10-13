@@ -52,6 +52,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   const cells = Array.from({ length: Math.ceil((first + days) / 7) * 7 }, (_, index) => index - first + 1);
   const move = (offset: number) => setMonth(current => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   const monthTitle = `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`;
+  const today = new Date();
   const selectDate = (day: Date) => {
     onChange(iso(day));
     setOpen(false);
@@ -82,7 +83,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
         <span className="flex-1">{value || "选择日期"}</span>
       </button>
       {open && (
-        <div id={id} data-aiks-popup="true" role="dialog" aria-modal="false" aria-label={label + "日历"} aria-labelledby={yearMonthLabel}
+        <div id={id} data-aiks-popup="true" role="dialog" aria-modal="false" aria-labelledby={yearMonthLabel}
           onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}
           className="absolute left-0 top-full z-50 mt-2 w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 flex items-center justify-between">
@@ -96,7 +97,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
               ? <span key={index} aria-hidden="true" />
               : <button key={index} type="button"
                   aria-label={`${month.getFullYear()}年${month.getMonth() + 1}月${day}日`}
-                  data-day={day} aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))}
+                  data-day={day} aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))} aria-current={iso(today) === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "date" : undefined}
                   onClick={() => selectDate(new Date(month.getFullYear(), month.getMonth(), day))}
                   className={`rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 hover:bg-sky-100 dark:hover:bg-slate-700 ${value === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "bg-sky-600 font-bold text-white hover:bg-sky-700" : ""}`}>
                   {day}

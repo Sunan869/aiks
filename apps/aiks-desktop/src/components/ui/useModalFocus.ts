@@ -29,11 +29,12 @@ export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: bool
         return;
       }
       if (event.key !== "Tab") return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
       const container = containerRef.current;
       if (!container) return;
       const items = Array.from(container.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-      )).filter(item => item.getClientRects().length > 0);
+      )).filter(item => item.getClientRects().length > 0 && !item.closest('[aria-hidden="true"], [inert]'));
       if (items.length === 0) {
         event.preventDefault();
         container.focus();

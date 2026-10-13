@@ -12,6 +12,8 @@ describe("modal keyboard boundary", () => {
     expect(hook).toContain("event.shiftKey");
     expect(hook).toContain("previous.focus()");
     expect(hook).toContain("enabledRef.current");
+    expect(hook).toContain("event.altKey || event.ctrlKey || event.metaKey");
+    expect(hook).toContain('[aria-hidden="true"], [inert]');
     expect(hook).toContain("modalStack[modalStack.length - 1] !== token");
     expect(hook).toContain("source.closest(");
   });
@@ -28,6 +30,9 @@ describe("modal keyboard boundary", () => {
     expect(select).toContain('data-aiks-popup="true"');
     expect(calendar).toContain('data-aiks-popup="true"');
     expect(select).toContain("closePopup()");
+    expect(select).toContain("const openPopup =");
+    expect(select).toContain("selectedIndex");
+    expect(calendar).toContain('aria-current={iso(today)');
     expect(calendar).toContain("trigger.current?.focus()");
     expect(calendar).toContain("const activeDate = parse(value)");
     expect(select).toContain("setQuery(\"\")");

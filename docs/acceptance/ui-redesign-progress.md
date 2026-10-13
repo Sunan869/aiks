@@ -207,3 +207,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - CI #38382553780 had 2 test failures, both caused by deprecated assertions for inline responsive CSS classes after pages migrated to UiStatGrid. Test expectations now validate the page-to-component linkage and the shared component's responsive CSS mapping.
 - Extended the cross-screen acceptance gate to verify four/six-column breakpoint contracts in the single source of truth. No Rust, database, Provider or SiYuan behavior changes.
 - Official shadcn/ui+Radix installation and hands-on Windows UI acceptance remain incomplete.
+
+## 2026-10-13 keyboard-select and dialog acceptance batch
+
+- SearchSelect now starts keyboard navigation at the current selected option, uses one open/close path for mouse and keyboard, and exposes list-autocomplete semantics.
+- Calendar exposes the current day separately from the selected date using aria-current. Dialog focus traversal excludes inert/aria-hidden descendants and ignores OS-modified Tab keys.
+- Strengthened source-contract regressions. This is an accessibility hardening batch, not verified official shadcn/ui or Radix installation; native Windows testing remains open.

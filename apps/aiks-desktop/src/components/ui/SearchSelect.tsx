@@ -23,11 +23,13 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
   }, [open]);
   useEffect(() => { if (open) searchInput.current?.focus(); }, [open]);
   const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const selectedIndex = matching.findIndex(option => option.value === value);
   useEffect(() => {
     if (open && activeIndex >= matching.length) setActiveIndex(Math.max(0, matching.length - 1));
   }, [open, matching.length, activeIndex]);
   const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const closePopup = () => { setOpen(false); setQuery(""); triggerRef.current?.focus(); };
+  const openPopup = () => { setOpen(true); setQuery(""); setActiveIndex(Math.max(0, selectedIndex)); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePopup(); return; }
     if (event.key === "ArrowDown" && matching.length > 0) { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
@@ -37,9 +39,9 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
     if (event.key === "Enter" && matching[activeIndex]) { event.preventDefault(); choose(matching[activeIndex].value); }
   };
   return <div ref={root} className="relative min-w-0 flex-1">
-    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
-      onKeyDown={event => { if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) { event.preventDefault(); setOpen(true); setQuery(""); setActiveIndex(0); } }}
-      onClick={() => { setOpen(current => !current); setQuery(""); setActiveIndex(0); }}
+    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list"
+      onKeyDown={event => { if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) { event.preventDefault(); openPopup(); } }}
+      onClick={() => { if (open) closePopup(); else openPopup(); }}
       className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
       <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400"/>
