@@ -1,22 +1,58 @@
-import { forwardRef, type ComponentPropsWithoutRef } from "react";
+import { Children, Fragment, forwardRef, isValidElement, useState, type ChangeEvent, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { RadixSelectField, type RadixChoice } from "./RadixSelectField";
 import { CalendarDays, ChevronDown } from "lucide-react";
 
 type SelectProps = ComponentPropsWithoutRef<"select">;
 type DateProps = Omit<ComponentPropsWithoutRef<"input">, "type">;
 
-/** Accessible native control with shared design tokens; keeps platform keyboard semantics. */
-export const UiSelect = forwardRef<HTMLSelectElement, SelectProps>(function UiSelect(
-  { className = "", children, ...props }, ref,
-) {
-  return (
-    <span className="relative inline-flex min-w-0 items-center">
-      <select ref={ref} {...props} className={`aiks-field-select appearance-none pr-9 ${className}`}>
-        {children}
-      </select>
-      <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 h-4 w-4 text-slate-400" />
-    </span>
-  );
-});
+/** Read existing JSX <option> children so all existing screens can migrate in one batch. */
+function extractOptions(children: ReactNode): RadixChoice[] {
+  const result: RadixChoice[] = [];
+  const visit = (nodes: ReactNode) => {
+    Children.forEach(nodes, child => {
+      if (!isValidElement(child)) return;
+      if (child.type === Fragment) {
+        visit((child.props as { children?: ReactNode }).children);
+        return;
+      }
+      if (child.type !== "option") return;
+      const props = child.props as { value?: string | number; children?: ReactNode; disabled?: boolean };
+      const optionValue = String(props.value ?? props.children ?? "");
+      const content = Children.toArray(props.children).map(item => typeof item === "string" || typeof item === "number" ? String(item) : "").join("");
+      result.push({ value: optionValue, label: content || optionValue, disabled: props.disabled });
+    });
+  };
+  visit(children);
+  return result;
+}
+
+/**
+ * Radix-backed compatibility adapter for all existing select call sites.
+ * Keep the legacy ChangeEvent-like onChange contract until business screens
+ * migrate individually to onValueChange.
+ */
+export function UiSelect({
+  className = "", children, value, defaultValue, onChange, disabled, "aria-label": ariaLabel,
+  id, name, required,
+}: SelectProps) {
+  const options = extractOptions(children);
+  const [uncontrolled, setUncontrolled] = useState(String(defaultValue ?? options[0]?.value ?? ""));
+  const currentValue = value !== undefined && value !== null ? String(value) : uncontrolled;
+  const onValueChange = (next: string) => {
+    if (value === undefined || value === null) setUncontrolled(next);
+    onChange?.({ target: { value: next }, currentTarget: { value: next } } as ChangeEvent<HTMLSelectElement>);
+  };
+  return <RadixSelectField
+    label={String(ariaLabel ?? name ?? id ?? "选择选项")}
+    value={currentValue}
+    onValueChange={onValueChange}
+    options={options}
+    disabled={disabled}
+    name={name}
+    required={required}
+    className={className}
+  />;
+}
 
 /** Consistent calendar icon and focus treatment while retaining OS-native date input. */
 export const DateField = forwardRef<HTMLInputElement, DateProps>(function DateField(

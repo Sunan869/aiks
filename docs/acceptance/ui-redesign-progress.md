@@ -239,3 +239,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Updated two old Ask AIKS tests to validate the actual Radix select label/value semantics rather than native UiSelect markup.
 - Scoped Gitleaks false-positive handling to an exact benchmark documentation line naming an optional environment variable. No credentials are stored; genuine findings remain blocked.
 - Radix Select migration is still in progress and must pass CI before expansion.
+
+## 2026-10-13 Radix Select migration of all legacy UiSelect call sites
+
+- UiSelect now delegates to actual @radix-ui/react-select through RadixSelectField, automatically mapping existing JSX option items, including numeric values, disabled options and empty/all-selection values.
+- Preserves existing ChangeEvent-like onChange handlers and controlled/uncontrolled behavior for business pages; Radix renders a portal-positioned menu instead of the platform-native dropdown.
+- The compatibility adapter is transitional and should be replaced with explicit onValueChange call sites when possible. SearchSelect and CalendarDateField still require their own Radix/Calendar migration. Complete Windows keyboard and visual verification remains required.
