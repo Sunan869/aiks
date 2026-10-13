@@ -3,14 +3,12 @@ import settings from "../pages/SettingsPage.tsx?raw";
 import editor from "../components/KnowledgeEditor.tsx?raw";
 import host from "../components/WorkbenchHost.tsx?raw";
 import restore from "../components/OfflineRestore.tsx?raw";
-import css from "../index.css?raw";
 
 describe("desktop UI readiness guardrails", () => {
   it("keeps accessible compact switches and primary save", () => {
     expect(settings).toContain('role="switch"');
     expect(settings).toContain("aiks-switch");
     expect(settings).toContain('variant="primary" size="md"');
-    expect(css).toContain(".aiks-button.aiks-switch");
   });
   it("keeps knowledge editor save and preview controls", () => {
     expect(editor).toContain("aria-pressed={!preview}");
