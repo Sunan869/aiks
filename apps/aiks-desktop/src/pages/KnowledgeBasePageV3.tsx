@@ -159,7 +159,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <UiInput aria-label="搜索当前页知识" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
           placeholder="搜索当前页知识标题或摘要…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
-        <span className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} 条 · 全部 {data?.total ?? 0} 条</span>
+        <span role="status" className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} / {data?.items.length ?? 0} 条 · 全库 {data?.total ?? 0} 条</span>
         {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
       </div>
       {error && (
@@ -173,13 +173,13 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
       ) : currentPageItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-gray-400">
           <p className="text-sm">{currentPageQuery ? "当前页没有匹配的知识" : "暂无知识条目"}</p>
-          <p className="text-xs mt-1">请先处理工作记录以提炼知识</p>
+          <p className="text-xs mt-1">{currentPageQuery ? "可以清空关键词，或切换页面继续查找。" : "请先处理工作记录以提炼知识"}</p>
         </div>
       ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {currentPageItems.map((item: KnowledgeSummary) => (
-              <div key={item.id} onClick={() => onViewDetail?.(item.id)}>
-                <KnowledgeCard item={item} />
+              <div key={item.id} className="min-w-0 rounded-xl focus-within:ring-2 focus-within:ring-sky-500">
+                {onViewDetail ? <button type="button" className="block w-full text-left" onClick={() => onViewDetail(item.id)} aria-label={`查看知识：${item.title}`}><KnowledgeCard item={item} /></button> : <KnowledgeCard item={item} />}
               </div>
             ))}
         </div>

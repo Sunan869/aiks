@@ -119,3 +119,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Knowledge tabs expose selected states; category and refresh controls have accessible names. Counts explicitly distinguish visible/current-page items from database totals. Existing favorite, manual create, archive and pagination actions stay intact.
 - Knowledge Base and Sources headers wrap in narrow desktop windows. This batch does not change SiYuan documents, Provider permissions, data schema or backup behavior.
 - Formal shadcn/Radix dependency migration and Windows visual acceptance remain outstanding. CI pass and real-device testing are separate gates.
+
+## 2026-10-13 list accessibility batch
+
+- Session and Knowledge list pages now explicitly distinguish visible matches, loaded page size and database total in filtering results. Filter-empty guidance no longer incorrectly tells users to scan/extract when there is merely no current-page match.
+- Session rows no longer rely on click-only table row navigation. The session title is a keyboard-operable detail button. The table has an independently keyboard-focusable scroll region and a minimum width in narrow windows.
+- Knowledge cards expose a real, labelled keyboard-operable detail button while preserving the existing card display; no new backend writes or provider changes.
+- This is code-level accessibility work only. Formal shadcn/Radix migration and Windows visual acceptance remain outstanding.
