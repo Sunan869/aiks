@@ -126,3 +126,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Session rows no longer rely on click-only table row navigation. The session title is a keyboard-operable detail button. The table has an independently keyboard-focusable scroll region and a minimum width in narrow windows.
 - Knowledge cards expose a real, labelled keyboard-operable detail button while preserving the existing card display; no new backend writes or provider changes.
 - This is code-level accessibility work only. Formal shadcn/Radix migration and Windows visual acceptance remain outstanding.
+
+## 2026-10-13 page inventory and CI repair
+
+- Inventory: 18 TSX page modules. 17 already had the shared desktop shell or workspace layout; legacy KnowledgePage was the remaining page without it. It now has responsive header/cards and a keyboard-operated knowledge action. This is shell coverage, not 18 completed shadcn/ui migrations.
+- Fixed frontend CI #38377024085: the source-contract test had assumed there was no native button on KnowledgeBasePageV3. That button is an intentional accessible knowledge-card action, so the contract now accepts it while continuing to guard the other reviewed pages.
+- Full shadcn/Radix integration, visual parity and Windows real-device acceptance remain outstanding. Do not mark those completed from static TSX coverage alone.
