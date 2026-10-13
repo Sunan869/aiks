@@ -18,9 +18,8 @@ describe("modal keyboard boundary", () => {
     expect(hook).toContain("source.closest(");
   });
   it("applies the same focus boundary to knowledge, search and assistant", () => {
-    expect(editor).toContain("useModalFocus(open, onClose, !saving)");
-    expect(search).toContain("useModalFocus(open, onClose)");
-    expect(ask).toContain("useModalFocus<HTMLElement>(open, onClose)");
+    expect(editor).toContain('dismissOnBackdrop={!saving}');
+    for (const content of [editor, search, ask]) expect(content).toContain("<ModalBackdrop");
     for (const content of [editor, search, ask]) expect(content).toContain("ref={dialogRef}");
     expect(editor).toContain("createKnowledge(");
     expect(search).toContain("searchAllProgressively");

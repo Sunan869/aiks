@@ -1,7 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import { useEffect, useRef, useState } from "react";
 import { UiButton, UiInput, UiSelect, UiTextarea } from "./ui/fields";
-import { useModalFocus } from "./ui/useModalFocus";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { Eye, Loader2, Save, X } from "lucide-react";
 import { getApi } from "../api/client";
@@ -44,7 +43,7 @@ export default function KnowledgeEditor({ open, initial, onClose, onSaved }: Pro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useModalFocus(open, onClose, !saving);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -111,7 +110,7 @@ export default function KnowledgeEditor({ open, initial, onClose, onSaved }: Pro
 
   return (
     <ModalBackdrop kind="editor" onClose={onClose} dismissOnBackdrop={!saving}>
-      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="knowledge-editor-title" className="flex h-[min(90vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="knowledge-editor-title" className="pointer-events-auto flex h-[min(90vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-700">
           <div>
             <h2 id="knowledge-editor-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">

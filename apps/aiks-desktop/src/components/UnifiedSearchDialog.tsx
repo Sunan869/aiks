@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { searchAllProgressively } from "../api/search-progress";
-import { useModalFocus } from "./ui/useModalFocus";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import type { UnifiedSearchHit, UnifiedSearchOutcome } from "../api/types";
 
@@ -21,7 +20,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
   const [hasPartial, setHasPartial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useModalFocus(open, onClose);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -86,7 +85,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
     <ModalBackdrop kind="search" onClose={onClose}>
       <div
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="全局搜索"
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-slate-900 sm:max-h-[72vh]"
+        className="pointer-events-auto flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-slate-900 sm:max-h-[72vh]"
         onMouseDown={event => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">

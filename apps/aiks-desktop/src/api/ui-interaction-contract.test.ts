@@ -10,7 +10,7 @@ describe("shared calendar and searchable selection contract", () => {
     expect(comboSource).toContain('const choose = (next: string) => {');
     expect(comboSource).toContain('onChange(next);');
     expect(comboSource).toContain('onSelect={() => choose(option.value)}');
-    expect(comboSource).toContain('<Command.List role="listbox"');
+    expect(comboSource).toContain('role="listbox"');
     expect(comboSource).toContain('role="combobox"');
   });
   it("keeps ISO dates and invalidates existing report previews", () => {

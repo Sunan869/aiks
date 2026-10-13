@@ -263,3 +263,4 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 ## cmdk regression fixes
 
 - Restore useId-backed combobox aria-controls/list ID linkage and update legacy keyboard tests to check cmdk Command.Item/Input selection and keyboard handling.
+\n## Radix Dialog migration: knowledge editor, search and Ask AIKS\n\n- Shared ModalBackdrop now hosts @radix-ui/react-dialog Root/Portal/Overlay/Content asChild, replacing handwritten overlay mouse handling.\n- Removed manual useModalFocus hook from the three active modal screens to avoid competing Tab and Escape traps; Radix owns trapping and outside dismissal.\n- Knowledge editor retains the save-in-progress non-dismissable boundary.\n- Updated modal regression assertions and cmdk role-attribute-order assertions.\n

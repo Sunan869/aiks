@@ -7,7 +7,7 @@ describe("desktop shared interaction accessibility", () => {
   it("supports searchable keyboard selection", () => {
     expect(combo).toContain('event.key === "ArrowDown"');
     expect(combo).toContain('event.key === "ArrowUp"');
-    expect(combo).toContain('<Command.List role="listbox"');
+    expect(combo).toContain('role="listbox"');
     expect(combo).toContain('<Command.Input');
     expect(combo).toContain("onSelect={() => choose(option.value)}");
     expect(combo).toContain("triggerRef.current?.focus()");

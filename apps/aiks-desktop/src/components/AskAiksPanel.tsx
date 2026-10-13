@@ -1,6 +1,5 @@
 import { UiButton } from "./ui/fields";
 import { RadixSelectField } from "./ui/RadixSelectField";
-import { useModalFocus } from "./ui/useModalFocus";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -61,7 +60,7 @@ export default function AskAiksPanel({
   const [sourceChoices, setSourceChoices] = useState<string[]>([]);
   const [selectedSource, setSelectedSource] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const dialogRef = useModalFocus<HTMLElement>(open, onClose);
+  const dialogRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -176,7 +175,7 @@ export default function AskAiksPanel({
     <ModalBackdrop kind="assistant" onClose={onClose}>
       <aside
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
-        className="absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+        className="pointer-events-auto absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
         onMouseDown={event => event.stopPropagation()}
         aria-label="问 AIKS"
       >

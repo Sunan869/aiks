@@ -9,7 +9,7 @@ describe("responsive modal workflow contracts", () => {
     expect(editor).toContain("createKnowledge(");
     expect(editor).toContain('aria-labelledby="knowledge-editor-title"');
     expect(editor).toContain('disabled={saving}');
-    expect(editor).toContain("useModalFocus(open, onClose, !saving)");
+    expect(editor).toContain("dismissOnBackdrop={!saving}");
     expect(modalFocus).toContain('event.key === "Escape"');
     expect(modalFocus).toContain("if (!enabledRef.current) return;");
     expect(editor).toContain('md:grid-cols-[260px_minmax(0,1fr)]');
