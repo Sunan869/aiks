@@ -77,3 +77,11 @@ Rust 自动化只验证缓存身份、SQLite 持久性和失效规则，不连�
 分别注入 `content_filter`、`tool_calls`、`function_call`、`error`，这些非正常完成原因也应拒绝。省略 finish_reason 或设为 null 的老本地模型仍应兼容，但不能凭未提供原因推定模型没有截断。即使 stop，正文结构被截断也仍须由独立结构完整性门禁拒绝。
 
 在真实模型独立基准中（需用户主动执行 `--ignored`），观察 HTTP 成功且完整 JSON、但 finish_reason=length 时：request_ok=true、strict_json_valid=true、production_schema_valid=false、skip_match=false，关键词不计入成功。stop 的完整结果按真实正文评分。保留模型参数、实际请求数、结束状态和阶段日志用于人工核对；匿名报告仍不得保存原始响应、Session 正文、密钥和模型服务 URL。当前自动化测试只是固定模型响应模拟，不代表 Windows 真机或真实模型已经通过验收。历史 v5 缓存没有结束状态，不能自动认定旧缓存全部完整或任意清空已有生产知识。
+
+
+## 2026-10-13 Qwen / vLLM 性能与项目记忆可读性批次
+
+- 复核源码：`AiModelConfig::default().disable_thinking` 已为 true，`ai/client.rs` 已带 `chat_template_kwargs.enable_thinking=false`，无需虚构 Thinking 未关闭的瓶颈。配置可能由已有设置覆盖，应以实际用户配置/请求日志核对。
+- 22 个切片的实际 Session 受固定 40 条消息上限影响。本批提高消息数硬上限至 80，仍以原有估算 token 预算和每请求上下文预检优先，避免简单无界拼接；补 80 个短回合只形成一片的测试。不保证所有 Session 的切片数减半，历史缓存可能受切片边界影响。
+- 保持默认并发 1、上限 4，避免在未知 vLLM 显存负载下擅自提高所有用户的服务压力。设置界面增加 vLLM 从 2 路开始测试的说明。真实耗时和提取质量尚待同一 Session A/B 测试。
+- 项目记忆先以 Tailwind 原生 design primitives 改善标题、统计、卡片、暗色模式和层级；不自动升级 React/Tailwind 或引入不经 lockfile 验证的组件依赖。
