@@ -158,3 +158,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Added Processing Center, Native Knowledge Workbench, Project Memory and Settings to PageHeader, bringing the shared title/action component to 12 primary pages.
 - Retains prior backend API operations, backfill/refresh actions, knowledge creation, report tabs and settings controls. Project Memory retains its specialized hero metrics below the shared header.
 - This remains React/Tailwind consolidation, not official Radix/shadcn installation. Windows visual and keyboard QA are still outstanding.
+
+## 2026-10-13 shared surfaces batch
+
+- Added UiSection, UiMetric and UiNotice presentation primitives with consistent neutral/semantic tones, focus-independent markup and dark-mode styles.
+- Refactored Overview summary metrics/status section, Sync status panels/notices, Sources errors, Diagnostics errors and Processing refresh errors to use common surfaces. Log empty states are explicitly announced.
+- This creates reusable UI components without adding unverified dependencies. It does **not** claim the official shadcn/ui + Radix migration is complete. Windows real-device visual and interaction acceptance is still required.

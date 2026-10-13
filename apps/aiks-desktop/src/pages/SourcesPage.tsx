@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useEffect, useState } from "react";
 import { RefreshCw, Settings2 } from "lucide-react";
 import { UiButton, UiInput, UiTextarea } from "../components/ui/fields";
@@ -115,7 +116,7 @@ export default function SourcesPage({ fullStatus }: Props) {
   const disabledCount = configurableSources.filter(source => !source.enabled).length;
   return <div className="aiks-page-shell w-full min-w-0">
     <PageHeader title="数据源" description="统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。" actions={<UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>刷新状态</UiButton>} />
-    {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
+    {error && <UiNotice tone="danger" className="mb-4">读取数据源目录失败：{error}</UiNotice>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
     <section aria-label="数据源健康概览" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {([

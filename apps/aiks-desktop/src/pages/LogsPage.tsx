@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -56,7 +57,7 @@ export default function LogsPage() {
       <p role="status" className="mb-2 text-xs text-slate-500">当前显示 {visibleLogs.length} / {logs.length} 条本次运行日志</p>
       <div role="region" aria-label="运行日志内容" tabIndex={0} className="min-h-[180px] flex-1 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
         {visibleLogs.length === 0 ? (
-          <div className="text-gray-500">{logs.length === 0 ? "暂无日志" : "没有符合筛选条件的日志"}</div>
+          <p role="status" className="text-gray-400">{logs.length === 0 ? "暂无日志" : "没有符合筛选条件的日志"}</p>
         ) : (
           visibleLogs.map((log, i) => (
             <div key={i} className="flex gap-2 mb-0.5">

@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -77,7 +78,7 @@ export default function DiagnosticsPage() {
           重新检测
         </UiButton></>} />
 
-      {diagnosticError && <p role="alert" className="mb-4 break-words rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{diagnosticError}</p>}
+      {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
       {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近成功检测：{lastSuccessfulCheck}</p>}
       <div className="space-y-2 mb-6">
         {doctor?.checks.map((check) => (

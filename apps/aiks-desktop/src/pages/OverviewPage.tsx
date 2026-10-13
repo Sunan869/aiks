@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { RefreshCw, CheckCircle, Cpu, Zap } from "lucide-react";
@@ -45,20 +46,13 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
       {/* Stats cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((item) => (
-          <div key={item.label} className="aiks-surface">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-gray-400">{item.label}</span>
-              <span>{item.icon}</span>
-            </div>
-            <div className="text-2xl font-bold tabular-nums text-gray-800 dark:text-gray-100">{item.value}</div>
-          </div>
+          <UiMetric key={item.label} label={item.label} value={item.value} detail={item.icon} />
         ))}
       </div>
 
       {/* Sync status */}
       {fullStatus && (
-        <div className="aiks-surface">
-          <div className="font-medium text-sm mb-2">同步状态</div>
+        <UiSection title="同步状态">
           <div className="grid grid-cols-3 gap-2 text-xs">
             {[
               { label: "已同步", value: fullStatus.db_synced, color: "text-green-600" },
@@ -77,7 +71,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
               {fullStatus.last_sync_discovered > 0 && ` · 发现 ${fullStatus.last_sync_discovered} 条`}
             </div>
           )}
-        </div>
+        </UiSection>
       )}
 
       {/* AI status */}

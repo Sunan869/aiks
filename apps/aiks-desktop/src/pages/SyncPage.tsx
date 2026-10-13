@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,8 +35,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
       {/* Sync stats */}
       {fullStatus && (
         <>
-          <div className="aiks-surface mb-4">
-            <div className="font-medium text-sm mb-3">最近同步</div>
+          <UiSection title="最近同步" className="mb-4">
             {fullStatus.last_sync_at ? (
               <>
                 <div className="text-xs text-gray-500 mb-2">
@@ -58,11 +58,10 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
             ) : (
               <div className="text-sm text-gray-400">尚未执行同步</div>
             )}
-          </div>
+          </UiSection>
 
           {/* AI extraction stats */}
-          <div className="aiks-surface mb-4">
-            <div className="font-medium text-sm mb-3">AI 智能整理</div>
+          <UiSection title="AI 智能整理" className="mb-4">
             <div className="grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4">
               {[
                 { label: "待整理", value: fullStatus.extraction_pending, color: "text-blue-600" },
@@ -76,19 +75,19 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                 </div>
               ))}
             </div>
-          </div>
+          </UiSection>
         </>
       )}
 
       {result && !result.error && (
-        <div role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-xs text-green-700 dark:bg-green-900/20 dark:text-green-400">
+        <UiNotice tone="success" className="mb-4">
           本次同步：发现 {result.discovered}，新增 {result.new_count}，更新 {result.updated_count}，
           跳过 {result.skipped_count}，失败 {result.failed_count}
           {result.extraction_queued > 0 && `，${result.extraction_queued} 条排队 AI 整理`}
-        </div>
+        </UiNotice>
       )}
       {result?.error && (
-        <div role="alert" className="mb-4 break-words text-xs text-red-500">{result.error}</div>
+        <UiNotice tone="danger" className="mb-4">{result.error}</UiNotice>
       )}
 
       <UiButton variant="primary" size="md" onClick={doSync} disabled={syncing}
