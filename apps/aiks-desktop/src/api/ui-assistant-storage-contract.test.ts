@@ -9,6 +9,11 @@ describe("assistant and storage UI workflow boundaries", () => {
     expect(ask).toContain("selectedSource");
     expect(ask).toContain("<RadixSelectField");
     expect(ask).toContain("setMessages([])");
+    expect(ask).toContain("ragHistory(messages)");
+    expect(ask).toContain("activeAssistantId.current !== null");
+    expect(ask).toContain("invalidateInFlight()");
+    expect(ask).toContain("markRagIncomplete(current, assistantId)");
+    expect(ask).toContain('message.state === "complete"');
     expect(ask).toContain("<UiButton");
   });
   it("preserves explicit storage operations and makes setup accessible", () => {

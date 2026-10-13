@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { askAiksProgressively } from "../api/rag-progress";
 import { getApi } from "../api/client";
-import type { RagCitation, RagTurn } from "../api/rag";
+import type { RagCitation } from "../api/rag";
+import { appendRagDelta, completeRagAnswer, markRagIncomplete, ragHistory, type RagUiMessage } from "../rag-conversation";
 
 interface Props {
   open: boolean;
@@ -26,14 +27,7 @@ interface Props {
   onOpenCitation: (citation: RagCitation) => void;
 }
 
-type UiMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  citations?: RagCitation[];
-  model?: string;
-  warnings?: string[];
-};
+type UiMessage = RagUiMessage;
 
 const QUICK_PROMPTS = [
   "总结一下最近讨论的向量模型部署方案",
@@ -107,28 +101,58 @@ export default function AskAiksPanel({
     });
   }, [open, messages, loading]);
 
+  // A response belongs to the exact visible dialogue which started it.
+  // Invalidation is UI-only: it does not claim to cancel the Rust/model request.
+  const requestEpoch = useRef(0);
+  const activeAssistantId = useRef<string | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  const invalidateInFlight = () => {
+    requestEpoch.current += 1;
+    const assistantId = activeAssistantId.current;
+    activeAssistantId.current = null;
+    if (assistantId !== null) {
+      setMessages(current => markRagIncomplete(current, assistantId));
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) invalidateInFlight();
+  }, [open]);
+
+  useEffect(() => () => {
+    requestEpoch.current += 1;
+    activeAssistantId.current = null;
+  }, []);
+
   const clear = () => {
-    if (loading) return;
+    if (activeAssistantId.current !== null) return;
     setMessages([]);
     setInput("");
     setError(null);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
+  const dismiss = () => {
+    invalidateInFlight();
+    onClose();
+  };
+
   const submit = async () => {
     const question = input.trim();
-    if (!question || loading || !aiHealthy) return;
-
-    const history: RagTurn[] = messages.map(message => ({
-      role: message.role,
-      content: message.content,
-    }));
+    // Ref gate protects against two Enter/click submissions in one React tick.
+    if (!openRef.current || !question || activeAssistantId.current !== null || !aiHealthy) return;
+    const history = ragHistory(messages);
     const assistantId = messageId();
+    const epoch = ++requestEpoch.current;
+    activeAssistantId.current = assistantId;
 
     setMessages(current => [
       ...current,
       { id: messageId(), role: "user", content: question },
-      { id: assistantId, role: "assistant", content: "" },
+      { id: assistantId, role: "assistant", content: "", state: "pending" },
     ]);
     setInput("");
     setError(null);
@@ -139,40 +163,35 @@ export default function AskAiksPanel({
         { question, history, project: selectedProject || undefined, source: selectedSource || undefined },
         {
           onDelta: delta => {
-            setMessages(current => current.map(message => (
-              message.id === assistantId
-                ? { ...message, content: message.content + delta }
-                : message
-            )));
+            if (requestEpoch.current !== epoch || !openRef.current) return;
+            setMessages(current => requestEpoch.current === epoch && openRef.current
+              ? appendRagDelta(current, assistantId, delta) : current);
           },
         },
       );
-      setMessages(current => current.map(message => (
-        message.id === assistantId
-          ? {
-              ...message,
-              content: result.answer || message.content,
-              citations: result.citations,
-              model: result.model,
-              warnings: result.warnings,
-            }
-          : message
-      )));
+      if (requestEpoch.current !== epoch || !openRef.current) return;
+      setMessages(current => requestEpoch.current === epoch && openRef.current
+        ? completeRagAnswer(current, assistantId, result) : current);
     } catch (reason) {
-      setMessages(current => current.filter(
-        message => message.id !== assistantId || message.content.trim().length > 0,
-      ));
+      if (requestEpoch.current !== epoch || !openRef.current) return;
+      setMessages(current => requestEpoch.current === epoch && openRef.current
+        ? markRagIncomplete(current, assistantId) : current);
       setError(String(reason));
     } finally {
-      setLoading(false);
-      window.setTimeout(() => textareaRef.current?.focus(), 0);
+      if (requestEpoch.current === epoch) {
+        activeAssistantId.current = null;
+        setLoading(false);
+        window.setTimeout(() => {
+          if (requestEpoch.current === epoch && openRef.current) textareaRef.current?.focus();
+        }, 0);
+      }
     }
   };
 
   if (!open) return null;
 
   return (
-    <ModalBackdrop kind="assistant" onClose={onClose}>
+    <ModalBackdrop kind="assistant" onClose={dismiss}>
       <aside
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
         className="pointer-events-auto absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
@@ -201,7 +220,7 @@ export default function AskAiksPanel({
           </UiButton>
           <UiButton variant="ghost" size="sm"
             type="button"
-            onClick={onClose}
+            onClick={dismiss}
             className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             title="关闭"
           >
@@ -601,12 +620,16 @@ function Message({
             onOpenCitation={onOpenCitation}
             streaming={streaming}
           />
-        ) : (
+        ) : message.state === "pending" ? (
           <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
             <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>正在检索知识并组织回答…</span>
             </div>
+          </div>
+        ) : (
+          <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            没有可核实的完整回答。请检查模型服务后重试。
           </div>
         )}
 
@@ -657,7 +680,7 @@ function Message({
           </details>
         )}
 
-        {message.content && (
+        {message.content && message.state === "complete" && (
           <div className="mt-2.5 flex items-center gap-1 text-[10px] text-gray-400">
             <UiButton variant="ghost" size="sm"
               type="button"

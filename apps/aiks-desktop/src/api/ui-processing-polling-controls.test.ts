@@ -10,7 +10,9 @@ describe("processing workspace polling and task controls", () => {
   it("retains task actions, safe unmount and failure visibility", () => {
     expect(processing).toContain("mountedRef.current = false");
     expect(processing).toContain("if (!mountedRef.current) return");
-    expect(processing).toContain("setConsecutiveFailures(previous => previous + 1)");
+    // Task and pipeline have separate retry/refresh failure accounting.
+    expect(processing).toContain("setTaskRefreshFailures(previous => previous + 1)");
+    expect(processing).toContain("setPipelineRefreshFailures(previous => previous + 1)");
     expect(processing).toContain("retryFailedAiTask");
     expect(processing).toContain("cancelPendingAiTask");
     expect(processing).toContain("人工核查冲突");
