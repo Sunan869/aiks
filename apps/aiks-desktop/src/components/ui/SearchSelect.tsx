@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
@@ -11,6 +11,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const choose = (next: string) => {
@@ -31,7 +32,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
       <div className="relative min-w-0 flex-1">
         <Popover.Anchor asChild>
           <button ref={triggerRef} type="button" role="combobox" aria-label={label}
-            aria-expanded={open} aria-haspopup="listbox"
+            aria-expanded={open} aria-haspopup="listbox" aria-controls={open ? listId : undefined}
             onKeyDown={event => {
               if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
                 event.preventDefault();
@@ -57,7 +58,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
                   onValueChange={setQuery} placeholder="输入关键词筛选…"
                   className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm shadow-none outline-none focus:border-transparent focus:outline-none focus:ring-0" />
               </div>
-              <Command.List role="listbox" className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
+              <Command.List id={listId} role="listbox" className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
                 <Command.Empty role="status" className="p-3 text-xs text-slate-500">没有匹配选项</Command.Empty>
                 {options.map(option => (
                   <Command.Item key={option.value} value={option.value}

@@ -17,7 +17,7 @@ describe("unified worklist UX", () => {
   });
   it("uses stable combobox popup ids, not label-derived ids", () => {
     expect(combo).toContain("const listId = useId()");
-    expect(combo).toContain("aria-controls={listId}");
+    expect(combo).toContain("aria-controls={open ? listId : undefined}");
     expect(memory).toContain("项目记忆工作区");
   });
 });

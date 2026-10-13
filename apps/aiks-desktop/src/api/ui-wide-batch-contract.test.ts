@@ -17,10 +17,11 @@ describe("cross-page UI batch maintains business controls", () => {
     expect(settings).toContain("ai_max_concurrent");
   });
   it("exposes an identified, keyboard-navigable combobox list", () => {
-    expect(combo).toContain("aria-controls={listId}");
+    expect(combo).toContain("aria-controls={open ? listId : undefined}");
     expect(combo).toContain("id={listId}");
-    expect(combo).toContain('event.key === "Home"');
-    expect(combo).toContain('event.key === "End"');
+    expect(combo).toContain('<Command.Input');
+    expect(combo).toContain('<Command.Item');
+    expect(combo).toContain('onSelect={() => choose(option.value)}');
     expect(combo).toContain("triggerRef.current?.focus()");
   });
   it("keeps dates in ISO form with an accessible month label", () => {
