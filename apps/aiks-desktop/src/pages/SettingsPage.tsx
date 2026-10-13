@@ -1,4 +1,4 @@
-import { UiSelect, UiButton } from "../components/ui/fields";
+import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { OfflineRestore } from "../components/OfflineRestore";

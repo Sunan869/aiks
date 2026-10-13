@@ -34,3 +34,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - One batch moves remaining native action buttons in 11 pages to the existing UiButton primitive: knowledge base, knowledge detail, knowledge list, knowledge workbench, knowledge workspace, processing detail, processing center, project memory, session detail, settings and sources.
 - Preserves original click handlers, disabled and visibility conditions, action labels and domain calls. Adds source-level contract coverage for native-button regressions.
 - Official shadcn/ui and Radix dependency installation remains **not done**; this is an interim shared-controls refactor. Requires CI and Windows visual validation before acceptance.
+
+## 2026-10-13 form control consolidation batch
+
+- Unifies native text/number inputs across Settings, Project Memory, Knowledge Detail and Knowledge Base under the shared UiInput component, while retaining native checkboxes for consent and selection.
+- Consolidates evidence and editable report/organization draft textarea presentation under UiTextarea. Existing model configuration, token constraints, source evidence, confirmation gates and write APIs remain unchanged.
+- Adds cross-page guard tests for critical labels and consent boundaries. This is an intermediate shared-form migration; official Radix/shadcn installation and real Windows UI acceptance are outstanding.

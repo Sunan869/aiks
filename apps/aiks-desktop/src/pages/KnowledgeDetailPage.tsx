@@ -1,3 +1,4 @@
+import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -546,7 +547,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           </UiSelect>
         </div>
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
-        <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+        <UiTextarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <UiButton variant="outline" size="sm" type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</UiButton>
         {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
         <div className="mt-4 rounded border border-gray-200 p-3 dark:border-gray-700">
@@ -748,12 +749,12 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <div className="grid gap-2 lg:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium">当前正文（只读）：{diffReferenceSource?.title ?? data.title} · {diffReferenceSource?.id ?? data.id}</label>
-                <textarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
+                <UiTextarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
                   className="w-full rounded border bg-gray-50 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900" />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
-                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
+                <UiTextarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
                   onChange={event => {
                     setOrganizeDraft(event.target.value);
                     setOrganizeConfirmed(false);

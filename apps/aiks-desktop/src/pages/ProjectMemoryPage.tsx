@@ -1,3 +1,4 @@
+import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { CalendarDateField } from "../components/ui/CalendarDateField";
 import { SearchSelect } from "../components/ui/SearchSelect";
@@ -826,7 +827,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             {previewType && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-500">{previewType === "review" ? "回顾 Markdown" : agentFormat === "markdown" ? "Agent Markdown" : `${agentFormat === "agents" ? "AGENTS.md" : "CLAUDE.md"} 建议片段`} · 可编辑预览</p>
-                <textarea aria-label="导出内容预览" value={preview} onChange={e => setPreview(e.target.value)} rows={15}
+                <UiTextarea aria-label="导出内容预览" value={preview} onChange={e => setPreview(e.target.value)} rows={15}
                   className="w-full rounded border bg-transparent p-3 font-mono text-xs dark:border-gray-700" />
                 <div className="flex flex-wrap gap-2">
                   <UiButton variant="outline" size="sm" disabled={!preview.trim()} onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">复制审核后的 Markdown</UiButton>
