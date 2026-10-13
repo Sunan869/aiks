@@ -59,7 +59,7 @@ export default function AskAiksPanel({
   const [sourceChoices, setSourceChoices] = useState<string[]>([]);
   const [selectedSource, setSelectedSource] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const dialogRef = useModalFocus(open, onClose);
+  const dialogRef = useModalFocus<HTMLElement>(open, onClose);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

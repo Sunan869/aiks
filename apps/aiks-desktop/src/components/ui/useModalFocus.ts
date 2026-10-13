@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 
 /** Keep keyboard focus within an open desktop overlay and restore its trigger on close. */
-export function useModalFocus(open: boolean, onClose: () => void, closeEnabled = true) {
-  const containerRef = useRef<HTMLDivElement>(null);
+export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, onClose: () => void, closeEnabled = true) {
+  const containerRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const enabledRef = useRef(closeEnabled);
   closeRef.current = onClose;
