@@ -278,9 +278,9 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         {visibleTasks.length === 0 ? (
           <p className="text-xs text-gray-400">{searchText || taskFilter !== "all" ? "没有符合筛选条件的任务" : "暂无会话同步任务记录"}</p>
         ) : (
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
+          <div className="aiks-data-table max-h-[440px] overflow-auto" role="region" aria-label="近期任务记录" tabIndex={0}>
+            <table className="w-full min-w-[960px] text-xs">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900"><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                 <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
                 <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
                 <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">最近阶段</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
@@ -407,6 +407,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         </div>
       )}
 
+      <p role="status" className="text-xs text-slate-500">流水线记录：显示 {filtered.length} / {runs.length} 条近期记录；此区域与上方任务列表可分别横向滚动。</p>
       {loading ? (
         <div className="flex items-center justify-center h-40 text-gray-400 text-sm">加载中...</div>
       ) : filtered.length === 0 ? (
@@ -414,8 +415,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           <p className="text-sm">{searchText || filter !== "all" ? "没有符合筛选条件的流水线记录" : "暂无处理记录"}</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="aiks-data-table overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" role="region" aria-label="流水线阶段记录" tabIndex={0}>
+          <table className="w-full min-w-[880px] text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">会话</th>

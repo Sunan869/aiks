@@ -108,10 +108,28 @@ export default function SourcesPage({ fullStatus }: Props) {
   const visibleSources = sources.filter(source => source.configurable !== false)
     .filter(source => [source.display_name, source.key, ...source.paths].some(text => text.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase())))
     .filter(source => !onlyIssues || sourceStatusPresentation(source).tone === "danger" || sourceStatusPresentation(source).tone === "warning");
+  const configurableSources = sources.filter(source => source.configurable !== false);
+  const healthyCount = configurableSources.filter(source => sourceStatusPresentation(source).tone === "success").length;
+  const issueCount = configurableSources.filter(source => ["warning", "danger"].includes(sourceStatusPresentation(source).tone)).length;
+  const disabledCount = configurableSources.filter(source => !source.enabled).length;
   return <div className="aiks-page-shell w-full min-w-0">
     <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</UiButton></div>
     {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
+    <section aria-label="数据源健康概览" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {([
+        ["已配置来源", configurableSources.length, "全部可配置来源"],
+        ["健康", healthyCount, "可正常使用"],
+        ["需关注", issueCount, "警告或故障"],
+        ["已停用", disabledCount, "保留历史会话"],
+      ] as const).map(([label, count, description]) => (
+        <div key={label} className="aiks-surface min-w-0 p-4">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{count}</p>
+          <p className="mt-1 text-xs text-slate-400">{description}</p>
+        </div>
+      ))}
+    </section>
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
       <UiInput aria-label="搜索数据源" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)}
         placeholder="搜索工具名称或数据目录…" className="min-w-[190px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
@@ -119,7 +137,7 @@ export default function SourcesPage({ fullStatus }: Props) {
         <input type="checkbox" checked={onlyIssues} onChange={event => setOnlyIssues(event.target.checked)} />仅异常
       </label>
       {(sourceQuery || onlyIssues) && <UiButton variant="outline" size="sm" type="button" onClick={() => { setSourceQuery(""); setOnlyIssues(false); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">重置筛选</UiButton>}
-      <span className="text-xs text-slate-500">显示 {visibleSources.length} / {sources.filter(source => source.configurable !== false).length} 个数据源</span>
+      <span role="status" className="text-xs text-slate-500">显示 {visibleSources.length} / {configurableSources.length} 个数据源</span>
     </div>
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
     {!loading && visibleSources.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">没有符合筛选条件的数据源，可清空搜索或关闭“仅异常”。</p>}

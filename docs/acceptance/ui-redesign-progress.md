@@ -46,3 +46,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Calendar dialog places keyboard focus on the selected or first available day; supports Home/End and arrow keys while retaining ISO date output, Today shortcut, outside-click dismissal, disabled state and Escape-to-trigger behavior.
 - Search picker opens with keyboard arrows from the trigger, cleans search state when Escape closes, and announces zero-match results.
 - Retains dependency-free controls until official Radix/shadcn installation is testable. Windows visual focus and screen-reader behavior are not yet verified.
+
+## 2026-10-13 sources and processing information architecture batch
+
+- Data Sources now shows full-catalog health, needs-attention, and disabled counts before filters; counts intentionally do not change with search and never infer health from scan volume.
+- Processing now gives task and pipeline tables independent, keyboard-focusable scrolling regions with sticky task column headers, explicit displayed-versus-loaded counts and responsive minimum table widths.
+- No provider writes, task-state mutations, schema changes or backup entry points; real Windows sizing, screen reader experience and official shadcn/Radix migration remain outstanding.

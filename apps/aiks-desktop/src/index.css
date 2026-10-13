@@ -92,3 +92,11 @@ body {
   .aiks-button--ghost { @apply border-transparent bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
   .aiks-button--danger { @apply border-red-600 bg-red-600 text-white hover:bg-red-700; }
 }
+
+/* Desktop list/table usability: keyboard scroll, sticky headings, consistent hover. */
+@layer components {
+  .aiks-data-table { @apply min-w-0 scroll-smooth; scrollbar-gutter: stable; }
+  .aiks-data-table:focus-visible { @apply outline-none ring-2 ring-sky-500 ring-inset; }
+  .aiks-data-table tbody tr { @apply transition-colors hover:bg-sky-50/60 dark:hover:bg-slate-800/70; }
+  .aiks-data-table td { @apply align-middle; }
+}
