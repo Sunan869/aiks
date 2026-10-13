@@ -55,7 +55,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
   const status = sourceStatusPresentation(source);
   const hasDetails = Boolean(source.message?.trim()) || diagnostics.length > 0;
   return (
-    <section className="aiks-surface group transition-shadow hover:shadow-md">
+    <section className="aiks-surface group flex h-full min-w-0 flex-col transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">{source.display_name}</h2>
         <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{status.label}</span>
@@ -84,9 +84,9 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
           </div>
         </details>
       )}
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4">
         <span className="text-xs text-gray-500">最近扫描发现 <strong className="text-blue-600">{count}</strong> 条会话</span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <UiButton variant="outline" size="sm" onClick={() => setEditing(v => !v)} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"><Settings2 className="h-3 w-3" />目录与开关</UiButton>
           <UiButton variant="outline" size="sm" onClick={() => void sync()} disabled={busy || !readable} className="inline-flex items-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-40 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-950"><RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />立即同步</UiButton>
         </div>
@@ -142,7 +142,7 @@ export default function SourcesPage({ fullStatus }: Props) {
       {(sourceQuery || onlyIssues) && <UiButton variant="outline" size="sm" type="button" onClick={() => { setSourceQuery(""); setOnlyIssues(false); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">重置筛选</UiButton>}
       <span role="status" className="text-xs text-slate-500">显示 {visibleSources.length} / {configurableSources.length} 个数据源</span>
     </div>
-    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
+    <div className="aiks-source-grid grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
     {!loading && visibleSources.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">没有符合筛选条件的数据源，可清空搜索或关闭“仅异常”。</p>}
   </div>;
 }

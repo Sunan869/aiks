@@ -219,3 +219,17 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Knowledge Editor, Unified Search and Ask AIKS now use a shared ModalBackdrop component, centralizing outside-click ownership and preserving individually tuned editor/search/drawer geometry.
 - Backdrop dismissal only executes for actual clicks on backdrop itself (not dialog descendants); saving in the knowledge editor disables backdrop dismissal. Existing useModalFocus keyboard trapping and business actions are unchanged.
 - Added cross-component contracts. Official shadcn/Radix installation remains outstanding; it requires a verified npm lockfile and Windows visual testing.
+
+## 2026-10-13 Windows screenshot corrections
+
+- Full-width page shell/project memory removes excess outer margins; sidebar removes redundant AI logo tile.
+- Source cards use equal-height flex layout with footer controls anchored below variable content.
+- Shared buttons gain consistent border/contrast, search popover input avoids global double-focus styling.
+- Native select replacement and official shadcn/ui+Radix installation are still outstanding; this batch must pass CI and be validated on Windows before claiming resolution.
+
+## 2026-10-13 visual acceptance build regression batch
+
+- Fixed Vitest's CSS source inspection by loading index.css from node:fs, rather than relying on Vite's CSS ?raw transform which returned an empty module in CI.
+- Fixed shared button styling being unexpectedly purged by Tailwind 3: variant and size class names now exist as literal strings, with component-class safelist coverage as a further guard.
+- Source grid uses items-stretch and dedicated aiks-source-grid hook so cards align by grid row. Preserves variable-length descriptions and edit panels.
+- Official Radix/shadcn integration and replacing native select dropdown menus remain separate tasks, not declared completed by this styling repair.

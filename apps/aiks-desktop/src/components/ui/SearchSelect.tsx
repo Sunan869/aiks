@@ -48,10 +48,10 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     </button>
     {open && <div data-aiks-popup="true" className="absolute left-0 top-full z-50 mt-2 w-full min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); closePopup(); } }}>
-      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 dark:border-slate-700">
+      <label className="aiks-search-popup flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 dark:border-slate-700 dark:bg-slate-800">
         <Search className="h-4 w-4 text-slate-400"/>
         <input ref={searchInput} aria-label={label + "搜索"} value={query} role="searchbox" aria-controls={listId} aria-activedescendant={matching[activeIndex] ? `${listId}-option-${activeIndex}` : undefined} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
-          placeholder="输入关键词筛选…" className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm outline-none"/>
+          placeholder="输入关键词筛选…" className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm shadow-none outline-none focus:border-transparent focus:outline-none focus:ring-0"/>
       </label>
       <div id={listId} role="listbox" aria-label={label + "选项"} className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
         {matching.map((option, index) => <button type="button" id={`${listId}-option-${index}`} role="option" tabIndex={-1} aria-selected={value === option.value}
