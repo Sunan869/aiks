@@ -40,8 +40,8 @@ describe("S2.4 source-scoped evidence-only Ask AIKS", () => {
   });
 
   it("clears prior conversational history when a user changes either evidence filter", () => {
-    expect(panelSource).toContain('aria-label="问 AIKS 项目范围"');
-    expect(panelSource).toContain('aria-label="问 AIKS 数据源范围"');
+    expect(panelSource).toContain('label="问 AIKS 项目范围"');
+    expect(panelSource).toContain('label="问 AIKS 数据源范围"');
     expect(panelSource).toContain('source: selectedSource || undefined');
     expect(panelSource).toContain('project: selectedProject || undefined');
     expect(panelSource).toMatch(/setSelectedProject\(value\);\s*setMessages\(\[\]\);/);

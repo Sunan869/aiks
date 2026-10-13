@@ -1,0 +1,7 @@
+# Scope the exemption to the exact documentation-only variable-name example.
+# This is not a credential, and no API token literal is committed here.
+[allowlist]
+  description = "Documented benchmark environment variable names are not API credentials"
+  regexTarget = "line"
+  regexes = ['''^//! Optional: AIKS_BENCH_API_KEY, AIKS_BENCH_DISABLE_THINKING=1,$''']
+  paths = ['''^crates/aiks-core/tests/extraction_live_benchmark\.rs$''']

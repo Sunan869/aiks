@@ -7,7 +7,8 @@ describe("assistant and storage UI workflow boundaries", () => {
     expect(ask).toContain("askAiksProgressively");
     expect(ask).toContain("selectedProject");
     expect(ask).toContain("selectedSource");
-    expect(ask).toContain("<UiSelect");
+    expect(ask).toContain("<RadixSelectField");
+    expect(ask).toContain("setMessages([])");
     expect(ask).toContain("<UiButton");
   });
   it("preserves explicit storage operations and makes setup accessible", () => {
