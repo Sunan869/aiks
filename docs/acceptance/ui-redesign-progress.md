@@ -189,3 +189,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - A pause control stops appending events without accumulating a hidden backlog and reports how many updates were omitted while paused. Resume handles new events; clear resets displayed history and omitted counter.
 - The event subscription guards an unmount occurring before async listen resolves, preventing a leaked listener. This does not persist or upload logs or alter Rust providers.
 - Pure log formatting, severity, capacity and filtering have executable Vitest coverage. Windows verification remains required; this is not the official shadcn/Radix migration.
+
+## 2026-10-13 processing-center refresh operations
+
+- Processing Center now allows pausing/resuming automatic two-second background status refresh while retaining explicit manual refresh and retry operations. It shows polling state, last successful refresh and consecutive failures.
+- Added an unmount guard around asynchronous task polling updates, preserving current in-flight gating and avoiding state updates after the workspace leaves the screen. Backfill actions reject duplicate starts.
+- No status data model, provider, Rust pipeline, task mutation or SiYuan overwrite behavior changed. Frontend CI and Windows functional walkthrough remain pending.

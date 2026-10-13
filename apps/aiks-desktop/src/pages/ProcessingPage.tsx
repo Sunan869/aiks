@@ -98,6 +98,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
   const inFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const autoRefreshRef = useRef(true);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const setPolling = (enabled: boolean) => { autoRefreshRef.current = enabled; setAutoRefresh(enabled); };
 
   const load = useCallback(async (showLoading = false) => {
     if (inFlightRef.current) return;
@@ -110,37 +115,44 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         getApi().getTaskCenterEntries(200),
         getApi().getTaskCenterStats(),
       ]);
+      if (!mountedRef.current) return;
       setRuns(r);
       setStats(s);
       setTasks(t);
       setTaskStats(totals);
+      setConsecutiveFailures(0);
       setLoadError("");
       setLastSuccessfulRefresh(new Date().toLocaleTimeString());
     } catch (error) {
+      if (!mountedRef.current) return;
+      setConsecutiveFailures(previous => previous + 1);
       setLoadError("无法刷新任务状态：" + String(error));
     } finally {
       inFlightRef.current = false;
-      if (showLoading) setLoading(false);
+      if (showLoading && mountedRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void load(true);
     const poll = () => {
-      if (document.visibilityState === "visible") void load(false);
+      if (autoRefreshRef.current && document.visibilityState === "visible") void load(false);
     };
     const interval = window.setInterval(poll, 2000);
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void load(false);
+      if (autoRefreshRef.current && document.visibilityState === "visible") void load(false);
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
+      mountedRef.current = false;
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load]);
 
   const handleBackfill = useCallback(async () => {
+    if (backfilling) return;
     setBackfilling(true);
     setBackfillMsg("");
     try {
@@ -185,6 +197,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           >
             {backfilling ? "提交中..." : "重试失败并补跑队列"}
           </UiButton>
+          <UiButton variant={autoRefresh ? "outline" : "secondary"} size="sm" type="button" aria-pressed={!autoRefresh} onClick={() => setPolling(!autoRefresh)}>{autoRefresh ? "暂停自动刷新" : "恢复自动刷新"}</UiButton>
           <UiButton variant="outline" size="sm" onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
             刷新
           </UiButton></>} />
@@ -203,7 +216,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
         {loadError && <UiNotice tone="danger" className="mb-2">{loadError}</UiNotice>}
-        {lastSuccessfulRefresh && <p className="text-xs text-gray-400 mb-2">最近刷新：{lastSuccessfulRefresh}</p>}
+        <p role="status" className="mb-2 text-xs text-slate-500">自动刷新：{autoRefresh ? "每 2 秒（窗口可见时）" : "已暂停"} · 最近成功：{lastSuccessfulRefresh ?? "尚无"}{consecutiveFailures > 0 ? ` · 连续失败 ${consecutiveFailures} 次` : ""}</p>
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="status" aria-label="任务统计">
           {([
             ["总会话", taskStats?.total_sessions],
