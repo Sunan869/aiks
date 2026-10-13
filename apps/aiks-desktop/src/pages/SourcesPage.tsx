@@ -117,6 +117,7 @@ export default function SourcesPage({ fullStatus }: Props) {
       <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
         <input type="checkbox" checked={onlyIssues} onChange={event => setOnlyIssues(event.target.checked)} />仅异常
       </label>
+      {(sourceQuery || onlyIssues) && <button type="button" onClick={() => { setSourceQuery(""); setOnlyIssues(false); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">重置筛选</button>}
       <span className="text-xs text-slate-500">显示 {visibleSources.length} / {sources.filter(source => source.configurable !== false).length} 个数据源</span>
     </div>
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>

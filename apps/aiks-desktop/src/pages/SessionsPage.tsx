@@ -43,6 +43,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<string>("");
+  const [currentPageQuery, setCurrentPageQuery] = useState("");
   const [page, setPage] = useState(0);
   const [showImport, setShowImport] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
@@ -89,8 +90,14 @@ export default function SessionsPage({ onViewDetail }: Props) {
     }
   };
 
+  const currentPageItems = (data?.items ?? []).filter(item => {
+    const query = currentPageQuery.trim().toLocaleLowerCase();
+    return !query || [item.title, item.session_id, item.project_name, item.source]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(query));
+  });
+
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">工作记录</h1>
@@ -119,6 +126,12 @@ export default function SessionsPage({ onViewDetail }: Props) {
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <input aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
+          placeholder="搜索当前页标题、会话 ID 或项目…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
+        <span className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} 条 · 全部 {data?.total ?? 0} 条</span>
+        {currentPageQuery && <button type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</button>}
+      </div>
       {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
@@ -128,9 +141,9 @@ export default function SessionsPage({ onViewDetail }: Props) {
 
       {loading ? (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
-      ) : data?.items.length === 0 ? (
+      ) : currentPageItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-          <p className="text-sm">暂无工作记录</p>
+          <p className="text-sm">{currentPageQuery ? "当前页没有匹配的工作记录" : "暂无工作记录"}</p>
           <p className="text-xs mt-1">请先扫描数据源</p>
         </div>
       ) : (
@@ -146,7 +159,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {data?.items.map((item: SessionItem) => (
+              {currentPageItems.map((item: SessionItem) => (
                 <tr key={item.id}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
                   onClick={() => onViewDetail?.(item.id)}
