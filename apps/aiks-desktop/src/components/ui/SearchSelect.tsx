@@ -49,7 +49,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
           <Popover.Content data-aiks-popup="true" side="bottom" align="start" sideOffset={8} collisionPadding={8}
             onOpenAutoFocus={event => { event.preventDefault(); searchInput.current?.focus(); }}
             onCloseAutoFocus={event => { event.preventDefault(); triggerRef.current?.focus(); }}
-            onEscapeKeyDown={event => { event.stopPropagation(); }}
+            onEscapeKeyDown={event => { event.stopPropagation(); closePopup(); }}
             className="z-[110] w-[var(--radix-popover-trigger-width)] min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl outline-none dark:border-slate-700 dark:bg-slate-900">
             <Command label={label + "选项"} loop className="min-w-0">
               <div className="aiks-search-popup flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 dark:border-slate-700 dark:bg-slate-800">
@@ -61,8 +61,8 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
               <Command.List id={listId} role="listbox" className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
                 <Command.Empty role="status" className="p-3 text-xs text-slate-500">没有匹配选项</Command.Empty>
                 {options.map(option => (
-                  <Command.Item key={option.value} value={option.value}
-                    keywords={[option.label]} onSelect={() => choose(option.value)}
+                  <Command.Item key={option.value} value={option.label + " " + option.value}
+                    keywords={[option.label, option.value]} onSelect={() => choose(option.value)}
                     className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs outline-none data-[selected=true]:bg-sky-50 dark:data-[selected=true]:bg-slate-800">
                     <Check className={`h-4 w-4 ${value === option.value ? "text-sky-600" : "invisible"}`} />
                     <span className="truncate">{option.label}</span>

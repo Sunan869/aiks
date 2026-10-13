@@ -19,8 +19,11 @@ interface Props {
 export function RadixSelectField({ value, onValueChange, options, label, disabled, placeholder = "请选择", className = "", name, required }: Props) {
   // Radix reserves the empty item value for clearing. Use a sentinel for native 'all' choices.
   const empty = "__aiks_empty__";
-  const toRadix = (option: string) => option === "" ? empty : option;
-  const fromRadix = (option: string) => option === empty ? "" : option;
+  // A domain value must never collide with the empty-value sentinel.
+  const reserved = options.some(option => option.value === empty);
+  const blank = reserved ? "__aiks_empty_option__" : empty;
+  const toRadix = (option: string) => option === "" ? blank : option;
+  const fromRadix = (option: string) => option === blank ? "" : option;
   return (
     <Select.Root value={toRadix(value)} onValueChange={next => onValueChange(fromRadix(next))} disabled={disabled} name={name} required={required}>
       <Select.Trigger aria-label={label} className={`aiks-field-select inline-flex min-w-0 items-center justify-between gap-2 text-left focus-visible:ring-2 focus-visible:ring-sky-500/30 ${className}`}>

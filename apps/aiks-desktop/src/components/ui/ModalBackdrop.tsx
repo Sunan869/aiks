@@ -24,6 +24,7 @@ export function ModalBackdrop({ kind, onClose, children, className = "", dismiss
         <div className={`${layouts[kind]} ${className} pointer-events-none`}>
           <Dialog.Content asChild
             onPointerDownOutside={event => { if (!dismissOnBackdrop) event.preventDefault(); }}
+            onInteractOutside={event => { if (!dismissOnBackdrop) event.preventDefault(); }}
             onEscapeKeyDown={event => { if (!dismissOnBackdrop) event.preventDefault(); }}>
             {children}
           </Dialog.Content>
