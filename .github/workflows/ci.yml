@@ -2,6 +2,12 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      full_validation:
+        description: "Run Rust and Windows desktop checks (required before Windows acceptance)"
+        type: boolean
+        required: true
+        default: false
   push:
     branches:
       - main
@@ -20,6 +26,7 @@ concurrency:
 
 jobs:
   rust:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.full_validation }}
     name: Rust quality and tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -59,6 +66,7 @@ jobs:
         run: cargo test --workspace -- --test-threads=1
 
   windows-desktop-compile:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.full_validation }}
     name: Windows desktop compile
     runs-on: windows-latest
     steps:

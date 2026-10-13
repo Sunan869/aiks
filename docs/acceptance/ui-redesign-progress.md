@@ -77,3 +77,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Introduced one reusable modal focus boundary, used by KnowledgeEditor, UnifiedSearchDialog and Ask AIKS. It traps Tab/Shift+Tab, closes with Escape where safe, and returns focus to the previous control after closing.
 - KnowledgeEditor blocks Escape during saving. Existing progressive search abort and knowledge write logic remain unchanged.
 - Windows acceptance: test every overlay with keyboard only, narrow windows, and dark mode; CI source-contract checks are not a substitute for visual interaction testing.
+
+## 2026-10-13 UI fast CI / final native validation strategy
+
+- `CI` workflow dispatch now defaults to fast frontend verification: npm ci, full Vitest suite, tsc+Vite build, and repository hygiene/secret scanning. Rust quality and Windows desktop compilation are skipped **only for dispatch runs without `full_validation`**. Main/review branch push and pull requests retain full jobs.
+- Before Windows real-machine acceptance, manually dispatch `CI` with `full_validation=true`; this executes Rust fmt/Clippy/tests, Windows compile, frontend build/tests, and hygiene. Also dispatch `Windows provider contracts` with `full_validation=true` for native provider tests.
+- Native/Rust/Tauri/Cargo changes must choose full validation immediately rather than relying on fast UI validation. Windows provider workflow remains fully enabled on its configured native-code push/PR paths; only manual dispatch defaults to skip.
+- Both workflow dispatch modes are intended CI configurations, not evidence that any Windows real-device tests have been performed.
