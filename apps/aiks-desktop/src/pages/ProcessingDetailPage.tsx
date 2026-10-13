@@ -26,8 +26,10 @@ function StageRow({ stage }: { stage: StageRun }) {
 
   return (
     <div className="border border-gray-100 dark:border-gray-700 rounded mb-2">
-      <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
+      <button type="button"
+        aria-expanded={expanded}
+        aria-label={`查看${STAGE_LABELS[stage.stage] ?? stage.stage}阶段详情`}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-gray-700/40"
         onClick={() => setExpanded(e => !e)}
       >
         <div className="flex items-center gap-3">
@@ -43,7 +45,7 @@ function StageRow({ stage }: { stage: StageRun }) {
           {stage.latency_ms != null && <span>{stage.latency_ms}ms</span>}
           <span className="text-gray-400">{expanded ? "▲" : "▼"}</span>
         </div>
-      </div>
+      </button>
       {expanded && (
         <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700">
           {stage.error_message && (
