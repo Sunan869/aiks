@@ -30,4 +30,12 @@ describe("S1.3 verified recovery UI contract", () => {
     expect(recoveryUI).toContain('invoke<number>("create_managed_offline_backup"');
     expect(recoveryUI).toContain("managedDestination.trim() !== managedConfirmed.trim()");
   });
+  it("holds writes closed if SiYuan restart is unhealthy and rejects mixed-source backup", () => {
+    expect(commands).toContain("let health = kernel.health().await;");
+    expect(commands).toContain("SiYuan 重启后健康检查未通过");
+    expect(commands).toContain("paused.gate_recovery_required();");
+    expect(commands).toContain("独立工作空间缺少与之配套的 SQLite 快照");
+    expect(recoveryUI).not.toContain('invoke<number>("create_offline_backup_from_stopped_workspace"');
+    expect(recoveryUI).toContain("SiYuan 已恢复并通过健康检查");
+  });
 });

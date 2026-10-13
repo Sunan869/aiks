@@ -104,7 +104,17 @@ async fn create_managed_quiesced_backup(
     };
     // Always attempt restart, even when snapshot failed. Hold the paused
     // guard until the restart attempt has finished.
-    let restarted = kernel.start().await.map_err(|e| e.to_string());
+    let restarted = match kernel.start().await {
+        Ok(_) => {
+            let health = kernel.health().await;
+            if health.state == RuntimeState::Ready && kernel.state() == RuntimeState::Ready {
+                Ok(())
+            } else {
+                Err("SiYuan 重启后健康检查未通过".to_string())
+            }
+        }
+        Err(error) => Err(error.to_string()),
+    };
     if restarted.is_err() {
         paused.gate_recovery_required();
     }
@@ -311,52 +321,16 @@ fn inspect_with_capacity(
     })
 }
 
-/// Manual offline backup is restricted to a separate, already-quiesced
-/// workspace. The running application's SiYuan workspace is never sampled.
+/// The previous standalone-workspace entry silently combined a detached
+/// SiYuan workspace with the *running* AIKS SQLite database. Such a bundle
+/// cannot guarantee both halves are from the same logical snapshot.
 #[tauri::command]
 pub async fn create_offline_backup_from_stopped_workspace(
     workspace_path: String,
     destination_path: String,
 ) -> Result<usize, String> {
-    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
-        return Err("外部 SiYuan 开发模式不能保证停写，禁止创建完整备份".to_string());
-    }
-    let workspace = validated_path(&workspace_path)?;
-    let destination = validated_path(&destination_path)?;
-    let active =
-        std::fs::canonicalize(aiks_core::config::data_root()).map_err(|error| error.to_string())?;
-    let workspace = std::fs::canonicalize(workspace).map_err(|error| error.to_string())?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "备份目录缺少父目录".to_string())?;
-    let parent = std::fs::canonicalize(parent).map_err(|error| error.to_string())?;
-    let name = destination
-        .file_name()
-        .ok_or_else(|| "备份目录缺少名称".to_string())?;
-    let output = parent.join(name);
-    if workspace.starts_with(&active) || active.starts_with(&workspace) {
-        return Err("不能备份正在运行的 AIKS 工作空间，请选择单独停写的工作空间".to_string());
-    }
-    if output.starts_with(&active) || active.starts_with(&output) {
-        return Err("备份输出不能与当前 AIKS 数据目录重叠".to_string());
-    }
-    if output.starts_with(&workspace) || workspace.starts_with(&output) {
-        return Err("备份输出不能与来源工作空间重叠".to_string());
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let db_path = active.join("aiks.db");
-        let metadata = std::fs::symlink_metadata(&db_path)
-            .map_err(|error| format!("找不到已有 AIKS 状态数据库：{error}"))?;
-        if !metadata.file_type().is_file() {
-            return Err("AIKS 状态数据库必须是普通文件，不能是目录或符号链接".to_string());
-        }
-        let db = aiks_core::storage::StateDb::open(&db_path).map_err(|error| error.to_string())?;
-        create_offline_backup_from_quiesced_workspace(&db, &workspace, &output)
-            .map(|manifest| manifest.entries.len())
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| format!("离线备份任务异常退出：{error}"))?
+    let _ = (workspace_path, destination_path);
+    Err("独立工作空间缺少与之配套的 SQLite 快照，禁止拼接当前 AIKS 数据库。请使用当前工作空间受控备份。".to_string())
 }
 
 #[tauri::command]
