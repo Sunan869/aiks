@@ -16,7 +16,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node)) { setOpen(false); setQuery(""); }
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
@@ -29,7 +29,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
   const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const closePopup = () => { setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePopup(); }
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePopup(); return; }
     if (event.key === "ArrowDown" && matching.length > 0) { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
     if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); }
     if (event.key === "Home" && matching.length > 0) { event.preventDefault(); setActiveIndex(0); }

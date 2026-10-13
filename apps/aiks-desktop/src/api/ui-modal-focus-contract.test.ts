@@ -12,6 +12,7 @@ describe("modal keyboard boundary", () => {
     expect(hook).toContain("event.shiftKey");
     expect(hook).toContain("previous.focus()");
     expect(hook).toContain("enabledRef.current");
+    expect(hook).toContain("modalStack[modalStack.length - 1] !== token");
     expect(hook).toContain("source.closest(");
   });
   it("applies the same focus boundary to knowledge, search and assistant", () => {
@@ -28,6 +29,9 @@ describe("modal keyboard boundary", () => {
     expect(calendar).toContain('data-aiks-popup="true"');
     expect(select).toContain("closePopup()");
     expect(calendar).toContain("trigger.current?.focus()");
+    expect(calendar).toContain("const activeDate = parse(value)");
+    expect(select).toContain("setQuery(\"\")");
+    expect(hook).toContain("wasTopmost");
     expect(hook).toContain('source.closest(\'[data-aiks-popup="true"]\')');
   });
 });

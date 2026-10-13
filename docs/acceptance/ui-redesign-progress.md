@@ -175,3 +175,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Fixed the document capture-phase Escape handler in useModalFocus. When Escape comes from an open in-dialog SearchSelect or CalendarDateField popover, the parent modal now leaves dismissal to the nested control, preventing an accidental close of KnowledgeEditor, UnifiedSearch or Ask AIKS.
 - Tagged nested popover surfaces, retained selected-date/list focus restoration and existing save-in-progress close gates. Added regression source contracts for the keyboard ownership boundary.
 - This is not an official Radix/shadcn migration. A real Windows focused keyboard walkthrough is still needed to accept the behavior.
+
+## 2026-10-13 modal stack and input lifecycle batch
+
+- Modal focus containment now applies only to the topmost open modal, guarding Escape/Tab from competing document capture listeners and restoring focus only for a modal that was topmost on teardown.
+- SearchSelect clears stale filter text when dismissed by outside click; Escape ownership remains within nested popovers.
+- CalendarDateField responds to an externally changed controlled date by displaying that selected date's month on reopening, preserving keyboard/date selection semantics.
+- Native/UI tests pending; this is an overlay interaction correctness pass, not official shadcn/Radix integration.

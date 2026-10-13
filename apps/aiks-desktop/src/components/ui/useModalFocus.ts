@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
 
+// The last mounted open dialog owns Escape and focus containment.
+const modalStack: Array<object> = [];
+
 /** Keep keyboard focus within an open desktop overlay and restore its trigger on close. */
 export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: boolean, onClose: () => void, closeEnabled = true) {
   const containerRef = useRef<T>(null);
@@ -11,7 +14,10 @@ export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: bool
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const token = {};
+    modalStack.push(token);
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1] !== token || event.defaultPrevented) return;
       if (event.key === "Escape") {
         // Popovers get the first Escape: do not close their enclosing dialog.
         const source = event.target;
@@ -47,7 +53,10 @@ export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: bool
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
-      if (previous?.isConnected) previous.focus();
+      const index = modalStack.lastIndexOf(token);
+      const wasTopmost = index === modalStack.length - 1;
+      if (index >= 0) modalStack.splice(index, 1);
+      if (wasTopmost && previous?.isConnected) previous.focus();
     };
   }, [open]);
   return containerRef;

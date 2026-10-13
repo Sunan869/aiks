@@ -39,6 +39,11 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   useEffect(() => {
     if (!open) return;
+    const activeDate = parse(value);
+    if (activeDate) setMonth(new Date(activeDate.getFullYear(), activeDate.getMonth(), 1));
+  }, [value, open]);
+  useEffect(() => {
+    if (!open) return;
     const selected = dayButtons.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
     (selected ?? dayButtons.current?.querySelector<HTMLButtonElement>("button[data-day]"))?.focus();
   }, [open]);
