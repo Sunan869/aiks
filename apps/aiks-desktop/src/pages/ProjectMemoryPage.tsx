@@ -1,4 +1,6 @@
-import { UiSelect, DateField } from "../components/ui/fields";
+import { CalendarDateField } from "../components/ui/CalendarDateField";
+import { SearchSelect } from "../components/ui/SearchSelect";
+import { UiSelect } from "../components/ui/fields";
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
@@ -418,10 +420,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
       <div className="memory-project-picker flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
-        <UiSelect id="project-memory-select" className="min-w-0 flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
-          value={selected} onChange={event => setSelected(event.target.value)}>
-          {projects.map(item => <option key={item.id} value={item.id}>{item.title} · {item.session_count} 会话</option>)}
-        </UiSelect>
+        <SearchSelect label="项目" value={selected} onChange={setSelected}
+          options={projects.map(item => ({ value: item.id, label: `${item.title} · ${item.session_count} 会话` }))} />
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
       <nav aria-label="项目记忆工作区" className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -716,8 +716,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</button>
               <button type="button" onClick={() => chooseReportRange("week")}
                 className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</button>
-              <label>开始日期 <DateField aria-label="回顾开始日期" value={from} onChange={e => { invalidatePreview(); setFrom(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
-              <label>结束日期 <DateField aria-label="回顾结束日期" value={through} onChange={e => { invalidatePreview(); setThrough(e.target.value); }} className="rounded border bg-transparent p-1 dark:border-gray-700" /></label>
+              <label>开始日期 <CalendarDateField label="回顾开始日期" value={from} onChange={value => { invalidatePreview(); setFrom(value); }} /></label>
+              <label>结束日期 <CalendarDateField label="回顾结束日期" value={through} onChange={value => { invalidatePreview(); setThrough(value); }} /></label>
               <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
             </div>
             <div className="mb-3 space-y-2 text-xs">

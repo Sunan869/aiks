@@ -1,3 +1,4 @@
+import { UiSelect } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
@@ -106,7 +107,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
           >
             导入分享链接
           </button>
-          <select
+          <UiSelect aria-label="工作记录来源"
             value={source}
             onChange={e => { setSource(e.target.value); setPage(0); }}
             className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
@@ -114,7 +115,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
             {sourceOptions.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
-          </select>
+          </UiSelect>
         </div>
       </div>
 
