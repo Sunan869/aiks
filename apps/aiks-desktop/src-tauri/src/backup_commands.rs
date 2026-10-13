@@ -16,6 +16,38 @@ use aiks_core::storage::app_backup::{
     verify_offline_backup, OfflineRestorePreview,
 };
 
+/// Bind internal lifecycle backup strictly to this process's managed data
+/// directory, never to arbitrary paths supplied by a future UI command.
+fn validate_managed_backup_paths(
+    data_root: &Path,
+    db_path: &Path,
+    workspace: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    let root = std::fs::canonicalize(data_root).map_err(|e| e.to_string())?;
+    let database = std::fs::canonicalize(db_path).map_err(|e| e.to_string())?;
+    let actual_workspace = std::fs::canonicalize(workspace).map_err(|e| e.to_string())?;
+    if database != root.join("aiks.db") || actual_workspace != root.join("siyuan").join("workspace")
+    {
+        return Err("备份来源与当前 AIKS 数据目录不一致".to_string());
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "备份目标没有父目录".to_string())?;
+    let parent = std::fs::canonicalize(parent).map_err(|e| e.to_string())?;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| "备份目标没有目录名".to_string())?;
+    let output = parent.join(name);
+    if output.starts_with(&root) || root.starts_with(&output) {
+        return Err("备份目标不能与当前 AIKS 数据目录重叠".to_string());
+    }
+    if std::fs::symlink_metadata(&output).is_ok() {
+        return Err("备份目标必须是不存在的新目录".to_string());
+    }
+    Ok(())
+}
+
 /// Internal-only safety orchestration. Not exposed through Tauri until all
 /// writing paths and external SiYuan clients are covered by an audit.
 #[allow(dead_code)]
@@ -29,6 +61,12 @@ async fn create_managed_quiesced_backup(
     if aiks_core::bootstrap::DevOverride::from_env().is_active() {
         return Err("外部 SiYuan 无法由 AIKS 安全停写".to_string());
     }
+    validate_managed_backup_paths(
+        &aiks_core::config::data_root(),
+        &db_path,
+        &workspace,
+        &destination,
+    )?;
     let paused = tauri::async_runtime::spawn_blocking(move || {
         BackupQuiescence::pause_and_drain_owned_with_timeout(&gate, Duration::from_secs(120))
             .map_err(str::to_string)
@@ -42,7 +80,12 @@ async fn create_managed_quiesced_backup(
     if kernel.state() != RuntimeState::Ready {
         return Err("SiYuan 内核未就绪，禁止完整备份".to_string());
     }
-    kernel.stop().await;
+    if let Err(error) = kernel.stop_for_backup().await {
+        // Exit status is unknown: retain the recovery latch even after the
+        // owned pause guard is dropped on this early-return path.
+        paused.gate_recovery_required();
+        return Err(format!("未确认 SiYuan 子进程退出，已保持停写锁定：{error}"));
+    }
     let snapshot = if kernel.state() == RuntimeState::Stopped {
         tauri::async_runtime::spawn_blocking(move || {
             let metadata = std::fs::symlink_metadata(&db_path).map_err(|e| e.to_string())?;
@@ -55,13 +98,26 @@ async fn create_managed_quiesced_backup(
                 .map_err(|e| e.to_string())
         })
         .await
-        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|error| Err(format!("备份工作线程异常退出：{error}")))
     } else {
         Err("SiYuan 未确认停止，禁止读取工作空间".to_string())
     };
     // Always attempt restart, even when snapshot failed. Hold the paused
     // guard until the restart attempt has finished.
-    let restarted = kernel.start().await.map_err(|e| e.to_string());
+    let restarted = match kernel.start().await {
+        Ok(_) => {
+            let health = kernel.health().await;
+            if health.state == RuntimeState::Ready && kernel.state() == RuntimeState::Ready {
+                Ok(())
+            } else {
+                Err("SiYuan 重启后健康检查未通过".to_string())
+            }
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    if restarted.is_err() {
+        paused.gate_recovery_required();
+    }
     drop(runtime_guard);
     drop(paused);
     match (snapshot, restarted) {
@@ -72,6 +128,92 @@ async fn create_managed_quiesced_backup(
             "备份失败：{snapshot_error}；SiYuan 重启也失败：{restart_error}"
         )),
     }
+}
+
+/// A managed backup always takes its source from this application's data
+/// root. The caller only chooses a fresh destination outside that root.
+#[tauri::command]
+pub async fn create_managed_offline_backup(
+    destination_path: String,
+    confirmed_destination_path: String,
+    runtime: tauri::State<'_, Arc<Mutex<Option<SiyuanRuntime>>>>,
+    gate: tauri::State<'_, Arc<BackupQuiescence>>,
+) -> Result<usize, String> {
+    let destination = validated_path(&destination_path)?;
+    if destination_path.trim() != confirmed_destination_path.trim() {
+        return Err("备份目标二次确认不一致".to_string());
+    }
+    let root = aiks_core::config::data_root();
+    let db_path = root.join("aiks.db");
+    let workspace = root.join("siyuan").join("workspace");
+    validate_managed_backup_paths(&root, &db_path, &workspace, &destination)?;
+    let workspace_size =
+        aiks_core::storage::app_backup::enumerate_quiesced_siyuan_workspace(&workspace)
+            .map_err(|error| format!("备份容量预检失败：{error}"))?
+            .into_iter()
+            .try_fold(0u64, |total, (source, _)| {
+                let length = std::fs::metadata(source)
+                    .map_err(|error| error.to_string())?
+                    .len();
+                total
+                    .checked_add(length)
+                    .ok_or_else(|| "备份容量溢出".to_string())
+            })?;
+    let db_size = std::fs::metadata(&db_path)
+        .map_err(|error| error.to_string())?
+        .len();
+    let reserve = (workspace_size / 5).max(64 * 1024 * 1024);
+    let required = workspace_size
+        .checked_add(db_size)
+        .and_then(|size| size.checked_add(reserve))
+        .ok_or_else(|| "备份容量预算溢出".to_string())?;
+    let available = available_restore_bytes(&destination)?;
+    if available < required {
+        return Err(format!(
+            "备份磁盘空间不足，需要 {required} 字节，可用 {available} 字节"
+        ));
+    }
+    create_managed_quiesced_backup(
+        Arc::clone(&runtime),
+        Arc::clone(&gate),
+        db_path,
+        workspace,
+        destination,
+    )
+    .await
+}
+
+/// Read-only status is safe even during SiYuan failure. It never changes the
+/// blocked write gate or attempts an automatic restart.
+#[tauri::command]
+pub fn get_managed_backup_recovery_required(gate: tauri::State<'_, Arc<BackupQuiescence>>) -> bool {
+    gate.is_recovery_required()
+}
+
+/// Verify the already-running managed SiYuan is healthy before unblocking
+/// writes after a previously failed restart. Never launches external kernels.
+#[tauri::command]
+pub async fn verify_managed_siyuan_recovery(
+    runtime: tauri::State<'_, Arc<Mutex<Option<SiyuanRuntime>>>>,
+    gate: tauri::State<'_, Arc<BackupQuiescence>>,
+) -> Result<bool, String> {
+    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
+        return Err("外部 SiYuan 不受 AIKS 恢复门禁控制".to_string());
+    }
+    if !gate.is_recovery_required() {
+        return Err("当前不存在需要核验的停写故障".to_string());
+    }
+    let guard = runtime.lock().await;
+    let kernel = guard
+        .as_ref()
+        .ok_or_else(|| "未找到 AIKS 管理的 SiYuan 内核".to_string())?;
+    let health = kernel.health().await;
+    if health.state != RuntimeState::Ready || kernel.state() != RuntimeState::Ready {
+        return Err("SiYuan 尚未恢复就绪，继续禁止后台写入".to_string());
+    }
+    gate.clear_after_verified_recovery()
+        .map_err(str::to_string)?;
+    Ok(true)
 }
 
 fn validated_path(raw: &str) -> Result<PathBuf, String> {
@@ -179,52 +321,16 @@ fn inspect_with_capacity(
     })
 }
 
-/// Manual offline backup is restricted to a separate, already-quiesced
-/// workspace. The running application's SiYuan workspace is never sampled.
+/// The previous standalone-workspace entry silently combined a detached
+/// SiYuan workspace with the *running* AIKS SQLite database. Such a bundle
+/// cannot guarantee both halves are from the same logical snapshot.
 #[tauri::command]
 pub async fn create_offline_backup_from_stopped_workspace(
     workspace_path: String,
     destination_path: String,
 ) -> Result<usize, String> {
-    if aiks_core::bootstrap::DevOverride::from_env().is_active() {
-        return Err("外部 SiYuan 开发模式不能保证停写，禁止创建完整备份".to_string());
-    }
-    let workspace = validated_path(&workspace_path)?;
-    let destination = validated_path(&destination_path)?;
-    let active =
-        std::fs::canonicalize(aiks_core::config::data_root()).map_err(|error| error.to_string())?;
-    let workspace = std::fs::canonicalize(workspace).map_err(|error| error.to_string())?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "备份目录缺少父目录".to_string())?;
-    let parent = std::fs::canonicalize(parent).map_err(|error| error.to_string())?;
-    let name = destination
-        .file_name()
-        .ok_or_else(|| "备份目录缺少名称".to_string())?;
-    let output = parent.join(name);
-    if workspace.starts_with(&active) || active.starts_with(&workspace) {
-        return Err("不能备份正在运行的 AIKS 工作空间，请选择单独停写的工作空间".to_string());
-    }
-    if output.starts_with(&active) || active.starts_with(&output) {
-        return Err("备份输出不能与当前 AIKS 数据目录重叠".to_string());
-    }
-    if output.starts_with(&workspace) || workspace.starts_with(&output) {
-        return Err("备份输出不能与来源工作空间重叠".to_string());
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let db_path = active.join("aiks.db");
-        let metadata = std::fs::symlink_metadata(&db_path)
-            .map_err(|error| format!("找不到已有 AIKS 状态数据库：{error}"))?;
-        if !metadata.file_type().is_file() {
-            return Err("AIKS 状态数据库必须是普通文件，不能是目录或符号链接".to_string());
-        }
-        let db = aiks_core::storage::StateDb::open(&db_path).map_err(|error| error.to_string())?;
-        create_offline_backup_from_quiesced_workspace(&db, &workspace, &output)
-            .map(|manifest| manifest.entries.len())
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| format!("离线备份任务异常退出：{error}"))?
+    let _ = (workspace_path, destination_path);
+    Err("独立工作空间缺少与之配套的 SQLite 快照，禁止拼接当前 AIKS 数据库。请使用当前工作空间受控备份。".to_string())
 }
 
 #[tauri::command]
@@ -301,5 +407,39 @@ mod tests {
         assert!(validated_path("").is_err());
         assert!(validated_path("../workspace").is_err());
         assert!(validated_path("relative").is_err());
+    }
+}
+
+#[cfg(test)]
+mod managed_path_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn managed_backup_rejects_alien_sources_and_nested_output() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aiks-backup-path-test-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("aiks");
+        let workspace = root.join("siyuan").join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let database = root.join("aiks.db");
+        std::fs::write(&database, b"fixture").unwrap();
+        let output = dir.join("backup");
+        assert!(validate_managed_backup_paths(&root, &database, &workspace, &output).is_ok());
+        assert!(
+            validate_managed_backup_paths(&root, &database, &workspace, &root.join("backup"),)
+                .is_err()
+        );
+        assert!(
+            validate_managed_backup_paths(&root, &database, &dir.join("other"), &output,).is_err()
+        );
+        std::fs::create_dir(&output).unwrap();
+        assert!(validate_managed_backup_paths(&root, &database, &workspace, &output).is_err());
+        assert!(output.is_dir());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -28,9 +28,24 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
         bail!("SiYuan workspace root must be a real directory");
     }
     let canonical_root = fs::canonicalize(root)?;
+    // Never archive workspace/conf (access codes, plugin credentials).
+    // Portable backups deliberately contain only SiYuan documents/assets.
+    let data_root = root.join("data");
+    match fs::symlink_metadata(&data_root) {
+        Ok(metadata) if !metadata.file_type().is_dir() => {
+            bail!("SiYuan workspace data root must be a real directory");
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Newly initialized SiYuan workspaces may not have a data/
+            // directory yet; SQLite still requires a consistent backup.
+            return Ok(Vec::new());
+        }
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
+    }
     let mut files = Vec::new();
     let mut total_bytes: u64 = 0;
-    for item in WalkDir::new(root).follow_links(false) {
+    for item in WalkDir::new(&data_root).follow_links(false) {
         let item = item.context("scan quiesced SiYuan workspace")?;
         let file_type = item.file_type();
         if file_type.is_symlink() {
@@ -60,6 +75,8 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
         files.push((item.path().to_path_buf(), relative.to_path_buf()));
     }
     files.sort_by(|a, b| a.1.cmp(&b.1));
+    // A new personal workspace may have no SiYuan documents yet. The SQLite
+    // state and metadata still need a valid, portable full-backup bundle.
     Ok(files)
 }
 
@@ -314,7 +331,7 @@ fn validate_offline_manifest(manifest: &BundleManifest) -> Result<()> {
         if entry.relative_path != "sqlite/state.sqlite"
             && entry.relative_path != "sqlite/state-manifest.json"
             && entry.relative_path != "config/settings.toml"
-            && !entry.relative_path.starts_with("siyuan/")
+            && !entry.relative_path.starts_with("siyuan/data/")
         {
             bail!("offline backup contains an unapproved file category");
         }
@@ -519,14 +536,14 @@ token = "should-not-leak"
         let workspace = dir.path().join("note.md");
         fs::write(&workspace, b"quiesced SiYuan document").unwrap();
         let target = dir.path().join("backup");
-        let items = [(workspace.as_path(), Path::new("notes/note.md"))];
+        let items = [(workspace.as_path(), Path::new("data/notes/note.md"))];
         let manifest = create_offline_backup(&db, &items, &target).unwrap();
         assert_eq!(manifest.entries.len(), 3);
         verify_offline_backup(&target).unwrap();
         let restore = dir.path().join("restore");
         restore_offline_backup_to_new_directory(&target, &restore).unwrap();
         assert_eq!(
-            fs::read(restore.join("siyuan/notes/note.md")).unwrap(),
+            fs::read(restore.join("siyuan/data/notes/note.md")).unwrap(),
             b"quiesced SiYuan document"
         );
         assert!(restore_offline_backup_to_new_directory(&target, &restore).is_err());
@@ -547,6 +564,44 @@ token = "should-not-leak"
         assert!(selected
             .iter()
             .any(|(_, relative)| relative == Path::new("data/assets/photo.png")));
+    }
+
+    #[test]
+    fn workspace_backup_excludes_conf_credentials_and_keeps_notes_and_assets() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let workspace = dir.path().join("workspace");
+        fs::create_dir_all(workspace.join("data/assets")).unwrap();
+        fs::create_dir_all(workspace.join("conf")).unwrap();
+        fs::write(workspace.join("data/note.sy"), b"document").unwrap();
+        fs::write(workspace.join("data/assets/image.png"), b"asset").unwrap();
+        fs::write(workspace.join("conf/conf.json"), b"accessAuthCode=secret").unwrap();
+        let bundle = dir.path().join("bundle");
+        let manifest =
+            create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+        assert_eq!(manifest.entries.len(), 4);
+        assert!(!bundle.join("siyuan/conf/conf.json").exists());
+        assert!(bundle.join("siyuan/data/note.sy").exists());
+        assert!(bundle.join("siyuan/data/assets/image.png").exists());
+        verify_offline_backup(&bundle).unwrap();
+    }
+
+    #[test]
+    fn credential_bearing_manifest_is_rejected_before_restore() {
+        let dir = tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+        let source = dir.path().join("conf.json");
+        fs::write(&source, b"secret").unwrap();
+        let bundle = dir.path().join("bundle");
+        create_offline_backup(
+            &db,
+            &[(source.as_path(), Path::new("conf/conf.json"))],
+            &bundle,
+        )
+        .unwrap();
+        let restore = dir.path().join("restore");
+        assert!(preflight_offline_restore(&bundle, &restore).is_err());
+        assert!(!restore.exists());
     }
 
     #[test]
@@ -598,8 +653,8 @@ token = "should-not-leak"
     fn workspace_fingerprint_detects_missing_source_file() {
         let dir = tempdir().unwrap();
         let workspace = dir.path().join("siyuan");
-        fs::create_dir(&workspace).unwrap();
-        let note = workspace.join("note.sy");
+        fs::create_dir_all(workspace.join("data")).unwrap();
+        let note = workspace.join("data/note.sy");
         fs::write(&note, b"document").unwrap();
         let selected = enumerate_quiesced_siyuan_workspace(&workspace).unwrap();
         assert_eq!(workspace_fingerprints(&selected).unwrap().len(), 1);
@@ -611,8 +666,8 @@ token = "should-not-leak"
     fn workspace_fingerprint_detects_same_size_content_change() {
         let dir = tempdir().unwrap();
         let workspace = dir.path().join("siyuan");
-        fs::create_dir(&workspace).unwrap();
-        let note = workspace.join("note.sy");
+        fs::create_dir_all(workspace.join("data")).unwrap();
+        let note = workspace.join("data/note.sy");
         fs::write(&note, b"version-one").unwrap();
         let initial = enumerate_quiesced_siyuan_workspace(&workspace).unwrap();
         let before = workspace_fingerprints(&initial).unwrap();
@@ -647,10 +702,10 @@ token = "should-not-leak"
         use std::os::unix::fs::symlink;
         let dir = tempdir().unwrap();
         let workspace = dir.path().join("workspace");
-        fs::create_dir(&workspace).unwrap();
+        fs::create_dir_all(workspace.join("data")).unwrap();
         let external = dir.path().join("external");
         fs::write(&external, b"outside").unwrap();
-        symlink(&external, workspace.join("linked.sy")).unwrap();
+        symlink(&external, workspace.join("data/linked.sy")).unwrap();
         assert!(enumerate_quiesced_siyuan_workspace(&workspace).is_err());
         assert_eq!(fs::read(&external).unwrap(), b"outside");
     }

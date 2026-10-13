@@ -13,6 +13,7 @@ pub struct BackupQuiescence {
 struct GateState {
     writers: usize,
     paused: bool,
+    recovery_required: bool,
 }
 
 pub struct WriterPermit<'a> {
@@ -32,6 +33,33 @@ pub struct QuiescedGuard<'a> {
 }
 
 impl BackupQuiescence {
+    /// Keep write admission closed when the managed runtime cannot restart.
+    /// Only a verified recovery path may clear this latch.
+    pub fn require_verified_recovery(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.recovery_required = true;
+            state.paused = true;
+        }
+    }
+
+    pub fn is_recovery_required(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.recovery_required)
+            .unwrap_or(true)
+    }
+
+    pub fn clear_after_verified_recovery(&self) -> Result<(), &'static str> {
+        let mut state = self.state.lock().map_err(|_| "backup gate poisoned")?;
+        if state.writers != 0 {
+            return Err("writers still active");
+        }
+        state.recovery_required = false;
+        state.paused = false;
+        self.idle.notify_all();
+        Ok(())
+    }
+
     pub fn try_begin_owned(gate: &Arc<Self>) -> Option<OwnedWriterPermit> {
         let mut state = gate.state.lock().ok()?;
         if state.paused {
@@ -118,6 +146,12 @@ impl BackupQuiescence {
     }
 }
 
+impl OwnedQuiescedGuard {
+    pub fn gate_recovery_required(&self) {
+        self.gate.require_verified_recovery();
+    }
+}
+
 impl Drop for OwnedWriterPermit {
     fn drop(&mut self) {
         if let Ok(mut state) = self.gate.state.lock() {
@@ -143,7 +177,7 @@ impl Drop for WriterPermit<'_> {
 impl Drop for OwnedQuiescedGuard {
     fn drop(&mut self) {
         if let Ok(mut state) = self.gate.state.lock() {
-            state.paused = false;
+            state.paused = state.recovery_required;
             self.gate.idle.notify_all();
         }
     }
@@ -152,7 +186,7 @@ impl Drop for OwnedQuiescedGuard {
 impl Drop for QuiescedGuard<'_> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.gate.state.lock() {
-            state.paused = false;
+            state.paused = state.recovery_required;
             self.gate.idle.notify_all();
         }
     }
@@ -243,6 +277,43 @@ mod tests {
                 .unwrap();
         assert!(gate.try_begin_write().is_none());
         drop(guard);
+        assert!(gate.try_begin_write().is_some());
+    }
+
+    #[test]
+    fn recovery_state_is_visible_and_clears_only_by_explicit_recovery() {
+        let gate = BackupQuiescence::default();
+        assert!(!gate.is_recovery_required());
+        gate.require_verified_recovery();
+        assert!(gate.is_recovery_required());
+        assert!(gate.try_begin_write().is_none());
+        gate.clear_after_verified_recovery().unwrap();
+        assert!(!gate.is_recovery_required());
+    }
+
+    #[test]
+    fn failed_shutdown_keeps_gate_closed_on_early_return() {
+        let gate = Arc::new(BackupQuiescence::default());
+        {
+            let paused = BackupQuiescence::pause_and_drain_owned(&gate).unwrap();
+            paused.gate_recovery_required();
+        }
+        assert!(gate.is_recovery_required());
+        assert!(gate.try_begin_write().is_none());
+        assert!(BackupQuiescence::try_begin_owned(&gate).is_none());
+        assert!(BackupQuiescence::pause_and_drain_owned(&gate).is_err());
+    }
+
+    #[test]
+    fn failed_restart_keeps_writes_closed_until_verified_recovery() {
+        let gate = Arc::new(BackupQuiescence::default());
+        let paused = BackupQuiescence::pause_and_drain_owned(&gate).unwrap();
+        gate.require_verified_recovery();
+        drop(paused);
+        assert!(gate.try_begin_write().is_none());
+        assert!(BackupQuiescence::try_begin_owned(&gate).is_none());
+        assert!(BackupQuiescence::pause_and_drain_owned(&gate).is_err());
+        gate.clear_after_verified_recovery().unwrap();
         assert!(gate.try_begin_write().is_some());
     }
 

@@ -535,6 +535,102 @@ impl SiyuanRuntime {
         info!("SiYuan Kernel stopped");
     }
 
+    /// Strict, backup-only shutdown requiring a live Child handle held by
+    /// this AIKS process. A recovered runtime.json PID is not an owned handle.
+    pub async fn stop_for_backup(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.state() == RuntimeState::Ready,
+            "SiYuan must be Ready before managed backup"
+        );
+        let info = self
+            .runtime_info()
+            .ok_or_else(|| anyhow::anyhow!("SiYuan runtime has no owned process metadata"))?;
+        anyhow::ensure!(
+            !self.owned_child_has_exited(info.pid)?,
+            "SiYuan child already exited; cannot verify backup shutdown"
+        );
+        *self.state.lock().unwrap() = RuntimeState::Stopping;
+        if let Err(error) = self.stop_owned_child(info.pid, &info.base_url).await {
+            // Do not lie about a possibly live process. Preserve its handle,
+            // runtime info and marker for diagnosis and safe manual recovery.
+            *self.state.lock().unwrap() = RuntimeState::Failed;
+            *self.last_error.lock().unwrap() =
+                Some(format!("Managed backup shutdown was not verified: {error}"));
+            return Err(error);
+        }
+        self.child.lock().unwrap().take();
+        *self.info.lock().unwrap() = None;
+        *self.state.lock().unwrap() = RuntimeState::Stopped;
+        *self.last_error.lock().unwrap() = None;
+        if let Err(error) = std::fs::remove_file(&self.config.runtime_info_path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                warn!(error = %error, "Could not remove verified stopped runtime marker");
+            }
+        }
+        Ok(())
+    }
+
+    fn owned_child_has_exited(&self, pid: u32) -> anyhow::Result<bool> {
+        let mut guard = self.child.lock().unwrap();
+        let child = guard
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("SiYuan child handle is not owned by this process"))?;
+        anyhow::ensure!(
+            child.id() == pid,
+            "SiYuan child PID does not match the managed runtime"
+        );
+        Ok(child.try_wait()?.is_some())
+    }
+
+    async fn stop_owned_child(&self, pid: u32, base_url: &str) -> anyhow::Result<()> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()?;
+        let _ = client
+            .post(format!("{base_url}/api/system/exit"))
+            .json(&serde_json::json!({"force": false}))
+            .send()
+            .await;
+
+        let graceful_deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            if self.owned_child_has_exited(pid)? {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= graceful_deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        {
+            let mut guard = self.child.lock().unwrap();
+            let child = guard.as_mut().ok_or_else(|| {
+                anyhow::anyhow!("SiYuan child handle disappeared during shutdown")
+            })?;
+            anyhow::ensure!(
+                child.id() == pid,
+                "SiYuan child PID changed during shutdown"
+            );
+            if child.try_wait()?.is_none() {
+                if let Err(error) = child.kill() {
+                    if child.try_wait()?.is_none() {
+                        anyhow::bail!("Could not terminate owned SiYuan process: {error}");
+                    }
+                }
+            }
+        }
+        let forced_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if self.owned_child_has_exited(pid)? {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= forced_deadline {
+                anyhow::bail!("Timed out waiting for owned SiYuan child process to exit");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     /// Restart the kernel.
     pub async fn restart(&self) -> anyhow::Result<SiyuanRuntimeInfo> {
         self.stop().await;
@@ -876,6 +972,65 @@ mod tests {
         let ver = json["data"].as_str().unwrap();
         assert_eq!(ver, "3.7.9");
         assert_ne!(ver, "3.8.3"); // mismatch detected
+    }
+
+    #[tokio::test]
+    async fn backup_stop_refuses_recovered_pid_without_child() {
+        let dir = tempdir().unwrap();
+        let data = dir.path().to_path_buf();
+        let config = make_config(data.clone(), data.join("workspace"), &data);
+        std::fs::write(&config.runtime_info_path, b"preserve").unwrap();
+        let runtime = SiyuanRuntime::new(config);
+        *runtime.state.lock().unwrap() = RuntimeState::Ready;
+        *runtime.info.lock().unwrap() = Some(SiyuanRuntimeInfo {
+            pid: std::process::id(),
+            port: 6806,
+            version: "test".into(),
+            base_url: "http://127.0.0.1:6806".into(),
+        });
+        let error = runtime.stop_for_backup().await.unwrap_err();
+        assert!(error.to_string().contains("not owned"));
+        assert_eq!(runtime.state(), RuntimeState::Ready);
+        assert_eq!(
+            std::fs::read(&runtime.config.runtime_info_path).unwrap(),
+            b"preserve"
+        );
+    }
+
+    #[tokio::test]
+    async fn backup_stop_refuses_child_pid_mismatch_and_exited_handle() {
+        let dir = tempdir().unwrap();
+        let data = dir.path().to_path_buf();
+        let config = make_config(data.clone(), data.join("workspace"), &data);
+        let runtime = SiyuanRuntime::new(config);
+        let child = Command::new(std::env::current_exe().unwrap())
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        *runtime.child.lock().unwrap() = Some(child);
+        *runtime.info.lock().unwrap() = Some(SiyuanRuntimeInfo {
+            pid: pid.wrapping_add(1),
+            port: 6806,
+            version: "test".into(),
+            base_url: "http://127.0.0.1:6806".into(),
+        });
+        *runtime.state.lock().unwrap() = RuntimeState::Ready;
+        assert!(runtime.stop_for_backup().await.is_err());
+        assert_eq!(runtime.state(), RuntimeState::Ready);
+        runtime.info.lock().unwrap().as_mut().unwrap().pid = pid;
+        runtime
+            .child
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert!(runtime.stop_for_backup().await.is_err());
+        assert_eq!(runtime.state(), RuntimeState::Ready);
     }
 
     #[test]

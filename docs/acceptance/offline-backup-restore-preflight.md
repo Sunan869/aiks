@@ -196,3 +196,125 @@
 - 可以在独立的 `E:\\AIKS-Test\\data` 目录启动个人离线模式，对**除活动工作空间完整备份恢复以外**的已实现功能做非破坏性的 Windows 冒烟测试；只将结果视为阶段性反馈，不是 S1.3 最终验收。
 - 活动工作空间一键完整备份仍未注册到 Tauri/UI：内部 stop-snapshot-start coordinator 未通过综合 CI 且缺少外部写入审计、重启失败恢复保障。不得修改或覆盖现有用户生产工作区。
 - 冒烟测试先验证隔离目录生效、首次启动、手动同步与知识检索、启动/退出重入、日志中无异常；真实 SiYuan 资产与备份恢复仅在最终专门验收阶段处理。
+
+
+## 2026-10-12 受控备份来源与目标路径绑定
+
+- 基线 `c7bcfec` 综合 CI #38239409242、Windows Provider #38239409192 均 success。
+- 对内部 stop/snapshot/restart 编排新增前置路径验证：仅允许当前数据根目录下的 aiks.db 和 siyuan/workspace 作为来源，输出必须在数据根目录外且为不存在的新目录；防止未来 UI 接入时将不可信的任意路径用于归档。
+- 桌面 Rust 路径测试验证正确路径允许、目标嵌套与错误来源拒绝。内部编排仍未注册对外命令，全部写入覆盖/真实 SiYuan 退出与异常恢复仍待专项验证。
+
+
+## 2026-10-12 受控备份路径前置验证的质量收尾
+
+- HEAD `4aceafd` Windows Provider #38240349490 success，CI #38240349805 在 Rust 格式检查因 backup_commands.rs 三处差异失败，未运行 Clippy/Rust tests。按 CI 全部差异修正，不以仅 Provider 成功宣称完整验证。
+- 新增已有备份目标目录的无覆盖回归：校验失败后目录仍保留，不删除用户原有内容。完整停写、SQLite/SiYuan 一致性与桌面一键备份依旧有未闭合风险。
+
+
+## 2026-10-12 受控停写子进程退出证明与工作空间敏感目录保护（代码级，待 CI）
+
+- 备份专用 `stop_for_backup` 仅接受本进程持有且 PID 完全匹配的 SiYuan `Child`，使用 `try_wait` 确认退出；恢复的无 Child PID、PID 不一致或已退出的假 Ready 一律在 stop 之前拒绝。优雅退出超时后仅杀死已验证的 owned child，失败时保留 runtime.json 与句柄，禁止将可能运行的进程标成 Stopped。
+- 未注册的内部停写编排使用此接口而非原来的无条件 `stop()`；备份线程异常也进入重启分支，停写证明失败不触碰任何归档文件。
+- 用户文档与附件归档限制在 `workspace/data/`，`workspace/conf/` 中的敏感配置不进入归档；恢复前同样拒绝未被批准的 `siyuan/` 目录。此限制不代表 SQLite 和知识正文不存在敏感信息，更不能称作整工作区全部插件设置无损备份。
+- 补无 Child/PID 不符/进程已退出、排除 conf、伪造目录预检拒绝等回归。仍未注册运行中一键完整备份，亦未完成全部写路径/真实 Windows 停写/磁盘容量/失败回滚验收。
+
+
+## 2026-10-13 Rust 门禁与受控停机事实
+
+- 在 HEAD 3bd05dd3 中综合 CI #38264977181 因 runtime/mod.rs 两处及 app_backup.rs 一处格式差异，跳过了 Clippy/tests。按照原始 CI 格式差异统一修复，不改动 SiYuan 严格确认子进程退出的语义。
+- 手动和自动开发均不得把仅创建 Git commit 对象当作已推送，须验证分支 HEAD 实际变化。没有本地 rustfmt 工具，以上代码仍必须由实际 CI 校验。
+- 内部 create_managed_quiesced_backup 仍未注册到 UI；重启失败释放停写状态等安全缺口依然阻断活动工作区一键完整备份。
+
+
+## 2026-10-13 归档白名单与可移植恢复测试对齐
+
+- 基线 `f9579fc` 综合 CI #38331840586 的 Rust fmt/Clippy 和 329 项库单元测试均通过；集成测试 `backup_portable_restore::offline_restore_preview_checks_schema_paths_and_requires_detached_destination` 因旧测试使用 siyuan/notes/note.sy，未符合现行仅允许 siyuan/data/ 的安全白名单而失败。Windows Provider #38331840542 通过。
+- 本次仅调整集成测试样例为 `data/notes/note.sy` 和对应独立恢复断言，绝不为让测试通过而放宽现行归档路径白名单。再次验证需要新 HEAD CI；Windows 真机和 SiYuan 受控备份尚未验收。
+
+
+## 2026-10-13 SiYuan 重启失败后写入保护
+
+- 基线 HEAD `52cebe2` CI #38332501937 / Windows Provider #38332501912 均成功。
+- `BackupQuiescence` 新增需验证恢复的持久内存闩锁：重启失败时不再因排空守卫析构而重新接纳写入；只有后续明确验证 SiYuan 运行正常后才允许通过 `clear_after_verified_recovery` 解锁。
+- 内部未注册的一键备份编排在 SiYuan 启动失败时调用该保护。补 Rust 测试验证失败封禁、二次暂停拒绝、明确解除后恢复。**尚无用户可操作的验证恢复 UI，不得发布活动数据备份功能。**
+
+
+## 2026-10-13 受控故障恢复核验入口
+
+- 基线 `c19f2e2` 的 CI #38333244987 与 Windows Provider #38333244996 success。
+- 新增只针对由 AIKS 管理的已运行内嵌 SiYuan 的 `verify_managed_siyuan_recovery` Tauri 命令。只有故障封禁存在、运行时与健康检查同时确认 Ready，才执行解除写入门禁；外部 SiYuan、不存在运行时、健康异常和未触发故障封禁均拒绝。
+- 添加门禁状态查询及单元测试，不提供不经核验的强制解锁。本入口尚未接入完整用户恢复向导，亦不能替代受控 SiYuan 重启尝试或最终故障注入验收。
+
+
+## 2026-10-13 只读恢复状态与故障核验 UI
+
+- 基线 `0d89433` Windows Provider #38333941416 success，综合 CI #38333941378 仅在 backup_commands.rs Rust formatting 失败。已按日志修正。
+- 新增只读 `get_managed_backup_recovery_required` Tauri 命令并注册到 Handler；设置页新增手动查询锁定状态及条件触发的健康核验入口。只有明确查询出存在锁定时才展示核验操作；失败保持锁定、禁止强制解锁、不自动重启内核。
+- 真正的受控一键备份仍未开放；故障恢复入口可交互不代表操作系统进程健康、数据一致性与异常重启的 Windows 真机测试已通过。
+
+
+## 2026-10-13 故障恢复 UI 契约与 CI 修复
+
+- 基线 `539edca` Windows Provider #38334450621 success，综合 CI #38334450615 仅在 backup_commands.rs 一处 Rust 函数签名格式差异失败。严格按照 rustfmt diff 修正。
+- 新增 Desktop Vitest 恢复契约测试：只读状态、受控核验命令均注册，核验检查 SiYuan Ready，UI 只有明确存在故障锁定才显示核验动作，Mock 不执行真实恢复。此测试不取代真实内核故障注入。
+- 运行中工作区一键完整备份仍暂未开放，不能从本次静态契约推出其已可真机验收。
+
+
+## 2026-10-13 未确认停机时的故障封禁
+
+- 基线 `b106ece` 综合 CI #38335393846 与 Windows Provider #38335393790 均 success。
+- 修复未注册的内部管理式备份的停机失败提前返回路径：`stop_for_backup()` 出错时，先将 `BackupQuiescence` 标记为需要健康核验的故障封禁，再返回错误，避免 owned guard 自动析构重新放开所有 AIKS 写入。
+- 新增 early-return 错误路径门禁测试，保证 guard 析构后禁止同步、后台 Worker 和再次备份。该变更不开放尚未完成安全审计的运行中一键备份。
+
+
+## 2026-10-13 管理式工作区备份入口
+
+- 基线 `f14c960` CI #38335893180 / Windows Provider #38335893274 均 success。
+- 注册 `create_managed_offline_backup` 桌面命令，来源严格绑定当前数据目录，目标目录必须不存在且不与当前工作区重叠。Windows 使用系统可用磁盘容量查询并预留至少 64MiB 或数据量 20% 的余量，调用方重复输入目标路径才可执行。
+- 该命令使用现有独占停写/排空、核验自有 SiYuan 子进程停机、SQLite/SiYuan 快照与重新启动编排；重启或停机失败继续保留故障写入封禁。设置页已添加说明、确认及错误提示。
+- 严禁将本实现当成 Windows 真机验收通过：须验证 SiYuan 正在使用的数据库文件与工作区一致、外部客户端写入情况、磁盘中途耗尽、重启失败和可移植恢复。本批提交还必须通过 CI。
+
+
+## 2026-10-13 受控完整备份入口防回退校验
+
+- 基线 `7489f02` Windows Provider #38336600609 success，综合 CI #38336600603 Rust formatting 单点失败，已逐处照 CI rustfmt diff 更正；原 CI 未执行 Rust 后续测试。
+- 新增桌面端受控备份静态契约覆盖：注册命令、来源绑定当前 `aiks.db` + `siyuan/workspace`、输出二次确认、路径隔离、磁盘容量预检、受控停写编排调用及 UI 参数约束。
+- 本批仍须检查真实编译、停机/重启的故障行为和 Windows 真机安全验收；通过静态契约不等于运行中备份可交付。
+
+
+## 2026-10-13 完整备份产物独立回环集成测试
+
+- 基线 `9b5402a` 综合 CI #38337220060 与 Windows Provider #38337220045 均成功。
+- 新增 Rust 集成测试：创建隔离的 SQLite DB + SiYuan data/ 目录，以真实备份装配函数写入 bundle，校验 manifest，再恢复到新目录，断言中文文件名与文件字节一致。敏感 `workspace/conf/conf.json` 必须保持原始文件不变，且不进入备份/恢复产物。
+- 新增拒绝以目录符号链接冒充 `workspace/data` 的测试，断言拒绝后不留下目标 bundle 且外部源文件不被修改；Windows 无创建符号链接权限时跳过该案例。
+- 以上测试覆盖归档回环与源保护，不等于真实运行的 SiYuan 停写和重启完成了故障注入；仍须 CI 与独立 Windows 测试目录验收。
+
+
+## 2026-10-13 集成测试 Rust 格式门禁修正
+
+- 基线 `4523134` Windows Provider #38338358430 success；综合 CI #38338358433 仅在 `backup_portable_restore.rs` 2 处格式差异失败。此处严格依据 CI 原始 diff 修正，无需修改安全规则或备份逻辑。
+- 此文件已有真实归档/隔离恢复/敏感配置排除与符号链接拒绝测试；必须等待新的 CI 真正执行 Rust 测试后才能标记验证通过。
+
+
+## 2026-10-13 空文档工作区完整备份回环
+
+- 基线 `bbabd13` CI #38339180625、Windows Provider #38339180577 均 success，Rust 真实归档回环测试已进入 CI。
+- 修复空 `workspace/data/` 导致备份无条件失败的问题：允许正常创建只包含 SQLite 快照与 SQLite 校验清单的备份 bundle，不创建未经允许的配置副本。
+- 新增集成测试验证：空文档工作区仍可备份、清单有效、独立恢复含 SQLite 数据库、缺少磁盘空间时预检拒绝且不创建目标目录。
+- 仍须真实 Windows SiYuan 停机/重启及文件一致性故障注入，CI 通过不能替代真机验收。
+
+
+## 2026-10-13 尚未创建 data 目录的新工作区备份
+
+- 基线 `fbb217a` 综合 CI #38339724835 和 Windows Provider #38339724660 均 success。
+- 对尚未产生首份 SiYuan 数据的工作区，允许 `data/` 缺失并归档独立 SQLite 快照；仍严格拒绝现有 `data/` 是符号链接或非目录，以及其他读取异常。
+- 新增真实归档校验和隔离恢复集成测试，验证成功后源工作区未被补建或修改。
+- Windows 内嵌 SiYuan 全链路停机/启动故障注入仍待独立真机测试，CI 不可替代。
+
+
+## 2026-10-13 收尾批：重启健康校验和跨源备份封禁
+
+- 基线 `3ba2253` 综合 CI #38340417625、Windows Provider #38340417589 均成功。
+- 完整备份编排的恢复成功条件从“`start().await` 无错误”提升至启动后再次校验 `kernel.health().state` 和 `kernel.state()` 均 Ready，任何健康异常继续维持写入封禁，不得谎报已恢复。
+- 禁止旧的“独立 SiYuan workspace + 当前活跃 AIKS SQLite DB”混搭入口：该两份源无共同停写与时间点保证，产物存在逻辑不一致。保留后端旧命令的显式拒绝行为，避免已有脚本静默产生坏备份；Desktop 移除危险的旧表单。用户应使用当前工作空间受控备份，隔离恢复仍保持。
+- 新增 Desktop 契约回归测试，要求重启健康检查、失败封禁、旧命令拒绝及旧 UI 移除。真正的内嵌 SiYuan Windows 停机/重启测试尚待用户独立测试目录验证。
