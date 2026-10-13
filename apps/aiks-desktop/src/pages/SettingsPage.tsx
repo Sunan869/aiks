@@ -528,12 +528,12 @@ export default function SettingsPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-5">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{title}</div>
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 px-4">
+    <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="mb-2 text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">{title}</h2>
+      <div className="divide-y divide-slate-100 px-1 dark:divide-slate-800">
         {children}
       </div>
-    </div>
+    </section>
   );
 }
 

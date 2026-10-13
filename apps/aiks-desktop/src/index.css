@@ -67,3 +67,9 @@ body {
   .aiks-field-select { @apply min-h-[38px] max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
   .aiks-field-date { @apply min-h-[38px] min-w-0 rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
 }
+
+/* Consolidated workspace section controls (all existing business actions stay mounted). */
+@layer components {
+  .memory-workspace nav[aria-label="项目记忆工作区"] { @apply sticky top-0 z-10; }
+  .memory-workspace .memory-panel { @apply min-w-0; }
+}

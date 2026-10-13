@@ -245,7 +245,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               type="button"
               onClick={() => setTaskFilter(value)}
               aria-pressed={taskFilter === value}
-              className={`text-xs px-2.5 py-1 rounded border ${taskFilter === value
+              className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-500 ${taskFilter === value
                 ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                 : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
             >{label}</button>

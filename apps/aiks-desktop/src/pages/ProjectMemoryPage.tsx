@@ -66,6 +66,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [selectedAgentKnowledgeIds, setSelectedAgentKnowledgeIds] = useState<string[]>([]);
   const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
+  const [workspaceTab, setWorkspaceTab] = useState<"knowledge" | "review" | "evolution" | "tools">("knowledge");
   const [projectRevision, setProjectRevision] = useState(0);
   const [sessionChoices, setSessionChoices] = useState<SessionItem[]>([]);
   const [sessionTotal, setSessionTotal] = useState(0);
@@ -423,7 +424,23 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         </UiSelect>
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
-      <section className="memory-panel">
+      <nav aria-label="项目记忆工作区" className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        {([
+          ["knowledge", "知识概览"],
+          ["review", "待复核"],
+          ["evolution", "知识演进"],
+          ["tools", "项目工具"],
+        ] as const).map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={workspaceTab === key}
+            onClick={() => setWorkspaceTab(key)}
+            className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${workspaceTab === key
+              ? "bg-slate-900 text-white shadow-sm dark:bg-sky-600"
+              : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      <section className={`memory-panel ${workspaceTab === "tools" ? "" : "hidden"}`}>
         <h2 className="font-semibold">人工修正项目归属（仅 AIKS 本地）</h2>
         <p className="mt-2 text-xs text-gray-500">
           仅将选中的 Session 归入一个已经发现真实绝对路径的项目，适用于无路径或识别错误的历史记录。
@@ -474,7 +491,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       </section>
       {detail && (
         <>
-          <section className="memory-panel">
+          <section className={`memory-panel ${workspaceTab === "knowledge" ? "" : "hidden"}`}>
             <h2 className="font-semibold">{detail.project.title}</h2>
             <p className="mt-2 text-xs text-gray-500">
               {detail.project.session_count} 条会话 · {detail.project.knowledge_count} 条知识 · 来源：{detail.project.sources.join("、")}
@@ -534,7 +551,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               {detail.truncated && <p className="text-amber-600">当前仅展示有界样本，不代表全部项目历史；主题统计和时间线均可能不完整。</p>}
             </div>
           </section>
-          <section className="rounded border border-amber-300 p-4 dark:border-amber-700">
+          <section className={`memory-panel ${workspaceTab === "review" ? "" : "hidden"}`}>
             <h2 className="font-semibold">项目知识复核队列（明确证据）</h2>
             <p className="mt-2 text-xs text-gray-500">
               仅汇总用户明确反馈和当前项目中已有来源验证的修正、替代、解决关系。
@@ -608,7 +625,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </>
             )}
           </section>
-          <section className="memory-panel">
+          <section className={`memory-panel ${workspaceTab === "evolution" ? "" : "hidden"}`}>
             <h2 className="font-semibold">知识演进与人工审核关系</h2>
             <p className="mt-2 text-xs text-gray-500">
               仅显示带来源证据、由用户确认或尚待确认的「修正 / 替代 / 解决」关系。
@@ -678,7 +695,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </div>
             )}
           </section>
-          <section className="memory-panel">
+          <section className={`memory-panel ${workspaceTab === "tools" ? "" : "hidden"}`}>
             <h2 className="font-semibold">工作回顾与 Agent 上下文</h2>
             <p className="mt-2 text-xs text-gray-500">先生成可编辑预览，再复制使用。不会自动写入项目文件或外部服务。</p>
             <label htmlFor="project-memory-source" className="my-3 flex items-center gap-2 text-xs">
