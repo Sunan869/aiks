@@ -10,6 +10,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
   const [activeIndex, setActiveIndex] = useState(0);
   const searchInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
@@ -19,22 +20,22 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
   const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); };
+  const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); trigger.current?.focus(); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); setOpen(false); }
-    if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
+    if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+    if (event.key === "ArrowDown" && matching.length > 0) { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
     if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); }
     if (event.key === "Enter" && matching[activeIndex]) { event.preventDefault(); choose(matching[activeIndex].value); }
   };
   return <div ref={root} className="relative min-w-0 flex-1">
-    <button type="button" role="combobox" aria-label={label} aria-expanded={open}
+    <button ref={trigger} type="button" role="combobox" aria-label={label} aria-expanded={open}
       onClick={() => { setOpen(current => !current); setQuery(""); setActiveIndex(0); }}
       className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
       <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400"/>
     </button>
     {open && <div className="absolute left-0 top-full z-50 mt-2 w-full min-w-[240px] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
+      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}>
       <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 dark:border-slate-700">
         <Search className="h-4 w-4 text-slate-400"/>
         <input ref={searchInput} aria-label={label + "æœç´¢"} autoFocus value={query} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}

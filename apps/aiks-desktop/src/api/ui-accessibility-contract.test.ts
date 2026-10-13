@@ -9,6 +9,8 @@ describe("desktop shared interaction accessibility", () => {
     expect(combo).toContain('event.key === "ArrowUp"');
     expect(combo).toContain('event.key === "Enter"');
     expect(combo).toContain('event.key === "Escape"');
+    expect(combo).toContain("trigger.current?.focus()");
+    expect(combo).toContain("matching.length > 0");
     expect(combo).toContain('role="combobox"');
   });
   it("returns calendar focus on Escape and closes while disabled", () => {
