@@ -66,9 +66,8 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
         files.push((item.path().to_path_buf(), relative.to_path_buf()));
     }
     files.sort_by(|a, b| a.1.cmp(&b.1));
-    if files.is_empty() {
-        bail!("SiYuan data root contains no documents or assets");
-    }
+    // A new personal workspace may have no SiYuan documents yet. The SQLite
+    // state and metadata still need a valid, portable full-backup bundle.
     Ok(files)
 }
 

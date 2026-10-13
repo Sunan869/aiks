@@ -3,7 +3,8 @@ use std::path::Path;
 
 use aiks_core::storage::app_backup::{
     create_offline_backup, create_offline_backup_from_quiesced_workspace,
-    preflight_offline_restore, restore_offline_backup_to_new_directory, verify_offline_backup,
+    preflight_offline_restore, preflight_offline_restore_with_capacity,
+    restore_offline_backup_to_new_directory, verify_offline_backup,
 };
 use aiks_core::storage::backup_bundle::{
     create_file_bundle, preflight_file_bundle_restore, verify_file_bundle, BundleManifest,
@@ -198,4 +199,26 @@ fn quiesced_workspace_backup_rejects_symlinked_data_root() {
     assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &output).is_err());
     assert!(!output.exists());
     assert_eq!(fs::read(external.join("outside.sy")).unwrap(), b"preserve");
+}
+
+#[test]
+fn empty_siyuan_data_workspace_still_roundtrips_sqlite_backup() {
+    let dir = tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let workspace = dir.path().join("workspace");
+    fs::create_dir_all(workspace.join("data")).unwrap();
+    let bundle = dir.path().join("empty-backup");
+    let manifest = create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+    assert_eq!(manifest.entries.len(), 2);
+    let detached = dir.path().join("isolated");
+    let preview = preflight_offline_restore(&bundle, &detached).unwrap();
+    assert_eq!(preview.siyuan_files, 0);
+    assert_eq!(preview.file_count, 2);
+    assert!(preflight_offline_restore_with_capacity(&bundle, &detached, 0).is_err());
+    assert!(!detached.exists());
+    restore_offline_backup_to_new_directory(&bundle, &detached).unwrap();
+    assert!(detached.join("sqlite/state.sqlite").is_file());
+    assert!(detached.join("sqlite/state-manifest.json").is_file());
+    assert!(!detached.join("siyuan/conf").exists());
+    verify_offline_backup(&bundle).unwrap();
 }
