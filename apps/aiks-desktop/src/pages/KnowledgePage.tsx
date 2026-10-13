@@ -117,7 +117,7 @@ export default function KnowledgePage() {
               </div>
               </button>
             </div>
-          ))
+          ))}
           <div className="text-center pt-2">
             <UiButton variant="outline" size="sm"
               onClick={openKnowledge}
