@@ -19,6 +19,8 @@ describe("shared UI workspace surfaces", () => {
     expect(sync).toContain('"sync_and_extract"');
     expect(sources).toContain('UiNotice tone="danger"');
     expect(diagnostics).toContain("getV41Diagnostics");
+    expect(diagnostics).toContain('<UiNotice tone="danger"');
+    expect(sync).toContain('<UiNotice tone="danger"');
     expect(processing).toContain("retryFailedAiTask");
   });
 });

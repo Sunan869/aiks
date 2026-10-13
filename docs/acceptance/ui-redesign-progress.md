@@ -164,3 +164,8 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Added UiSection, UiMetric and UiNotice presentation primitives with consistent neutral/semantic tones, focus-independent markup and dark-mode styles.
 - Refactored Overview summary metrics/status section, Sync status panels/notices, Sources errors, Diagnostics errors and Processing refresh errors to use common surfaces. Log empty states are explicitly announced.
 - This creates reusable UI components without adding unverified dependencies. It does **not** claim the official shadcn/ui + Radix migration is complete. Windows real-device visual and interaction acceptance is still required.
+
+## 2026-10-13 frontend contract alignment
+
+- CI #38380027772 failed two stale test assertions after UiNotice encapsulated accessible alert roles. The contracts now assert that Sync and Diagnostics render danger notices and that UiNotice itself maps danger to alert, retaining accessibility without duplicating markup in every page.
+- No backend or native behavior changes. Frontend compile/tests and Windows testing still need independent confirmation.
