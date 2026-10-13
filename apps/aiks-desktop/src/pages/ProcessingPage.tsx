@@ -156,10 +156,10 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     : runs.filter(r => r.status === "READY");
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">处理中心</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">处理中心</h1>
           <p className="text-sm text-gray-500 mt-0.5">知识处理流水线状态</p>
         </div>
         <div className="flex items-center gap-3">

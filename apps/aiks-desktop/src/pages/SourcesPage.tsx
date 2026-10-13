@@ -51,7 +51,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
   const status = sourceStatusPresentation(source);
   const hasDetails = Boolean(source.message?.trim()) || diagnostics.length > 0;
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+    <section className="aiks-surface group transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">{source.display_name}</h2>
         <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{status.label}</span>
@@ -102,10 +102,10 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
 
 export default function SourcesPage({ fullStatus }: Props) {
   const { sources, loading, error, refresh } = useSourceCatalog();
-  return <div className="w-full min-w-0 p-6">
-    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-xl font-semibold">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
+  return <div className="aiks-page-shell w-full min-w-0">
+    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
     {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
-    <div className="space-y-3">{sources.filter(source => source.configurable !== false).map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{sources.filter(source => source.configurable !== false).map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
   </div>;
 }

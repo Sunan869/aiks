@@ -198,8 +198,8 @@ export default function App() {
 
   return (
     <>
-      <div className="flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-        <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-800">
+      <div className="aiks-app-shell flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+        <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
             <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
@@ -214,10 +214,10 @@ export default function App() {
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar page={nav.page} onNavigate={navigate} sessionCount={sessionCount} knowledgeCount={knowledgeCount} aiHealthy={aiStatus?.healthy ?? false} />
-          <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">{renderMain()}</main>
+          <main className="aiks-main-scroll flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">{renderMain()}</main>
         </div>
 
-        <div className="flex h-7 flex-shrink-0 items-center gap-3 border-t border-gray-200 bg-white px-4 text-xs text-gray-400 dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex h-8 flex-shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
           {isMock && <span className="text-yellow-500">Mock 模式 — 仅用于开发</span>}
 
