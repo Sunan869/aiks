@@ -118,6 +118,15 @@ async fn create_managed_quiesced_backup(
     }
 }
 
+/// Read-only status is safe even during SiYuan failure. It never changes the
+/// blocked write gate or attempts an automatic restart.
+#[tauri::command]
+pub fn get_managed_backup_recovery_required(
+    gate: tauri::State<'_, Arc<BackupQuiescence>>,
+) -> bool {
+    gate.is_recovery_required()
+}
+
 /// Verify the already-running managed SiYuan is healthy before unblocking
 /// writes after a previously failed restart. Never launches external kernels.
 #[tauri::command]
@@ -139,7 +148,8 @@ pub async fn verify_managed_siyuan_recovery(
     if health.state != RuntimeState::Ready || kernel.state() != RuntimeState::Ready {
         return Err("SiYuan 尚未恢复就绪，继续禁止后台写入".to_string());
     }
-    gate.clear_after_verified_recovery().map_err(str::to_string)?;
+    gate.clear_after_verified_recovery()
+        .map_err(str::to_string)?;
     Ok(true)
 }
 

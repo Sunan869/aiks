@@ -7,6 +7,9 @@ export function OfflineRestore() {
   const [backupOutput, setBackupOutput] = useState("");
   const [creating, setCreating] = useState(false);
   const [creationMessage, setCreationMessage] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [recoveryRequired, setRecoveryRequired] = useState<boolean | null>(null);
   const [bundle, setBundle] = useState("");
   const [destination, setDestination] = useState("");
   const [confirmed, setConfirmed] = useState("");
@@ -15,6 +18,39 @@ export function OfflineRestore() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const isMock = shouldUseMock();
+
+  const checkRecovery = async () => {
+    if (isMock) {
+      setRecoveryMessage("请在 AIKS 桌面应用中检查真实内核运行状态");
+      return;
+    }
+    setRecoveryBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const required = await invoke<boolean>("get_managed_backup_recovery_required");
+      setRecoveryRequired(required);
+      setRecoveryMessage(required ? "检测到 SiYuan 恢复锁定。只有内核已恢复且健康检查通过，才能解除。" : "当前没有待解除的备份故障锁定。");
+    } catch (error) {
+      setRecoveryMessage("无法检查故障状态：" + String(error));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const verifyRecovery = async () => {
+    if (isMock || recoveryBusy || recoveryRequired !== true) return;
+    setRecoveryBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<boolean>("verify_managed_siyuan_recovery");
+      setRecoveryRequired(false);
+      setRecoveryMessage("内嵌 SiYuan 健康核验通过，已解除写入锁定。");
+    } catch (error) {
+      setRecoveryMessage("恢复核验失败，写入仍保持锁定：" + String(error));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
 
   const clearPreview = () => {
     setPreview(null);
@@ -97,6 +133,19 @@ export function OfflineRestore() {
       <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
         此入口仅支持校验已有备份并恢复到全新独立目录，不覆盖当前工作空间。开始前请关闭 SiYuan 写入。
       </p>
+      <div className="mb-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+        <h4 className="mb-2 text-xs font-semibold">SiYuan 故障恢复核验</h4>
+        <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">仅当备份失败导致写入锁定时使用。此操作不会自动重启内核，也不能强制解锁。</p>
+        <button type="button" disabled={recoveryBusy || isMock} onClick={() => void checkRecovery()}
+          className="rounded border px-3 py-2 text-xs disabled:opacity-50">检查写入锁定状态</button>
+        {recoveryRequired === true && (
+          <button type="button" disabled={recoveryBusy} onClick={() => void verifyRecovery()}
+            className="ml-2 rounded bg-amber-600 px-3 py-2 text-xs text-white disabled:opacity-50">
+            核验 SiYuan 健康并解除锁定
+          </button>
+        )}
+        {recoveryMessage && <p role="status" className="mt-2 break-words text-xs">{recoveryMessage}</p>}
+      </div>
       <div className="mb-4 border-b border-gray-200 pb-4 dark:border-gray-700">
         <h4 className="mb-2 text-xs font-semibold">创建备份（仅停写的独立工作空间）</h4>
         <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">运行中的 AIKS/SiYuan 工作空间禁止直接备份。请先另外准备已停写的独立 SiYuan 工作空间；此操作不会自动停止后台任务。</p>

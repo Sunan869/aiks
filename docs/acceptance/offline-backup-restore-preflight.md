@@ -244,3 +244,10 @@
 - 基线 `c19f2e2` 的 CI #38333244987 与 Windows Provider #38333244996 success。
 - 新增只针对由 AIKS 管理的已运行内嵌 SiYuan 的 `verify_managed_siyuan_recovery` Tauri 命令。只有故障封禁存在、运行时与健康检查同时确认 Ready，才执行解除写入门禁；外部 SiYuan、不存在运行时、健康异常和未触发故障封禁均拒绝。
 - 添加门禁状态查询及单元测试，不提供不经核验的强制解锁。本入口尚未接入完整用户恢复向导，亦不能替代受控 SiYuan 重启尝试或最终故障注入验收。
+
+
+## 2026-10-13 只读恢复状态与故障核验 UI
+
+- 基线 `0d89433` Windows Provider #38333941416 success，综合 CI #38333941378 仅在 backup_commands.rs Rust formatting 失败。已按日志修正。
+- 新增只读 `get_managed_backup_recovery_required` Tauri 命令并注册到 Handler；设置页新增手动查询锁定状态及条件触发的健康核验入口。只有明确查询出存在锁定时才展示核验操作；失败保持锁定、禁止强制解锁、不自动重启内核。
+- 真正的受控一键备份仍未开放；故障恢复入口可交互不代表操作系统进程健康、数据一致性与异常重启的 Windows 真机测试已通过。
