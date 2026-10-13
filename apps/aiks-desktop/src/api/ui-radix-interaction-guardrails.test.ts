@@ -10,12 +10,15 @@ describe("shared Radix interaction guardrails", () => {
     expect(modal).toContain("onEscapeKeyDown");
   });
   it("preserves searchable choice identity while searching by label", () => {
-    expect(combo).toContain('value={option.label + " " + option.value}');
+    expect(combo).toContain("value={commandValueForOption(option.value)}");
+    expect(combo).toContain("uniqueChoiceValues(options)");
     expect(combo).toContain("keywords={[option.label, option.value]}");
     expect(combo).toContain("onSelect={() => choose(option.value)}");
     expect(combo).toContain("closePopup();");
   });
   it("retains the all-choice sentinel mapping", () => {
+    expect(select).toContain("emptyOptionSentinel(choices)");
+    expect(select).toContain("uniqueChoiceValues(options)");
     expect(select).toContain('option === "" ? blank : option');
     expect(select).toContain('option === blank ? "" : option');
   });

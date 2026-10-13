@@ -1,16 +1,19 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { commandValueForOption, uniqueChoiceValues } from "./selectionIdentity";
 
 export interface SearchOption { value: string; label: string }
 
 /** Radix Popover + cmdk combobox. Command handles filtering, arrow navigation, and Enter. */
-export function SearchSelect({ value, onChange, options, label, placeholder = "选择项目" }: {
-  value: string; onChange: (next: string) => void; options: SearchOption[]; label: string; placeholder?: string;
+export function SearchSelect({ value, onChange, options, label, placeholder = "选择项目", disabled = false }: {
+  value: string; onChange: (next: string) => void; options: SearchOption[]; label: string; placeholder?: string; disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const choices = useMemo(() => uniqueChoiceValues(options), [options]);
+  useEffect(() => { if (disabled) { setOpen(false); setQuery(""); } }, [disabled]);
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -28,10 +31,10 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
   const openPopup = () => { setQuery(""); setOpen(true); };
 
   return (
-    <Popover.Root open={open} onOpenChange={next => { setOpen(next); if (!next) setQuery(""); }}>
+    <Popover.Root open={open && !disabled} onOpenChange={next => { setOpen(next && !disabled); if (!next) setQuery(""); }}>
       <div className="relative min-w-0 flex-1">
         <Popover.Anchor asChild>
-          <button ref={triggerRef} type="button" role="combobox" aria-label={label}
+          <button ref={triggerRef} type="button" disabled={disabled} role="combobox" aria-label={label}
             aria-expanded={open} aria-haspopup="listbox" aria-controls={open ? listId : undefined}
             onKeyDown={event => {
               if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -41,7 +44,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
             }}
             onClick={() => { if (open) closePopup(); else openPopup(); }}
             className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
-            <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
+            <span className="truncate">{choices.find(option => option.value === value)?.label || placeholder}</span>
             <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
           </button>
         </Popover.Anchor>
@@ -60,8 +63,8 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
               </div>
               <Command.List id={listId} role="listbox" className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
                 <Command.Empty role="status" className="p-3 text-xs text-slate-500">没有匹配选项</Command.Empty>
-                {options.map(option => (
-                  <Command.Item key={option.value} value={option.label + " " + option.value}
+                {choices.map(option => (
+                  <Command.Item key={option.value} value={commandValueForOption(option.value)}
                     keywords={[option.label, option.value]} onSelect={() => choose(option.value)}
                     className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs outline-none data-[selected=true]:bg-sky-50 dark:data-[selected=true]:bg-slate-800">
                     <Check className={`h-4 w-4 ${value === option.value ? "text-sky-600" : "invisible"}`} />
