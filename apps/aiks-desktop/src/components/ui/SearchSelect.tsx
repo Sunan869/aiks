@@ -22,12 +22,14 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
   useEffect(() => { if (open) searchInput.current?.focus(); }, [open]);
-  useEffect(() => { if (open && matching.length > 0 && activeIndex >= matching.length) setActiveIndex(matching.length - 1); }, [open, matching.length, activeIndex]);
   const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  useEffect(() => {
+    if (open && activeIndex >= matching.length) setActiveIndex(Math.max(0, matching.length - 1));
+  }, [open, matching.length, activeIndex]);
   const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const closePopup = () => { setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); closePopup(); }
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePopup(); }
     if (event.key === "ArrowDown" && matching.length > 0) { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
     if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); }
     if (event.key === "Home" && matching.length > 0) { event.preventDefault(); setActiveIndex(0); }

@@ -105,3 +105,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - CalendarDateField now permits narrower triggers and popovers and clearly highlights focused date buttons.
 - Standardized minimum-width behavior across knowledge, processing, project memory and sidebar layout foundations so long content does not force unconstrained horizontal expansion.
 - This batch changes only UI presentation and keyboard behavior. Official shadcn/Radix dependencies remain uninstalled and Windows visual/device acceptance remains pending. Neither CI success nor file-count coverage is a substitute for those acceptance steps.
+
+## 2026-10-13 CI blocker and dropdown keyboard consolidation
+
+- Frontend build failure #38375645104: SearchSelect referenced `matching` before declaration (TS2448/TS2454). The filtered options are now declared before the effect that uses them, and zero-result filtering clamps keyboard state to a safe index.
+- Escape inside project selector and calendar now stops propagation so enclosing dialogs do not close unexpectedly. Calendar month headings announce month changes.
+- Added regression source contracts for declaration order and nested popup Escape. No native business logic, provider access or backup behavior altered.
+- Fast frontend build and Windows real-device keyboard test remain the validation gate; this record does not claim validation already passed.
