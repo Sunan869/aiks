@@ -18,4 +18,16 @@ describe("S1.3 verified recovery UI contract", () => {
     expect(recoveryUI).toContain('invoke<boolean>("verify_managed_siyuan_recovery")');
     expect(recoveryUI).toContain("if (isMock || recoveryBusy || recoveryRequired !== true) return;");
   });
+  it("binds managed backup to the active workspace and requires two matching paths", () => {
+    expect(registrations).toContain("backup_commands::create_managed_offline_backup");
+    expect(commands).toContain("pub async fn create_managed_offline_backup(");
+    expect(commands).toContain('let db_path = root.join("aiks.db");');
+    expect(commands).toContain('let workspace = root.join("siyuan").join("workspace");');
+    expect(commands).toContain("validate_managed_backup_paths(&root, &db_path, &workspace, &destination)?;");
+    expect(commands).toContain("destination_path.trim() != confirmed_destination_path.trim()");
+    expect(commands).toContain("available_restore_bytes(&destination)?");
+    expect(commands).toContain("create_managed_quiesced_backup(");
+    expect(recoveryUI).toContain('invoke<number>("create_managed_offline_backup"');
+    expect(recoveryUI).toContain("managedDestination.trim() !== managedConfirmed.trim()");
+  });
 });

@@ -137,16 +137,21 @@ pub async fn create_managed_offline_backup(
     let db_path = root.join("aiks.db");
     let workspace = root.join("siyuan").join("workspace");
     validate_managed_backup_paths(&root, &db_path, &workspace, &destination)?;
-    let workspace_size = aiks_core::storage::app_backup::enumerate_quiesced_siyuan_workspace(
-        &workspace,
-    )
-    .map_err(|error| format!("备份容量预检失败：{error}"))?
-    .into_iter()
-    .try_fold(0u64, |total, (source, _)| {
-        let length = std::fs::metadata(source).map_err(|error| error.to_string())?.len();
-        total.checked_add(length).ok_or_else(|| "备份容量溢出".to_string())
-    })?;
-    let db_size = std::fs::metadata(&db_path).map_err(|error| error.to_string())?.len();
+    let workspace_size =
+        aiks_core::storage::app_backup::enumerate_quiesced_siyuan_workspace(&workspace)
+            .map_err(|error| format!("备份容量预检失败：{error}"))?
+            .into_iter()
+            .try_fold(0u64, |total, (source, _)| {
+                let length = std::fs::metadata(source)
+                    .map_err(|error| error.to_string())?
+                    .len();
+                total
+                    .checked_add(length)
+                    .ok_or_else(|| "备份容量溢出".to_string())
+            })?;
+    let db_size = std::fs::metadata(&db_path)
+        .map_err(|error| error.to_string())?
+        .len();
     let reserve = (workspace_size / 5).max(64 * 1024 * 1024);
     let required = workspace_size
         .checked_add(db_size)
@@ -154,7 +159,9 @@ pub async fn create_managed_offline_backup(
         .ok_or_else(|| "备份容量预算溢出".to_string())?;
     let available = available_restore_bytes(&destination)?;
     if available < required {
-        return Err(format!("备份磁盘空间不足，需要 {required} 字节，可用 {available} 字节"));
+        return Err(format!(
+            "备份磁盘空间不足，需要 {required} 字节，可用 {available} 字节"
+        ));
     }
     create_managed_quiesced_backup(
         Arc::clone(&runtime),
