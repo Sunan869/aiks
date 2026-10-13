@@ -328,7 +328,7 @@ export default function SettingsPage() {
             <div className="text-sm">提炼并发数</div>
             <div className="text-xs text-gray-400">默认 1（保守）；vLLM 可先尝试 2 路并观察 tokens/s、显存和超时，4 路不保证更快；重启后生效</div>
           </div>
-          <UiSelect aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700">
+          <UiSelect aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="min-w-[96px] text-sm">
             {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value} 路</option>)}
           </UiSelect>
         </div>

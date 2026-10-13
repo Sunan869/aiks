@@ -73,3 +73,9 @@ body {
   .memory-workspace nav[aria-label="项目记忆工作区"] { @apply sticky top-0 z-10; }
   .memory-workspace .memory-panel { @apply min-w-0; }
 }
+
+@layer components {
+  .aiks-surface button:not(:disabled) { @apply transition-colors; }
+  .aiks-page-shell > h1 { @apply tracking-tight; }
+  .aiks-page-shell [role="alert"] { @apply break-words; }
+}

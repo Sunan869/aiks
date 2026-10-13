@@ -110,7 +110,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
           <UiSelect aria-label="工作记录来源"
             value={source}
             onChange={e => { setSource(e.target.value); setPage(0); }}
-            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+            className="min-w-[140px] text-sm"
           >
             {sourceOptions.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>

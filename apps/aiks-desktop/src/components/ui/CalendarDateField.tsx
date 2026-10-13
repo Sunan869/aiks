@@ -25,6 +25,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   });
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const yearMonthLabel = useId();
   const dayButtons = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => {
@@ -64,12 +65,12 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
         <span className="flex-1">{value || "选择日期"}</span>
       </button>
       {open && (
-        <div id={id} role="dialog" aria-label={label + "日历"}
+        <div id={id} role="dialog" aria-modal="false" aria-label={label + "日历"} aria-labelledby={yearMonthLabel}
           onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); } }}
           className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 flex items-center justify-between">
             <button type="button" aria-label="上个月" onClick={() => move(-1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-4 w-4"/></button>
-            <strong className="text-sm">{month.getFullYear()} 年 {month.getMonth() + 1} 月</strong>
+            <strong id={yearMonthLabel} className="text-sm">{month.getFullYear()} 年 {month.getMonth() + 1} 月</strong>
             <button type="button" aria-label="下个月" onClick={() => move(1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronRight className="h-4 w-4"/></button>
           </div>
           <div ref={dayButtons} onKeyDown={moveFocus} className="grid grid-cols-7 gap-1 text-center text-xs">

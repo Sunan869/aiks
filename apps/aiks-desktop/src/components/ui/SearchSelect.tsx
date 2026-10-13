@@ -9,6 +9,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const searchInput = useRef<HTMLInputElement>(null);
+  const listId = "aiks-search-" + label.replace(/\\s+/g, "-");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
 
@@ -26,10 +27,12 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     if (event.key === "Escape") { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
     if (event.key === "ArrowDown" && matching.length > 0) { event.preventDefault(); setActiveIndex(index => Math.min(index + 1, matching.length - 1)); }
     if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); }
+    if (event.key === "Home" && matching.length > 0) { event.preventDefault(); setActiveIndex(0); }
+    if (event.key === "End" && matching.length > 0) { event.preventDefault(); setActiveIndex(matching.length - 1); }
     if (event.key === "Enter" && matching[activeIndex]) { event.preventDefault(); choose(matching[activeIndex].value); }
   };
   return <div ref={root} className="relative min-w-0 flex-1">
-    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-expanded={open}
+    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-expanded={open} aria-controls={listId}
       onClick={() => { setOpen(current => !current); setQuery(""); setActiveIndex(0); }}
       className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
@@ -42,7 +45,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
         <input ref={searchInput} aria-label={label + "搜索"} autoFocus value={query} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
           placeholder="输入关键词筛选…" className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm outline-none"/>
       </label>
-      <div role="listbox" aria-label={label + "选项"} className="mt-2 max-h-60 overflow-y-auto">
+      <div id={listId} role="listbox" aria-label={label + "选项"} className="mt-2 max-h-60 overflow-y-auto">
         {matching.map(option => <button type="button" role="option" aria-selected={value === option.value}
           key={option.value} onMouseEnter={() => setActiveIndex(matching.indexOf(option))} onClick={() => choose(option.value)}
           className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${matching[activeIndex]?.value === option.value ? "bg-sky-50 dark:bg-slate-800" : ""}`}>
