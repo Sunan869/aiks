@@ -280,3 +280,11 @@
 - 基线 `7489f02` Windows Provider #38336600609 success，综合 CI #38336600603 Rust formatting 单点失败，已逐处照 CI rustfmt diff 更正；原 CI 未执行 Rust 后续测试。
 - 新增桌面端受控备份静态契约覆盖：注册命令、来源绑定当前 `aiks.db` + `siyuan/workspace`、输出二次确认、路径隔离、磁盘容量预检、受控停写编排调用及 UI 参数约束。
 - 本批仍须检查真实编译、停机/重启的故障行为和 Windows 真机安全验收；通过静态契约不等于运行中备份可交付。
+
+
+## 2026-10-13 完整备份产物独立回环集成测试
+
+- 基线 `9b5402a` 综合 CI #38337220060 与 Windows Provider #38337220045 均成功。
+- 新增 Rust 集成测试：创建隔离的 SQLite DB + SiYuan data/ 目录，以真实备份装配函数写入 bundle，校验 manifest，再恢复到新目录，断言中文文件名与文件字节一致。敏感 `workspace/conf/conf.json` 必须保持原始文件不变，且不进入备份/恢复产物。
+- 新增拒绝以目录符号链接冒充 `workspace/data` 的测试，断言拒绝后不留下目标 bundle 且外部源文件不被修改；Windows 无创建符号链接权限时跳过该案例。
+- 以上测试覆盖归档回环与源保护，不等于真实运行的 SiYuan 停写和重启完成了故障注入；仍须 CI 与独立 Windows 测试目录验收。

@@ -2,7 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use aiks_core::storage::app_backup::{
-    create_offline_backup, preflight_offline_restore, restore_offline_backup_to_new_directory,
+    create_offline_backup, create_offline_backup_from_quiesced_workspace,
+    preflight_offline_restore, restore_offline_backup_to_new_directory,
     verify_offline_backup,
 };
 use aiks_core::storage::backup_bundle::{
@@ -140,4 +141,63 @@ fn offline_restore_preview_checks_schema_paths_and_requires_detached_destination
     fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
     assert!(verify_offline_backup(&bundle).is_err());
     assert_eq!(fs::read(&source).unwrap(), b"snapshot content");
+}
+
+#[test]
+fn quiesced_workspace_snapshot_restores_documents_without_private_configuration() {
+    let dir = tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let workspace = dir.path().join("workspace");
+    fs::create_dir_all(workspace.join("data").join("2026")).unwrap();
+    fs::create_dir_all(workspace.join("conf")).unwrap();
+    fs::write(
+        workspace.join("data").join("2026").join("笔记.sy"),
+        b"offline snapshot data",
+    )
+    .unwrap();
+    fs::write(workspace.join("conf").join("conf.json"), b"PRIVATE_TOKEN").unwrap();
+    let bundle = dir.path().join("complete-backup");
+    let manifest =
+        create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+    assert!(manifest
+        .entries
+        .iter()
+        .any(|entry| entry.relative_path == "siyuan/data/2026/笔记.sy"));
+    assert!(!manifest
+        .entries
+        .iter()
+        .any(|entry| entry.relative_path.starts_with("siyuan/conf/")));
+    verify_offline_backup(&bundle).unwrap();
+    let restored = dir.path().join("detached-restore");
+    restore_offline_backup_to_new_directory(&bundle, &restored).unwrap();
+    assert_eq!(
+        fs::read(restored.join("siyuan/data/2026/笔记.sy")).unwrap(),
+        b"offline snapshot data"
+    );
+    assert!(!restored.join("siyuan/conf").exists());
+    assert_eq!(
+        fs::read(workspace.join("conf").join("conf.json")).unwrap(),
+        b"PRIVATE_TOKEN"
+    );
+}
+
+#[test]
+fn quiesced_workspace_backup_rejects_symlinked_data_root() {
+    let dir = tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let workspace = dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+    let external = dir.path().join("external");
+    fs::create_dir_all(&external).unwrap();
+    fs::write(external.join("outside.sy"), b"preserve").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&external, workspace.join("data")).unwrap();
+    #[cfg(windows)]
+    if std::os::windows::fs::symlink_dir(&external, workspace.join("data")).is_err() {
+        return;
+    }
+    let output = dir.path().join("must-not-exist");
+    assert!(create_offline_backup_from_quiesced_workspace(&db, &workspace, &output).is_err());
+    assert!(!output.exists());
+    assert_eq!(fs::read(external.join("outside.sy")).unwrap(), b"preserve");
 }
