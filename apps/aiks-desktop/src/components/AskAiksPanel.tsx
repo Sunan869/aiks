@@ -1,5 +1,6 @@
 import { UiButton, UiSelect } from "./ui/fields";
 import { useModalFocus } from "./ui/useModalFocus";
+import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -171,7 +172,7 @@ export default function AskAiksPanel({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/15 backdrop-blur-[1px]" onMouseDown={onClose}>
+    <ModalBackdrop kind="assistant" onClose={onClose}>
       <aside
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
         className="absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
@@ -333,7 +334,7 @@ export default function AskAiksPanel({
           </div>
         </div>
       </aside>
-    </div>
+    </ModalBackdrop>
   );
 }
 

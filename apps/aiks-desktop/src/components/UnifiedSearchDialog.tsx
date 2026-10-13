@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { searchAllProgressively } from "../api/search-progress";
 import { useModalFocus } from "./ui/useModalFocus";
+import { ModalBackdrop } from "./ui/ModalBackdrop";
 import type { UnifiedSearchHit, UnifiedSearchOutcome } from "../api/types";
 
 interface Props {
@@ -82,7 +83,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-start justify-center bg-black/20 px-2 pt-4 backdrop-blur-[1px] sm:px-6 sm:pt-16" onMouseDown={onClose}>
+    <ModalBackdrop kind="search" onClose={onClose}>
       <div
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="全局搜索"
         className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-slate-900 sm:max-h-[72vh]"
@@ -142,7 +143,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

@@ -213,3 +213,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - SearchSelect now starts keyboard navigation at the current selected option, uses one open/close path for mouse and keyboard, and exposes list-autocomplete semantics.
 - Calendar exposes the current day separately from the selected date using aria-current. Dialog focus traversal excludes inert/aria-hidden descendants and ignores OS-modified Tab keys.
 - Strengthened source-contract regressions. This is an accessibility hardening batch, not verified official shadcn/ui or Radix installation; native Windows testing remains open.
+
+## 2026-10-13 shared modal overlay migration
+
+- Knowledge Editor, Unified Search and Ask AIKS now use a shared ModalBackdrop component, centralizing outside-click ownership and preserving individually tuned editor/search/drawer geometry.
+- Backdrop dismissal only executes for actual clicks on backdrop itself (not dialog descendants); saving in the knowledge editor disables backdrop dismissal. Existing useModalFocus keyboard trapping and business actions are unchanged.
+- Added cross-component contracts. Official shadcn/Radix installation remains outstanding; it requires a verified npm lockfile and Windows visual testing.
