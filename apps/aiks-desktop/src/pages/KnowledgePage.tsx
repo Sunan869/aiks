@@ -57,7 +57,7 @@ export default function KnowledgePage() {
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">AI 精炼的工程知识</p>
         </div>
-        <UiButton variant="outline" size="sm"
+        <UiButton variant="primary" size="sm"
           onClick={openKnowledge}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs transition-colors"
         >

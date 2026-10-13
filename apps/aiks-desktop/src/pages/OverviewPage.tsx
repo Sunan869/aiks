@@ -105,7 +105,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
         </div>
       )}
 
-      <UiButton variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}
+      <UiButton variant="primary" size="sm" onClick={handleSync} disabled={isSyncing}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
       >
         <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />

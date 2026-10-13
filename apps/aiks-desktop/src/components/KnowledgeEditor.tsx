@@ -160,8 +160,8 @@ export default function KnowledgeEditor({ open, initial, onClose, onSaved }: Pro
           <div className="flex min-h-[220px] flex-col md:min-h-0">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-gray-800">
               <div className="flex rounded-md bg-gray-100 p-0.5 dark:bg-gray-800">
-                <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)} className={`rounded px-3 py-1 text-xs ${!preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}>Markdown</button>
-                <button type="button" aria-pressed={preview} onClick={() => setPreview(true)} className={`flex items-center gap-1 rounded px-3 py-1 text-xs ${preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}><Eye className="h-3 w-3" />预览</button>
+                <UiButton variant={!preview ? "secondary" : "ghost"} size="sm" aria-pressed={!preview} onClick={() => setPreview(false)} className={`rounded px-3 py-1 text-xs ${!preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}>Markdown</UiButton>
+                <UiButton variant={preview ? "secondary" : "ghost"} size="sm" aria-pressed={preview} onClick={() => setPreview(true)} className={`flex items-center gap-1 rounded px-3 py-1 text-xs ${preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}><Eye className="h-3 w-3" />预览</UiButton>
               </div>
               <span className="text-[10px] text-gray-400">{content.length} 字符</span>
             </div>

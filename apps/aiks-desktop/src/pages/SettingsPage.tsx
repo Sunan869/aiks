@@ -550,7 +550,7 @@ function Toggle({ label, desc, value, onChange }: { label: string; desc: string;
         <div className="text-sm">{label}</div>
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
-      <UiButton variant="outline" size="sm"
+      <UiButton variant="ghost" size="sm"
         role="switch"
         aria-label={label}
         aria-checked={value}

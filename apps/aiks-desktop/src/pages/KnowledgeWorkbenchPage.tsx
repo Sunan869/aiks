@@ -102,10 +102,10 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           </div>
           <p className="mt-1 text-sm text-gray-500">AI 提炼与手工知识统一管理；SiYuan 作为可选发布目标，不再是第二套编辑器。</p>
         </div>
-        <UiButton variant="outline" size="sm"
+        <UiButton variant="primary" size="md"
           type="button"
           onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+          className="shadow-sm"
         >
           <Plus className="h-4 w-4" />
           新建知识
@@ -115,14 +115,12 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
         <div className="flex flex-wrap gap-1">
           {tabs.map(([key, label]) => (
-            <UiButton variant="outline" size="sm"
+            <UiButton variant={view === key ? "primary" : "ghost"} size="sm"
               key={key}
               type="button"
               aria-pressed={view === key}
               onClick={() => { setView(key); setPage(0); }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === key
-                ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              className="rounded-lg"
             >
               {label}
             </UiButton>
@@ -137,7 +135,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
             <option value="">全部分类</option>
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </UiSelect>
-          <UiButton variant="outline" size="sm" type="button" aria-label="刷新知识列表" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
+          <UiButton variant="ghost" size="sm" type="button" aria-label="刷新知识列表" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </UiButton>
         </div>
