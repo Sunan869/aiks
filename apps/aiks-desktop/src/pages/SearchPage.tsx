@@ -1,5 +1,5 @@
 import { UiButton, UiInput } from "../components/ui/fields";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import type { SearchResponse, SearchResult } from "../api/types";
 
@@ -24,23 +24,25 @@ export default function SearchPage({ onViewKnowledge }: Props) {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const search = useCallback(async () => {
     if (!query.trim()) return;
+    const currentId = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
       const r = await getApi().searchKnowledge(query.trim(), 20);
-      setResult(r);
+      if (currentId === requestId.current) setResult(r);
     } catch (e) {
-      setError(String(e));
+      if (currentId === requestId.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (currentId === requestId.current) setLoading(false);
     }
   }, [query]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") search();
+    if (e.key === "Enter") { e.preventDefault(); void search(); }
   };
 
   return (
@@ -48,18 +50,19 @@ export default function SearchPage({ onViewKnowledge }: Props) {
       <h1 className="mb-5 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">搜索</h1>
 
       {/* Search input */}
-      <div className="flex gap-2 mb-6">
+      <div role="search" className="mb-6 flex flex-wrap gap-2">
         <UiInput
           type="text"
+          aria-label="搜索知识库"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => { setQuery(e.target.value); ++requestId.current; setLoading(false); setResult(null); setError(null); }}
           onKeyDown={handleKeyDown}
           placeholder="搜索知识库... (支持关键词)"
           className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           autoFocus
         />
-        <UiButton variant="outline" size="sm"
-          onClick={search}
+        <UiButton variant="primary" size="md"
+          onClick={() => void search()}
           disabled={!query.trim() || loading}
           className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-sm rounded-lg transition-colors font-medium"
         >
@@ -68,14 +71,14 @@ export default function SearchPage({ onViewKnowledge }: Props) {
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
+        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
           {error}
         </div>
       )}
 
       {result && (
         <div>
-          <div className="text-xs text-gray-500 mb-3">
+          <div role="status" className="text-xs text-gray-500 mb-3">
             找到 {result.total} 条结果，搜索词："{result.query}"
           </div>
 
@@ -90,12 +93,11 @@ export default function SearchPage({ onViewKnowledge }: Props) {
                 const tags = parseTags(item.tags);
                 return (
                   <div key={item.id}
-                    className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer"
-                    onClick={() => onViewKnowledge?.(item.id)}
+                    className="rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-600"
                   >
                     <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</h3>
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{onViewKnowledge ? <button type="button" onClick={() => onViewKnowledge(item.id)} aria-label={`查看知识：${item.title}`} className="text-left hover:text-sky-700 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">{item.title}</button> : item.title}</h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2 leading-relaxed">
                           {item.summary}
                         </p>

@@ -138,3 +138,11 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Across Knowledge Workbench, Overview, Settings, Knowledge Editor and the legacy Knowledge view, primary actions use the primary variant and inactive navigation/refresh actions use ghost/secondary variants. Avoid conflicting old background utility overrides for the main knowledge action.
 - Knowledge view tabs communicate selection using both aria-pressed and the shared button variant. Markdown/Preview uses the same visual selection hierarchy without changing editor state.
 - This is an intermediate Tailwind component consolidation, **not** official shadcn/ui installation, and still requires CI and Windows visual acceptance.
+
+## 2026-10-13 monitoring and search workflow batch
+
+- Overview and Sync now use coherent status hierarchy, safe in-flight guards and responsive metric layouts; sync success/errors announce their result.
+- Diagnostics reports failures to the UI and shows last successful check time instead of silently logging errors.
+- Logs now support severity + text filtering, displayed/loaded counts, accessible scroll region and an explicit no-match state; no logging backend changes.
+- Knowledge Search discards stale async responses when the query changes and uses keyboard-operable result detail actions; preserves the existing search API.
+- Frontend CI and native Windows acceptance are separate from this code submission. Official shadcn/Radix installation remains outstanding.

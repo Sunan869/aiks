@@ -14,6 +14,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
   const [result, setResult] = useState<any>(null);
 
   const doSync = async () => {
+    if (syncing) return;
     setSyncing(true);
     setResult(null);
     try {
@@ -26,7 +27,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
   };
 
   return (
-    <div className="aiks-page-shell max-w-5xl">
+    <div className="aiks-page-shell w-full min-w-0 max-w-5xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">同步记录</h1>
         <p className="text-xs text-gray-400 mt-0.5">Raw Session 同步与 AI 整理状态</p>
@@ -64,7 +65,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
           {/* AI extraction stats */}
           <div className="aiks-surface mb-4">
             <div className="font-medium text-sm mb-3">AI 智能整理</div>
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            <div className="grid grid-cols-2 gap-3 text-center text-xs sm:grid-cols-4">
               {[
                 { label: "待整理", value: fullStatus.extraction_pending, color: "text-blue-600" },
                 { label: "成功", value: fullStatus.extraction_success, color: "text-green-600" },
@@ -82,17 +83,17 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
       )}
 
       {result && !result.error && (
-        <div className="mb-4 bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-xs text-green-700 dark:text-green-400">
+        <div role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-xs text-green-700 dark:bg-green-900/20 dark:text-green-400">
           本次同步：发现 {result.discovered}，新增 {result.new_count}，更新 {result.updated_count}，
           跳过 {result.skipped_count}，失败 {result.failed_count}
           {result.extraction_queued > 0 && `，${result.extraction_queued} 条排队 AI 整理`}
         </div>
       )}
       {result?.error && (
-        <div className="mb-4 text-xs text-red-500">{result.error}</div>
+        <div role="alert" className="mb-4 break-words text-xs text-red-500">{result.error}</div>
       )}
 
-      <UiButton variant="outline" size="sm" onClick={doSync} disabled={syncing}
+      <UiButton variant="primary" size="md" onClick={doSync} disabled={syncing}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
       >
         <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />

@@ -16,6 +16,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const [syncing, setSyncing] = useState(false);
 
   const handleSync = async () => {
+    if (syncing || syncInProgress) return;
     setSyncing(true);
     setSyncMsg(null);
     try {
@@ -37,10 +38,11 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const isSyncing = syncing || syncInProgress;
 
   return (
-    <div className="aiks-page-shell space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">概览</h1>
-        <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p>
+    <div className="aiks-page-shell min-w-0 space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><h1 className="text-2xl font-bold tracking-tight">概览</h1>
+        <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p></div>
+        <span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">本地工作空间</span>
       </div>
 
       {/* Stats cards */}
@@ -51,7 +53,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
               <span className="text-xs text-gray-400">{item.label}</span>
               <span>{item.icon}</span>
             </div>
-            <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">{item.value}</div>
+            <div className="text-2xl font-bold tabular-nums text-gray-800 dark:text-gray-100">{item.value}</div>
           </div>
         ))}
       </div>

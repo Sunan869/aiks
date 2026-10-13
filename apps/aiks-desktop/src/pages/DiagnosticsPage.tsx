@@ -14,9 +14,13 @@ export default function DiagnosticsPage() {
   const [aiOk, setAiOk] = useState<boolean | null>(null);
   const [v41, setV41] = useState<V41Diagnostics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState("");
+  const [lastSuccessfulCheck, setLastSuccessfulCheck] = useState<string | null>(null);
 
   const runDiag = async () => {
+    if (loading) return;
     setLoading(true);
+    setDiagnosticError("");
     try {
       const [d, ai, workbench] = await Promise.all([
         invoke<DoctorResult>("get_doctor"),
@@ -26,8 +30,9 @@ export default function DiagnosticsPage() {
       setDoctor(d);
       setAiOk(ai);
       setV41(workbench);
+      setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
     } catch (e) {
-      console.error(e);
+      setDiagnosticError("诊断未完成：" + String(e));
     } finally { setLoading(false); }
   };
 
@@ -76,6 +81,8 @@ export default function DiagnosticsPage() {
         </UiButton>
       </div>
 
+      {diagnosticError && <p role="alert" className="mb-4 break-words rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{diagnosticError}</p>}
+      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近成功检测：{lastSuccessfulCheck}</p>}
       <div className="space-y-2 mb-6">
         {doctor?.checks.map((check) => (
           <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
