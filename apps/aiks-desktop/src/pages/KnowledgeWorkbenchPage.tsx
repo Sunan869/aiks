@@ -1,3 +1,4 @@
+import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, FilePenLine, Plus, RefreshCw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -88,7 +89,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
             <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">V4 Native</span>
           </div>
           <p className="mt-1 text-sm text-gray-500">AI 提炼与手工知识统一管理；SiYuan 作为可选发布目标，不再是第二套编辑器。</p>
@@ -119,14 +120,14 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <select
+          <UiSelect
             value={category}
             onChange={e => { setCategory(e.target.value); setPage(0); }}
             className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
           >
             <option value="">全部分类</option>
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
+          </UiSelect>
           <button type="button" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
