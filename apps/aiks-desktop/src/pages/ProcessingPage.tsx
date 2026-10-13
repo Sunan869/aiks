@@ -90,6 +90,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
+  const [runQuery, setRunQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
@@ -150,10 +151,14 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     }
   }, [load]);
 
-  const filtered = filter === "all" ? runs
+  const filteredByStatus = filter === "all" ? runs
     : filter === "processing" ? runs.filter(r => r.status === "PROCESSING")
     : filter === "failed" ? runs.filter(r => r.status === "FAILED")
     : runs.filter(r => r.status === "READY");
+  const filtered = filteredByStatus.filter(run => {
+    const query = runQuery.trim().toLocaleLowerCase();
+    return !query || JSON.stringify(run).toLocaleLowerCase().includes(query);
+  });
 
   return (
     <div className="aiks-page-shell">
@@ -175,6 +180,12 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             刷新
           </button>
         </div>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索处理记录</label>
+        <input id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
+          placeholder="查找会话、流水线或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
 
       {/* A task may fail sync independently from AI processing. */}

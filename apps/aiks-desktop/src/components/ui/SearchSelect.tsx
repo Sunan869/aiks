@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 export interface SearchOption { value: string; label: string }
@@ -9,7 +9,8 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const searchInput = useRef<HTMLInputElement>(null);
-  const listId = "aiks-search-" + label.replace(/\\s+/g, "-");
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
 
@@ -47,7 +48,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
       </label>
       <div id={listId} role="listbox" aria-label={label + "é€‰é¡¹"} className="mt-2 max-h-60 overflow-y-auto">
         {matching.map(option => <button type="button" role="option" aria-selected={value === option.value}
-          key={option.value} onMouseEnter={() => setActiveIndex(matching.indexOf(option))} onClick={() => choose(option.value)}
+          key={option.value} ref={element => { optionRefs.current[matching.indexOf(option)] = element; }} onMouseEnter={() => setActiveIndex(matching.indexOf(option))} onClick={() => choose(option.value)}
           className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${matching[activeIndex]?.value === option.value ? "bg-sky-50 dark:bg-slate-800" : ""}`}>
           <Check className={`h-4 w-4 ${value === option.value ? "text-sky-600" : "invisible"}`}/>
           <span className="truncate">{option.label}</span>
