@@ -15,6 +15,7 @@ describe("desktop shared interaction accessibility", () => {
   });
   it("returns calendar focus on Escape and closes while disabled", () => {
     expect(calendar).toContain("trigger.current?.focus()");
+    expect(calendar).toContain('<DayPicker');
     expect(calendar).toContain("if (disabled) setOpen(false)");
   });
   it("retains knowledge filtering and unifies the selection control", () => {

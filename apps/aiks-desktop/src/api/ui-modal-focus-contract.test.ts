@@ -34,7 +34,8 @@ describe("modal keyboard boundary", () => {
     expect(select).toContain("<Popover.Root");
     expect(select).toContain("const openPopup =");
     expect(select).toContain("selectedIndex");
-    expect(calendar).toContain('aria-current={iso(today)');
+    expect(calendar).toContain('today={today}');
+    expect(calendar).toContain('selected={activeDate ?? undefined}');
     expect(calendar).toContain("trigger.current?.focus()");
     expect(calendar).toContain("const activeDate = parse(value)");
     expect(select).toContain("setQuery(\"\")");

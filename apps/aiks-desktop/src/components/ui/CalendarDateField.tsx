@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays } from "lucide-react";
+import { DayPicker } from "react-day-picker";
 
 interface Props {
   value: string;
@@ -26,7 +27,6 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   });
   const trigger = useRef<HTMLButtonElement>(null);
   const yearMonthLabel = useId();
-  const dayButtons = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   useEffect(() => {
@@ -34,38 +34,14 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     const activeDate = parse(value);
     if (activeDate) setMonth(new Date(activeDate.getFullYear(), activeDate.getMonth(), 1));
   }, [value, open]);
-  useEffect(() => {
-    if (!open) return;
-    const selected = dayButtons.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
-    (selected ?? dayButtons.current?.querySelector<HTMLButtonElement>("button[data-day]"))?.focus();
-  }, [open]);
-  const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
-  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const cells = Array.from({ length: Math.ceil((first + days) / 7) * 7 }, (_, index) => index - first + 1);
-  const move = (offset: number) => setMonth(current => new Date(current.getFullYear(), current.getMonth() + offset, 1));
-  const monthTitle = `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`;
+  const activeDate = parse(value);
   const today = new Date();
   const selectDate = (day: Date) => {
     onChange(iso(day));
     setOpen(false);
     trigger.current?.focus();
   };
-  const moveFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const delta: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
-    const step = delta[event.key];
-    if (event.key === "Home" || event.key === "End") {
-      const buttons = Array.from(dayButtons.current?.querySelectorAll<HTMLButtonElement>("button[data-day]") ?? []);
-      event.preventDefault();
-      buttons[event.key === "Home" ? 0 : buttons.length - 1]?.focus();
-      return;
-    }
-    if (step === undefined) return;
-    const buttons = Array.from(dayButtons.current?.querySelectorAll<HTMLButtonElement>("button[data-day]") ?? []);
-    const selectedIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (selectedIndex < 0) return;
-    event.preventDefault();
-    buttons[Math.max(0, Math.min(buttons.length - 1, selectedIndex + step))]?.focus();
-  };
+  const monthTitle = `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`;
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <div className="relative inline-block min-w-0 w-full sm:w-auto sm:min-w-[180px]">
@@ -77,27 +53,40 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
       </button></Popover.Anchor>
       <Popover.Portal>
         <Popover.Content id={id} data-aiks-popup="true" aria-labelledby={yearMonthLabel} side="bottom" align="start" sideOffset={8} collisionPadding={8}
-          onOpenAutoFocus={event => { event.preventDefault(); const selected = dayButtons.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]'); (selected ?? dayButtons.current?.querySelector<HTMLButtonElement>("button[data-day]"))?.focus(); }}
+          onOpenAutoFocus={event => { event.preventDefault(); }}
           onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }}
-          onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}
+          onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}
           className="z-[110] w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-          <div className="mb-3 flex items-center justify-between">
-            <button type="button" aria-label="上个月" onClick={() => move(-1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-4 w-4"/></button>
-            <strong id={yearMonthLabel} aria-live="polite" className="text-sm">{monthTitle}</strong>
-            <button type="button" aria-label="下个月" onClick={() => move(1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronRight className="h-4 w-4"/></button>
-          </div>
-          <div ref={dayButtons} onKeyDown={moveFocus} className="grid grid-cols-7 gap-1 text-center text-xs">
-            {["日", "一", "二", "三", "四", "五", "六"].map(day => <span key={day} className="py-1 text-slate-500">{day}</span>)}
-            {cells.map((day, index) => day <= 0 || day > days
-              ? <span key={index} aria-hidden="true" />
-              : <button key={index} type="button"
-                  aria-label={`${month.getFullYear()}年${month.getMonth() + 1}月${day}日`}
-                  data-day={day} aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))} aria-current={iso(today) === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "date" : undefined}
-                  onClick={() => selectDate(new Date(month.getFullYear(), month.getMonth(), day))}
-                  className={`rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 hover:bg-sky-100 dark:hover:bg-slate-700 ${value === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "bg-sky-600 font-bold text-white hover:bg-sky-700" : ""}`}>
-                  {day}
-                </button>)}
-          </div>
+          <strong id={yearMonthLabel} aria-live="polite" className="mb-2 block text-center text-sm">{monthTitle}</strong>
+          <DayPicker
+            mode="single"
+            month={month}
+            onMonthChange={setMonth}
+            selected={activeDate ?? undefined}
+            onSelect={day => { if (day) selectDate(day); }}
+            today={today}
+            showOutsideDays={false}
+            classNames={{
+              root: "text-sm text-slate-800 dark:text-slate-100",
+              months: "w-full",
+              month: "w-full",
+              month_caption: "flex items-center justify-between pb-2",
+              caption_label: "sr-only",
+              nav: "flex items-center gap-1",
+              button_previous: "rounded-lg border border-slate-200 px-2 py-1.5 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-slate-700 dark:hover:bg-slate-800",
+              button_next: "rounded-lg border border-slate-200 px-2 py-1.5 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-slate-700 dark:hover:bg-slate-800",
+              month_grid: "w-full border-collapse",
+              weekdays: "grid grid-cols-7",
+              weekday: "py-1 text-center text-xs font-medium text-slate-500",
+              week: "grid grid-cols-7",
+              day: "p-0.5",
+              day_button: "h-9 w-9 rounded-lg text-xs transition-colors hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-slate-700",
+              selected: "rounded-lg bg-sky-600 text-white [&_button]:hover:bg-sky-700",
+              today: "font-semibold text-sky-600 dark:text-sky-400",
+              outside: "invisible",
+              disabled: "opacity-40",
+            }}
+          />
           <div className="mt-3 flex justify-end border-t border-slate-100 pt-2 dark:border-slate-800">
             <button type="button" className="rounded-lg px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300"
               onClick={() => selectDate(new Date())}>今天</button>

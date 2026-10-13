@@ -17,8 +17,9 @@ describe("shared calendar and searchable selection contract", () => {
     expect(memorySource).toContain('<CalendarDateField label="回顾结束日期"');
     expect(memorySource).toContain('invalidatePreview(); setFrom(value)');
     expect(memorySource).toContain('invalidatePreview(); setThrough(value)');
-    expect(calendarSource).toContain('aria-label="上个月"');
-    expect(calendarSource).toContain('aria-label="下个月"');
+    expect(calendarSource).toContain('<DayPicker');
+    expect(calendarSource).toContain('onMonthChange={setMonth}');
+    expect(calendarSource).toContain('onSelect={day => { if (day) selectDate(day); }}');
     expect(calendarSource).toContain('onChange(iso(day))');
     expect(calendarSource).toContain('onClick={() => selectDate(new Date())}');
   });

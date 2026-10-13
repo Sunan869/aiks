@@ -17,6 +17,7 @@ describe("narrow-window UI safeguards", () => {
     expect(calendar).toContain("collisionPadding={8}");
     expect(calendar).toContain("focus-visible:ring-2");
     expect(calendar).toContain('aria-live="polite"');
+    expect(calendar).toContain('month_grid: "w-full border-collapse"');
     expect(calendar).toContain("event.stopPropagation(); setOpen(false)");
   });
   it("keeps pipeline retry and table visibility controls", () => {
