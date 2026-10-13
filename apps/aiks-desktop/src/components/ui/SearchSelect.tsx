@@ -44,7 +44,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "é
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
       <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400"/>
     </button>
-    {open && <div className="absolute left-0 top-full z-50 mt-2 w-full min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+    {open && <div data-aiks-popup="true" className="absolute left-0 top-full z-50 mt-2 w-full min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); closePopup(); } }}>
       <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 dark:border-slate-700">
         <Search className="h-4 w-4 text-slate-400"/>

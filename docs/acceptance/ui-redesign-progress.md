@@ -169,3 +169,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 
 - CI #38380027772 failed two stale test assertions after UiNotice encapsulated accessible alert roles. The contracts now assert that Sync and Diagnostics render danger notices and that UiNotice itself maps danger to alert, retaining accessibility without duplicating markup in every page.
 - No backend or native behavior changes. Frontend compile/tests and Windows testing still need independent confirmation.
+
+## 2026-10-13 nested popup Escape interoperability
+
+- Fixed the document capture-phase Escape handler in useModalFocus. When Escape comes from an open in-dialog SearchSelect or CalendarDateField popover, the parent modal now leaves dismissal to the nested control, preventing an accidental close of KnowledgeEditor, UnifiedSearch or Ask AIKS.
+- Tagged nested popover surfaces, retained selected-date/list focus restoration and existing save-in-progress close gates. Added regression source contracts for the keyboard ownership boundary.
+- This is not an official Radix/shadcn migration. A real Windows focused keyboard walkthrough is still needed to accept the behavior.

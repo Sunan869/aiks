@@ -13,6 +13,9 @@ export function useModalFocus<T extends HTMLElement = HTMLDivElement>(open: bool
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Popovers get the first Escape: do not close their enclosing dialog.
+        const source = event.target;
+        if (source instanceof Element && source.closest('[data-aiks-popup="true"]')) return;
         if (!enabledRef.current) return;
         event.preventDefault();
         event.stopPropagation();

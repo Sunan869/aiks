@@ -77,7 +77,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
         <span className="flex-1">{value || "选择日期"}</span>
       </button>
       {open && (
-        <div id={id} role="dialog" aria-modal="false" aria-label={label + "日历"} aria-labelledby={yearMonthLabel}
+        <div id={id} data-aiks-popup="true" role="dialog" aria-modal="false" aria-label={label + "日历"} aria-labelledby={yearMonthLabel}
           onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}
           className="absolute left-0 top-full z-50 mt-2 w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 flex items-center justify-between">
