@@ -292,9 +292,9 @@ export default function SettingsPage() {
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
 
   return (
-    <div className="w-full min-w-0 p-6">
+    <div className="aiks-page-shell w-full min-w-0 pb-24">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">设置</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">设置</h1>
         <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步、内容和语义搜索配置将在重启 AIKS 后生效。</p>
       </div>
 
@@ -363,9 +363,10 @@ export default function SettingsPage() {
             <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">Embedding 服务地址</div>
+            <label htmlFor="aiks-setting-embedding_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Embedding 服务地址</label>
             <UiInput
-              value={settings.embedding_base_url}
+              id="aiks-setting-embedding_base_url"
+                value={settings.embedding_base_url}
               onChange={event => {
                 update("embedding_base_url", event.target.value);
                 setEmbeddingProbe(null);
@@ -375,9 +376,10 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">Embedding 模型</div>
+            <label htmlFor="aiks-setting-embedding_model" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Embedding 模型</label>
             <UiInput
-              value={settings.embedding_model}
+              id="aiks-setting-embedding_model"
+                value={settings.embedding_model}
               onChange={event => {
                 update("embedding_model", event.target.value);
                 setEmbeddingProbe(null);
@@ -386,11 +388,12 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">向量维度</div>
+            <label htmlFor="aiks-setting-embedding_dimensions" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">向量维度</label>
             <UiInput
               type="number"
               min={1}
-              value={settings.embedding_dimensions}
+              id="aiks-setting-embedding_dimensions"
+                value={settings.embedding_dimensions}
               onChange={event => {
                 update("embedding_dimensions", Number(event.target.value));
                 setEmbeddingProbe(null);
@@ -454,27 +457,30 @@ export default function SettingsPage() {
               <div className="text-gray-600 dark:text-gray-300">SiYuan 3.8.3 (内置)</div>
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">AI 服务地址</div>
+              <label htmlFor="aiks-setting-ai_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">AI 服务地址</label>
               <UiInput
+                id="aiks-setting-ai_base_url"
                 value={settings.ai_base_url}
                 onChange={event => update("ai_base_url", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">AI 模型</div>
+              <label htmlFor="aiks-setting-ai_model" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">AI 模型</label>
               <UiInput
+                id="aiks-setting-ai_model"
                 value={settings.ai_model}
                 onChange={event => update("ai_model", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">Tool Result 最大字符数</div>
+              <label htmlFor="aiks-setting-max_tool_result_chars" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Tool Result 最大字符数</label>
               <UiInput
                 type="number"
                 min={1000}
                 step={1000}
+                id="aiks-setting-max_tool_result_chars"
                 value={settings.max_tool_result_chars}
                 onChange={event => update("max_tool_result_chars", Number(event.target.value))}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
@@ -506,7 +512,7 @@ export default function SettingsPage() {
       {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <UiButton variant="outline" size="sm"
           onClick={() => void save(false)}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
@@ -539,13 +545,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Toggle({ label, desc, value, onChange }: { label: string; desc: string; value: boolean; onChange: (value: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between py-3">
-      <div>
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
         <div className="text-sm">{label}</div>
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
       <UiButton variant="outline" size="sm"
         role="switch"
+        aria-label={label}
         aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}

@@ -84,3 +84,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Before Windows real-machine acceptance, manually dispatch `CI` with `full_validation=true`; this executes Rust fmt/Clippy/tests, Windows compile, frontend build/tests, and hygiene. Also dispatch `Windows provider contracts` with `full_validation=true` for native provider tests.
 - Native/Rust/Tauri/Cargo changes must choose full validation immediately rather than relying on fast UI validation. Windows provider workflow remains fully enabled on its configured native-code push/PR paths; only manual dispatch defaults to skip.
 - Both workflow dispatch modes are intended CI configurations, not evidence that any Windows real-device tests have been performed.
+
+## 2026-10-13 settings and knowledge workspace acceptance polish
+
+- Settings now uses the shared desktop page shell, labels model/endpoint/dimension fields with explicit `htmlFor` references, and keeps save/restart actions visible in a sticky footer while scrolling.
+- Switches expose accessible names and retain existing save and restart semantics. Knowledge workbench gives a clearer responsive header, announces result counts and shows pagination totals.
+- This is a code-level usability pass, not Windows visual acceptance or an official shadcn/Radix migration. Retain existing offline, provider read-only and SiYuan user-edit boundaries.

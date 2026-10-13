@@ -87,7 +87,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
   return (
     <div className="aiks-page-shell flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
@@ -137,7 +137,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
       {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
 
-      <div className="mb-3 flex items-center justify-between text-xs text-gray-400">
+      <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
         <span>{data ? `共 ${data.total} 条知识` : "正在读取本地知识库..."}</span>
         <span>发布到 SiYuan 请进入知识详情</span>
       </div>
@@ -199,7 +199,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
       {data && data.total > PAGE_SIZE && (
         <div className="mt-4 flex items-center justify-end gap-2">
           <UiButton variant="outline" size="sm" onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">上一页</UiButton>
-          <span className="text-xs text-gray-400">{page + 1}</span>
+          <span aria-label={`第 ${page + 1} 页，共 ${Math.ceil(data.total / PAGE_SIZE)} 页`} className="text-xs text-gray-400">{page + 1} / {Math.ceil(data.total / PAGE_SIZE)}</span>
           <UiButton variant="outline" size="sm" onClick={() => setPage(value => value + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">下一页</UiButton>
         </div>
       )}
