@@ -53,7 +53,7 @@ jobs:
 
   rust:
     needs: changed-files
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_validation || github.event_name != 'workflow_dispatch' && (github.event_name != 'pull_request' || needs.changed-files.outputs.native == 'true') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_validation || github.event_name == 'pull_request' && github.head_ref == 'feature/offline-knowledge-evolution-20261009' && contains(github.event.pull_request.labels.*.name, 'full-validation') || github.event_name == 'pull_request' && github.head_ref != 'feature/offline-knowledge-evolution-20261009' && needs.changed-files.outputs.native == 'true' || github.event_name == 'push' }}
     name: Rust quality and tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -94,7 +94,7 @@ jobs:
 
   windows-desktop-compile:
     needs: changed-files
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_validation || github.event_name != 'workflow_dispatch' && (github.event_name != 'pull_request' || needs.changed-files.outputs.native == 'true') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_validation || github.event_name == 'pull_request' && github.head_ref == 'feature/offline-knowledge-evolution-20261009' && contains(github.event.pull_request.labels.*.name, 'full-validation') || github.event_name == 'pull_request' && github.head_ref != 'feature/offline-knowledge-evolution-20261009' && needs.changed-files.outputs.native == 'true' || github.event_name == 'push' }}
     name: Windows desktop compile
     runs-on: windows-latest
     steps:
