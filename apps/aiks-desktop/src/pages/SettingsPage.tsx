@@ -513,7 +513,7 @@ export default function SettingsPage() {
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
       <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-        <UiButton variant="outline" size="sm"
+        <UiButton variant="primary" size="md"
           onClick={() => void save(false)}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
         >
@@ -555,7 +555,7 @@ function Toggle({ label, desc, value, onChange }: { label: string; desc: string;
         aria-label={label}
         aria-checked={value}
         onClick={() => onChange(!value)}
-        className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+        className={`aiks-switch relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
       >
         <span className={`absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
       </UiButton>

@@ -90,3 +90,11 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Settings now uses the shared desktop page shell, labels model/endpoint/dimension fields with explicit `htmlFor` references, and keeps save/restart actions visible in a sticky footer while scrolling.
 - Switches expose accessible names and retain existing save and restart semantics. Knowledge workbench gives a clearer responsive header, announces result counts and shows pagination totals.
 - This is a code-level usability pass, not Windows visual acceptance or an official shadcn/Radix migration. Retain existing offline, provider read-only and SiYuan user-edit boundaries.
+
+## 2026-10-13 consolidated UI readiness pass
+
+- Settings switch retains compact dimensions even with shared button primitives; primary Save uses the primary action variant.
+- KnowledgeEditor preview toggle exposes selection state via `aria-pressed`, and the footer wraps safely on narrow windows.
+- Embedded workbench retry adopts shared action visuals and error alert semantics.
+- Offline Restore (already present on this branch) adopts shared fields and buttons without changing backup/restore APIs or confirmation gates. **No new backup functionality is introduced by this UI pass.**
+- Remaining blocking acceptance work: official shadcn/Radix installation is not completed, Windows real-device interaction/visual QA, and a final Full Validation run. These are not implied by green frontend CI.

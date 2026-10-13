@@ -100,3 +100,10 @@ body {
   .aiks-data-table tbody tr { @apply transition-colors hover:bg-sky-50/60 dark:hover:bg-slate-800/70; }
   .aiks-data-table td { @apply align-middle; }
 }
+
+/* UI finalization: do not allow shared action-button minimum height to distort compact switches. */
+@layer components {
+  .aiks-button.aiks-switch { @apply min-h-0 border-0 p-0; }
+  .aiks-button.aiks-switch:focus-visible { @apply ring-2 ring-sky-500 ring-offset-2; }
+  .aiks-page-shell > section { @apply min-w-0; }
+}

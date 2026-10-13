@@ -1,3 +1,4 @@
+import { UiButton } from "./ui/fields";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { getApi } from "../api/client";
@@ -156,18 +157,17 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
           </div>
         )}
         {error && (
-          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/30 dark:text-red-300">
+          <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/30 dark:text-red-300">
             {error}
           </p>
         )}
-        <button
-          type="button"
+        <UiButton variant="outline" size="sm"
           onClick={() => void open()}
           className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           重新打开工作台
-        </button>
+        </UiButton>
       </div>
     </div>
   );
