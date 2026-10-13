@@ -105,7 +105,7 @@ export default function SourcesPage({ fullStatus }: Props) {
   const [sourceQuery, setSourceQuery] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
   const visibleSources = sources.filter(source => source.configurable !== false)
-    .filter(source => source.display_name.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()))
+    .filter(source => [source.display_name, source.key, ...source.paths].some(text => text.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase())))
     .filter(source => !onlyIssues || sourceStatusPresentation(source).tone === "danger" || sourceStatusPresentation(source).tone === "warning");
   return <div className="aiks-page-shell w-full min-w-0">
     <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
@@ -113,7 +113,7 @@ export default function SourcesPage({ fullStatus }: Props) {
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
       <input aria-label="搜索数据源" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)}
-        placeholder="搜索数据源名称…" className="min-w-[190px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
+        placeholder="搜索工具名称或数据目录…" className="min-w-[190px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
         <input type="checkbox" checked={onlyIssues} onChange={event => setOnlyIssues(event.target.checked)} />仅异常
       </label>

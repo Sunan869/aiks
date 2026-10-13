@@ -9,7 +9,6 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const searchInput = useRef<HTMLInputElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -22,6 +21,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
+  useEffect(() => { if (open) searchInput.current?.focus(); }, [open]);
   const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -33,7 +33,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     if (event.key === "Enter" && matching[activeIndex]) { event.preventDefault(); choose(matching[activeIndex].value); }
   };
   return <div ref={root} className="relative min-w-0 flex-1">
-    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-expanded={open} aria-controls={listId}
+    <button ref={triggerRef} type="button" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
       onClick={() => { setOpen(current => !current); setQuery(""); setActiveIndex(0); }}
       className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
@@ -43,17 +43,17 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); triggerRef.current?.focus(); } }}>
       <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 dark:border-slate-700">
         <Search className="h-4 w-4 text-slate-400"/>
-        <input ref={searchInput} aria-label={label + "搜索"} autoFocus value={query} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
+        <input ref={searchInput} aria-label={label + "搜索"} value={query} role="searchbox" aria-controls={listId} aria-activedescendant={matching[activeIndex] ? `${listId}-option-${activeIndex}` : undefined} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
           placeholder="输入关键词筛选…" className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm outline-none"/>
       </label>
       <div id={listId} role="listbox" aria-label={label + "选项"} className="mt-2 max-h-60 overflow-y-auto">
-        {matching.map(option => <button type="button" role="option" aria-selected={value === option.value}
-          key={option.value} ref={element => { optionRefs.current[matching.indexOf(option)] = element; }} onMouseEnter={() => setActiveIndex(matching.indexOf(option))} onClick={() => choose(option.value)}
+        {matching.map((option, index) => <button type="button" id={`${listId}-option-${index}`} role="option" tabIndex={-1} aria-selected={value === option.value}
+          key={option.value} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option.value)}
           className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${matching[activeIndex]?.value === option.value ? "bg-sky-50 dark:bg-slate-800" : ""}`}>
           <Check className={`h-4 w-4 ${value === option.value ? "text-sky-600" : "invisible"}`}/>
           <span className="truncate">{option.label}</span>
         </button>)}
-        {matching.length === 0 && <p className="p-3 text-xs text-slate-500">没有匹配项目</p>}
+        {matching.length === 0 && <p className="p-3 text-xs text-slate-500">没有匹配选项</p>}
       </div>
     </div>}
   </div>;

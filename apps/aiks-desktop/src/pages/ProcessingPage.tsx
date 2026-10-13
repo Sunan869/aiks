@@ -155,9 +155,20 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     : filter === "processing" ? runs.filter(r => r.status === "PROCESSING")
     : filter === "failed" ? runs.filter(r => r.status === "FAILED")
     : runs.filter(r => r.status === "READY");
-  const filtered = filteredByStatus.filter(run => {
-    const query = runQuery.trim().toLocaleLowerCase();
-    return !query || JSON.stringify(run).toLocaleLowerCase().includes(query);
+  const searchText = runQuery.trim().toLocaleLowerCase();
+  const filtered = filteredByStatus.filter(run =>
+    !searchText || [run.session_title, run.run_id, run.source, run.error_message]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText))
+  );
+  const visibleTasks = tasks.filter(task => {
+    const matchesStatus = taskFilter === "all" ||
+      (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+      (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+      (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"));
+    const matchesText = !searchText ||
+      [task.title, task.external_session_id, task.source, task.sync_error, task.pipeline_error, task.job_error]
+        .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText));
+    return matchesStatus && matchesText;
   });
 
   return (
@@ -183,9 +194,9 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
       </div>
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索处理记录</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>
         <input id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
-          placeholder="查找会话、流水线或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
+          placeholder="查找会话标题、来源或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
 
       {/* A task may fail sync independently from AI processing. */}
@@ -262,13 +273,9 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             >{label}</button>
           ))}
         </div>
-        {tasks.filter(task =>
-          taskFilter === "all" ||
-          (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
-          (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
-          (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
-        ).length === 0 ? (
-          <p className="text-xs text-gray-400">暂无会话同步任务记录</p>
+        <p className="mb-2 text-xs text-slate-500" role="status">当前显示 {visibleTasks.length} / {tasks.length} 条近期任务；全库统计不受筛选影响。</p>
+        {visibleTasks.length === 0 ? (
+          <p className="text-xs text-gray-400">{searchText || taskFilter !== "all" ? "没有符合筛选条件的任务" : "暂无会话同步任务记录"}</p>
         ) : (
           <div className="overflow-x-auto max-h-72 overflow-y-auto">
             <table className="w-full text-xs">
@@ -278,12 +285,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">最近阶段</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
               </tr></thead>
               <tbody>
-                {tasks.filter(task =>
-                  taskFilter === "all" ||
-                  (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
-                  (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
-                  (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
-                ).map(task => (
+                {visibleTasks.map(task => (
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
@@ -408,7 +410,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <div className="flex items-center justify-center h-40 text-gray-400 text-sm">加载中...</div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-          <p className="text-sm">暂无处理记录</p>
+          <p className="text-sm">{searchText || filter !== "all" ? "没有符合筛选条件的流水线记录" : "暂无处理记录"}</p>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
