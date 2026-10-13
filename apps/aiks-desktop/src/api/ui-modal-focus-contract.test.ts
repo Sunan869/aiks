@@ -33,7 +33,7 @@ describe("modal keyboard boundary", () => {
     expect(select).toContain("closePopup()");
     expect(select).toContain("<Popover.Root");
     expect(select).toContain("const openPopup =");
-    expect(select).toContain("selectedIndex");
+    expect(select).toContain("<Command.List");
     expect(calendar).toContain('today={today}');
     expect(calendar).toContain('selected={activeDate ?? undefined}');
     expect(calendar).toContain("trigger.current?.focus()");

@@ -8,10 +8,9 @@ describe("narrow-window UI safeguards", () => {
     expect(picker).toContain("max-w-[min(90vw,28rem)]");
     expect(picker).toContain("<Popover.Content");
     expect(picker).toContain("collisionPadding={8}");
-    expect(picker).toContain("activeIndex >= matching.length");
-    expect(picker.indexOf("const matching =")).toBeLessThan(picker.indexOf("if (open && activeIndex"));
-    expect(picker).toContain("event.stopPropagation(); closePopup()");
-    expect(picker).toContain('event.key === "Enter"');
+    expect(picker).toContain("<Command.List");
+    expect(picker).toContain("onSelect={() => choose(option.value)}");
+    expect(picker).toContain('onEscapeKeyDown={event => { event.stopPropagation(); }}');
     expect(calendar).toContain("w-[min(18rem,90vw)]");
     expect(calendar).toContain("<Popover.Content");
     expect(calendar).toContain("collisionPadding={8}");

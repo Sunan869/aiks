@@ -9,8 +9,9 @@ describe("shared picker keyboard behavior", () => {
     expect(combo).toContain('role="status"');
   });
   it("focuses calendar dates and supports Home/End", () => {
-    expect(calendar).toContain('event.key === "Home" || event.key === "End"');
-    expect(calendar).toContain('button[aria-pressed="true"]');
+    expect(calendar).toContain("<DayPicker");
+    expect(calendar).toContain("onMonthChange={setMonth}");
+    expect(calendar).toContain("selected={activeDate ?? undefined}");
     expect(calendar).toContain('aria-haspopup="dialog"');
     expect(calendar).toContain("onChange(iso(day))");
   });

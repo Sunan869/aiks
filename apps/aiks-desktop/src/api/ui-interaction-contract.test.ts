@@ -8,8 +8,8 @@ describe("shared calendar and searchable selection contract", () => {
   it("keeps project selection searchable and preserves project identity", () => {
     expect(memorySource).toContain('<SearchSelect label="项目" value={selected} onChange={setSelected}');
     expect(comboSource).toContain('const choose = (next: string) => { onChange(next);');
-    expect(comboSource).toContain('onClick={() => choose(option.value)}');
-    expect(comboSource).toContain('role="listbox"');
+    expect(comboSource).toContain('onSelect={() => choose(option.value)}');
+    expect(comboSource).toContain('<Command.List role="listbox"');
     expect(comboSource).toContain('role="combobox"');
   });
   it("keeps ISO dates and invalidates existing report previews", () => {
