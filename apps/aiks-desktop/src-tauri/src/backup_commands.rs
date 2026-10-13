@@ -80,10 +80,12 @@ async fn create_managed_quiesced_backup(
     if kernel.state() != RuntimeState::Ready {
         return Err("SiYuan 内核未就绪，禁止完整备份".to_string());
     }
-    kernel
-        .stop_for_backup()
-        .await
-        .map_err(|error| format!("未确认 SiYuan 子进程退出，禁止备份：{error}"))?;
+    if let Err(error) = kernel.stop_for_backup().await {
+        // Exit status is unknown: retain the recovery latch even after the
+        // owned pause guard is dropped on this early-return path.
+        paused.gate_recovery_required();
+        return Err(format!("未确认 SiYuan 子进程退出，已保持停写锁定：{error}"));
+    }
     let snapshot = if kernel.state() == RuntimeState::Stopped {
         tauri::async_runtime::spawn_blocking(move || {
             let metadata = std::fs::symlink_metadata(&db_path).map_err(|e| e.to_string())?;

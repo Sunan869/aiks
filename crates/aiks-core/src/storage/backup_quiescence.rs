@@ -292,6 +292,19 @@ mod tests {
     }
 
     #[test]
+    fn failed_shutdown_keeps_gate_closed_on_early_return() {
+        let gate = Arc::new(BackupQuiescence::default());
+        {
+            let paused = BackupQuiescence::pause_and_drain_owned(&gate).unwrap();
+            paused.gate_recovery_required();
+        }
+        assert!(gate.is_recovery_required());
+        assert!(gate.try_begin_write().is_none());
+        assert!(BackupQuiescence::try_begin_owned(&gate).is_none());
+        assert!(BackupQuiescence::pause_and_drain_owned(&gate).is_err());
+    }
+
+    #[test]
     fn failed_restart_keeps_writes_closed_until_verified_recovery() {
         let gate = Arc::new(BackupQuiescence::default());
         let paused = BackupQuiescence::pause_and_drain_owned(&gate).unwrap();

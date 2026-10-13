@@ -258,3 +258,10 @@
 - 基线 `539edca` Windows Provider #38334450621 success，综合 CI #38334450615 仅在 backup_commands.rs 一处 Rust 函数签名格式差异失败。严格按照 rustfmt diff 修正。
 - 新增 Desktop Vitest 恢复契约测试：只读状态、受控核验命令均注册，核验检查 SiYuan Ready，UI 只有明确存在故障锁定才显示核验动作，Mock 不执行真实恢复。此测试不取代真实内核故障注入。
 - 运行中工作区一键完整备份仍暂未开放，不能从本次静态契约推出其已可真机验收。
+
+
+## 2026-10-13 未确认停机时的故障封禁
+
+- 基线 `b106ece` 综合 CI #38335393846 与 Windows Provider #38335393790 均 success。
+- 修复未注册的内部管理式备份的停机失败提前返回路径：`stop_for_backup()` 出错时，先将 `BackupQuiescence` 标记为需要健康核验的故障封禁，再返回错误，避免 owned guard 自动析构重新放开所有 AIKS 写入。
+- 新增 early-return 错误路径门禁测试，保证 guard 析构后禁止同步、后台 Worker 和再次备份。该变更不开放尚未完成安全审计的运行中一键备份。
