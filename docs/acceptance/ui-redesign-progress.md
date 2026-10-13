@@ -71,3 +71,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Ask AIKS panel now reuses shared button and selection controls while preserving progressive RAG streaming, source/project filters, result actions, history, and disabled conditions.
 - First-run storage setup and storage management now reuse shared buttons; first-run setup has a labelled dialog and a bounded scroll region on small screens, without changing storage migration or restart operations.
 - A lightweight cross-component contract test verifies nonregression of core AI streaming and data-location calls. Radix/shadcn and Windows UI acceptance remain outstanding.
+
+## 2026-10-13 overlay keyboard safety and Windows acceptance gate
+
+- Introduced one reusable modal focus boundary, used by KnowledgeEditor, UnifiedSearchDialog and Ask AIKS. It traps Tab/Shift+Tab, closes with Escape where safe, and returns focus to the previous control after closing.
+- KnowledgeEditor blocks Escape during saving. Existing progressive search abort and knowledge write logic remain unchanged.
+- Windows acceptance: test every overlay with keyboard only, narrow windows, and dark mode; CI source-contract checks are not a substitute for visual interaction testing.

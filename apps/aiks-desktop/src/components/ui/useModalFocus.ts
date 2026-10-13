@@ -1,0 +1,51 @@
+import { useEffect, useRef } from "react";
+
+/** Keep keyboard focus within an open desktop overlay and restore its trigger on close. */
+export function useModalFocus(open: boolean, onClose: () => void, closeEnabled = true) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  const enabledRef = useRef(closeEnabled);
+  closeRef.current = onClose;
+  enabledRef.current = closeEnabled;
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (!enabledRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const container = containerRef.current;
+      if (!container) return;
+      const items = Array.from(container.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )).filter(item => item.getClientRects().length > 0);
+      if (items.length === 0) {
+        event.preventDefault();
+        container.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !container.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [open]);
+  return containerRef;
+}

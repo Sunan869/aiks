@@ -1,4 +1,5 @@
 import { UiButton, UiSelect } from "./ui/fields";
+import { useModalFocus } from "./ui/useModalFocus";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -58,6 +59,7 @@ export default function AskAiksPanel({
   const [sourceChoices, setSourceChoices] = useState<string[]>([]);
   const [selectedSource, setSelectedSource] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useModalFocus(open, onClose);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -103,15 +105,6 @@ export default function AskAiksPanel({
       behavior: loading ? "auto" : "smooth",
     });
   }, [open, messages, loading]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
 
   const clear = () => {
     if (loading) return;
@@ -180,6 +173,7 @@ export default function AskAiksPanel({
   return (
     <div className="fixed inset-0 z-[80] bg-black/15 backdrop-blur-[1px]" onMouseDown={onClose}>
       <aside
+        ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
         className="absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
         onMouseDown={event => event.stopPropagation()}
         aria-label="问 AIKS"
