@@ -230,3 +230,10 @@
 
 - 基线 `f9579fc` 综合 CI #38331840586 的 Rust fmt/Clippy 和 329 项库单元测试均通过；集成测试 `backup_portable_restore::offline_restore_preview_checks_schema_paths_and_requires_detached_destination` 因旧测试使用 siyuan/notes/note.sy，未符合现行仅允许 siyuan/data/ 的安全白名单而失败。Windows Provider #38331840542 通过。
 - 本次仅调整集成测试样例为 `data/notes/note.sy` 和对应独立恢复断言，绝不为让测试通过而放宽现行归档路径白名单。再次验证需要新 HEAD CI；Windows 真机和 SiYuan 受控备份尚未验收。
+
+
+## 2026-10-13 SiYuan 重启失败后写入保护
+
+- 基线 HEAD `52cebe2` CI #38332501937 / Windows Provider #38332501912 均成功。
+- `BackupQuiescence` 新增需验证恢复的持久内存闩锁：重启失败时不再因排空守卫析构而重新接纳写入；只有后续明确验证 SiYuan 运行正常后才允许通过 `clear_after_verified_recovery` 解锁。
+- 内部未注册的一键备份编排在 SiYuan 启动失败时调用该保护。补 Rust 测试验证失败封禁、二次暂停拒绝、明确解除后恢复。**尚无用户可操作的验证恢复 UI，不得发布活动数据备份功能。**

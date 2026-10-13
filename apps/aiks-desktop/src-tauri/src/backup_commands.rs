@@ -103,6 +103,9 @@ async fn create_managed_quiesced_backup(
     // Always attempt restart, even when snapshot failed. Hold the paused
     // guard until the restart attempt has finished.
     let restarted = kernel.start().await.map_err(|e| e.to_string());
+    if restarted.is_err() {
+        paused.gate_recovery_required();
+    }
     drop(runtime_guard);
     drop(paused);
     match (snapshot, restarted) {
