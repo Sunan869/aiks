@@ -59,7 +59,7 @@ function NavButton({ item, page, onNavigate }: { item: NavItem; page: Page; onNa
 
 export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount, aiHealthy }: Props) {
   return (
-    <aside className="flex w-52 flex-shrink-0 flex-col xl:w-56 border-r border-slate-200/80 bg-white/95 dark:border-slate-800 dark:bg-slate-950" aria-label="主导航">
+    <aside className="flex w-52 min-w-0 flex-shrink-0 flex-col xl:w-56 border-r border-slate-200/80 bg-white/95 dark:border-slate-800 dark:bg-slate-950" aria-label="主导航">
       <div className="px-5 pb-4 pt-6"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-sm dark:bg-sky-600">AI</div><div className="mt-3 text-sm font-bold tracking-tight text-slate-900 dark:text-white">AI Knowledge Sync</div><div className="text-[11px] text-slate-500">本地知识工作空间</div></div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto py-2" aria-label="功能导航">
         {mainNavItems.map((item) => (

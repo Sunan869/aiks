@@ -107,3 +107,13 @@ body {
   .aiks-button.aiks-switch:focus-visible { @apply ring-2 ring-sky-500 ring-offset-2; }
   .aiks-page-shell > section { @apply min-w-0; }
 }
+
+/* Final narrow-window safeguards for desktop-only workspaces. */
+@layer components {
+  .aiks-page-shell { @apply min-w-0; }
+  .aiks-page-shell .aiks-surface { @apply min-w-0; }
+  .aiks-page-shell pre { @apply max-w-full overflow-auto; }
+  .aiks-page-shell table { @apply text-left; }
+  .aiks-main-scroll { @apply min-w-0; }
+  .memory-workspace { @apply min-w-0; }
+}

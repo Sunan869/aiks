@@ -22,7 +22,8 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
   useEffect(() => { if (open) searchInput.current?.focus(); }, [open]);
-  const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  useEffect(() => { if (open && matching.length > 0 && activeIndex >= matching.length) setActiveIndex(matching.length - 1); }, [open, matching.length, activeIndex]);
+  const matching = options.filter(option => option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const choose = (next: string) => { onChange(next); setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const closePopup = () => { setOpen(false); setQuery(""); triggerRef.current?.focus(); };
   const handleKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -41,14 +42,14 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
       <span className="truncate">{options.find(option => option.value === value)?.label || placeholder}</span>
       <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400"/>
     </button>
-    {open && <div className="absolute left-0 top-full z-50 mt-2 w-full min-w-[240px] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+    {open && <div className="absolute left-0 top-full z-50 mt-2 w-full min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); closePopup(); } }}>
       <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 dark:border-slate-700">
         <Search className="h-4 w-4 text-slate-400"/>
         <input ref={searchInput} aria-label={label + "搜索"} value={query} role="searchbox" aria-controls={listId} aria-activedescendant={matching[activeIndex] ? `${listId}-option-${activeIndex}` : undefined} onKeyDown={handleKeys} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
           placeholder="输入关键词筛选…" className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm outline-none"/>
       </label>
-      <div id={listId} role="listbox" aria-label={label + "选项"} className="mt-2 max-h-60 overflow-y-auto">
+      <div id={listId} role="listbox" aria-label={label + "选项"} className="mt-2 max-h-[min(15rem,40vh)] overflow-y-auto">
         {matching.map((option, index) => <button type="button" id={`${listId}-option-${index}`} role="option" tabIndex={-1} aria-selected={value === option.value}
           key={option.value} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option.value)}
           className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${matching[activeIndex]?.value === option.value ? "bg-sky-50 dark:bg-slate-800" : ""}`}>

@@ -86,7 +86,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
   ];
 
   return (
-    <div className="aiks-page-shell flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="aiks-page-shell flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

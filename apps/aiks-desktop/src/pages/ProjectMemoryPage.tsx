@@ -402,7 +402,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   );
 
   return (
-    <div className="memory-workspace space-y-5 p-4 text-sm md:p-6">
+    <div className="memory-workspace min-w-0 space-y-5 p-4 text-sm md:p-6">
       <header className="memory-hero">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>

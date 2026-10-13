@@ -68,7 +68,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     buttons[Math.max(0, Math.min(buttons.length - 1, selectedIndex + step))]?.focus();
   };
   return (
-    <div ref={root} className="relative inline-block min-w-[180px]">
+    <div ref={root} className="relative inline-block min-w-0 w-full sm:w-auto sm:min-w-[180px]">
       <button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
         ref={trigger} disabled={disabled} onClick={() => { setMonth(parse(value) ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setOpen(current => !current); }}
         className="aiks-field-date flex w-full items-center gap-2 px-3 text-left">
@@ -78,7 +78,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
       {open && (
         <div id={id} role="dialog" aria-modal="false" aria-label={label + "日历"} aria-labelledby={yearMonthLabel}
           onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); } }}
-          className="absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          className="absolute left-0 top-full z-50 mt-2 w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 flex items-center justify-between">
             <button type="button" aria-label="上个月" onClick={() => move(-1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-4 w-4"/></button>
             <strong id={yearMonthLabel} className="text-sm">{month.getFullYear()} 年 {month.getMonth() + 1} 月</strong>
@@ -92,7 +92,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
                   aria-label={`${month.getFullYear()}年${month.getMonth() + 1}月${day}日`}
                   data-day={day} aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))}
                   onClick={() => selectDate(new Date(month.getFullYear(), month.getMonth(), day))}
-                  className={`rounded-lg py-2 hover:bg-sky-100 dark:hover:bg-slate-700 ${value === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "bg-sky-600 font-bold text-white hover:bg-sky-700" : ""}`}>
+                  className={`rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 hover:bg-sky-100 dark:hover:bg-slate-700 ${value === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "bg-sky-600 font-bold text-white hover:bg-sky-700" : ""}`}>
                   {day}
                 </button>)}
           </div>

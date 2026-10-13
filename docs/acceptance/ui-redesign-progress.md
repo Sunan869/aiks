@@ -98,3 +98,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Embedded workbench retry adopts shared action visuals and error alert semantics.
 - Offline Restore (already present on this branch) adopts shared fields and buttons without changing backup/restore APIs or confirmation gates. **No new backup functionality is introduced by this UI pass.**
 - Remaining blocking acceptance work: official shadcn/Radix installation is not completed, Windows real-device interaction/visual QA, and a final Full Validation run. These are not implied by green frontend CI.
+
+## 2026-10-13 batch — narrow-window and picker safeguards
+
+- SearchSelect now bounds popup width to the available viewport, clamps the active index when filtering/options change and constrains menu height in short windows.
+- CalendarDateField now permits narrower triggers and popovers and clearly highlights focused date buttons.
+- Standardized minimum-width behavior across knowledge, processing, project memory and sidebar layout foundations so long content does not force unconstrained horizontal expansion.
+- This batch changes only UI presentation and keyboard behavior. Official shadcn/Radix dependencies remain uninstalled and Windows visual/device acceptance remains pending. Neither CI success nor file-count coverage is a substitute for those acceptance steps.

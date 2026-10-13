@@ -173,7 +173,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   });
 
   return (
-    <div className="aiks-page-shell">
+    <div className="aiks-page-shell min-w-0">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">处理中心</h1>
