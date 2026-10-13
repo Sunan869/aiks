@@ -1,0 +1,439 @@
+export interface SyncAndExtractResult {
+  discovered: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  skipped_count: number;
+  failed_count: number;
+  extraction_queued: number;
+}
+
+// Shared Desktop API types
+
+export interface ShareImportResult {
+  source: string;
+  externalSessionId: string;
+  title: string | null;
+  messageCount: number;
+  sessionId: number;
+  pipelineQueued: number;
+}
+
+export interface Overview {
+  session_count: number;
+  knowledge_count: number;
+  processing_count: number;
+  failed_count: number;
+  ai_ready: boolean;
+  ai_model: string;
+  siyuan_ready: boolean;
+  last_sync_at: string | null;
+  recent_knowledge: KnowledgeSummary[];
+  active_pipelines: PipelineSummary[];
+}
+
+export interface SessionItem {
+  id: number;
+  source: string;
+  session_id: string;
+  title: string | null;
+  project_name: string | null;
+  project_path: string | null;
+  updated_at: string | null;
+  content_hash: string | null;
+  run_id: string | null;
+  pipeline_status: string | null;
+  current_stage: string | null;
+}
+
+export interface SessionPage {
+  items: SessionItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PipelineSummary {
+  run_id: string;
+  session_id: number;
+  session_title: string | null;
+  source: string;
+  status: string;
+  current_stage: string | null;
+  pipeline_version: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_stage: string | null;
+  error_message: string | null;
+  stage_runs: StageRun[];
+  knowledge_count: number;
+}
+
+export interface StageRun {
+  stage: string;
+  status: string;
+  input_count: number | null;
+  output_count: number | null;
+  latency_ms: number | null;
+  error_message: string | null;
+  detail: unknown | null;
+}
+
+export interface PipelineStats {
+  total: number;
+  processing: number;
+  ready: number;
+  raw_only: number;
+  failed: number;
+  knowledge_items: number;
+  knowledge_chunks: number;
+  embeddings: number;
+}
+
+export type KnowledgeSourceType = "conversation" | "manual";
+export type KnowledgeManagedBy = "pipeline" | "user";
+export type KnowledgeStatus = "active" | "archived" | "deleted";
+
+export interface KnowledgeSummary {
+  id: string;
+  session_id: number | null;
+  project_name: string | null;
+  title: string;
+  category: string;
+  summary: string;
+  tags: string;
+  confidence: number;
+  source_type: KnowledgeSourceType;
+  managed_by: KnowledgeManagedBy;
+  status: KnowledgeStatus;
+  is_favorite: boolean;
+  siyuan_doc_id?: string | null;
+  generated_hash?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDetail extends KnowledgeSummary {
+  content: string;
+  source: string | null;
+  session_external_id: string | null;
+  session_title: string | null;
+  chunks: Array<{
+    id: string;
+    heading: string | null;
+    chunk_index: number;
+    token_count: number;
+    text: string;
+    has_embedding: boolean;
+  }>;
+}
+
+export interface KnowledgePage {
+  items: KnowledgeSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface KnowledgeListOptions {
+  project?: string;
+  category?: string;
+  sourceType?: KnowledgeSourceType;
+  status?: KnowledgeStatus;
+  favorite?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface KnowledgeWriteInput {
+  title: string;
+  category?: string;
+  project_name?: string | null;
+  summary?: string;
+  content: string;
+  tags: string[];
+}
+
+export interface OrganizationAuditEntry {
+  derived_knowledge_id: string;
+  title: string;
+  status: KnowledgeStatus | "missing";
+  operation: "structure" | "rewrite" | "key_conclusions" | "compare" | "merge_draft";
+  reviewed_at: string;
+  source_knowledge_ids: string[];
+}
+
+export interface KnowledgeUpdateInput {
+  title: string;
+  category: string;
+  project_name?: string | null;
+  summary: string;
+  content: string;
+  tags: string[];
+}
+
+export interface PublishKnowledgeResult {
+  knowledge_id: string;
+  outcome: "created" | "updated" | "unchanged" | "conflict" | string;
+  target_id: string | null;
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  project_name: string | null;
+  tags: string;
+  confidence: number;
+  match_type: string;
+  source_type?: KnowledgeSourceType;
+  is_favorite?: boolean;
+  siyuan_doc_id?: string | null;
+  siyuan_block_id?: string | null;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  query: string;
+  total: number;
+  degraded?: boolean;
+  warnings?: string[];
+}
+
+export type SearchCorpus = "knowledge" | "session";
+
+export interface UnifiedSearchOptions {
+  limit?: number;
+  corpora?: SearchCorpus[];
+  project?: string;
+  source?: string;
+}
+
+export interface UnifiedSearchHit {
+  corpus: SearchCorpus;
+  entity_id: string;
+  chunk_id: string | null;
+  title: string;
+  snippet: string;
+  score: number;
+  match_types: string[];
+  siyuan_doc_id: string | null;
+}
+
+export interface UnifiedSearchOutcome {
+  hits: UnifiedSearchHit[];
+  degraded: boolean;
+  warnings: string[];
+  semantic_enabled?: boolean;
+}
+
+export type WorkspaceMode = "knowledge" | "session";
+
+export interface WorkbenchBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WorkbenchStatus {
+  available: boolean;
+  mounted: boolean;
+  ready: boolean;
+  mode: WorkspaceMode;
+  origin: string | null;
+  protocol_version: number;
+}
+
+export interface ContentMigrationStats {
+  total: number;
+  pending: number;
+  migrated: number;
+  reused: number;
+  conflicts: number;
+  failed: number;
+}
+
+export interface V41Diagnostics {
+  siyuan_ready: boolean;
+  workbench: WorkbenchStatus;
+  migration: ContentMigrationStats;
+}
+
+export interface FullStatus {
+  scan_total: number;
+  scan_by_source: Record<string, number>;
+  provider_health: Record<string, boolean>;
+  provider_diagnostics?: Record<string, string[]>;
+  db_total: number;
+  db_synced: number;
+  db_pending: number;
+  db_conflict: number;
+  db_failed: number;
+  last_sync_at: string | null;
+  last_sync_discovered: number;
+  last_sync_new: number;
+  last_sync_updated: number;
+  last_sync_failed: number;
+  extraction_total: number;
+  extraction_success: number;
+  extraction_skipped: number;
+  extraction_failed: number;
+  extraction_pending: number;
+  siyuan_ready: boolean;
+  ai_ready: boolean;
+  ai_model: string;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  healthy: boolean;
+  model: string;
+  display_name: string;
+  base_url: string;
+  extraction_stats: {
+    total: number;
+    success: number;
+    skipped: number;
+    failed: number;
+    pending: number;
+  };
+}
+
+/** Read-only projection of independent raw-sync and AI pipeline states. */
+export interface TaskCenterEntry {
+  session_id: number;
+  source: string;
+  external_session_id: string;
+  title: string | null;
+  sync_status: string | null;
+  sync_error: string | null;
+  pipeline_status: string | null;
+  current_stage: string | null;
+  pipeline_error: string | null;
+  job_status: string | null;
+  attempts: number | null;
+  job_error: string | null;
+  stage_latency_ms: number | null;
+  last_task_update: string | null;
+}
+
+/** Database-wide statistics, not counts from the bounded task list. */
+export interface TaskCenterStats {
+  total_sessions: number;
+  pending: number;
+  running: number;
+  cancelled: number;
+  sync_issues: number;
+  ai_issues: number;
+}
+
+export type KnowledgeFeedbackKind = "useful" | "incorrect" | "duplicate" | "outdated" | "needs_detail";
+
+export interface KnowledgeFeedback {
+  id: string;
+  knowledge_id: string;
+  kind: KnowledgeFeedbackKind;
+  note: string;
+  created_at: string;
+}
+
+export type KnowledgeRelationType = "related" | "supplements" | "corrects" | "supersedes" | "resolved_by";
+export type KnowledgeRelationStatus = "suggested" | "confirmed" | "rejected";
+export interface KnowledgeRelation {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: KnowledgeRelationType;
+  status: KnowledgeRelationStatus;
+  evidence: string;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeRelationReview {
+  id: string;
+  relation_id: string;
+  source_id: string;
+  target_id: string;
+  previous_status: KnowledgeRelationStatus;
+  next_status: "confirmed" | "rejected";
+  created_at: string;
+}
+
+export interface KnowledgeRelationReviewHistory {
+  reviews: KnowledgeRelationReview[];
+  truncated: boolean;
+}
+
+export interface ProjectOverview {
+  id: string;
+  title: string;
+  verified_path: boolean;
+  session_count: number;
+  knowledge_count: number;
+  sources: string[];
+  last_updated_at: string;
+}
+export interface ProjectMemoryEntry {
+  knowledge_id: string;
+  session_id: number;
+  source: string;
+  session_external_id: string;
+  title: string;
+  category: string;
+  summary: string;
+  updated_at: string;
+  feedback_status: string | null;
+}
+export interface ProjectMemorySnapshot {
+  project: ProjectOverview;
+  entries: ProjectMemoryEntry[];
+  truncated: boolean;
+}
+
+/** Human-approved local grouping; original Session project_path is never edited. */
+/** Locally stored human edits, not a published or verified project report. */
+export interface ProjectReportDraft {
+  id: string;
+  project_id: string;
+  from_date: string;
+  through_date: string;
+  source_filter: string | null;
+  current_revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectReportVersion {
+  draft: ProjectReportDraft;
+  revision: number;
+  body: string;
+  saved_at: string;
+}
+
+export interface ProjectSessionBinding {
+  session_id: number;
+  project_id: string;
+  updated_at: string;
+}
+
+/** Human-reviewed, evidence-bearing cross-session evolution only. */
+export interface ProjectEvolutionLink {
+  id: string;
+  source_id: string;
+  target_id: string;
+  source_title: string;
+  target_title: string;
+  relation_type: "supersedes" | "corrects" | "resolved_by";
+  status: "confirmed" | "suggested";
+  evidence: string;
+  updated_at: string;
+}
+
+export interface ProjectEvolutionSnapshot {
+  links: ProjectEvolutionLink[];
+  truncated: boolean;
+}

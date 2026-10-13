@@ -1,0 +1,477 @@
+use aiks_core::knowledge::{OrganizationAuditEntry, OrganizationAuditRepo, OrganizationScopeGuard};
+use aiks_core::{CreateKnowledgeInput, KnowledgeListFilter, KnowledgeRecord, KnowledgeService};
+use serde::Deserialize;
+use tauri::State;
+
+use crate::app_state::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct KnowledgeWritePayload {
+    pub title: String,
+    pub category: Option<String>,
+    pub project_name: Option<String>,
+    pub summary: Option<String>,
+    pub content: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+fn to_json(item: KnowledgeRecord) -> serde_json::Value {
+    let tags = serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".to_string());
+    serde_json::json!({
+        "id": item.id,
+        "session_id": item.source_session_id,
+        "project_name": item.project_name,
+        "title": item.title,
+        "category": item.category,
+        "summary": item.summary,
+        "content": item.content,
+        "tags": tags,
+        "confidence": item.confidence,
+        "source_type": item.source_type,
+        "managed_by": item.managed_by,
+        "status": item.status,
+        "is_favorite": item.is_favorite,
+        "siyuan_doc_id": item.siyuan_doc_id,
+        "generated_hash": item.generated_hash,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "source": item.source,
+        "session_external_id": item.session_external_id,
+        "session_title": item.session_title,
+        "chunks": []
+    })
+}
+
+fn siyuan_sink(
+    engine: &aiks_core::AiksEngine,
+    runtime_url: Option<String>,
+) -> Result<aiks_core::sink::SiYuanSink, String> {
+    let config = engine.config();
+    if let Some(url) = runtime_url {
+        aiks_core::sink::SiYuanSink::embedded(url, config.siyuan.notebook_name.clone())
+            .map_err(|e| e.to_string())
+    } else {
+        aiks_core::sink::SiYuanSink::new(config.siyuan.clone()).map_err(|e| e.to_string())
+    }
+}
+
+// Keep the invoke payload flat so the Tauri boundary matches the Desktop API's
+// individual list filters without wrapping them in a transport-only DTO.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn list_knowledge_v4(
+    project: Option<String>,
+    category: Option<String>,
+    source_type: Option<String>,
+    status: Option<String>,
+    favorite: Option<bool>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let result = KnowledgeService::new(&db)
+        .list(KnowledgeListFilter {
+            project,
+            category,
+            source_type,
+            status,
+            favorite,
+            limit,
+            offset,
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "items": result.items.into_iter().map(to_json).collect::<Vec<_>>(),
+        "total": result.total,
+        "limit": result.limit,
+        "offset": result.offset
+    }))
+}
+
+#[tauri::command]
+pub async fn get_knowledge_detail_v4(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let item = KnowledgeService::new(&db)
+        .get(&knowledge_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Knowledge item not found: {knowledge_id}"))?;
+    Ok(to_json(item))
+}
+
+/// Validate canonical Session/project identities immediately before each
+/// AI-assisted multi-source read and reviewed write. This endpoint is read-only.
+#[tauri::command]
+pub fn validate_organization_scope(
+    knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationScopeGuard::new(&db)
+        .validate(&knowledge_ids)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn create_knowledge(
+    input: KnowledgeWritePayload,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
+    let item = aiks_core::knowledge::create_manual_knowledge_in_siyuan(
+        &db,
+        &sink,
+        CreateKnowledgeInput {
+            title: input.title,
+            category: input.category,
+            project_name: input.project_name,
+            summary: input.summary,
+            content: input.content,
+            tags: input.tags,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(siyuan_doc_id) = item.siyuan_doc_id.as_deref() {
+        if let Err(error) = engine
+            .index_canonical_knowledge(&item.id, siyuan_doc_id)
+            .await
+        {
+            tracing::warn!(
+                knowledge_id = %item.id,
+                siyuan_doc_id,
+                error = %error,
+                "[KNOWLEDGE] canonical index rebuild failed after manual create"
+            );
+        }
+    }
+    Ok(to_json(item))
+}
+
+/// Create a separately reviewed organization document, never altering source
+/// knowledge or writing into the Provider workspace. Unlike the legacy manual
+/// create command this entrypoint REQUIRES authoritative source validation at
+/// the final Tauri write boundary, even if a caller skips the frontend guard.
+#[tauri::command]
+pub async fn create_organized_knowledge(
+    input: KnowledgeWritePayload,
+    source_knowledge_ids: Vec<String>,
+    operation: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    {
+        let db = engine.db();
+        OrganizationScopeGuard::new(&db)
+            .validate(&source_knowledge_ids)
+            .map_err(|error| error.to_string())?;
+        // Audit parameters must be validated BEFORE the remote document write.
+        OrganizationAuditRepo::validate_input(&operation, &source_knowledge_ids)
+            .map_err(|error| error.to_string())?;
+    }
+    let created = create_knowledge(input, state, gate.clone()).await?;
+    let derived_id = created["id"]
+        .as_str()
+        .ok_or_else(|| "SiYuan created a document without a knowledge identity".to_string())?;
+    let db = engine.db();
+    // Re-check canonical source scope after the SiYuan HTTP call returns.
+    let audit_result = OrganizationScopeGuard::new(&db)
+        .validate(&source_knowledge_ids)
+        .and_then(|_| {
+            OrganizationAuditRepo::new(&db).record(derived_id, &operation, &source_knowledge_ids)
+        });
+    if let Err(error) = audit_result {
+        // Document creation already succeeded. Do not tell the user to retry:
+        // that would risk an accidental duplicate in SiYuan.
+        tracing::error!(knowledge_id = %derived_id, error = %error, "reviewed organization audit failed after SiYuan create");
+        return Err(format!(
+            "知识已创建（ID: {derived_id}），但本地整理审核记录保存失败：{error}。请勿重复点击创建，可从知识列表核查。"
+        ));
+    }
+    Ok(created)
+}
+
+/// Repair metadata only for a user-reviewed document that already exists.
+#[tauri::command]
+pub fn recover_organization_audit(
+    derived_knowledge_id: String,
+    operation: String,
+    source_knowledge_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationAuditRepo::new(&db)
+        .recover_existing(&derived_knowledge_id, &operation, &source_knowledge_ids)
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn list_organization_audit(
+    source_knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<OrganizationAuditEntry>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    OrganizationAuditRepo::new(&db)
+        .list_for_source(&source_knowledge_id)
+        .map_err(|error| error.to_string())
+}
+
+/// V4.1 canonical knowledge content is edited inside the embedded SiYuan
+/// workbench. Keep this command registered for transport compatibility with
+/// older UI bundles, but never allow it to turn SQLite back into a content
+/// master.
+#[tauri::command]
+pub fn update_knowledge(
+    _knowledge_id: String,
+    _input: serde_json::Value,
+    _state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    Err("V4.1 knowledge content must be edited in the embedded SiYuan workbench".to_string())
+}
+
+#[tauri::command]
+pub async fn set_knowledge_favorite(
+    knowledge_id: String,
+    favorite: bool,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let item = KnowledgeService::new(&db)
+        .set_favorite(&knowledge_id, favorite)
+        .map_err(|e| e.to_string())?;
+    Ok(to_json(item))
+}
+
+#[tauri::command]
+pub async fn archive_knowledge(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let item = KnowledgeService::new(&db)
+        .archive(&knowledge_id)
+        .map_err(|e| e.to_string())?;
+    Ok(to_json(item))
+}
+
+#[tauri::command]
+pub async fn restore_knowledge(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let item = KnowledgeService::new(&db)
+        .restore(&knowledge_id)
+        .map_err(|e| e.to_string())?;
+    Ok(to_json(item))
+}
+
+#[tauri::command]
+pub async fn search_knowledge_v4(
+    query: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let outcome = engine
+        .search_knowledge(&query, limit.unwrap_or(20))
+        .await
+        .map_err(|e| e.to_string())?;
+    let db = engine.db();
+    let service = KnowledgeService::new(&db);
+    let warnings: Vec<String> = outcome
+        .degradations
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    let degraded = outcome.degraded();
+    let mut results = Vec::new();
+    for hit in outcome.hits {
+        if let Some(item) = service.get(&hit.knowledge_id).map_err(|e| e.to_string())? {
+            if item.status != "active" {
+                continue;
+            }
+            results.push(serde_json::json!({
+                "id": item.id,
+                "title": item.title,
+                "category": item.category,
+                "summary": item.summary,
+                "project_name": item.project_name,
+                "tags": serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
+                "confidence": item.confidence,
+                "source_type": item.source_type,
+                "is_favorite": item.is_favorite,
+                "siyuan_doc_id": item.siyuan_doc_id,
+                "match_type": hit.match_type
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "results": results,
+        "query": query,
+        "total": results.len(),
+        "degraded": degraded,
+        "warnings": warnings
+    }))
+}
+
+#[tauri::command]
+pub async fn publish_knowledge(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let sink = siyuan_sink(&engine, state.siyuan_url().await)?;
+    let result =
+        aiks_core::knowledge::publish_knowledge_to_siyuan(&db, &sink, &knowledge_id, false)
+            .await
+            .map_err(|e| e.to_string())?;
+    if result.outcome != "conflict" {
+        if let Some(siyuan_doc_id) = result.target_id.as_deref() {
+            if let Err(error) = engine
+                .index_canonical_knowledge(&knowledge_id, siyuan_doc_id)
+                .await
+            {
+                tracing::warn!(
+                    knowledge_id = %knowledge_id,
+                    siyuan_doc_id,
+                    error = %error,
+                    "[KNOWLEDGE] canonical index rebuild failed after publish"
+                );
+            }
+        }
+    }
+    serde_json::to_value(result).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_knowledge_feedback(
+    knowledge_id: String,
+    kind: String,
+    note: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<aiks_core::pipeline::KnowledgeFeedback, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .add(&knowledge_id, &kind, &note)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_knowledge_feedback(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::KnowledgeFeedback>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::FeedbackRepo::new(&db)
+        .list(&knowledge_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn suggest_knowledge_relation(
+    source_id: String,
+    target_id: String,
+    relation_type: String,
+    evidence: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .suggest(&source_id, &target_id, &relation_type, &evidence, None)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_knowledge_relations(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::KnowledgeRelation>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .list(&knowledge_id)
+        .map_err(|error| error.to_string())
+}
+
+/// Read-only human decisions, including rejected/archived relation history.
+#[tauri::command]
+pub async fn list_knowledge_relation_reviews(
+    knowledge_id: String,
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::KnowledgeRelationReviewHistory, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .review_history(&knowledge_id, 100)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn review_knowledge_relation(
+    relation_id: String,
+    decision: String,
+    state: State<'_, AppState>,
+    gate: State<'_, std::sync::Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<aiks_core::pipeline::KnowledgeRelation, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::RelationRepo::new(&db)
+        .review(&relation_id, &decision)
+        .map_err(|error| error.to_string())
+}

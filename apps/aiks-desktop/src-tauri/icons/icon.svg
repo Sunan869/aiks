@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">AIKS Sync Core</title>
+  <desc id="desc">Two connected sync arcs surrounding a central knowledge node</desc>
+  <defs>
+    <linearGradient id="background" x1="144" y1="96" x2="880" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#182956"/>
+      <stop offset="0.5" stop-color="#101B3C"/>
+      <stop offset="1" stop-color="#0A1024"/>
+    </linearGradient>
+    <linearGradient id="sync" x1="210" y1="220" x2="820" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#69F3FF"/>
+      <stop offset="0.52" stop-color="#478CFF"/>
+      <stop offset="1" stop-color="#986BFF"/>
+    </linearGradient>
+    <linearGradient id="node" x1="402" y1="396" x2="632" y2="638" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDF8FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="48" y="48" width="928" height="928" rx="224" fill="url(#background)"/>
+  <rect x="66" y="66" width="892" height="892" rx="206" fill="none" stroke="#77DFFF" stroke-opacity="0.13" stroke-width="12"/>
+
+  <path d="M245 448C274 291 428 191 584 220C670 236 745 284 797 353"
+        fill="none" stroke="url(#sync)" stroke-width="76" stroke-linecap="round"/>
+  <path d="M741 252L816 368L679 392"
+        fill="none" stroke="#6DE5FF" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M779 576C750 733 596 833 440 804C354 788 279 740 227 671"
+        fill="none" stroke="url(#sync)" stroke-width="76" stroke-linecap="round"/>
+  <path d="M283 772L208 656L345 632"
+        fill="none" stroke="#8B72FF" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="388" y="388" width="248" height="248" rx="72" fill="#071027" opacity="0.38"/>
+  <rect x="400" y="400" width="224" height="224" rx="64" fill="url(#node)"/>
+  <path d="M512 454V570M454 512H570"
+        fill="none" stroke="#347BDA" stroke-width="42" stroke-linecap="round"/>
+</svg>

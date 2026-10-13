@@ -1,0 +1,143 @@
+[sync]
+scan_interval_seconds = 300
+watch_enabled = true
+debounce_seconds = 2
+max_parallel_sessions = 4
+
+[providers.claude]
+enabled = true
+path = ""
+
+[providers.codex]
+enabled = true
+path = ""
+include_archived_sessions = true
+
+[providers.gemini]
+enabled = true
+path = ""
+
+[providers.opencode]
+enabled = true
+path = ""
+
+[providers.workbuddy]
+enabled = true
+path = ""
+
+# Local AI session providers. These read history, not run the source tools.
+# A nonempty path overrides paths. With both empty, fixed-layout tools use
+# supported environment variables and platform defaults. Restart after editing.
+# Paths are data roots (see docs/reference-analysis/multi-provider-support.md).
+[providers.antigravity]
+enabled = true
+path = ""
+paths = []
+
+[providers.cursor]
+enabled = true
+path = ""
+paths = []
+
+[providers.cursor_agent]
+enabled = true
+path = ""
+paths = []
+
+[providers.cline]
+enabled = true
+path = ""
+paths = []
+
+[providers.roo_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.kilo_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.github_copilot]
+enabled = true
+path = ""
+paths = []
+
+[providers.kimi_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.qwen_code]
+enabled = true
+path = ""
+paths = []
+
+[providers.continue]
+enabled = true
+path = ""
+paths = []
+
+# Aider never recursively scans home or a drive by default. Configure one or
+# more project roots explicitly, e.g. paths = ['C:\Projects\example'].
+[providers.aider]
+enabled = true
+path = ""
+paths = []
+
+[content]
+include_system = false
+include_thinking = false
+include_tool_calls = true
+include_tool_results = true
+max_tool_result_chars = 10000
+minimum_messages = 0
+minimum_session_chars = 0
+
+[security]
+redact_secrets = true
+
+[siyuan]
+base_url = "http://127.0.0.1:6806"
+token = ""
+notebook_name = "AI Knowledge"
+session_notebook_name = "AI Session Archive"
+session_root = "/10 AI Sessions"
+knowledge_root = "/20 Knowledge"
+# token 建议使用环境变量 SIYUAN_TOKEN，不要提交到 Git。
+
+[archive]
+enabled = true
+compression = "gzip"
+
+# V3 knowledge extraction. Disabled by default for a public/fresh install.
+[ai]
+enabled = false
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen3"
+api_key = ""
+temperature = 0.1
+max_tokens = 8192
+timeout_seconds = 300
+min_knowledge_score = 0.6
+chunk_size_messages = 40
+max_concurrent = 1
+debounce_minutes = 10
+auto_extract = true
+disable_thinking = true
+max_context_tokens = 32768
+
+# Optional semantic search. AIKS sends text only to an OpenAI-compatible /v1/embeddings endpoint.
+# Recommended preset: LCO-Embedding/LCO-Embedding-Omni-3B-2605 (2048 dimensions).
+# Lightweight alternative: bge-m3:latest (1024 dimensions when served by Ollama).
+[embedding]
+enabled = false
+base_url = ""
+model = "LCO-Embedding/LCO-Embedding-Omni-3B-2605"
+api_key = ""
+dimensions = 2048
+batch_size = 16
+chunk_target_tokens = 800
+chunk_max_tokens = 1200
+chunk_overlap_tokens = 120

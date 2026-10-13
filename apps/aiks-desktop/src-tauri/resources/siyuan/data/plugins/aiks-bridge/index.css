@@ -1,0 +1,20 @@
+html.aiks-embedded-workbench body {
+  --aiks-workbench-chrome: 0px;
+}
+
+html.aiks-embedded-workbench [data-aiks-hide="true"] {
+  display: none !important;
+}
+
+html[data-aiks-readonly="true"] .protyle-wysiwyg,
+html[data-aiks-readonly="true"] [contenteditable="true"] {
+  caret-color: transparent;
+}
+
+html[data-aiks-readonly="true"] .protyle-wysiwyg {
+  cursor: default;
+}
+
+html[data-aiks-readonly="true"] .protyle-wysiwyg ::selection {
+  background: var(--b3-theme-primary-lighter, rgba(66, 133, 244, 0.2));
+}

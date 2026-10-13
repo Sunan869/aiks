@@ -1,0 +1,19 @@
+{
+  "name": "aiks-bridge",
+  "author": "AIKS",
+  "url": "https://github.com/Sunan869/aiks",
+  "version": "1.0.0",
+  "minAppVersion": "3.8.3",
+  "kernels": ["windows", "linux", "darwin"],
+  "backends": ["windows", "linux", "darwin"],
+  "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "disabledInPublish": true,
+  "displayName": {
+    "default": "AIKS Bridge",
+    "zh-CN": "AIKS 桥接"
+  },
+  "description": {
+    "default": "Embedded AIKS workbench bridge",
+    "zh-CN": "AIKS 内嵌知识工作台桥接插件"
+  }
+}
