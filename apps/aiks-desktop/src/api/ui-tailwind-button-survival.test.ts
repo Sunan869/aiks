@@ -9,7 +9,7 @@ describe("Tailwind shared control survival", () => {
       expect(buttons).toContain(`aiks-button--${name}`);
       expect(config).toContain(`"aiks-button--${name}"`);
     }
-    expect(buttons).toContain("buttonVariants[variant]");
+    expect(buttons).toContain("buttonStyles({ variant, size })");
   });
   it("stretches source cards per grid row", () => {
     expect(sources).toContain("aiks-source-grid grid grid-cols-1 items-stretch");
