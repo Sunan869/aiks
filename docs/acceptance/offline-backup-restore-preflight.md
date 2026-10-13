@@ -251,3 +251,10 @@
 - 基线 `0d89433` Windows Provider #38333941416 success，综合 CI #38333941378 仅在 backup_commands.rs Rust formatting 失败。已按日志修正。
 - 新增只读 `get_managed_backup_recovery_required` Tauri 命令并注册到 Handler；设置页新增手动查询锁定状态及条件触发的健康核验入口。只有明确查询出存在锁定时才展示核验操作；失败保持锁定、禁止强制解锁、不自动重启内核。
 - 真正的受控一键备份仍未开放；故障恢复入口可交互不代表操作系统进程健康、数据一致性与异常重启的 Windows 真机测试已通过。
+
+
+## 2026-10-13 故障恢复 UI 契约与 CI 修复
+
+- 基线 `539edca` Windows Provider #38334450621 success，综合 CI #38334450615 仅在 backup_commands.rs 一处 Rust 函数签名格式差异失败。严格按照 rustfmt diff 修正。
+- 新增 Desktop Vitest 恢复契约测试：只读状态、受控核验命令均注册，核验检查 SiYuan Ready，UI 只有明确存在故障锁定才显示核验动作，Mock 不执行真实恢复。此测试不取代真实内核故障注入。
+- 运行中工作区一键完整备份仍暂未开放，不能从本次静态契约推出其已可真机验收。
