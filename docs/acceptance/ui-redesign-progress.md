@@ -14,3 +14,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Sources search also matches provider keys and configured paths without changing provider read-only behavior.
 - SearchSelect moves focus to the search input when opened and exposes an active option relationship, stable option IDs, and a listbox association to assistive technology. No new dependency or shadcn/ui installation is claimed.
 - Windows visual acceptance, automated CI, and the actual Radix/shadcn migration remain separate validation items.
+
+## 2026-10-13 foundation consolidation
+
+- Introduced common native-backed input, textarea, and five-variant button primitives in `components/ui/fields.tsx`, with shared Tailwind component tokens and keyboard focus/disabled styling.
+- Adopted the primitives in source-provider actions and search, and processing-page primary actions and search. Existing onClick handlers and provider read-only safeguards remain unchanged.
+- npm Registry could not be reached from the execution environment; **Radix and official shadcn/ui packages are not installed**, and this commit must not be counted as a completed official migration.
+- CI, desktop build and actual Windows visual acceptance remain required after commit.

@@ -3,6 +3,7 @@ import { getApi } from "../api/client";
 import { createSafeTaskDiagnosticJson } from "../task-diagnostics";
 import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
+import { UiButton, UiInput } from "../components/ui/fields";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
   READY: { color: "text-green-600", label: "完成", icon: "✓" },
@@ -180,22 +181,22 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         </div>
         <div className="flex items-center gap-3">
           {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
-          <button
+          <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
             disabled={backfilling}
             className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
           >
             {backfilling ? "提交中..." : "重试失败并补跑队列"}
-          </button>
-          <button onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+          </UiButton>
+          <UiButton variant="outline" size="sm" onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
             刷新
-          </button>
+          </UiButton>
         </div>
       </div>
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>
-        <input id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
+        <UiInput id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
           placeholder="查找会话标题、来源或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, Settings2 } from "lucide-react";
+import { UiButton, UiInput, UiTextarea } from "../components/ui/fields";
 import { getApi } from "../api/client";
 import type { FullStatus } from "../api/types";
 import { useSourceCatalog } from "../ProviderCatalog";
@@ -83,17 +84,17 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="text-xs text-gray-500">最近扫描发现 <strong className="text-blue-600">{count}</strong> 条会话</span>
         <div className="flex gap-2">
-          <button type="button" onClick={() => setEditing(v => !v)} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"><Settings2 className="h-3 w-3" />目录与开关</button>
-          <button type="button" onClick={() => void sync()} disabled={busy || !readable} className="inline-flex items-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-40 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-950"><RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />立即同步</button>
+          <UiButton variant="outline" size="sm" onClick={() => setEditing(v => !v)} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"><Settings2 className="h-3 w-3" />目录与开关</UiButton>
+          <UiButton variant="outline" size="sm" onClick={() => void sync()} disabled={busy || !readable} className="inline-flex items-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-40 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-950"><RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />立即同步</UiButton>
         </div>
       </div>
       {editing && <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
         <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} disabled={busy} />启用 {source.display_name}</label>
         <label className="mt-3 block text-xs text-gray-500">数据根目录（每行一个；固定目录工具留空可自动探测）
-          <textarea value={paths} onChange={e => setPaths(e.target.value)} rows={3} disabled={busy} spellCheck={false} className="mt-1 w-full rounded border border-gray-200 bg-transparent p-2 font-mono text-xs dark:border-gray-600" placeholder="填写包含会话存储的绝对目录，而不是安装目录" />
+          <UiTextarea value={paths} onChange={e => setPaths(e.target.value)} rows={3} disabled={busy} spellCheck={false} className="mt-1 w-full rounded border border-gray-200 bg-transparent p-2 font-mono text-xs dark:border-gray-600" placeholder="填写包含会话存储的绝对目录，而不是安装目录" />
         </label>
         <p className="mt-1 text-[11px] text-gray-400">只读取会话和必要元数据。保存只修改当前数据源设置，重启生效；关闭来源不会删除已导入记录。</p>
-        <div className="mt-2 flex gap-2"><button type="button" onClick={() => void save()} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">保存配置</button><button type="button" onClick={() => setEditing(false)} disabled={busy} className="px-2 text-xs text-gray-500">取消</button></div>
+        <div className="mt-2 flex gap-2"><UiButton variant="primary" size="sm" onClick={() => void save()} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">保存配置</UiButton><UiButton variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={busy} className="px-2 text-xs text-gray-500">取消</UiButton></div>
       </div>}
       {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300">{message}</p>}
     </section>
@@ -108,11 +109,11 @@ export default function SourcesPage({ fullStatus }: Props) {
     .filter(source => [source.display_name, source.key, ...source.paths].some(text => text.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase())))
     .filter(source => !onlyIssues || sourceStatusPresentation(source).tone === "danger" || sourceStatusPresentation(source).tone === "warning");
   return <div className="aiks-page-shell w-full min-w-0">
-    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><button type="button" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</button></div>
+    <div className="mb-6 flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">数据源</h1><p className="mt-1 text-xs text-gray-500">统一管理 AI 工具本地会话来源；健康状态不由会话数量推断。</p></div><UiButton variant="outline" size="sm" onClick={() => void refresh()} disabled={loading} className="rounded border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-600">刷新状态</UiButton></div>
     {error && <p role="alert" className="mb-4 text-sm text-red-600">读取数据源目录失败：{error}</p>}
     {loading && sources.length === 0 && <p className="text-sm text-gray-500">正在读取数据源目录…</p>}
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-      <input aria-label="搜索数据源" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)}
+      <UiInput aria-label="搜索数据源" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)}
         placeholder="搜索工具名称或数据目录…" className="min-w-[190px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
         <input type="checkbox" checked={onlyIssues} onChange={event => setOnlyIssues(event.target.checked)} />仅异常

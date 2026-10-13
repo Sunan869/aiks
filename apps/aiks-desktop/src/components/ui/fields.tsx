@@ -29,3 +29,23 @@ export const DateField = forwardRef<HTMLInputElement, DateProps>(function DateFi
     </span>
   );
 });
+
+/** Shared focus and disabled-state inputs for native keyboard and IME behavior. */
+export const UiInput = forwardRef<HTMLInputElement, ComponentPropsWithoutRef<"input">>(function UiInput(
+  { className = "", ...props }, ref,
+) {
+  return <input ref={ref} {...props} className={`aiks-field-input ${className}`} />;
+});
+
+export const UiTextarea = forwardRef<HTMLTextAreaElement, ComponentPropsWithoutRef<"textarea">>(function UiTextarea(
+  { className = "", ...props }, ref,
+) {
+  return <textarea ref={ref} {...props} className={`aiks-field-input resize-y ${className}`} />;
+});
+
+type ButtonProps = ComponentPropsWithoutRef<"button"> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger"; size?: "sm" | "md" };
+export const UiButton = forwardRef<HTMLButtonElement, ButtonProps>(function UiButton(
+  { variant = "secondary", size = "md", className = "", type = "button", ...props }, ref,
+) {
+  return <button ref={ref} type={type} {...props} className={`aiks-button aiks-button--${variant} aiks-button--${size} ${className}`} />;
+});
