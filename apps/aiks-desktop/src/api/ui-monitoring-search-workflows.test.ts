@@ -5,6 +5,7 @@ import diagnostics from "../pages/DiagnosticsPage.tsx?raw";
 import logs from "../pages/LogsPage.tsx?raw";
 import search from "../pages/SearchPage.tsx?raw";
 import uiSurfaces from "../components/ui/surfaces.tsx?raw";
+import workspace from "../components/ui/workspace.tsx?raw";
 
 describe("monitoring and search workspace workflows", () => {
   it("preserves sync actions with in-flight guards and responsive metrics", () => {
@@ -12,7 +13,8 @@ describe("monitoring and search workspace workflows", () => {
     expect(overview).toContain("if (syncing || syncInProgress) return;");
     expect(sync).toContain('"sync_and_extract"');
     expect(sync).toContain('<UiNotice tone="danger"');
-    expect(sync).toContain("sm:grid-cols-4");
+    expect(sync).toContain("<UiStatGrid>");
+    expect(workspace).toContain('4: "sm:grid-cols-4"');
   });
   it("makes health failures visible and retains native diagnostics", () => {
     expect(diagnostics).toContain("setDiagnosticError");

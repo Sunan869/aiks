@@ -201,3 +201,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Added workspace-level StatusBadge/EmptyState/StatGrid primitives and reused them in Overview, Sync, Diagnostics, Logs and Sources.
 - Added source/contract CI gate and an explicit Windows keyboard, themes, nested overlay, provider-read-only and native-validation acceptance checklist at docs/acceptance/windows-ui-final-acceptance.md.
 - **Important:** official shadcn/Radix migration remains incomplete because no dependency installation/lockfile verification is possible in this execution environment. Existing CI is not full Rust+Windows desktop compile. Do not call this work 100% complete.
+
+## 2026-10-13 shared grid source contracts repair
+
+- CI #38382553780 had 2 test failures, both caused by deprecated assertions for inline responsive CSS classes after pages migrated to UiStatGrid. Test expectations now validate the page-to-component linkage and the shared component's responsive CSS mapping.
+- Extended the cross-screen acceptance gate to verify four/six-column breakpoint contracts in the single source of truth. No Rust, database, Provider or SiYuan behavior changes.
+- Official shadcn/ui+Radix installation and hands-on Windows UI acceptance remain incomplete.

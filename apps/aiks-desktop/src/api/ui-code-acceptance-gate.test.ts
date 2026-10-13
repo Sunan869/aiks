@@ -14,6 +14,8 @@ import packageJson from "../../package.json?raw";
 describe("UI code acceptance gate", () => {
   it("keeps a centralized component family and semantic statuses", () => {
     expect(workspace).toContain("export function UiStatGrid");
+    expect(workspace).toContain('4: "sm:grid-cols-4"');
+    expect(workspace).toContain('6: "sm:grid-cols-3 xl:grid-cols-6"');
     expect(workspace).toContain("export function UiEmptyState");
     expect(workspace).toContain("export function UiStatusBadge");
     expect(controls).toContain("forwardRef<HTMLButtonElement");

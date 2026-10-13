@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import overview from "../pages/OverviewPage.tsx?raw";
+import workspace from "../components/ui/workspace.tsx?raw";
 import sync from "../pages/SyncPage.tsx?raw";
 import diagnostics from "../pages/DiagnosticsPage.tsx?raw";
 import logs from "../pages/LogsPage.tsx?raw";
@@ -8,7 +9,8 @@ import knowledge from "../pages/KnowledgeBasePageV3.tsx?raw";
 describe("shared secondary page layouts", () => {
   it("preserves overview synchronization actions and responsive metrics", () => {
     expect(overview).toContain("handleSync");
-    expect(overview).toContain("lg:grid-cols-4");
+    expect(overview).toContain("<UiStatGrid>");
+    expect(workspace).toContain('4: "sm:grid-cols-4"');
     expect(overview).toContain("aiks-page-shell");
   });
   it("keeps synchronization status and retry invocation", () => {

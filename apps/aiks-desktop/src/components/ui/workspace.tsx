@@ -20,6 +20,7 @@ export function UiEmptyState({ title, description, actions }: { title: string; d
   </div>;
 }
 
+/** Responsive layout is centralized here; page tests should assert the component contract. */
 export function UiStatGrid({ children, columns = 4 }: { children: ReactNode; columns?: 3 | 4 | 6 }) {
   const responsive = { 3: "sm:grid-cols-3", 4: "sm:grid-cols-4", 6: "sm:grid-cols-3 xl:grid-cols-6" }[columns];
   return <div className={`grid min-w-0 grid-cols-2 gap-3 ${responsive}`}>{children}</div>;
