@@ -31,8 +31,17 @@ pub fn enumerate_quiesced_siyuan_workspace(root: &Path) -> Result<Vec<(PathBuf, 
     // Never archive workspace/conf (access codes, plugin credentials).
     // Portable backups deliberately contain only SiYuan documents/assets.
     let data_root = root.join("data");
-    if !fs::symlink_metadata(&data_root)?.file_type().is_dir() {
-        bail!("SiYuan workspace data root must be a real directory");
+    match fs::symlink_metadata(&data_root) {
+        Ok(metadata) if !metadata.file_type().is_dir() => {
+            bail!("SiYuan workspace data root must be a real directory");
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Newly initialized SiYuan workspaces may not have a data/
+            // directory yet; SQLite still requires a consistent backup.
+            return Ok(Vec::new());
+        }
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
     }
     let mut files = Vec::new();
     let mut total_bytes: u64 = 0;

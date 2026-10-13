@@ -222,3 +222,20 @@ fn empty_siyuan_data_workspace_still_roundtrips_sqlite_backup() {
     assert!(!detached.join("siyuan/conf").exists());
     verify_offline_backup(&bundle).unwrap();
 }
+
+#[test]
+fn newly_created_workspace_without_data_directory_still_backs_up_sqlite() {
+    let dir = tempdir().unwrap();
+    let db = StateDb::open(&dir.path().join("state.db")).unwrap();
+    let workspace = dir.path().join("workspace");
+    fs::create_dir(&workspace).unwrap();
+    let bundle = dir.path().join("before-first-document");
+    let manifest = create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+    assert_eq!(manifest.entries.len(), 2);
+    verify_offline_backup(&bundle).unwrap();
+    let detached = dir.path().join("detached");
+    restore_offline_backup_to_new_directory(&bundle, &detached).unwrap();
+    assert!(detached.join("sqlite/state.sqlite").is_file());
+    assert!(!detached.join("siyuan/data").exists());
+    assert!(!workspace.join("data").exists());
+}
