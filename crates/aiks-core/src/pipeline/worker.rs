@@ -717,8 +717,8 @@ async fn run_pipeline(
             "knowledge_removed_messages": knowledge_input.removed_messages,
             "knowledge_removed_tool_blocks": knowledge_input.removed_tool_blocks,
             "knowledge_error_evidence": knowledge_input.retained_error_evidence,
-            "knowledge_estimated_tokens_before": (knowledge_input.original_chars + 2) / 3,
-            "knowledge_estimated_tokens_after": (knowledge_input.filtered_chars + 2) / 3
+            "knowledge_estimated_tokens_before": knowledge_input.original_chars.div_ceil(3),
+            "knowledge_estimated_tokens_after": knowledge_input.filtered_chars.div_ceil(3)
         })),
         None,
     )?;
