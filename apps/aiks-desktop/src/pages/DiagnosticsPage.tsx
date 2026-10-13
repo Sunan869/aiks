@@ -3,6 +3,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
+import { collectDiagnostics, type DiagnosticProbeName } from "../diagnostics-probes";
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle, XCircle, RefreshCw, Cpu, FileText } from "lucide-react";
 import { getApi } from "../api/client";
@@ -18,24 +19,39 @@ export default function DiagnosticsPage() {
   const [v41, setV41] = useState<V41Diagnostics | null>(null);
   const [loading, setLoading] = useState(false);
   const [diagnosticError, setDiagnosticError] = useState("");
+  const [probeFailures, setProbeFailures] = useState<DiagnosticProbeName[]>([]);
   const [lastSuccessfulCheck, setLastSuccessfulCheck] = useState<string | null>(null);
 
   const runDiag = async () => {
     if (loading) return;
     setLoading(true);
     setDiagnosticError("");
+    setProbeFailures([]);
+    // Never show stale green health when a fresh probe fails.
+    setDoctor(null);
+    setAiOk(null);
+    setV41(null);
     try {
-      const [d, ai, workbench] = await Promise.all([
-        invoke<DoctorResult>("get_doctor"),
-        invoke<boolean>("test_ai_connection"),
-        api.getV41Diagnostics(),
-      ]);
-      setDoctor(d);
-      setAiOk(ai);
-      setV41(workbench);
-      setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
-    } catch (e) {
-      setDiagnosticError("诊断未完成：" + String(e));
+      const result = await collectDiagnostics({
+        doctor: () => invoke<DoctorResult>("get_doctor"),
+        ai: () => invoke<boolean>("test_ai_connection"),
+        workbench: () => api.getV41Diagnostics(),
+      });
+      setDoctor(result.doctor.status === "ok" ? result.doctor.value : null);
+      setAiOk(result.ai.status === "ok" ? result.ai.value : null);
+      setV41(result.workbench.status === "ok" ? result.workbench.value : null);
+      setProbeFailures(result.failures);
+      if (result.failures.length > 0) {
+        const names: Record<DiagnosticProbeName, string> = {
+          doctor: "本地环境", ai: "AI 连接", workbench: "知识工作台",
+        };
+        setDiagnosticError("以下检测未完成：" + result.failures.map(failure => names[failure]).join("、")
+          + "。为保护敏感配置，不显示原始错误详情。");
+      } else {
+        setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
+      }
+    } catch {
+      setDiagnosticError("诊断未完成，请检查本地服务状态；未展示原始错误详情。");
     } finally { setLoading(false); }
   };
 
@@ -50,6 +66,8 @@ export default function DiagnosticsPage() {
     "Claude Code": "Claude Code",
   };
 
+  const aiProbeFailed = probeFailures.includes("ai");
+  const workbenchProbeFailed = probeFailures.includes("workbench");
   const workbenchMounted = Boolean(v41?.workbench.mounted);
   const workbenchStatus = !v41?.siyuan_ready
     ? "不可用"
@@ -80,7 +98,7 @@ export default function DiagnosticsPage() {
         </UiButton></>} />
 
       {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
-      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近成功检测：{lastSuccessfulCheck}</p>}
+      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近全部检测请求成功：{lastSuccessfulCheck}</p>}
       <div className="space-y-2 mb-6">
         {doctor?.checks.map((check) => (
           <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -103,7 +121,7 @@ export default function DiagnosticsPage() {
 
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {aiOk === null ? (
-            <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            aiProbeFailed ? <XCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" /> : <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
           ) : aiOk ? (
             <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
           ) : (
@@ -115,7 +133,7 @@ export default function DiagnosticsPage() {
               <div className="text-xs text-gray-400">无法连接当前配置的 AI 服务</div>
             )}
           </div>
-          <UiStatusBadge tone={aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
+          <UiStatusBadge tone={aiProbeFailed ? "warning" : aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiProbeFailed ? "检测失败" : aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
         </div>
       </div>
 
@@ -136,24 +154,24 @@ export default function DiagnosticsPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">SiYuan Kernel</div>
             <div className={`text-sm font-medium mt-1 ${v41?.siyuan_ready ? "text-green-600" : "text-yellow-500"}`}>
-              {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : "检测中"}
+              {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">Embedded Workbench</div>
             <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? workbenchStatus : "检测中"}
+              {v41 ? workbenchStatus : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">AIKS Bridge</div>
             <div className={`text-sm font-medium mt-1 ${bridgeHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : "检测中"}
+              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">当前工作区</div>
-            <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : "检测中"}</div>
+            <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : workbenchProbeFailed ? "检测失败" : "检测中"}</div>
           </div>
         </div>
 
