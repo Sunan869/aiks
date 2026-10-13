@@ -114,17 +114,17 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   }[detail.status] ?? "text-gray-600";
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="flex items-center gap-2 mb-5">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">处理详情</span>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-5 mb-5">
+      <div className="aiks-surface mb-5">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               {detail.session_title || detail.run_id}
             </h1>
             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -161,16 +161,16 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5 text-center text-sm">
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 text-center text-sm sm:grid-cols-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.knowledge_count}</div>
           <div className="text-xs text-gray-400">知识条目</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.stage_runs.length}</div>
           <div className="text-xs text-gray-400">阶段完成</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">
             {detail.stage_runs.reduce((sum, s) => sum + (s.latency_ms ?? 0), 0)}ms
           </div>
@@ -179,7 +179,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stage trace */}
-      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">处理阶段</h2>
+      <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">处理阶段</h2>
       {detail.stage_runs.length === 0 ? (
         <div className="text-sm text-gray-400 text-center py-8">暂无阶段记录</div>
       ) : (

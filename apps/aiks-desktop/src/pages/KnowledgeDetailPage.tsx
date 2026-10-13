@@ -1,3 +1,4 @@
+import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -454,14 +455,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const tags = parseTags(data.tags);
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="mb-5 flex items-center gap-2">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">知识详情</span>
       </div>
 
-      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-5 aiks-surface">
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -519,7 +520,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{message}</div>}
 
-      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-5 aiks-surface">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">知识内容</h2>
           <span className="text-[10px] text-gray-400">Markdown</span>
@@ -527,7 +528,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-700 dark:text-gray-300">{data.content}</pre>
       </div>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
         <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。</p>
         <div className="flex flex-wrap gap-2">
@@ -535,13 +536,13 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <datalist id="knowledge-relation-candidates">
             {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
-          <select aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
+          <UiSelect aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
             <option value="related">相关</option>
             <option value="supplements">补充</option>
             <option value="corrects">纠正</option>
             <option value="supersedes">替代</option>
             <option value="resolved_by">由其解决</option>
-          </select>
+          </UiSelect>
         </div>
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
@@ -635,17 +636,17 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </section>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">知识质量反馈</h2>
         <p className="mb-3 text-xs text-gray-500">反馈只保存在本地，不会自动删除知识或覆盖人工编辑。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
+          <UiSelect aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
             <option value="useful">有用</option>
             <option value="incorrect">错误</option>
             <option value="duplicate">重复</option>
             <option value="outdated">过时</option>
             <option value="needs_detail">需补充</option>
-          </select>
+          </UiSelect>
           <input aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
           <button type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</button>
         </div>
@@ -661,11 +662,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </section>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
         <p className="mb-3 text-xs text-gray-500">生成建议只预览、不写入；确认「创建」会在 SiYuan 新增独立文档，不覆盖原文。归档与恢复仅变更 AIKS 本地状态，不会删除 SiYuan 文档。来源变化后须重新审核。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
+          <UiSelect aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
             organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
@@ -682,11 +683,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="key_conclusions">提取关键结论</option>
             <option value="compare">比较多份知识</option>
             <option value="merge_draft">合并为新文档草稿</option>
-          </select>
+          </UiSelect>
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
-              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
+              <UiSelect multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
                 onChange={event => {
                   setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
                   organizationGeneration.current += 1;
@@ -703,7 +704,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                 {relationCandidates.filter(item => item.id !== knowledgeId &&
                   (!data.project_name || !item.project_name || data.project_name === item.project_name))
                   .map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
+              </UiSelect>
             </label>
           )}
           <button type="button" disabled={organizeBusy}

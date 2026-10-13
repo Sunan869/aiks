@@ -43,8 +43,8 @@ export default function SearchPage({ onViewKnowledge }: Props) {
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-5">搜索</h1>
+    <div className="aiks-page-shell max-w-4xl">
+      <h1 className="mb-5 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">搜索</h1>
 
       {/* Search input */}
       <div className="flex gap-2 mb-6">

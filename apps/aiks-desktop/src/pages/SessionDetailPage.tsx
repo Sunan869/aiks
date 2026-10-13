@@ -156,16 +156,16 @@ export default function SessionDetailPage({
   const { session, pipeline_run, chunks, knowledge } = data;
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-6">
+    <div className="flex h-full min-h-0 flex-col gap-1 p-4 md:p-6">
       <div className="mb-4 flex flex-shrink-0 items-center gap-2">
         <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">工作记录详情</span>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
-          <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <h1 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {session.title || session.session_id}
             </h1>
@@ -195,7 +195,7 @@ export default function SessionDetailPage({
           </section>
 
           {pipeline_run && (
-            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h2 className="mb-2 text-xs font-semibold text-gray-500">处理状态</h2>
               <div className="flex items-center gap-2 text-xs">
                 <span className={`font-medium ${{ READY: "text-green-600", PROCESSING: "text-blue-600", FAILED: "text-red-500", RAW_ONLY: "text-gray-500" }[pipeline_run.status] ?? "text-gray-600"}`}>
@@ -210,8 +210,8 @@ export default function SessionDetailPage({
           )}
 
           {chunks.length > 0 && (
-            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-              <h2 className="mb-2 text-xs font-semibold text-gray-500">LLM 切片 ({chunks.length})</h2>
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">LLM 切片 ({chunks.length})</h2>
               <div className="space-y-2">
                 {chunks.map(chunk => (
                   <div key={chunk.index} className="text-xs text-gray-500">
@@ -222,7 +222,7 @@ export default function SessionDetailPage({
             </section>
           )}
 
-          <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <h2 className="mb-2 text-xs font-semibold text-gray-500">已提炼知识 ({knowledge.length})</h2>
             {knowledge.length === 0 ? (
               <div className="py-3 text-xs text-gray-400">暂无知识条目</div>
@@ -247,7 +247,7 @@ export default function SessionDetailPage({
           </section>
         </aside>
 
-        <section className="flex min-h-0 flex-col justify-between rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+        <section className="flex min-h-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">原始对话</h2>
