@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiInput } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
@@ -115,12 +116,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
 
   return (
     <div className="aiks-page-shell min-w-0">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">知识库</h1>
-          {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader title="知识库" description={data ? `共 ${data.total} 条知识` : "本地知识库"} actions={<>
           {syncResult && (
             <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
               {syncResult}
@@ -152,9 +148,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
             {categories.map(c => (
               <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
             ))}
-          </UiSelect>
-        </div>
-      </div>
+          </UiSelect></>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <UiInput aria-label="搜索当前页知识" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}

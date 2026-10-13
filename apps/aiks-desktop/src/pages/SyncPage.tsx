@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -28,10 +29,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
 
   return (
     <div className="aiks-page-shell w-full min-w-0 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">同步记录</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Raw Session 同步与 AI 整理状态</p>
-      </div>
+      <PageHeader title="同步记录" description="Raw Session 同步与 AI 整理状态" />
 
       {/* Sync stats */}
       {fullStatus && (

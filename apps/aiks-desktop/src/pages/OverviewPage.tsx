@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { RefreshCw, CheckCircle, Cpu, Zap } from "lucide-react";
@@ -39,11 +40,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
 
   return (
     <div className="aiks-page-shell min-w-0 space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-2xl font-bold tracking-tight">概览</h1>
-        <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p></div>
-        <span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">本地工作空间</span>
-      </div>
+      <PageHeader title="概览" description="AI 工作知识库状态" actions={<span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">本地工作空间</span>} />
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

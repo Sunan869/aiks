@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -38,18 +39,13 @@ export default function LogsPage() {
 
   return (
     <div className="aiks-page-shell flex h-full min-h-0 min-w-0 flex-col">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">日志</h1>
-          <p className="text-gray-500 text-sm mt-1">运行日志</p>
-        </div>
+      <PageHeader title="日志" description="运行日志" actions={<>
         <UiButton variant="outline" size="sm"
           onClick={() => setLogs([])}
           className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded border"
         >
           清空
-        </UiButton>
-      </div>
+        </UiButton></>} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <UiInput aria-label="筛选日志" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索日志内容…" className="min-w-0 flex-1" />

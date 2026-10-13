@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
@@ -98,12 +99,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
 
   return (
     <div className="aiks-page-shell min-w-0">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">工作记录</h1>
-          {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader title="工作记录" description={data ? `共 ${data.total} 条` : "本地会话记录"} actions={<>
           <UiButton variant="outline" size="sm"
             onClick={() => {
               setShowImport(true);
@@ -122,9 +118,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
             {sourceOptions.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
-          </UiSelect>
-        </div>
-      </div>
+          </UiSelect></>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <UiInput aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}

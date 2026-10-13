@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -66,11 +67,7 @@ export default function DiagnosticsPage() {
 
   return (
     <div className="aiks-page-shell w-full min-w-0">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">帮助与诊断</h1>
-          <p className="text-xs text-gray-400 mt-0.5">系统组件、知识工作台与迁移状态</p>
-        </div>
+      <PageHeader title="帮助与诊断" description="系统组件、知识工作台与迁移状态" actions={<>
         <UiButton variant="outline" size="sm"
           onClick={runDiag}
           disabled={loading}
@@ -78,8 +75,7 @@ export default function DiagnosticsPage() {
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           重新检测
-        </UiButton>
-      </div>
+        </UiButton></>} />
 
       {diagnosticError && <p role="alert" className="mb-4 break-words rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{diagnosticError}</p>}
       {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近成功检测：{lastSuccessfulCheck}</p>}

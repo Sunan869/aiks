@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
@@ -47,7 +48,7 @@ export default function SearchPage({ onViewKnowledge }: Props) {
 
   return (
     <div className="aiks-page-shell max-w-4xl">
-      <h1 className="mb-5 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">搜索</h1>
+      <PageHeader title="搜索" description="搜索本地知识库中的技术结论与历史记录" />
 
       {/* Search input */}
       <div role="search" className="mb-6 flex flex-wrap gap-2">
