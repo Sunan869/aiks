@@ -182,3 +182,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - SearchSelect clears stale filter text when dismissed by outside click; Escape ownership remains within nested popovers.
 - CalendarDateField responds to an externally changed controlled date by displaying that selected date's month on reopening, preserving keyboard/date selection semantics.
 - Native/UI tests pending; this is an overlay interaction correctness pass, not official shadcn/Radix integration.
+
+## 2026-10-13 live log center module
+
+- Logs now classify errors/warnings from event text, retain the latest 500 log entries, filter by severity/text and copy the visible selection for support diagnostics.
+- A pause control stops appending events without accumulating a hidden backlog and reports how many updates were omitted while paused. Resume handles new events; clear resets displayed history and omitted counter.
+- The event subscription guards an unmount occurring before async listen resolves, preventing a leaked listener. This does not persist or upload logs or alter Rust providers.
+- Pure log formatting, severity, capacity and filtering have executable Vitest coverage. Windows verification remains required; this is not the official shadcn/Radix migration.
