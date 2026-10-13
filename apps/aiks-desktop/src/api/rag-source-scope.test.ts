@@ -44,8 +44,8 @@ describe("S2.4 source-scoped evidence-only Ask AIKS", () => {
     expect(panelSource).toContain('aria-label="问 AIKS 数据源范围"');
     expect(panelSource).toContain('source: selectedSource || undefined');
     expect(panelSource).toContain('project: selectedProject || undefined');
-    expect(panelSource).toContain("setSelectedProject(event.target.value);\n              setMessages([]);");
-    expect(panelSource).toContain("setSelectedSource(event.target.value);\n              setMessages([]);");
+    expect(panelSource).toMatch(/setSelectedProject\(value\);\s*setMessages\(\[\]\);/);
+    expect(panelSource).toMatch(/setSelectedSource\(value\);\s*setMessages\(\[\]\);/);
     expect(rustRag).toContain("let scope = retrieval_scope(&request)?");
     expect(rustRag).toContain("source: normalize(\"source\", &request.source)?");
     expect(rustRag).toContain("audit_answer_citations(&answer, &self.citations)");

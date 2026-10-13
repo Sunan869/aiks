@@ -26,7 +26,7 @@ describe("S3.3 Agent suggestion export UI boundary", () => {
     expect(sourceFilterHandler).toContain('setSourceFilter(event.target.value);');
     expect(sourceFilterHandler.indexOf('invalidatePreview();'))
       .toBeLessThan(sourceFilterHandler.indexOf('setSelectedAgentKnowledgeIds([]);'));
-    expect(pageSource).toContain('invalidatePreview();\n                    setAgentFormat');
+    expect(pageSource).toMatch(/invalidatePreview\(\);\s*setAgentFormat\(/);
     expect(pageSource).toContain('invalidatePreview(); setFrom(');
     expect(pageSource).toContain('invalidatePreview(); setThrough(');
     expect(pageSource).toContain('invalidatePreview(); setTokenBudget(');

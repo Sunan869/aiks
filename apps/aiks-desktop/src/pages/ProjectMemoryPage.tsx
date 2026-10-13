@@ -1,3 +1,4 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
@@ -725,16 +726,10 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             <div className="mb-3 space-y-2 text-xs">
               <label className="flex items-center gap-2">
                 Agent 导出格式
-                <UiSelect aria-label="Agent 导出格式" value={agentFormat}
-                  className="rounded border bg-transparent p-2 dark:border-gray-700"
-                  onChange={event => {
-                    invalidatePreview();
-                    setAgentFormat(event.target.value as AgentExportFormat);
-                  }}>
-                  {AGENT_EXPORT_FORMATS.map(format => (
-                    <option key={format.value} value={format.value}>{format.label}</option>
-                  ))}
-                </UiSelect>
+                <RadixSelectField label="Agent 导出格式" value={agentFormat}
+                options={AGENT_EXPORT_FORMATS.map(format => ({value:format.value,label:format.label}))}
+                onValueChange={value => { invalidatePreview(); setAgentFormat(value as AgentExportFormat); }}
+                className="text-xs" />
               </label>
               <p className="text-gray-500">
                 AGENTS.md / CLAUDE.md 仅生成可审核的引用建议片段，不自动读取、覆盖或合并已有文件。

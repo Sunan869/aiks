@@ -1,4 +1,5 @@
-import { UiButton, UiSelect } from "./ui/fields";
+import { UiButton } from "./ui/fields";
+import { RadixSelectField } from "./ui/RadixSelectField";
 import { useModalFocus } from "./ui/useModalFocus";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
@@ -210,37 +211,15 @@ export default function AskAiksPanel({
         </header>
         <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2 text-xs dark:border-gray-800">
           <label htmlFor="ask-aiks-project-filter" className="text-gray-500">检索范围</label>
-          <UiSelect
-            id="ask-aiks-project-filter"
-            aria-label="问 AIKS 项目范围"
-            value={selectedProject}
-            disabled={loading}
-            onChange={event => {
-              setSelectedProject(event.target.value);
-              setMessages([]);
-              setError(null);
-            }}
-            className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-1.5 text-xs dark:border-gray-700"
-          >
-            <option value="">所有项目</option>
-            {projectChoices.map(project => <option key={project} value={project}>{project}</option>)}
-          </UiSelect>
+          <RadixSelectField label="问 AIKS 项目范围" value={selectedProject} disabled={loading}
+            options={[{value:"",label:"所有项目"},...projectChoices.map(project=>({value:project,label:project}))]}
+            onValueChange={value => { setSelectedProject(value); setMessages([]); setError(null); }}
+            className="min-w-0 flex-1 text-xs" />
           <label htmlFor="ask-aiks-source-filter" className="text-gray-500">来源</label>
-          <UiSelect
-            id="ask-aiks-source-filter"
-            aria-label="问 AIKS 数据源范围"
-            value={selectedSource}
-            disabled={loading}
-            onChange={event => {
-              setSelectedSource(event.target.value);
-              setMessages([]);
-              setError(null);
-            }}
-            className="min-w-0 max-w-36 rounded border border-gray-200 bg-transparent p-1.5 text-xs dark:border-gray-700"
-          >
-            <option value="">所有来源</option>
-            {sourceChoices.map(source => <option key={source} value={source}>{source}</option>)}
-          </UiSelect>
+          <RadixSelectField label="问 AIKS 数据源范围" value={selectedSource} disabled={loading}
+            options={[{value:"",label:"所有来源"},...sourceChoices.map(source=>({value:source,label:source}))]}
+            onValueChange={value => { setSelectedSource(value); setMessages([]); setError(null); }}
+            className="min-w-0 max-w-36 text-xs" />
         </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 dark:bg-gray-950/20">
