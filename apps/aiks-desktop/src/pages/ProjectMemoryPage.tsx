@@ -19,7 +19,7 @@ function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
   onOpenSession: Props["onOpenSession"];
 }) {
   return (
-    <article className="rounded border p-3 dark:border-gray-700">
+    <article className="memory-evidence">
       <div className="flex flex-wrap justify-between gap-2">
         <strong>{item.title}</strong>
         <span className="text-xs text-gray-500">{recordedUpdateDay(item.updated_at) || "更新时间未知"} · {item.category} · {item.source}</span>
@@ -396,14 +396,25 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   );
 
   return (
-    <div className="space-y-5 p-6 text-sm">
-      <header>
-        <h1 className="text-xl font-semibold">项目长期记忆</h1>
-        <p className="mt-2 text-xs text-gray-500">按已记录的项目路径归集不同 AI 工具的 Session。无法确认路径的会话不会仅凭同名自动合并。</p>
+    <div className="memory-workspace space-y-5 p-4 text-sm md:p-6">
+      <header className="memory-hero">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-blue-600 dark:text-blue-300">AIKS / Knowledge workspace</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">项目长期记忆</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">沿项目路径汇集知识证据、跟踪知识演进，并将高频管理操作与日常阅读分离。不会只凭同名项目合并不同来源。</p>
+          </div>
+          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">本地 · 来源可追溯</span>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="memory-stat"><span>已发现项目</span><strong>{projects.length}</strong></div>
+          <div className="memory-stat"><span>当前项目会话</span><strong>{detail?.project.session_count ?? "—"}</strong></div>
+          <div className="memory-stat"><span>当前项目知识</span><strong>{detail?.project.knowledge_count ?? "—"}</strong></div>
+        </div>
       </header>
       {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{notice}</p>}
       {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
-      <div className="flex items-center gap-3">
+      <div className="memory-project-picker flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
         <select id="project-memory-select" className="min-w-0 flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
           value={selected} onChange={event => setSelected(event.target.value)}>
@@ -411,7 +422,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         </select>
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
-      <section className="rounded border p-4 dark:border-gray-700">
+      <section className="memory-panel">
         <h2 className="font-semibold">人工修正项目归属（仅 AIKS 本地）</h2>
         <p className="mt-2 text-xs text-gray-500">
           仅将选中的 Session 归入一个已经发现真实绝对路径的项目，适用于无路径或识别错误的历史记录。
@@ -462,7 +473,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
       </section>
       {detail && (
         <>
-          <section className="rounded border p-4 dark:border-gray-700">
+          <section className="memory-panel">
             <h2 className="font-semibold">{detail.project.title}</h2>
             <p className="mt-2 text-xs text-gray-500">
               {detail.project.session_count} 条会话 · {detail.project.knowledge_count} 条知识 · 来源：{detail.project.sources.join("、")}
@@ -596,7 +607,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </>
             )}
           </section>
-          <section className="rounded border p-4 dark:border-gray-700">
+          <section className="memory-panel">
             <h2 className="font-semibold">知识演进与人工审核关系</h2>
             <p className="mt-2 text-xs text-gray-500">
               仅显示带来源证据、由用户确认或尚待确认的「修正 / 替代 / 解决」关系。
@@ -666,7 +677,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </div>
             )}
           </section>
-          <section className="rounded border p-4 dark:border-gray-700">
+          <section className="memory-panel">
             <h2 className="font-semibold">工作回顾与 Agent 上下文</h2>
             <p className="mt-2 text-xs text-gray-500">先生成可编辑预览，再复制使用。不会自动写入项目文件或外部服务。</p>
             <label htmlFor="project-memory-source" className="my-3 flex items-center gap-2 text-xs">

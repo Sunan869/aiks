@@ -23,7 +23,9 @@ const CHARS_PER_TOKEN: f64 = 3.5;
 /// 12_000 estimated keeps the worst case (~19K real tokens) well inside
 /// the window after adding the prompt frame + 8K output budget.
 const TARGET_TOKENS: usize = 12_000;
-const MAX_MESSAGES: usize = 40;
+// Token budget is the primary guard. The old 40-message ceiling forced
+// unnecessarily many requests for short conversational turns.
+const MAX_MESSAGES: usize = 80;
 
 pub struct SessionChunk {
     pub id: String,
@@ -270,6 +272,16 @@ mod tests {
             let span = chunk.message_end - chunk.message_start + 1;
             assert!(span <= MAX_MESSAGES as i32 + 1);
         }
+    }
+
+    #[test]
+    fn short_turns_pack_by_token_budget_instead_of_old_forty_message_ceiling() {
+        let messages: Vec<_> = (0..80).map(make_msg).collect();
+        let result = chunk_for_llm(1, &messages);
+        assert_eq!(result.chunks.len(), 1);
+        assert_eq!(result.chunks[0].message_start, 0);
+        assert_eq!(result.chunks[0].message_end, 79);
+        assert!(result.chunks[0].token_count <= TARGET_TOKENS as i32);
     }
 
     #[test]
