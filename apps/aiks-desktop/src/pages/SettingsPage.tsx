@@ -1,4 +1,4 @@
-import { UiSelect } from "../components/ui/fields";
+import { UiSelect, UiButton } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { OfflineRestore } from "../components/OfflineRestore";
@@ -399,22 +399,22 @@ export default function SettingsPage() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <UiButton variant="outline" size="sm"
               type="button"
               onClick={() => void testEmbeddingConnection()}
               disabled={embeddingTesting}
               className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
             >
               {embeddingTesting ? "测试中..." : "测试 Embedding 连接"}
-            </button>
-            <button
+            </UiButton>
+            <UiButton variant="outline" size="sm"
               type="button"
               onClick={() => void rebuildSemanticIndex()}
               disabled={!settings.embedding_enabled || rebuilding}
               className="text-xs px-3 py-1.5 border border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-300 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
             >
               {rebuilding ? "重建中..." : "重建语义索引"}
-            </button>
+            </UiButton>
             {embeddingProbe && (
               <span className={`text-xs ${embeddingProbe.healthy ? "text-green-600" : "text-red-500"}`}>
                 {embeddingProbe.healthy ? "✓" : "✕"} {embeddingProbe.message}
@@ -441,12 +441,12 @@ export default function SettingsPage() {
       </Section>
 
       <div className="mb-4">
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
         >
           {showAdvanced ? "▾" : "▸"} 高级设置
-        </button>
+        </UiButton>
         {showAdvanced && (
           <div className="mt-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 text-sm">
             <div>
@@ -481,13 +481,13 @@ export default function SettingsPage() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={testAiConnection}
                 disabled={aiTesting}
                 className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
               >
                 {aiTesting ? "测试中..." : "测试当前 AI 配置"}
-              </button>
+              </UiButton>
               {aiHealthy !== null && (
                 <span className={`text-xs ${aiHealthy ? "text-green-600" : "text-red-500"}`}>
                   {aiHealthy ? "✓ 连接正常" : "✕ 连接失败"}
@@ -507,19 +507,19 @@ export default function SettingsPage() {
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
       <div className="mt-4 flex items-center gap-2">
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => void save(false)}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
         >
           {saved ? <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4" />已保存</span> : "保存设置"}
-        </button>
+        </UiButton>
         {!isMock && (
-          <button
+          <UiButton variant="outline" size="sm"
             onClick={() => void save(true)}
             className="px-4 py-2 border border-blue-300 text-blue-600 rounded-lg text-sm hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/20"
           >
             保存并重启
-          </button>
+          </UiButton>
         )}
       </div>
     </div>
@@ -544,14 +544,14 @@ function Toggle({ label, desc, value, onChange }: { label: string; desc: string;
         <div className="text-sm">{label}</div>
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
-      <button
+      <UiButton variant="outline" size="sm"
         role="switch"
         aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
       >
         <span className={`absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
-      </button>
+      </UiButton>
     </div>
   );
 }

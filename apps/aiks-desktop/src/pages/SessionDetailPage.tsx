@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useCallback, useEffect, useState } from "react";
 import { useSourceName } from "../ProviderCatalog";
 
@@ -158,7 +159,7 @@ export default function SessionDetailPage({
   return (
     <div className="flex h-full min-h-0 flex-col gap-1 p-4 md:p-6">
       <div className="mb-4 flex flex-shrink-0 items-center gap-2">
-        <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
+        <UiButton variant="outline" size="sm" onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</UiButton>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">工作记录详情</span>
       </div>
@@ -176,20 +177,20 @@ export default function SessionDetailPage({
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {pipeline_run && (
-                <button
+                <UiButton variant="outline" size="sm"
                   onClick={() => onViewPipeline(pipeline_run.run_id)}
                   className="rounded border border-gray-200 px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                 >
                   查看处理详情
-                </button>
+                </UiButton>
               )}
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={handleTriggerPipeline}
                 disabled={triggering}
                 className="rounded bg-blue-600 px-2.5 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {triggering ? "提交中..." : "重新提炼"}
-              </button>
+              </UiButton>
             </div>
             {triggerMsg && <div className="mt-2 text-xs text-blue-600">{triggerMsg}</div>}
           </section>
@@ -229,7 +230,7 @@ export default function SessionDetailPage({
             ) : (
               <div className="space-y-2">
                 {knowledge.map(item => (
-                  <button
+                  <UiButton variant="outline" size="sm"
                     key={item.id}
                     type="button"
                     onClick={() => onViewKnowledge(item.id)}
@@ -240,7 +241,7 @@ export default function SessionDetailPage({
                       {CATEGORY_LABELS[item.category] ?? item.category} · {(item.confidence * 100).toFixed(0)}%
                     </div>
                     <div className="mt-1 line-clamp-2 text-xs text-gray-500">{item.summary}</div>
-                  </button>
+                  </UiButton>
                 ))}
               </div>
             )}
@@ -263,13 +264,13 @@ export default function SessionDetailPage({
             )}
           </div>
           <div className="pt-6">
-            <button
+            <UiButton variant="outline" size="sm"
               type="button"
               onClick={() => onViewRawConversation(sessionDocId)}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               查看原始对话
-            </button>
+            </UiButton>
           </div>
         </section>
       </div>

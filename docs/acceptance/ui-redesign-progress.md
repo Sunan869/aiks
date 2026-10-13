@@ -28,3 +28,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Reused the input primitive in Sessions and Search while retaining existing source selection, pagination, and search logic.
 - This is **shared-component consolidation**, not the official shadcn/Radix migration. A real npm install, locked dependencies, keyboard/visual checks and CI remain prerequisites for calling that migration complete.
 - No data model, provider write permissions, SiYuan overwrite behavior, or backup entry points were modified.
+
+## 2026-10-13 expanded action-control consolidation
+
+- One batch moves remaining native action buttons in 11 pages to the existing UiButton primitive: knowledge base, knowledge detail, knowledge list, knowledge workbench, knowledge workspace, processing detail, processing center, project memory, session detail, settings and sources.
+- Preserves original click handlers, disabled and visibility conditions, action labels and domain calls. Adds source-level contract coverage for native-button regressions.
+- Official shadcn/ui and Radix dependency installation remains **not done**; this is an interim shared-controls refactor. Requires CI and Windows visual validation before acceptance.

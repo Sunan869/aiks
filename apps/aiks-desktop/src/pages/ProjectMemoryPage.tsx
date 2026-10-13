@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { CalendarDateField } from "../components/ui/CalendarDateField";
 import { SearchSelect } from "../components/ui/SearchSelect";
 import { UiSelect } from "../components/ui/fields";
@@ -30,8 +31,8 @@ function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
       <p className="my-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">{item.summary}</p>
       {item.feedback_status && <span className="text-xs text-amber-600">最近用户反馈：{item.feedback_status}</span>}
       <div className="mt-2 flex gap-3 text-xs">
-        <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(item.knowledge_id)}>知识详情</button>
-        <button type="button" className="text-blue-600" onClick={() => onOpenSession(item.session_id)}>原始 Session</button>
+        <UiButton variant="outline" size="sm" type="button" className="text-blue-600" onClick={() => onOpenKnowledge(item.knowledge_id)}>知识详情</UiButton>
+        <UiButton variant="outline" size="sm" type="button" className="text-blue-600" onClick={() => onOpenSession(item.session_id)}>原始 Session</UiButton>
       </div>
     </article>
   );
@@ -431,13 +432,13 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
           ["evolution", "知识演进"],
           ["tools", "项目工具"],
         ] as const).map(([key, label]) => (
-          <button key={key} type="button" aria-pressed={workspaceTab === key}
+          <UiButton variant="outline" size="sm" key={key} type="button" aria-pressed={workspaceTab === key}
             onClick={() => setWorkspaceTab(key)}
             className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${workspaceTab === key
               ? "bg-slate-900 text-white shadow-sm dark:bg-sky-600"
               : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
             {label}
-          </button>
+          </UiButton>
         ))}
       </nav>
       <section className={`memory-panel ${workspaceTab === "tools" ? "" : "hidden"}`}>
@@ -472,16 +473,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               ))}
             </UiSelect>
           </label>
-          <button type="button" disabled={bindingBusy || !bindingSession || !bindingTarget}
+          <UiButton variant="outline" size="sm" type="button" disabled={bindingBusy || !bindingSession || !bindingTarget}
             onClick={() => void applyProjectBinding()}
             className="rounded border border-blue-400 px-3 py-2 text-blue-600 disabled:opacity-40">
             确认本地归属
-          </button>
-          <button type="button" disabled={bindingBusy || !bindings.some(item => String(item.session_id) === bindingSession)}
+          </UiButton>
+          <UiButton variant="outline" size="sm" type="button" disabled={bindingBusy || !bindings.some(item => String(item.session_id) === bindingSession)}
             onClick={() => void applyProjectBinding(true)}
             className="rounded border px-3 py-2 text-gray-600 disabled:opacity-40 dark:border-gray-700">
             撤销归属修正
-          </button>
+          </UiButton>
         </div>
         {bindings.some(item => String(item.session_id) === bindingSession) && (
           <p className="mt-2 text-xs text-amber-700">当前 Session 有用户手动归属记录；可使用「撤销归属修正」恢复。</p>
@@ -512,15 +513,15 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 按既有知识类别整理，不从对话猜测已完成事项、待办或事实矛盾。统计仅覆盖当前有界样本。
               </p>
               <div role="group" aria-label="项目记忆主题" className="flex flex-wrap gap-2">
-                <button type="button" aria-pressed={topicFilter === "all"}
+                <UiButton variant="outline" size="sm" type="button" aria-pressed={topicFilter === "all"}
                   className={`rounded border px-2 py-1 text-xs ${topicFilter === "all" ? "border-blue-500 bg-blue-50 text-blue-900" : "dark:border-gray-700"}`}
-                  onClick={() => setTopicFilter("all")}>全部主题 · {detail.entries.length}</button>
+                  onClick={() => setTopicFilter("all")}>全部主题 · {detail.entries.length}</UiButton>
                 {PROJECT_MEMORY_TOPICS.map(topic => (
-                  <button type="button" key={topic.id} aria-pressed={topicFilter === topic.id}
+                  <UiButton variant="outline" size="sm" type="button" key={topic.id} aria-pressed={topicFilter === topic.id}
                     className={`rounded border px-2 py-1 text-xs ${topicFilter === topic.id ? "border-blue-500 bg-blue-50 text-blue-900" : "dark:border-gray-700"}`}
                     onClick={() => setTopicFilter(topic.id)}>
                     {topic.title} · {topicCounts?.[topic.id] ?? 0}
-                  </button>
+                  </UiButton>
                 ))}
               </div>
             </div>
@@ -529,11 +530,11 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 <input type="checkbox" checked={onlyFlagged} onChange={event => setOnlyFlagged(event.target.checked)} />
                 仅查看需要人工复核的知识（基于用户反馈）
               </label>
-              <button type="button" aria-pressed={viewMode === "timeline"}
+              <UiButton variant="outline" size="sm" type="button" aria-pressed={viewMode === "timeline"}
                 className="rounded border px-3 py-2 dark:border-gray-700"
                 onClick={() => setViewMode(current => current === "timeline" ? "list" : "timeline")}>
                 {viewMode === "timeline" ? "切换为列表" : "按知识更新时间线"}
-              </button>
+              </UiButton>
             </div>
             {viewMode === "timeline" && (
               <p className="mt-2 text-xs text-amber-700">
@@ -564,21 +565,21 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             {reviewQueue && (
               <>
                 <div role="group" aria-label="复核线索类别" className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <button type="button" aria-pressed={reviewQueueFilter === "all"}
+                  <UiButton variant="outline" size="sm" type="button" aria-pressed={reviewQueueFilter === "all"}
                     className="rounded border px-2 py-1 dark:border-gray-700"
                     onClick={() => setReviewQueueFilter("all")}>
                     所有线索 · {reviewQueue.feedbackCount + reviewQueue.relationCount}
-                  </button>
-                  <button type="button" aria-pressed={reviewQueueFilter === "feedback"}
+                  </UiButton>
+                  <UiButton variant="outline" size="sm" type="button" aria-pressed={reviewQueueFilter === "feedback"}
                     className="rounded border px-2 py-1 dark:border-gray-700"
                     onClick={() => setReviewQueueFilter("feedback")}>
                     用户质量反馈 · {reviewQueue.feedbackCount}
-                  </button>
-                  <button type="button" aria-pressed={reviewQueueFilter === "relation"}
+                  </UiButton>
+                  <UiButton variant="outline" size="sm" type="button" aria-pressed={reviewQueueFilter === "relation"}
                     className="rounded border px-2 py-1 dark:border-gray-700"
                     onClick={() => setReviewQueueFilter("relation")}>
                     人工关系线索 · {reviewQueue.relationCount}
-                  </button>
+                  </UiButton>
                 </div>
                 {reviewQueue.truncated && (
                   <p role="status" className="mt-2 text-xs text-amber-700">
@@ -599,19 +600,19 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                       </p>
                       <div className="mt-2 flex flex-wrap gap-3">
                         {item.knowledgeIds.map(id => (
-                          <button type="button" key={id} onClick={() => onOpenKnowledge(id)}
-                            className="text-blue-600">查看知识 {id}</button>
+                          <UiButton variant="outline" size="sm" type="button" key={id} onClick={() => onOpenKnowledge(id)}
+                            className="text-blue-600">查看知识 {id}</UiButton>
                         ))}
                         {item.sourceSessionIds.map(id => (
-                          <button type="button" key={id} onClick={() => onOpenSession(id)}
-                            className="text-blue-600">查看来源 Session {id}</button>
+                          <UiButton variant="outline" size="sm" type="button" key={id} onClick={() => onOpenSession(id)}
+                            className="text-blue-600">查看来源 Session {id}</UiButton>
                         ))}
                         {item.relationId && item.relationStatus === "suggested" && (
-                          <button type="button" disabled={relationBusy !== null}
+                          <UiButton variant="outline" size="sm" type="button" disabled={relationBusy !== null}
                             className="text-green-700 disabled:opacity-40"
                             onClick={() => void reviewEvolution(item.relationId!, "confirmed")}>
                             核对原文后确认关联
-                          </button>
+                          </UiButton>
                         )}
                       </div>
                     </article>
@@ -659,31 +660,31 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                         <span className="text-gray-500">{relationLabel} · 关系更新 {link.updated_at.slice(0, 10)}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <button type="button" className="text-blue-600 hover:underline"
+                        <UiButton variant="outline" size="sm" type="button" className="text-blue-600 hover:underline"
                           onClick={() => onOpenKnowledge(link.source_id)}>
                           {link.source_title}
-                        </button>
+                        </UiButton>
                         <span className="text-gray-400">→ {relationLabel} →</span>
-                        <button type="button" className="text-blue-600 hover:underline"
+                        <UiButton variant="outline" size="sm" type="button" className="text-blue-600 hover:underline"
                           onClick={() => onOpenKnowledge(link.target_id)}>
                           {link.target_title}
-                        </button>
+                        </UiButton>
                       </div>
                       <p className="mt-2 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">
                         审核证据：{link.evidence}
                       </p>
                       {link.status === "suggested" && (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <button type="button" disabled={relationBusy !== null}
+                          <UiButton variant="outline" size="sm" type="button" disabled={relationBusy !== null}
                             className="rounded border border-green-400 px-2 py-1 text-green-700 disabled:opacity-40"
                             onClick={() => void reviewEvolution(link.id, "confirmed")}>
                             {relationBusy === link.id ? "审核提交中…" : "核对原文后确认关系"}
-                          </button>
-                          <button type="button" disabled={relationBusy !== null}
+                          </UiButton>
+                          <UiButton variant="outline" size="sm" type="button" disabled={relationBusy !== null}
                             className="rounded border border-gray-300 px-2 py-1 text-gray-700 disabled:opacity-40"
                             onClick={() => void reviewEvolution(link.id, "rejected")}>
                             拒绝关系建议
-                          </button>
+                          </UiButton>
                         </div>
                       )}
                     </article>
@@ -712,19 +713,19 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </UiSelect>
             </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
-              <button type="button" onClick={() => chooseReportRange("today")}
-                className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</button>
-              <button type="button" onClick={() => chooseReportRange("week")}
-                className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</button>
-              <button type="button" onClick={() => chooseReportRange("yesterday")}
-                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">昨天</button>
-              <button type="button" onClick={() => chooseReportRange("last7")}
-                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">最近 7 天</button>
-              <button type="button" onClick={() => chooseReportRange("month")}
-                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">本月</button>
+              <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("today")}
+                className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("week")}
+                className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("yesterday")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">昨天</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("last7")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">最近 7 天</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("month")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">本月</UiButton>
               <label>开始日期 <CalendarDateField label="回顾开始日期" value={from} onChange={value => { invalidatePreview(); setFrom(value); }} /></label>
               <label>结束日期 <CalendarDateField label="回顾结束日期" value={through} onChange={value => { invalidatePreview(); setThrough(value); }} /></label>
-              <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
+              <UiButton variant="outline" size="sm" disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</UiButton>
             </div>
             <div className="mb-3 space-y-2 text-xs">
               <label className="flex items-center gap-2">
@@ -750,7 +751,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 <input aria-label="Token 预算" type="number" min={256} max={8192} value={tokenBudget}
                   onChange={e => { invalidatePreview(); setTokenBudget(Math.max(256, Math.min(8192, Number(e.target.value) || 256))); }} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
               </label>
-              <button disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</button>
+              <UiButton variant="outline" size="sm" disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</UiButton>
             </div>
             <section className="mb-3 rounded border border-indigo-200 p-3 text-xs dark:border-indigo-900">
               <h3 className="font-semibold">人工精选 Agent 知识包（最多 30 条）</h3>
@@ -783,11 +784,11 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span>已选 {selectedAgentKnowledgeIds.length} / 30 条</span>
-                <button type="button" disabled={working || selectedAgentKnowledgeIds.length === 0}
+                <UiButton variant="outline" size="sm" type="button" disabled={working || selectedAgentKnowledgeIds.length === 0}
                   onClick={() => void generateCuratedAgentPack()}
                   className="rounded border border-indigo-500 px-3 py-2 text-indigo-700 disabled:opacity-40">
                   生成所选知识的 Agent 背景预览
-                </button>
+                </UiButton>
               </div>
             </section>
             <div className="mb-3 rounded border border-gray-200 p-3 text-xs dark:border-gray-700">
@@ -828,16 +829,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 <textarea aria-label="导出内容预览" value={preview} onChange={e => setPreview(e.target.value)} rows={15}
                   className="w-full rounded border bg-transparent p-3 font-mono text-xs dark:border-gray-700" />
                 <div className="flex flex-wrap gap-2">
-                  <button disabled={!preview.trim()} onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">复制审核后的 Markdown</button>
-                  <button disabled={!preview.trim()} onClick={downloadPreview} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">导出 Markdown 文件</button>
+                  <UiButton variant="outline" size="sm" disabled={!preview.trim()} onClick={() => void copyPreview()} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">复制审核后的 Markdown</UiButton>
+                  <UiButton variant="outline" size="sm" disabled={!preview.trim()} onClick={downloadPreview} className="rounded border px-3 py-2 text-xs disabled:opacity-40 dark:border-gray-700">导出 Markdown 文件</UiButton>
                   {previewType === "review" && (
-                    <button type="button" disabled={!preview.trim() || reportBusy}
+                    <UiButton variant="outline" size="sm" type="button" disabled={!preview.trim() || reportBusy}
                       onClick={() => void saveReviewedReport()}
                       className="rounded border border-emerald-500 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
                       {reportBusy ? "保存中…" : reportDraftId
                         ? "保存为新的本地修订 v" + (reportCurrentRevision + 1)
                         : "保存到本地报告草稿"}
-                    </button>
+                    </UiButton>
                   )}
                 </div>
               </div>

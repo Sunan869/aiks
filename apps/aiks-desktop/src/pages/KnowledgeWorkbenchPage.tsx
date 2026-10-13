@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, FilePenLine, Plus, RefreshCw, Star } from "lucide-react";
@@ -94,20 +95,20 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           </div>
           <p className="mt-1 text-sm text-gray-500">AI 提炼与手工知识统一管理；SiYuan 作为可选发布目标，不再是第二套编辑器。</p>
         </div>
-        <button
+        <UiButton variant="outline" size="sm"
           type="button"
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
           新建知识
-        </button>
+        </UiButton>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
         <div className="flex flex-wrap gap-1">
           {tabs.map(([key, label]) => (
-            <button
+            <UiButton variant="outline" size="sm"
               key={key}
               type="button"
               onClick={() => { setView(key); setPage(0); }}
@@ -116,7 +117,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
                 : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
             >
               {label}
-            </button>
+            </UiButton>
           ))}
         </div>
         <div className="flex items-center gap-2">
@@ -128,9 +129,9 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
             <option value="">全部分类</option>
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </UiSelect>
-          <button type="button" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
+          <UiButton variant="outline" size="sm" type="button" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
+          </UiButton>
         </div>
       </div>
 
@@ -148,7 +149,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           <div className="rounded-full bg-gray-100 p-3 dark:bg-gray-800"><FilePenLine className="h-6 w-6 text-gray-400" /></div>
           <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">当前视图暂无知识</p>
           <p className="mt-1 text-xs text-gray-400">可以从工作记录自动提炼，也可以直接在 AIKS 中新建。</p>
-          <button type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</button>
+          <UiButton variant="outline" size="sm" type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</UiButton>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 overflow-y-auto pb-2 lg:grid-cols-2 xl:grid-cols-3">
@@ -170,14 +171,14 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
                     </div>
                     <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-gray-900 dark:text-gray-100">{item.title}</h3>
                   </div>
-                  <button
+                  <UiButton variant="outline" size="sm"
                     type="button"
                     onClick={e => { e.stopPropagation(); void toggleFavorite(item); }}
                     className={`rounded p-1 transition ${item.is_favorite ? "text-amber-500" : "text-gray-300 opacity-50 group-hover:opacity-100 hover:text-amber-500"}`}
                     title={item.is_favorite ? "取消收藏" : "收藏"}
                   >
                     <Star className="h-4 w-4" fill={item.is_favorite ? "currentColor" : "none"} />
-                  </button>
+                  </UiButton>
                 </div>
 
                 <p className="mt-2 line-clamp-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{item.summary || "暂无摘要"}</p>
@@ -198,9 +199,9 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
       {data && data.total > PAGE_SIZE && (
         <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">上一页</button>
+          <UiButton variant="outline" size="sm" onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">上一页</UiButton>
           <span className="text-xs text-gray-400">{page + 1}</span>
-          <button onClick={() => setPage(value => value + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">下一页</button>
+          <UiButton variant="outline" size="sm" onClick={() => setPage(value => value + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">下一页</UiButton>
         </div>
       )}
 

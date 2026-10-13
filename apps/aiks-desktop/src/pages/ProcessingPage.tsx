@@ -224,11 +224,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             </div>
           ))}
         </div>
-        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
+        <UiButton variant="outline" size="sm" type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
           disabled={!taskStats && !showDiagnosticPreview}
           onClick={toggleDiagnosticPreview}>
           {showDiagnosticPreview ? "收起诊断摘要" : "预览脱敏任务诊断包"}
-        </button>
+        </UiButton>
         {showDiagnosticPreview && diagnosticJson !== null && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
             <p className="text-xs text-gray-500 mb-2">
@@ -238,11 +238,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             </p>
             <pre aria-label="脱敏任务诊断预览" className="text-xs whitespace-pre-wrap max-h-72 overflow-auto">{diagnosticJson}</pre>
             <div className="flex flex-wrap items-center gap-3 mt-2">
-              <button type="button" onClick={refreshDiagnosticPreview}
-                className="text-xs text-blue-600 hover:underline">更新预览快照</button>
-              <button type="button" onClick={saveDiagnostic}
-                className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</button>
-              <button type="button"
+              <UiButton variant="outline" size="sm" type="button" onClick={refreshDiagnosticPreview}
+                className="text-xs text-blue-600 hover:underline">更新预览快照</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={saveDiagnostic}
+                className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</UiButton>
+              <UiButton variant="outline" size="sm" type="button"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(diagnosticJson);
@@ -251,7 +251,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                     setDiagnosticNotice("复制失败，请使用保存 JSON");
                   }
                 }}
-                className="text-xs text-blue-600 hover:underline">复制当前快照</button>
+                className="text-xs text-blue-600 hover:underline">复制当前快照</UiButton>
             </div>
             {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
           </div>
@@ -263,7 +263,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             ["ai_failed", "AI 失败"],
             ["active", "处理中"],
           ] as const).map(([value, label]) => (
-            <button
+            <UiButton variant="outline" size="sm"
               key={value}
               type="button"
               onClick={() => setTaskFilter(value)}
@@ -271,7 +271,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-500 ${taskFilter === value
                 ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                 : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
-            >{label}</button>
+            >{label}</UiButton>
           ))}
         </div>
         <p className="mb-2 text-xs text-slate-500" role="status">当前显示 {visibleTasks.length} / {tasks.length} 条近期任务；全库统计不受筛选影响。</p>
@@ -300,7 +300,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
-                        <button type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
                           className="text-blue-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
                             setRetryingTask(task.session_id);
@@ -315,16 +315,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                               setRetryingTask(null);
                             }
                           }}
-                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</button>
+                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</UiButton>
                       ) : task.sync_status === "CONFLICT" ? (
-                        <button type="button" className="text-amber-600 hover:underline"
+                        <UiButton variant="outline" size="sm" type="button" className="text-amber-600 hover:underline"
                           onClick={() => onViewSession?.(task.session_id)}
                           disabled={!onViewSession}
                           title="打开会话核查来源和目标，保留 SiYuan 用户改动；不会自动覆盖">
                           人工核查冲突
-                        </button>
+                        </UiButton>
                       ) : task.job_status === "PENDING" ? (
-                        <button type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
                           className="text-orange-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
                             setRetryingTask(task.session_id);
@@ -339,7 +339,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                               setRetryingTask(null);
                             }
                           }}
-                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</button>
+                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</UiButton>
                       ) : "—"}
                     </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
@@ -372,7 +372,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             { label: "失败", value: stats.failed, key: "failed", color: "text-red-500" },
             { label: "已完成", value: stats.ready, key: "ready", color: "text-green-600" },
           ].map(item => (
-            <button
+            <UiButton variant="outline" size="sm"
               key={item.key}
               onClick={() => setFilter(item.key)}
               className={`text-left px-4 py-3 rounded border transition-colors ${filter === item.key
@@ -382,7 +382,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             >
               <div className={`text-xl font-bold ${item.color} dark:opacity-90`}>{item.value}</div>
               <div className="text-xs text-gray-500 mt-0.5">{item.label}</div>
-            </button>
+            </UiButton>
           ))}
         </div>
       )}

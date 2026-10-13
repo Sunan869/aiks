@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import { submitProcessingDetailAction } from "../processing-detail-action";
@@ -116,7 +117,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   return (
     <div className="aiks-page-shell">
       <div className="flex items-center gap-2 mb-5">
-        <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
+        <UiButton variant="outline" size="sm" onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</UiButton>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">处理详情</span>
       </div>
@@ -142,13 +143,13 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
           <div className="flex items-center gap-3">
             <span className={`text-sm font-medium ${statusColor}`}>{detail.status}</span>
             {(detail.status === "FAILED" || detail.status === "RAW_ONLY") && (
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={handleRetry}
                 disabled={retrying}
                 className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
               >
                 {retrying ? "提交中..." : detail.status === "FAILED" ? "安全重试失败阶段" : "首次处理原始 Session"}
-              </button>
+              </UiButton>
             )}
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
@@ -124,7 +125,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
               {syncResult}
             </span>
           )}
-          <button
+          <UiButton variant="outline" size="sm"
             onClick={handleSyncToSiyuan}
             disabled={syncing}
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
@@ -141,7 +142,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
               </svg>
             )}
             {syncing ? "同步中..." : "同步到 SiYuan"}
-          </button>
+          </UiButton>
           <UiSelect aria-label="知识分类"
             value={category}
             onChange={e => { setCategory(e.target.value); setPage(0); }}
@@ -158,7 +159,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
         <input aria-label="搜索当前页知识" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
           placeholder="搜索当前页知识标题或摘要…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
         <span className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} 条 · 全部 {data?.total ?? 0} 条</span>
-        {currentPageQuery && <button type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</button>}
+        {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
       </div>
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700">
@@ -189,14 +190,14 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
             第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条
           </span>
           <div className="flex gap-2">
-            <button onClick={() => setPage(p => p - 1)} disabled={page === 0}
+            <UiButton variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 0}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
               上一页
-            </button>
-            <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
+            </UiButton>
+            <UiButton variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
               下一页
-            </button>
+            </UiButton>
           </div>
         </div>
       )}
