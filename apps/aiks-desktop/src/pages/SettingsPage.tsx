@@ -364,7 +364,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="text-xs text-gray-400 mb-1">Embedding 服务地址</div>
-            <input
+            <UiInput
               value={settings.embedding_base_url}
               onChange={event => {
                 update("embedding_base_url", event.target.value);
@@ -376,7 +376,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="text-xs text-gray-400 mb-1">Embedding 模型</div>
-            <input
+            <UiInput
               value={settings.embedding_model}
               onChange={event => {
                 update("embedding_model", event.target.value);
@@ -387,7 +387,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="text-xs text-gray-400 mb-1">向量维度</div>
-            <input
+            <UiInput
               type="number"
               min={1}
               value={settings.embedding_dimensions}
@@ -455,7 +455,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">AI 服务地址</div>
-              <input
+              <UiInput
                 value={settings.ai_base_url}
                 onChange={event => update("ai_base_url", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
@@ -463,7 +463,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">AI 模型</div>
-              <input
+              <UiInput
                 value={settings.ai_model}
                 onChange={event => update("ai_model", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
@@ -471,7 +471,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <div className="text-xs text-gray-400 mb-1">Tool Result 最大字符数</div>
-              <input
+              <UiInput
                 type="number"
                 min={1000}
                 step={1000}

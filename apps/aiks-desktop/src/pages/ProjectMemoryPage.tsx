@@ -749,7 +749,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             </div>
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
               <label>上下文 Token 预算（估算）
-                <input aria-label="Token 预算" type="number" min={256} max={8192} value={tokenBudget}
+                <UiInput aria-label="Token 预算" type="number" min={256} max={8192} value={tokenBudget}
                   onChange={e => { invalidatePreview(); setTokenBudget(Math.max(256, Math.min(8192, Number(e.target.value) || 256))); }} className="ml-2 w-24 rounded border bg-transparent p-1 dark:border-gray-700" />
               </label>
               <UiButton variant="outline" size="sm" disabled={working} onClick={() => void generate("agent")} className="rounded bg-indigo-600 px-3 py-2 text-white disabled:opacity-40">生成 Agent 上下文</UiButton>

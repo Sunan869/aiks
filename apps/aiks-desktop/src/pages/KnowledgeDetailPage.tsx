@@ -534,7 +534,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
         <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。</p>
         <div className="flex flex-wrap gap-2">
-          <input aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+          <UiInput aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
           <datalist id="knowledge-relation-candidates">
             {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
@@ -649,7 +649,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="outdated">过时</option>
             <option value="needs_detail">需补充</option>
           </UiSelect>
-          <input aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
+          <UiInput aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
           <UiButton variant="outline" size="sm" type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</UiButton>
         </div>
         {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{feedbackError}</p>}
@@ -834,7 +834,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             此操作不会再创建 SiYuan 文档。
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <input aria-label="待修复审计的现有知识 ID"
+            <UiInput aria-label="待修复审计的现有知识 ID"
               value={recoveryKnowledgeId} onChange={event => setRecoveryKnowledgeId(event.target.value)}
               placeholder="已有新知识 ID" maxLength={256}
               className="min-w-0 flex-1 rounded border border-amber-300 bg-white p-2 dark:bg-gray-900"
