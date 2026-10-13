@@ -3,8 +3,7 @@ use std::path::Path;
 
 use aiks_core::storage::app_backup::{
     create_offline_backup, create_offline_backup_from_quiesced_workspace,
-    preflight_offline_restore, restore_offline_backup_to_new_directory,
-    verify_offline_backup,
+    preflight_offline_restore, restore_offline_backup_to_new_directory, verify_offline_backup,
 };
 use aiks_core::storage::backup_bundle::{
     create_file_bundle, preflight_file_bundle_restore, verify_file_bundle, BundleManifest,
@@ -157,8 +156,7 @@ fn quiesced_workspace_snapshot_restores_documents_without_private_configuration(
     .unwrap();
     fs::write(workspace.join("conf").join("conf.json"), b"PRIVATE_TOKEN").unwrap();
     let bundle = dir.path().join("complete-backup");
-    let manifest =
-        create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
+    let manifest = create_offline_backup_from_quiesced_workspace(&db, &workspace, &bundle).unwrap();
     assert!(manifest
         .entries
         .iter()

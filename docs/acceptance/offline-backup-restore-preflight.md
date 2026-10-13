@@ -288,3 +288,9 @@
 - 新增 Rust 集成测试：创建隔离的 SQLite DB + SiYuan data/ 目录，以真实备份装配函数写入 bundle，校验 manifest，再恢复到新目录，断言中文文件名与文件字节一致。敏感 `workspace/conf/conf.json` 必须保持原始文件不变，且不进入备份/恢复产物。
 - 新增拒绝以目录符号链接冒充 `workspace/data` 的测试，断言拒绝后不留下目标 bundle 且外部源文件不被修改；Windows 无创建符号链接权限时跳过该案例。
 - 以上测试覆盖归档回环与源保护，不等于真实运行的 SiYuan 停写和重启完成了故障注入；仍须 CI 与独立 Windows 测试目录验收。
+
+
+## 2026-10-13 集成测试 Rust 格式门禁修正
+
+- 基线 `4523134` Windows Provider #38338358430 success；综合 CI #38338358433 仅在 `backup_portable_restore.rs` 2 处格式差异失败。此处严格依据 CI 原始 diff 修正，无需修改安全规则或备份逻辑。
+- 此文件已有真实归档/隔离恢复/敏感配置排除与符号链接拒绝测试；必须等待新的 CI 真正执行 Rust 测试后才能标记验证通过。
