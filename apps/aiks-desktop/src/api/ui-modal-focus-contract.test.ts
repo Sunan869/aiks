@@ -29,6 +29,7 @@ describe("modal keyboard boundary", () => {
   it("lets nested selectors handle Escape before the parent dialog", () => {
     expect(select).toContain('data-aiks-popup="true"');
     expect(calendar).toContain('data-aiks-popup="true"');
+    expect(calendar).toContain("<Popover.Root");
     expect(select).toContain("closePopup()");
     expect(select).toContain("<Popover.Root");
     expect(select).toContain("const openPopup =");

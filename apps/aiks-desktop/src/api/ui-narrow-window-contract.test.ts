@@ -13,6 +13,8 @@ describe("narrow-window UI safeguards", () => {
     expect(picker).toContain("event.stopPropagation(); closePopup()");
     expect(picker).toContain('event.key === "Enter"');
     expect(calendar).toContain("w-[min(18rem,90vw)]");
+    expect(calendar).toContain("<Popover.Content");
+    expect(calendar).toContain("collisionPadding={8}");
     expect(calendar).toContain("focus-visible:ring-2");
     expect(calendar).toContain('aria-live="polite"');
     expect(calendar).toContain("event.stopPropagation(); setOpen(false)");

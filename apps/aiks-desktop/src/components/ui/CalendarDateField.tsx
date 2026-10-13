@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Props {
@@ -23,19 +24,10 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     const current = parse(value) ?? new Date();
     return new Date(current.getFullYear(), current.getMonth(), 1);
   });
-  const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const yearMonthLabel = useId();
   const dayButtons = useRef<HTMLDivElement>(null);
   const id = useId();
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [open]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   useEffect(() => {
     if (!open) return;
@@ -75,17 +67,20 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     buttons[Math.max(0, Math.min(buttons.length - 1, selectedIndex + step))]?.focus();
   };
   return (
-    <div ref={root} className="relative inline-block min-w-0 w-full sm:w-auto sm:min-w-[180px]">
-      <button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <div className="relative inline-block min-w-0 w-full sm:w-auto sm:min-w-[180px]">
+      <Popover.Anchor asChild><button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
         ref={trigger} disabled={disabled} onClick={() => { setMonth(parse(value) ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setOpen(current => !current); }}
         className="aiks-field-date flex w-full items-center gap-2 px-3 text-left">
         <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
         <span className="flex-1">{value || "选择日期"}</span>
-      </button>
-      {open && (
-        <div id={id} data-aiks-popup="true" role="dialog" aria-modal="false" aria-labelledby={yearMonthLabel}
+      </button></Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content id={id} data-aiks-popup="true" aria-labelledby={yearMonthLabel} side="bottom" align="start" sideOffset={8} collisionPadding={8}
+          onOpenAutoFocus={event => { event.preventDefault(); const selected = dayButtons.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]'); (selected ?? dayButtons.current?.querySelector<HTMLButtonElement>("button[data-day]"))?.focus(); }}
+          onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }}
           onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}
-          className="absolute left-0 top-full z-50 mt-2 w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          className="z-[110] w-[min(18rem,90vw)] max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 flex items-center justify-between">
             <button type="button" aria-label="上个月" onClick={() => move(-1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronLeft className="h-4 w-4"/></button>
             <strong id={yearMonthLabel} aria-live="polite" className="text-sm">{monthTitle}</strong>
@@ -107,8 +102,9 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
             <button type="button" className="rounded-lg px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300"
               onClick={() => selectDate(new Date())}>今天</button>
           </div>
-        </div>
-      )}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+      </div>
+    </Popover.Root>
   );
 }
