@@ -59,3 +59,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Knowledge workbench cards expose a dedicated title action instead of making the article itself a pointer-only click target, preserving separate favorite actions and their event isolation.
 - Knowledge grid uses accessible focus indicators and responsive columns; sidebar navigation supports dense window widths and bounded scrolling without changing navigation or provider permissions.
 - No official Radix/shadcn installation is claimed. Complete Windows visual, keyboard and screen-reader acceptance remains outstanding.
+
+## 2026-10-13 modal usability batch
+
+- KnowledgeEditor now uses responsive narrow-window layout, shared form/button primitives, a labelled modal dialog, autofocus, keyboard Escape, disabled close during save, and announced validation errors. Business save/update APIs and manual-edit protection remain unchanged.
+- UnifiedSearchDialog now has narrow-window spacing, explicit labelled modal semantics, an accessible search field and announced errors while retaining progressive retrieval and cancellation.
+- CI and Windows visual acceptance are still required; no claim of official Radix/shadcn installation.
