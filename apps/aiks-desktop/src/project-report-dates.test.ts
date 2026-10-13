@@ -68,3 +68,12 @@ describe("S3.2 editable local daily/weekly project report revisions", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS project_report_revision");
   });
 });
+
+describe("additional local report ranges", () => {
+  it("uses local calendar dates across month boundaries", () => {
+    const current = new Date(2026, 9, 1, 12);
+    expect(reportDateRange("yesterday", current)).toEqual({ from: "2026-09-30", through: "2026-09-30" });
+    expect(reportDateRange("last7", current)).toEqual({ from: "2026-09-25", through: "2026-10-01" });
+    expect(reportDateRange("month", current)).toEqual({ from: "2026-10-01", through: "2026-10-01" });
+  });
+});

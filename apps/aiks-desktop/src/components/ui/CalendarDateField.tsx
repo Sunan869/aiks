@@ -25,6 +25,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   });
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const dayButtons = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => {
     if (!open) return;
@@ -39,6 +40,21 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells = Array.from({ length: Math.ceil((first + days) / 7) * 7 }, (_, index) => index - first + 1);
   const move = (offset: number) => setMonth(current => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  const selectDate = (day: Date) => {
+    onChange(iso(day));
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const moveFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const delta: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+    const step = delta[event.key];
+    if (step === undefined) return;
+    const buttons = Array.from(dayButtons.current?.querySelectorAll<HTMLButtonElement>("button[data-day]") ?? []);
+    const selectedIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (selectedIndex < 0) return;
+    event.preventDefault();
+    buttons[Math.max(0, Math.min(buttons.length - 1, selectedIndex + step))]?.focus();
+  };
   return (
     <div ref={root} className="relative inline-block min-w-[180px]">
       <button type="button" aria-label={label} aria-expanded={open} aria-controls={id}
@@ -56,21 +72,21 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
             <strong className="text-sm">{month.getFullYear()} 年 {month.getMonth() + 1} 月</strong>
             <button type="button" aria-label="下个月" onClick={() => move(1)} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><ChevronRight className="h-4 w-4"/></button>
           </div>
-          <div className="grid grid-cols-7 gap-1 text-center text-xs">
+          <div ref={dayButtons} onKeyDown={moveFocus} className="grid grid-cols-7 gap-1 text-center text-xs">
             {["日", "一", "二", "三", "四", "五", "六"].map(day => <span key={day} className="py-1 text-slate-500">{day}</span>)}
             {cells.map((day, index) => day <= 0 || day > days
               ? <span key={index} aria-hidden="true" />
               : <button key={index} type="button"
                   aria-label={`${month.getFullYear()}年${month.getMonth() + 1}月${day}日`}
-                  aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))}
-                  onClick={() => { onChange(iso(new Date(month.getFullYear(), month.getMonth(), day))); setOpen(false); }}
+                  data-day={day} aria-pressed={value === iso(new Date(month.getFullYear(), month.getMonth(), day))}
+                  onClick={() => selectDate(new Date(month.getFullYear(), month.getMonth(), day))}
                   className={`rounded-lg py-2 hover:bg-sky-100 dark:hover:bg-slate-700 ${value === iso(new Date(month.getFullYear(), month.getMonth(), day)) ? "bg-sky-600 font-bold text-white hover:bg-sky-700" : ""}`}>
                   {day}
                 </button>)}
           </div>
           <div className="mt-3 flex justify-end border-t border-slate-100 pt-2 dark:border-slate-800">
             <button type="button" className="rounded-lg px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300"
-              onClick={() => { onChange(iso(new Date())); setOpen(false); }}>今天</button>
+              onClick={() => selectDate(new Date())}>今天</button>
           </div>
         </div>
       )}

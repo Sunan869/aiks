@@ -311,7 +311,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
     }
   };
 
-  const chooseReportRange = (kind: "today" | "week") => {
+  const chooseReportRange = (kind: "today" | "yesterday" | "week" | "last7" | "month") => {
     invalidatePreview();
     const range = reportDateRange(kind, new Date());
     setFrom(range.from);
@@ -716,6 +716,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 className="rounded border px-2 py-1 dark:border-gray-700">今天（日报）</button>
               <button type="button" onClick={() => chooseReportRange("week")}
                 className="rounded border px-2 py-1 dark:border-gray-700">本周（周报）</button>
+              <button type="button" onClick={() => chooseReportRange("yesterday")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">昨天</button>
+              <button type="button" onClick={() => chooseReportRange("last7")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">最近 7 天</button>
+              <button type="button" onClick={() => chooseReportRange("month")}
+                className="rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">本月</button>
               <label>开始日期 <CalendarDateField label="回顾开始日期" value={from} onChange={value => { invalidatePreview(); setFrom(value); }} /></label>
               <label>结束日期 <CalendarDateField label="回顾结束日期" value={through} onChange={value => { invalidatePreview(); setThrough(value); }} /></label>
               <button disabled={working || !from || !through || from > through} onClick={() => void generate("review")} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-40">生成项目回顾</button>
