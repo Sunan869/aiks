@@ -604,10 +604,13 @@ impl SiyuanRuntime {
         }
         {
             let mut guard = self.child.lock().unwrap();
-            let child = guard
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("SiYuan child handle disappeared during shutdown"))?;
-            anyhow::ensure!(child.id() == pid, "SiYuan child PID changed during shutdown");
+            let child = guard.as_mut().ok_or_else(|| {
+                anyhow::anyhow!("SiYuan child handle disappeared during shutdown")
+            })?;
+            anyhow::ensure!(
+                child.id() == pid,
+                "SiYuan child PID changed during shutdown"
+            );
             if child.try_wait()?.is_none() {
                 if let Err(error) = child.kill() {
                     if child.try_wait()?.is_none() {
@@ -1018,7 +1021,14 @@ mod tests {
         assert!(runtime.stop_for_backup().await.is_err());
         assert_eq!(runtime.state(), RuntimeState::Ready);
         runtime.info.lock().unwrap().as_mut().unwrap().pid = pid;
-        runtime.child.lock().unwrap().as_mut().unwrap().wait().unwrap();
+        runtime
+            .child
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .wait()
+            .unwrap();
         assert!(runtime.stop_for_backup().await.is_err());
         assert_eq!(runtime.state(), RuntimeState::Ready);
     }

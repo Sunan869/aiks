@@ -585,8 +585,12 @@ token = "should-not-leak"
         let source = dir.path().join("conf.json");
         fs::write(&source, b"secret").unwrap();
         let bundle = dir.path().join("bundle");
-        create_offline_backup(&db, &[(source.as_path(), Path::new("conf/conf.json"))], &bundle)
-            .unwrap();
+        create_offline_backup(
+            &db,
+            &[(source.as_path(), Path::new("conf/conf.json"))],
+            &bundle,
+        )
+        .unwrap();
         let restore = dir.path().join("restore");
         assert!(preflight_offline_restore(&bundle, &restore).is_err());
         assert!(!restore.exists());
