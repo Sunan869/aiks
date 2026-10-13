@@ -1,8 +1,11 @@
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
 import { createSafeTaskDiagnosticJson } from "../task-diagnostics";
 import type { PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
+import { UiButton, UiInput } from "../components/ui/fields";
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; icon: string }> = {
   READY: { color: "text-green-600", label: "完成", icon: "✓" },
@@ -90,10 +93,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
+  const [runQuery, setRunQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
   const inFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const autoRefreshRef = useRef(true);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const setPolling = (enabled: boolean) => { autoRefreshRef.current = enabled; setAutoRefresh(enabled); };
 
   const load = useCallback(async (showLoading = false) => {
     if (inFlightRef.current) return;
@@ -106,37 +115,44 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         getApi().getTaskCenterEntries(200),
         getApi().getTaskCenterStats(),
       ]);
+      if (!mountedRef.current) return;
       setRuns(r);
       setStats(s);
       setTasks(t);
       setTaskStats(totals);
+      setConsecutiveFailures(0);
       setLoadError("");
       setLastSuccessfulRefresh(new Date().toLocaleTimeString());
     } catch (error) {
+      if (!mountedRef.current) return;
+      setConsecutiveFailures(previous => previous + 1);
       setLoadError("无法刷新任务状态：" + String(error));
     } finally {
       inFlightRef.current = false;
-      if (showLoading) setLoading(false);
+      if (showLoading && mountedRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void load(true);
     const poll = () => {
-      if (document.visibilityState === "visible") void load(false);
+      if (autoRefreshRef.current && document.visibilityState === "visible") void load(false);
     };
     const interval = window.setInterval(poll, 2000);
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void load(false);
+      if (autoRefreshRef.current && document.visibilityState === "visible") void load(false);
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
+      mountedRef.current = false;
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load]);
 
   const handleBackfill = useCallback(async () => {
+    if (backfilling) return;
     setBackfilling(true);
     setBackfillMsg("");
     try {
@@ -150,55 +166,77 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     }
   }, [load]);
 
-  const filtered = filter === "all" ? runs
+  const filteredByStatus = filter === "all" ? runs
     : filter === "processing" ? runs.filter(r => r.status === "PROCESSING")
     : filter === "failed" ? runs.filter(r => r.status === "FAILED")
     : runs.filter(r => r.status === "READY");
+  const searchText = runQuery.trim().toLocaleLowerCase();
+  const filtered = filteredByStatus.filter(run =>
+    !searchText || [run.session_title, run.run_id, run.source, run.error_message]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText))
+  );
+  const visibleTasks = tasks.filter(task => {
+    const matchesStatus = taskFilter === "all" ||
+      (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
+      (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
+      (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"));
+    const matchesText = !searchText ||
+      [task.title, task.external_session_id, task.source, task.sync_error, task.pipeline_error, task.job_error]
+        .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText));
+    return matchesStatus && matchesText;
+  });
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">处理中心</h1>
-          <p className="text-sm text-gray-500 mt-0.5">知识处理流水线状态</p>
-        </div>
-        <div className="flex items-center gap-3">
+    <div className="aiks-page-shell min-w-0">
+      <PageHeader title="处理中心" description="会话同步、AI 提炼与知识处理流水线状态" actions={<>
           {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
-          <button
+          <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
             disabled={backfilling}
             className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
           >
             {backfilling ? "提交中..." : "重试失败并补跑队列"}
-          </button>
-          <button onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+          </UiButton>
+          <UiButton variant={autoRefresh ? "outline" : "secondary"} size="sm" type="button" aria-pressed={!autoRefresh} onClick={() => setPolling(!autoRefresh)}>{autoRefresh ? "暂停自动刷新" : "恢复自动刷新"}</UiButton>
+          <UiButton variant="outline" size="sm" onClick={() => void load(true)} className="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
             刷新
-          </button>
-        </div>
+          </UiButton></>} />
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>
+        <UiInput id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
+          placeholder="查找会话标题、来源或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
 
       {/* A task may fail sync independently from AI processing. */}
       {/* Raw synchronization status is separate from knowledge extraction. */}
-      <section className="mb-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-4">
+      <section className="aiks-surface mb-5">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
-        {loadError && <p role="alert" className="text-xs text-red-600 mb-2">{loadError}</p>}
-        {lastSuccessfulRefresh && <p className="text-xs text-gray-400 mb-2">最近刷新：{lastSuccessfulRefresh}</p>}
-        <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500" role="status">
-          <span>总会话 {taskStats?.total_sessions ?? "—"}</span>
-          <span>待处理 {taskStats?.pending ?? "—"}</span>
-          <span>运行中 {taskStats?.running ?? "—"}</span>
-          <span>已取消 {taskStats?.cancelled ?? "—"}</span>
-          <span>同步异常 {taskStats?.sync_issues ?? "—"}</span>
-          <span>AI 异常 {taskStats?.ai_issues ?? "—"}</span>
+        {loadError && <UiNotice tone="danger" className="mb-2">{loadError}</UiNotice>}
+        <p role="status" className="mb-2 text-xs text-slate-500">自动刷新：{autoRefresh ? "每 2 秒（窗口可见时）" : "已暂停"} · 最近成功：{lastSuccessfulRefresh ?? "尚无"}{consecutiveFailures > 0 ? ` · 连续失败 ${consecutiveFailures} 次` : ""}</p>
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="status" aria-label="任务统计">
+          {([
+            ["总会话", taskStats?.total_sessions],
+            ["待处理", taskStats?.pending],
+            ["运行中", taskStats?.running],
+            ["已取消", taskStats?.cancelled],
+            ["同步异常", taskStats?.sync_issues],
+            ["AI 异常", taskStats?.ai_issues],
+          ] as const).map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/70">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{value ?? "—"}</div>
+            </div>
+          ))}
         </div>
-        <button type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
+        <UiButton variant="outline" size="sm" type="button" className="text-xs text-blue-600 mb-2 hover:underline disabled:opacity-50"
           disabled={!taskStats && !showDiagnosticPreview}
           onClick={toggleDiagnosticPreview}>
           {showDiagnosticPreview ? "收起诊断摘要" : "预览脱敏任务诊断包"}
-        </button>
+        </UiButton>
         {showDiagnosticPreview && diagnosticJson !== null && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
             <p className="text-xs text-gray-500 mb-2">
@@ -208,11 +246,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             </p>
             <pre aria-label="脱敏任务诊断预览" className="text-xs whitespace-pre-wrap max-h-72 overflow-auto">{diagnosticJson}</pre>
             <div className="flex flex-wrap items-center gap-3 mt-2">
-              <button type="button" onClick={refreshDiagnosticPreview}
-                className="text-xs text-blue-600 hover:underline">更新预览快照</button>
-              <button type="button" onClick={saveDiagnostic}
-                className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</button>
-              <button type="button"
+              <UiButton variant="outline" size="sm" type="button" onClick={refreshDiagnosticPreview}
+                className="text-xs text-blue-600 hover:underline">更新预览快照</UiButton>
+              <UiButton variant="outline" size="sm" type="button" onClick={saveDiagnostic}
+                className="text-xs text-blue-600 hover:underline">保存审核后的 JSON</UiButton>
+              <UiButton variant="outline" size="sm" type="button"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(diagnosticJson);
@@ -221,7 +259,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                     setDiagnosticNotice("复制失败，请使用保存 JSON");
                   }
                 }}
-                className="text-xs text-blue-600 hover:underline">复制当前快照</button>
+                className="text-xs text-blue-600 hover:underline">复制当前快照</UiButton>
             </div>
             {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
           </div>
@@ -233,39 +271,30 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             ["ai_failed", "AI 失败"],
             ["active", "处理中"],
           ] as const).map(([value, label]) => (
-            <button
+            <UiButton variant="outline" size="sm"
               key={value}
               type="button"
               onClick={() => setTaskFilter(value)}
               aria-pressed={taskFilter === value}
-              className={`text-xs px-2.5 py-1 rounded border ${taskFilter === value
+              className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-500 ${taskFilter === value
                 ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                 : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
-            >{label}</button>
+            >{label}</UiButton>
           ))}
         </div>
-        {tasks.filter(task =>
-          taskFilter === "all" ||
-          (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
-          (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
-          (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
-        ).length === 0 ? (
-          <p className="text-xs text-gray-400">暂无会话同步任务记录</p>
+        <p className="mb-2 text-xs text-slate-500" role="status">当前显示 {visibleTasks.length} / {tasks.length} 条近期任务；全库统计不受筛选影响。</p>
+        {visibleTasks.length === 0 ? (
+          <p className="text-xs text-gray-400">{searchText || taskFilter !== "all" ? "没有符合筛选条件的任务" : "暂无会话同步任务记录"}</p>
         ) : (
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
+          <div className="aiks-data-table max-h-[440px] overflow-auto" role="region" aria-label="近期任务记录" tabIndex={0}>
+            <table className="w-full min-w-[960px] text-xs">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900"><tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
                 <th className="py-2 pr-3">会话</th><th className="py-2 pr-3">来源</th>
                 <th className="py-2 pr-3">原始同步</th><th className="py-2 pr-3">AI 提炼</th>
                 <th className="py-2 pr-3">任务</th><th className="py-2 pr-3">最近阶段</th><th className="py-2 pr-3">操作</th><th className="py-2">错误</th>
               </tr></thead>
               <tbody>
-                {tasks.filter(task =>
-                  taskFilter === "all" ||
-                  (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
-                  (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
-                  (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"))
-                ).map(task => (
+                {visibleTasks.map(task => (
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
@@ -279,7 +308,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
-                        <button type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
                           className="text-blue-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
                             setRetryingTask(task.session_id);
@@ -294,16 +323,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                               setRetryingTask(null);
                             }
                           }}
-                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</button>
+                        >{retryingTask === task.session_id ? "提交中…" : "重试 AI"}</UiButton>
                       ) : task.sync_status === "CONFLICT" ? (
-                        <button type="button" className="text-amber-600 hover:underline"
+                        <UiButton variant="outline" size="sm" type="button" className="text-amber-600 hover:underline"
                           onClick={() => onViewSession?.(task.session_id)}
                           disabled={!onViewSession}
                           title="打开会话核查来源和目标，保留 SiYuan 用户改动；不会自动覆盖">
                           人工核查冲突
-                        </button>
+                        </UiButton>
                       ) : task.job_status === "PENDING" ? (
-                        <button type="button" disabled={retryingTask !== null}
+                        <UiButton variant="outline" size="sm" type="button" disabled={retryingTask !== null}
                           className="text-orange-600 hover:underline disabled:opacity-50"
                           onClick={async () => {
                             setRetryingTask(task.session_id);
@@ -318,7 +347,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                               setRetryingTask(null);
                             }
                           }}
-                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</button>
+                        >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</UiButton>
                       ) : "—"}
                     </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
@@ -351,7 +380,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             { label: "失败", value: stats.failed, key: "failed", color: "text-red-500" },
             { label: "已完成", value: stats.ready, key: "ready", color: "text-green-600" },
           ].map(item => (
-            <button
+            <UiButton variant="outline" size="sm"
               key={item.key}
               onClick={() => setFilter(item.key)}
               className={`text-left px-4 py-3 rounded border transition-colors ${filter === item.key
@@ -361,7 +390,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             >
               <div className={`text-xl font-bold ${item.color} dark:opacity-90`}>{item.value}</div>
               <div className="text-xs text-gray-500 mt-0.5">{item.label}</div>
-            </button>
+            </UiButton>
           ))}
         </div>
       )}
@@ -386,15 +415,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         </div>
       )}
 
+      <p role="status" className="text-xs text-slate-500">流水线记录：显示 {filtered.length} / {runs.length} 条近期记录；此区域与上方任务列表可分别横向滚动。</p>
       {loading ? (
         <div className="flex items-center justify-center h-40 text-gray-400 text-sm">加载中...</div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-          <p className="text-sm">暂无处理记录</p>
+          <p className="text-sm">{searchText || filter !== "all" ? "没有符合筛选条件的流水线记录" : "暂无处理记录"}</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="aiks-data-table overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" role="region" aria-label="流水线阶段记录" tabIndex={0}>
+          <table className="w-full min-w-[880px] text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">会话</th>

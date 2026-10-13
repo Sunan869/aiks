@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import { submitProcessingDetailAction } from "../processing-detail-action";
@@ -25,8 +26,10 @@ function StageRow({ stage }: { stage: StageRun }) {
 
   return (
     <div className="border border-gray-100 dark:border-gray-700 rounded mb-2">
-      <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
+      <button type="button"
+        aria-expanded={expanded}
+        aria-label={`查看${STAGE_LABELS[stage.stage] ?? stage.stage}阶段详情`}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-gray-700/40"
         onClick={() => setExpanded(e => !e)}
       >
         <div className="flex items-center gap-3">
@@ -42,7 +45,7 @@ function StageRow({ stage }: { stage: StageRun }) {
           {stage.latency_ms != null && <span>{stage.latency_ms}ms</span>}
           <span className="text-gray-400">{expanded ? "▲" : "▼"}</span>
         </div>
-      </div>
+      </button>
       {expanded && (
         <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700">
           {stage.error_message && (
@@ -114,17 +117,17 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   }[detail.status] ?? "text-gray-600";
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="flex items-center gap-2 mb-5">
-        <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
+        <UiButton variant="outline" size="sm" onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</UiButton>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">处理详情</span>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-5 mb-5">
+      <div className="aiks-surface mb-5">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               {detail.session_title || detail.run_id}
             </h1>
             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -142,13 +145,13 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
           <div className="flex items-center gap-3">
             <span className={`text-sm font-medium ${statusColor}`}>{detail.status}</span>
             {(detail.status === "FAILED" || detail.status === "RAW_ONLY") && (
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={handleRetry}
                 disabled={retrying}
                 className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
               >
                 {retrying ? "提交中..." : detail.status === "FAILED" ? "安全重试失败阶段" : "首次处理原始 Session"}
-              </button>
+              </UiButton>
             )}
           </div>
         </div>
@@ -161,16 +164,16 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5 text-center text-sm">
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 text-center text-sm sm:grid-cols-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.knowledge_count}</div>
           <div className="text-xs text-gray-400">知识条目</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.stage_runs.length}</div>
           <div className="text-xs text-gray-400">阶段完成</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">
             {detail.stage_runs.reduce((sum, s) => sum + (s.latency_ms ?? 0), 0)}ms
           </div>
@@ -179,7 +182,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stage trace */}
-      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">处理阶段</h2>
+      <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">处理阶段</h2>
       {detail.stage_runs.length === 0 ? (
         <div className="text-sm text-gray-400 text-center py-8">暂无阶段记录</div>
       ) : (

@@ -1,3 +1,7 @@
+import { UiStatGrid } from "../components/ui/workspace";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
+import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { RefreshCw, CheckCircle, Cpu, Zap } from "lucide-react";
 import { getApi } from "../api/client";
@@ -15,6 +19,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const [syncing, setSyncing] = useState(false);
 
   const handleSync = async () => {
+    if (syncing || syncInProgress) return;
     setSyncing(true);
     setSyncMsg(null);
     try {
@@ -36,29 +41,19 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const isSyncing = syncing || syncInProgress;
 
   return (
-    <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">概览</h1>
-        <p className="text-xs text-gray-400 mt-0.5">AI 工作知识库状态</p>
-      </div>
+    <div className="aiks-page-shell min-w-0 space-y-5">
+      <PageHeader title="概览" description="AI 工作知识库状态" actions={<span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">本地工作空间</span>} />
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 gap-3">
+      <UiStatGrid>
         {stats.map((item) => (
-          <div key={item.label} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-gray-400">{item.label}</span>
-              <span>{item.icon}</span>
-            </div>
-            <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">{item.value}</div>
-          </div>
+          <UiMetric key={item.label} label={item.label} value={item.value} detail={item.icon} />
         ))}
-      </div>
+      </UiStatGrid>
 
       {/* Sync status */}
       {fullStatus && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <div className="font-medium text-sm mb-2">同步状态</div>
+        <UiSection title="同步状态">
           <div className="grid grid-cols-3 gap-2 text-xs">
             {[
               { label: "已同步", value: fullStatus.db_synced, color: "text-green-600" },
@@ -77,12 +72,12 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
               {fullStatus.last_sync_discovered > 0 && ` · 发现 ${fullStatus.last_sync_discovered} 条`}
             </div>
           )}
-        </div>
+        </UiSection>
       )}
 
       {/* AI status */}
       {aiStatus && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="aiks-surface">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Cpu className="w-4 h-4" />
@@ -104,12 +99,12 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
         </div>
       )}
 
-      <button onClick={handleSync} disabled={isSyncing}
+      <UiButton variant="primary" size="sm" onClick={handleSync} disabled={isSyncing}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
       >
         <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
         {isSyncing ? "同步中..." : "全部同步"}
-      </button>
+      </UiButton>
     </div>
   );
 }

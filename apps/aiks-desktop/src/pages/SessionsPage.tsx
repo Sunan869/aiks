@@ -1,3 +1,5 @@
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
@@ -42,6 +44,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<string>("");
+  const [currentPageQuery, setCurrentPageQuery] = useState("");
   const [page, setPage] = useState(0);
   const [showImport, setShowImport] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
@@ -88,15 +91,16 @@ export default function SessionsPage({ onViewDetail }: Props) {
     }
   };
 
+  const currentPageItems = (data?.items ?? []).filter(item => {
+    const query = currentPageQuery.trim().toLocaleLowerCase();
+    return !query || [item.title, item.session_id, item.project_name, item.source]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(query));
+  });
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">工作记录</h1>
-          {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条</p>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
+    <div className="aiks-page-shell min-w-0">
+      <PageHeader title="工作记录" description={data ? `共 ${data.total} 条` : "本地会话记录"} actions={<>
+          <UiButton variant="outline" size="sm"
             onClick={() => {
               setShowImport(true);
               setImportError(null);
@@ -105,19 +109,23 @@ export default function SessionsPage({ onViewDetail }: Props) {
             className="px-3 py-1.5 text-sm font-medium rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             导入分享链接
-          </button>
-          <select
+          </UiButton>
+          <UiSelect aria-label="工作记录来源"
             value={source}
             onChange={e => { setSource(e.target.value); setPage(0); }}
-            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+            className="min-w-[140px] text-sm"
           >
             {sourceOptions.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
-          </select>
-        </div>
-      </div>
+          </UiSelect></>} />
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <UiInput aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
+          placeholder="搜索当前页标题、会话 ID 或项目…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
+        <span role="status" className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} / {data?.items.length ?? 0} 条 · 全库 {data?.total ?? 0} 条</span>
+        {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
+      </div>
       {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
@@ -127,14 +135,14 @@ export default function SessionsPage({ onViewDetail }: Props) {
 
       {loading ? (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
-      ) : data?.items.length === 0 ? (
+      ) : currentPageItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-          <p className="text-sm">暂无工作记录</p>
-          <p className="text-xs mt-1">请先扫描数据源</p>
+          <p className="text-sm">{currentPageQuery ? "当前页没有匹配的工作记录" : "暂无工作记录"}</p>
+          <p className="text-xs mt-1">{currentPageQuery ? "可以清空关键词，或切换页面继续查找。" : "请先扫描数据源"}</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="aiks-data-table overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" role="region" aria-label="工作记录列表" tabIndex={0}>
+          <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">标题</th>
@@ -145,14 +153,13 @@ export default function SessionsPage({ onViewDetail }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {data?.items.map((item: SessionItem) => (
+              {currentPageItems.map((item: SessionItem) => (
                 <tr key={item.id}
-                  className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
-                  onClick={() => onViewDetail?.(item.id)}
+                  className="transition-colors hover:bg-sky-50/60 dark:hover:bg-slate-800/70"
                 >
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-xs">
-                      {item.title || item.session_id}
+                      {onViewDetail ? <button type="button" className="text-left hover:text-sky-700 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:text-sky-300" onClick={() => onViewDetail(item.id)} aria-label={`查看工作记录：${item.title || item.session_id}`}>{item.title || item.session_id}</button> : (item.title || item.session_id)}
                     </div>
                     <div className="text-xs text-gray-400 font-mono mt-0.5">{item.session_id}</div>
                   </td>
@@ -194,17 +201,17 @@ export default function SessionsPage({ onViewDetail }: Props) {
                   支持 ChatGPT、Claude、Gemini、DeepSeek、豆包、Kimi、腾讯元宝、千问的公开 Share URL
                 </p>
               </div>
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={() => !importing && setShowImport(false)}
                 disabled={importing}
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-40"
                 aria-label="关闭"
               >
                 ×
-              </button>
+              </UiButton>
             </div>
             <div className="space-y-3 px-5 py-4">
-              <input
+              <UiInput
                 autoFocus
                 value={shareUrl}
                 onChange={e => setShareUrl(e.target.value)}
@@ -231,20 +238,20 @@ export default function SessionsPage({ onViewDetail }: Props) {
               )}
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-100 dark:border-gray-700 px-5 py-3">
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={() => setShowImport(false)}
                 disabled={importing}
                 className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 disabled:opacity-40"
               >
                 关闭
-              </button>
-              <button
+              </UiButton>
+              <UiButton variant="outline" size="sm"
                 onClick={() => void importShare()}
                 disabled={importing || !shareUrl.trim()}
                 className="rounded bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
               >
                 {importing ? "正在导入..." : "导入"}
-              </button>
+              </UiButton>
             </div>
           </div>
         </div>
@@ -257,16 +264,16 @@ export default function SessionsPage({ onViewDetail }: Props) {
             第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条，共 {data.total} 条
           </span>
           <div className="flex gap-2">
-            <button
+            <UiButton variant="outline" size="sm"
               onClick={() => setPage(p => p - 1)}
               disabled={page === 0}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
-            >上一页</button>
-            <button
+            >上一页</UiButton>
+            <UiButton variant="outline" size="sm"
               onClick={() => setPage(p => p + 1)}
               disabled={(page + 1) * PAGE_SIZE >= data.total}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
-            >下一页</button>
+            >下一页</UiButton>
           </div>
         </div>
       )}

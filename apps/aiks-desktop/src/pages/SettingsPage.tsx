@@ -1,3 +1,5 @@
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { OfflineRestore } from "../components/OfflineRestore";
@@ -291,11 +293,8 @@ export default function SettingsPage() {
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
 
   return (
-    <div className="w-full min-w-0 p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">设置</h1>
-        <p className="mt-1 text-xs text-gray-400">桌面行为保存后立即生效；AI、同步、内容和语义搜索配置将在重启 AIKS 后生效。</p>
-      </div>
+    <div className="aiks-page-shell w-full min-w-0 pb-24">
+      <PageHeader title="设置" description="桌面行为立即生效；AI、同步、内容和语义搜索配置需要重启 AIKS。" />
 
       <Section title="常规">
         <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={value => update("startup", value)} />
@@ -309,13 +308,13 @@ export default function SettingsPage() {
             <div className="text-sm">定时扫描间隔</div>
             <div className="text-xs text-gray-400">重启 AIKS 后生效</div>
           </div>
-          <select
+          <UiSelect
             className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
             value={settings.scan_interval_seconds / 60}
             onChange={event => update("scan_interval_seconds", +event.target.value * 60)}
           >
             {[1, 5, 10, 15, 30].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
-          </select>
+          </UiSelect>
         </div>
       </Section>
 
@@ -327,9 +326,9 @@ export default function SettingsPage() {
             <div className="text-sm">提炼并发数</div>
             <div className="text-xs text-gray-400">默认 1（保守）；vLLM 可先尝试 2 路并观察 tokens/s、显存和超时，4 路不保证更快；重启后生效</div>
           </div>
-          <select aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700">
+          <UiSelect aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="min-w-[96px] text-sm">
             {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value} 路</option>)}
-          </select>
+          </UiSelect>
         </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
@@ -350,7 +349,7 @@ export default function SettingsPage() {
         <div className="py-3 space-y-3">
           <div>
             <div className="text-xs text-gray-400 mb-1">向量模型预设</div>
-            <select
+            <UiSelect
               value={embeddingPreset}
               onChange={event => applyEmbeddingPreset(event.target.value)}
               className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
@@ -358,13 +357,14 @@ export default function SettingsPage() {
               <option value="lco">LCO Omni 3B 2605（推荐 · 2048 维）</option>
               <option value="bge">BGE-M3（轻量 · 1024 维）</option>
               <option value="custom">自定义</option>
-            </select>
+            </UiSelect>
             <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">Embedding 服务地址</div>
-            <input
-              value={settings.embedding_base_url}
+            <label htmlFor="aiks-setting-embedding_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Embedding 服务地址</label>
+            <UiInput
+              id="aiks-setting-embedding_base_url"
+                value={settings.embedding_base_url}
               onChange={event => {
                 update("embedding_base_url", event.target.value);
                 setEmbeddingProbe(null);
@@ -374,9 +374,10 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">Embedding 模型</div>
-            <input
-              value={settings.embedding_model}
+            <label htmlFor="aiks-setting-embedding_model" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Embedding 模型</label>
+            <UiInput
+              id="aiks-setting-embedding_model"
+                value={settings.embedding_model}
               onChange={event => {
                 update("embedding_model", event.target.value);
                 setEmbeddingProbe(null);
@@ -385,11 +386,12 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">向量维度</div>
-            <input
+            <label htmlFor="aiks-setting-embedding_dimensions" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">向量维度</label>
+            <UiInput
               type="number"
               min={1}
-              value={settings.embedding_dimensions}
+              id="aiks-setting-embedding_dimensions"
+                value={settings.embedding_dimensions}
               onChange={event => {
                 update("embedding_dimensions", Number(event.target.value));
                 setEmbeddingProbe(null);
@@ -398,22 +400,22 @@ export default function SettingsPage() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <UiButton variant="outline" size="sm"
               type="button"
               onClick={() => void testEmbeddingConnection()}
               disabled={embeddingTesting}
               className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
             >
               {embeddingTesting ? "测试中..." : "测试 Embedding 连接"}
-            </button>
-            <button
+            </UiButton>
+            <UiButton variant="outline" size="sm"
               type="button"
               onClick={() => void rebuildSemanticIndex()}
               disabled={!settings.embedding_enabled || rebuilding}
               className="text-xs px-3 py-1.5 border border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-300 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
             >
               {rebuilding ? "重建中..." : "重建语义索引"}
-            </button>
+            </UiButton>
             {embeddingProbe && (
               <span className={`text-xs ${embeddingProbe.healthy ? "text-green-600" : "text-red-500"}`}>
                 {embeddingProbe.healthy ? "✓" : "✕"} {embeddingProbe.message}
@@ -440,12 +442,12 @@ export default function SettingsPage() {
       </Section>
 
       <div className="mb-4">
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
         >
           {showAdvanced ? "▾" : "▸"} 高级设置
-        </button>
+        </UiButton>
         {showAdvanced && (
           <div className="mt-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 text-sm">
             <div>
@@ -453,40 +455,43 @@ export default function SettingsPage() {
               <div className="text-gray-600 dark:text-gray-300">SiYuan 3.8.3 (内置)</div>
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">AI 服务地址</div>
-              <input
+              <label htmlFor="aiks-setting-ai_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">AI 服务地址</label>
+              <UiInput
+                id="aiks-setting-ai_base_url"
                 value={settings.ai_base_url}
                 onChange={event => update("ai_base_url", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">AI 模型</div>
-              <input
+              <label htmlFor="aiks-setting-ai_model" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">AI 模型</label>
+              <UiInput
+                id="aiks-setting-ai_model"
                 value={settings.ai_model}
                 onChange={event => update("ai_model", event.target.value)}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div>
-              <div className="text-xs text-gray-400 mb-1">Tool Result 最大字符数</div>
-              <input
+              <label htmlFor="aiks-setting-max_tool_result_chars" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Tool Result 最大字符数</label>
+              <UiInput
                 type="number"
                 min={1000}
                 step={1000}
+                id="aiks-setting-max_tool_result_chars"
                 value={settings.max_tool_result_chars}
                 onChange={event => update("max_tool_result_chars", Number(event.target.value))}
                 className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
               />
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={testAiConnection}
                 disabled={aiTesting}
                 className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
               >
                 {aiTesting ? "测试中..." : "测试当前 AI 配置"}
-              </button>
+              </UiButton>
               {aiHealthy !== null && (
                 <span className={`text-xs ${aiHealthy ? "text-green-600" : "text-red-500"}`}>
                   {aiHealthy ? "✓ 连接正常" : "✕ 连接失败"}
@@ -505,20 +510,20 @@ export default function SettingsPage() {
       {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
       {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
 
-      <div className="mt-4 flex items-center gap-2">
-        <button
+      <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+        <UiButton variant="primary" size="md"
           onClick={() => void save(false)}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
         >
           {saved ? <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4" />已保存</span> : "保存设置"}
-        </button>
+        </UiButton>
         {!isMock && (
-          <button
+          <UiButton variant="outline" size="sm"
             onClick={() => void save(true)}
             className="px-4 py-2 border border-blue-300 text-blue-600 rounded-lg text-sm hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/20"
           >
             保存并重启
-          </button>
+          </UiButton>
         )}
       </div>
     </div>
@@ -527,30 +532,31 @@ export default function SettingsPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-5">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{title}</div>
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 px-4">
+    <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="mb-2 text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">{title}</h2>
+      <div className="divide-y divide-slate-100 px-1 dark:divide-slate-800">
         {children}
       </div>
-    </div>
+    </section>
   );
 }
 
 function Toggle({ label, desc, value, onChange }: { label: string; desc: string; value: boolean; onChange: (value: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between py-3">
-      <div>
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
         <div className="text-sm">{label}</div>
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
-      <button
+      <UiButton variant="ghost" size="sm"
         role="switch"
+        aria-label={label}
         aria-checked={value}
         onClick={() => onChange(!value)}
-        className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
+        className={`aiks-switch relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
       >
         <span className={`absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
-      </button>
+      </UiButton>
     </div>
   );
 }

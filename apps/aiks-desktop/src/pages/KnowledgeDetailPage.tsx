@@ -1,3 +1,6 @@
+import { UiInput, UiTextarea } from "../components/ui/fields";
+import { UiButton } from "../components/ui/fields";
+import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -454,14 +457,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   const tags = parseTags(data.tags);
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="mb-5 flex items-center gap-2">
-        <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
+        <UiButton variant="outline" size="sm" onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</UiButton>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">知识详情</span>
       </div>
 
-      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-5 aiks-surface">
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -479,24 +482,24 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"><Pencil className="h-3.5 w-3.5" />编辑</button>
-            <button
+            <UiButton variant="outline" size="sm" onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"><Pencil className="h-3.5 w-3.5" />编辑</UiButton>
+            <UiButton variant="outline" size="sm"
               onClick={() => void runAction("favorite", () => getApi().setKnowledgeFavorite(data.id, !data.is_favorite))}
               disabled={action !== null}
               className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${data.is_favorite ? "border-amber-200 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300"}`}
             >
               {action === "favorite" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Star className="h-3.5 w-3.5" fill={data.is_favorite ? "currentColor" : "none"} />}
               {data.is_favorite ? "已收藏" : "收藏"}
-            </button>
+            </UiButton>
             {data.status === "archived" ? (
-              <button onClick={() => void runAction("restore", () => getApi().restoreKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><RotateCcw className="h-3.5 w-3.5" />恢复</button>
+              <UiButton variant="outline" size="sm" onClick={() => void runAction("restore", () => getApi().restoreKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><RotateCcw className="h-3.5 w-3.5" />恢复</UiButton>
             ) : (
-              <button onClick={() => void runAction("archive", () => getApi().archiveKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><Archive className="h-3.5 w-3.5" />归档</button>
+              <UiButton variant="outline" size="sm" onClick={() => void runAction("archive", () => getApi().archiveKnowledge(data.id))} disabled={action !== null} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300"><Archive className="h-3.5 w-3.5" />归档</UiButton>
             )}
-            <button onClick={() => void publish()} disabled={action !== null || data.status === "archived"} className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-40 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300">
+            <UiButton variant="outline" size="sm" onClick={() => void publish()} disabled={action !== null || data.status === "archived"} className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-40 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300">
               {action === "publish" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
               发布到 SiYuan
-            </button>
+            </UiButton>
           </div>
         </div>
 
@@ -511,7 +514,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           ) : (
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-gray-400">来源：<span className="font-mono">{data.session_external_id}</span>{data.session_title && <span className="ml-1">· {data.session_title}</span>}</div>
-              {data.session_id !== null && <button onClick={() => onViewSession(data.session_id as number)} className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700">查看原始工作记录</button>}
+              {data.session_id !== null && <UiButton variant="outline" size="sm" onClick={() => onViewSession(data.session_id as number)} className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700">查看原始工作记录</UiButton>}
             </div>
           )}
         </div>
@@ -519,7 +522,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
 
       {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{message}</div>}
 
-      <div className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-5 aiks-surface">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">知识内容</h2>
           <span className="text-[10px] text-gray-400">Markdown</span>
@@ -527,25 +530,25 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-gray-700 dark:text-gray-300">{data.content}</pre>
       </div>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">跨 Session 知识演进关系</h2>
         <p className="mb-3 text-xs text-gray-500">所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。</p>
         <div className="flex flex-wrap gap-2">
-          <input aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+          <UiInput aria-label="关联知识 ID" list="knowledge-relation-candidates" value={relationTarget} onChange={event => setRelationTarget(event.target.value)} placeholder="目标知识 ID" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
           <datalist id="knowledge-relation-candidates">
             {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
-          <select aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
+          <UiSelect aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
             <option value="related">相关</option>
             <option value="supplements">补充</option>
             <option value="corrects">纠正</option>
             <option value="supersedes">替代</option>
             <option value="resolved_by">由其解决</option>
-          </select>
+          </UiSelect>
         </div>
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
-        <textarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
-        <button type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</button>
+        <UiTextarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
+        <UiButton variant="outline" size="sm" type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</UiButton>
         {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
         <div className="mt-4 rounded border border-gray-200 p-3 dark:border-gray-700">
           <h3 className="text-xs font-semibold">知识演进时间线</h3>
@@ -569,9 +572,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <button type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.source_id)} className="text-blue-600 disabled:text-gray-500">{source?.title ?? relation.source_id}</button>
+                    <UiButton variant="outline" size="sm" type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.source_id)} className="text-blue-600 disabled:text-gray-500">{source?.title ?? relation.source_id}</UiButton>
                     <span aria-hidden="true">→</span>
-                    <button type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.target_id)} className="text-blue-600 disabled:text-gray-500">{target?.title ?? relation.target_id}</button>
+                    <UiButton variant="outline" size="sm" type="button" disabled={!onOpenKnowledge} onClick={() => onOpenKnowledge?.(relation.target_id)} className="text-blue-600 disabled:text-gray-500">{target?.title ?? relation.target_id}</UiButton>
                   </div>
                   <p className="mt-1 whitespace-pre-wrap text-gray-500">证据：{relation.evidence}</p>
                 </li>
@@ -591,8 +594,8 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   <span className="text-gray-500">{counterpart?.title ?? counterpartId}</span>
                   <span className="text-gray-400">{relation.status === "suggested" ? "待确认" : relation.status === "confirmed" ? "已确认" : "已拒绝"}</span>
                   <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString("zh-CN")}</span>
-                  {relation.status !== "confirmed" && <button type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "confirmed")} className="text-blue-600">确认</button>}
-                  {relation.status !== "rejected" && <button type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "rejected")} className="text-red-600">撤销/拒绝</button>}
+                  {relation.status !== "confirmed" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "confirmed")} className="text-blue-600">确认</UiButton>}
+                  {relation.status !== "rejected" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "rejected")} className="text-red-600">撤销/拒绝</UiButton>}
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-gray-600 dark:text-gray-300">{relation.evidence}</p>
               </div>
@@ -619,12 +622,12 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   <span className="text-gray-500">审核于 {review.created_at}</span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-2 break-all">
-                  <button type="button" disabled={!onOpenKnowledge}
+                  <UiButton variant="outline" size="sm" type="button" disabled={!onOpenKnowledge}
                     onClick={() => onOpenKnowledge?.(review.source_id)}
-                    className="text-blue-600 disabled:text-gray-500">来源知识 {review.source_id}</button>
-                  <button type="button" disabled={!onOpenKnowledge}
+                    className="text-blue-600 disabled:text-gray-500">来源知识 {review.source_id}</UiButton>
+                  <UiButton variant="outline" size="sm" type="button" disabled={!onOpenKnowledge}
                     onClick={() => onOpenKnowledge?.(review.target_id)}
-                    className="text-blue-600 disabled:text-gray-500">目标知识 {review.target_id}</button>
+                    className="text-blue-600 disabled:text-gray-500">目标知识 {review.target_id}</UiButton>
                 </div>
               </li>
             ))}
@@ -635,19 +638,19 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </section>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">知识质量反馈</h2>
         <p className="mb-3 text-xs text-gray-500">反馈只保存在本地，不会自动删除知识或覆盖人工编辑。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
+          <UiSelect aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
             <option value="useful">有用</option>
             <option value="incorrect">错误</option>
             <option value="duplicate">重复</option>
             <option value="outdated">过时</option>
             <option value="needs_detail">需补充</option>
-          </select>
-          <input aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
-          <button type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</button>
+          </UiSelect>
+          <UiInput aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
+          <UiButton variant="outline" size="sm" type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</UiButton>
         </div>
         {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{feedbackError}</p>}
         <div className="mt-3 space-y-2">
@@ -661,11 +664,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </section>
 
-      <section className="mb-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section className="mb-5 aiks-surface">
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
         <p className="mb-3 text-xs text-gray-500">生成建议只预览、不写入；确认「创建」会在 SiYuan 新增独立文档，不覆盖原文。归档与恢复仅变更 AIKS 本地状态，不会删除 SiYuan 文档。来源变化后须重新审核。</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
+          <UiSelect aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
             organizationGeneration.current += 1;
             setOrganizeOperation(event.target.value as AiAssistOperation);
             setOrganizeDraft("");
@@ -682,11 +685,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <option value="key_conclusions">提取关键结论</option>
             <option value="compare">比较多份知识</option>
             <option value="merge_draft">合并为新文档草稿</option>
-          </select>
+          </UiSelect>
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
-              <select multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
+              <UiSelect multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
                 onChange={event => {
                   setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
                   organizationGeneration.current += 1;
@@ -703,14 +706,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                 {relationCandidates.filter(item => item.id !== knowledgeId &&
                   (!data.project_name || !item.project_name || data.project_name === item.project_name))
                   .map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
+              </UiSelect>
             </label>
           )}
-          <button type="button" disabled={organizeBusy}
+          <UiButton variant="outline" size="sm" type="button" disabled={organizeBusy}
             onClick={() => void suggestOrganization()}
             className="rounded bg-indigo-600 px-3 py-2 text-xs text-white disabled:opacity-40">
             {organizeBusy ? "生成中..." : "生成整理建议"}
-          </button>
+          </UiButton>
         </div>
         {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可先生成草稿；创建新知识需要 SiYuan 可用，并会新增独立 SiYuan 文档，原文不变。</p>}
         {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
@@ -726,7 +729,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {reviewedSources.map(source => (
-                    <button type="button" key={source.id}
+                    <UiButton variant="outline" size="sm" type="button" key={source.id}
                       aria-pressed={diffSourceId === source.id}
                       onClick={() => {
                         setDiffSourceId(source.id);
@@ -737,7 +740,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                         : "rounded border border-gray-300 p-2 dark:border-gray-700"}>
                       {sourceReviewVisitedIds.includes(source.id) ? "✓ 已查看 " : "○ 待核对 "}
                       {source.title}（{source.id}）
-                    </button>
+                    </UiButton>
                   ))}
                 </div>
                 {!sourcesReviewed && <p role="status" className="mt-2 text-amber-700">请逐一打开所有来源，才能确认多来源整理草稿。</p>}
@@ -746,12 +749,12 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             <div className="grid gap-2 lg:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium">当前正文（只读）：{diffReferenceSource?.title ?? data.title} · {diffReferenceSource?.id ?? data.id}</label>
-                <textarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
+                <UiTextarea aria-label="当前知识正文" value={diffReferenceContent} readOnly rows={12}
                   className="w-full rounded border bg-gray-50 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900" />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">建议草稿（可编辑）</label>
-                <textarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
+                <UiTextarea aria-label="知识整理草稿" value={organizeDraft} maxLength={250000} disabled={organizeBusy}
                   onChange={event => {
                     setOrganizeDraft(event.target.value);
                     setOrganizeConfirmed(false);
@@ -797,23 +800,23 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               <input type="checkbox" checked={organizeConfirmed} disabled={organizeBusy || !sourcesReviewed} onChange={event => setOrganizeConfirmed(event.target.checked)} />
               我已核对原文与草稿，理解复制不写入、确认创建会新增独立 SiYuan 文档。
             </label>
-            <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
+            <UiButton variant="outline" size="sm" type="button" disabled={!organizeConfirmed || !organizeDraft.trim()}
               onClick={() => void copyOrganizationDraft()}
               className="rounded border border-indigo-300 px-3 py-2 text-xs text-indigo-700 disabled:opacity-40">
               复制已审核的 Markdown
-            </button>
-            <button type="button" disabled={!organizeConfirmed || !organizeDraft.trim() || organizeBusy || Boolean(createdKnowledgeId)}
+            </UiButton>
+            <UiButton variant="outline" size="sm" type="button" disabled={!organizeConfirmed || !organizeDraft.trim() || organizeBusy || Boolean(createdKnowledgeId)}
               onClick={() => void createDerivedKnowledge()}
               className="ml-2 rounded border border-emerald-300 px-3 py-2 text-xs text-emerald-700 disabled:opacity-40">
               确认创建新的 SiYuan 知识文档（不覆盖原文）
-            </button>
+            </UiButton>
             {createdKnowledgeId && (
               <div className="flex flex-wrap items-center gap-3 text-xs">
-                {onOpenKnowledge && <button type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</button>}
+                {onOpenKnowledge && <UiButton variant="outline" size="sm" type="button" className="text-blue-600" onClick={() => onOpenKnowledge(createdKnowledgeId)}>打开新知识</UiButton>}
                 {derivedArchived ? (
-                  <button type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复新知识（本地状态）</button>
+                  <UiButton variant="outline" size="sm" type="button" disabled={organizeBusy} className="text-blue-700" onClick={() => void restoreDerivedKnowledge()}>恢复新知识（本地状态）</UiButton>
                 ) : (
-                  <button type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>归档新知识（SiYuan 文档保留）</button>
+                  <UiButton variant="outline" size="sm" type="button" disabled={organizeBusy} className="text-amber-700" onClick={() => void undoDerivedKnowledge()}>归档新知识（SiYuan 文档保留）</UiButton>
                 )}
               </div>
             )}
@@ -831,16 +834,16 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             此操作不会再创建 SiYuan 文档。
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <input aria-label="待修复审计的现有知识 ID"
+            <UiInput aria-label="待修复审计的现有知识 ID"
               value={recoveryKnowledgeId} onChange={event => setRecoveryKnowledgeId(event.target.value)}
               placeholder="已有新知识 ID" maxLength={256}
               className="min-w-0 flex-1 rounded border border-amber-300 bg-white p-2 dark:bg-gray-900"
             />
-            <button type="button" disabled={!recoveryKnowledgeId.trim() || recoveryBusy}
+            <UiButton variant="outline" size="sm" type="button" disabled={!recoveryKnowledgeId.trim() || recoveryBusy}
               onClick={() => void recoverOrganizationAudit()}
               className="rounded border border-amber-500 px-3 py-2 text-amber-800 disabled:opacity-40">
               {recoveryBusy ? "仅修复审核记录中…" : "审核并修复本地来源（不重建文档）"}
-            </button>
+            </UiButton>
           </div>
           {recoveryError && <p role="alert" className="mt-2 text-red-600">{recoveryError}</p>}
         </div>
@@ -865,20 +868,20 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               </div>
               <div className="mt-2 flex flex-wrap gap-3">
                 {onOpenKnowledge && entry.status !== "missing" && (
-                  <button type="button" className="text-blue-600"
-                    onClick={() => onOpenKnowledge(entry.derived_knowledge_id)}>打开独立知识</button>
+                  <UiButton variant="outline" size="sm" type="button" className="text-blue-600"
+                    onClick={() => onOpenKnowledge(entry.derived_knowledge_id)}>打开独立知识</UiButton>
                 )}
                 {entry.status === "active" && (
-                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-amber-700 disabled:opacity-40"
+                  <UiButton variant="outline" size="sm" type="button" disabled={organizationHistoryBusy !== null} className="text-amber-700 disabled:opacity-40"
                     onClick={() => void changeOrganizationRecordStatus(entry, "archived")}>
                     本地归档（保留 SiYuan 文档）
-                  </button>
+                  </UiButton>
                 )}
                 {entry.status === "archived" && (
-                  <button type="button" disabled={organizationHistoryBusy !== null} className="text-blue-700 disabled:opacity-40"
+                  <UiButton variant="outline" size="sm" type="button" disabled={organizationHistoryBusy !== null} className="text-blue-700 disabled:opacity-40"
                     onClick={() => void changeOrganizationRecordStatus(entry, "active")}>
                     恢复本地知识状态
-                  </button>
+                  </UiButton>
                 )}
               </div>
             </div>

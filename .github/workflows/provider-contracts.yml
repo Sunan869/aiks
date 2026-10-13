@@ -15,6 +15,12 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/provider-contracts.yml'
   workflow_dispatch:
+    inputs:
+      full_validation:
+        description: "Run native Windows provider acceptance (required before Windows testing)"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -25,6 +31,7 @@ concurrency:
 
 jobs:
   provider-contracts:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.full_validation }}
     name: Native provider tests and junction boundaries
     runs-on: windows-latest
     timeout-minutes: 25

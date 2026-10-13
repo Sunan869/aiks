@@ -1,3 +1,7 @@
+import { UiStatusBadge } from "../components/ui/workspace";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle, XCircle, RefreshCw, Cpu, FileText } from "lucide-react";
@@ -13,9 +17,13 @@ export default function DiagnosticsPage() {
   const [aiOk, setAiOk] = useState<boolean | null>(null);
   const [v41, setV41] = useState<V41Diagnostics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState("");
+  const [lastSuccessfulCheck, setLastSuccessfulCheck] = useState<string | null>(null);
 
   const runDiag = async () => {
+    if (loading) return;
     setLoading(true);
+    setDiagnosticError("");
     try {
       const [d, ai, workbench] = await Promise.all([
         invoke<DoctorResult>("get_doctor"),
@@ -25,8 +33,9 @@ export default function DiagnosticsPage() {
       setDoctor(d);
       setAiOk(ai);
       setV41(workbench);
+      setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
     } catch (e) {
-      console.error(e);
+      setDiagnosticError("诊断未完成：" + String(e));
     } finally { setLoading(false); }
   };
 
@@ -59,25 +68,22 @@ export default function DiagnosticsPage() {
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
 
   return (
-    <div className="w-full min-w-0 p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-semibold">帮助与诊断</h1>
-          <p className="text-xs text-gray-400 mt-0.5">系统组件、知识工作台与迁移状态</p>
-        </div>
-        <button
+    <div className="aiks-page-shell w-full min-w-0">
+      <PageHeader title="帮助与诊断" description="系统组件、知识工作台与迁移状态" actions={<>
+        <UiButton variant="outline" size="sm"
           onClick={runDiag}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           重新检测
-        </button>
-      </div>
+        </UiButton></>} />
 
+      {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
+      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近成功检测：{lastSuccessfulCheck}</p>}
       <div className="space-y-2 mb-6">
         {doctor?.checks.map((check) => (
-          <div key={check.name} className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+          <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {check.ok ? (
               <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
             ) : (
@@ -95,7 +101,7 @@ export default function DiagnosticsPage() {
           </div>
         ))}
 
-        <div className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {aiOk === null ? (
             <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
           ) : aiOk ? (
@@ -109,9 +115,7 @@ export default function DiagnosticsPage() {
               <div className="text-xs text-gray-400">无法连接当前配置的 AI 服务</div>
             )}
           </div>
-          <div className={`text-xs ${aiOk ? "text-green-600" : aiOk === false ? "text-yellow-500" : "text-gray-400"}`}>
-            {aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}
-          </div>
+          <UiStatusBadge tone={aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
         </div>
       </div>
 
@@ -174,20 +178,20 @@ export default function DiagnosticsPage() {
       </section>
 
       <div className="space-y-2">
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("open_data_folder")}
           className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <FileText className="w-4 h-4 text-gray-400" />
           打开数据目录
-        </button>
-        <button
+        </UiButton>
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("restart_siyuan")}
           className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className="w-4 h-4 text-gray-400" />
           重新启动知识引擎
-        </button>
+        </UiButton>
       </div>
 
       <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-600 dark:text-blue-400">

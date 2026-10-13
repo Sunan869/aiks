@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, MessageSquareText, Search, X } from "lucide-react";
 import { searchAllProgressively } from "../api/search-progress";
+import { useModalFocus } from "./ui/useModalFocus";
+import { ModalBackdrop } from "./ui/ModalBackdrop";
 import type { UnifiedSearchHit, UnifiedSearchOutcome } from "../api/types";
 
 interface Props {
@@ -19,6 +21,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
   const [hasPartial, setHasPartial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useModalFocus(open, onClose);
 
   useEffect(() => {
     if (!open) return;
@@ -71,15 +74,6 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
     };
   }, [open, query]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
   const current = resultQuery === query.trim();
   const groups = useMemo(() => ({
     knowledge: current ? outcome.hits.filter(hit => hit.corpus === "knowledge") : [],
@@ -89,14 +83,16 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-start justify-center bg-black/20 px-6 pt-16 backdrop-blur-[1px]" onMouseDown={onClose}>
+    <ModalBackdrop kind="search" onClose={onClose}>
       <div
-        className="flex max-h-[72vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-850"
+        ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="全局搜索"
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-slate-900 sm:max-h-[72vh]"
         onMouseDown={event => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <Search className="h-4 w-4 flex-shrink-0 text-gray-400" />
           <input
+            aria-label="搜索知识和 AI 对话记录"
             ref={inputRef}
             value={query}
             onChange={event => setQuery(event.target.value)}
@@ -125,7 +121,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
           </div>
         )}
         {error && (
-          <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
             {error}
           </div>
         )}
@@ -147,7 +143,7 @@ export default function UnifiedSearchDialog({ open, onClose, onSelect }: Props) 
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

@@ -10,7 +10,7 @@ function calendarDay(date: Date): string {
 }
 
 export function reportDateRange(
-  kind: "today" | "week",
+  kind: "today" | "yesterday" | "week" | "last7" | "month",
   current: Date,
 ): { from: string; through: string } {
   if (!Number.isFinite(current.getTime())) throw new Error("Invalid local date");
@@ -18,6 +18,21 @@ export function reportDateRange(
   if (kind === "today") {
     const local = calendarDay(day);
     return { from: local, through: local };
+  }
+  if (kind === "yesterday") {
+    const previous = new Date(day.getFullYear(), day.getMonth(), day.getDate() - 1);
+    const local = calendarDay(previous);
+    return { from: local, through: local };
+  }
+  if (kind === "last7") {
+    const first = new Date(day.getFullYear(), day.getMonth(), day.getDate() - 6);
+    return { from: calendarDay(first), through: calendarDay(day) };
+  }
+  if (kind === "month") {
+    return {
+      from: calendarDay(new Date(day.getFullYear(), day.getMonth(), 1)),
+      through: calendarDay(day),
+    };
   }
   // ISO-like Monday-to-Sunday week; only include dates already elapsed.
   const weekday = (day.getDay() + 6) % 7;

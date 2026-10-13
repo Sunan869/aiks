@@ -24,6 +24,7 @@ use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
+use crate::pipeline::knowledge_input::project_for_knowledge;
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
@@ -684,10 +685,21 @@ async fn run_pipeline(
         .await
         .map_err(|error| anyhow::anyhow!("SESSION_INDEX: {error}"))?;
 
+    // Project only the LLM extraction input. Raw sessions and session search
+    // continue to use the separate, unmodified searchable_session above.
+    let knowledge_input = project_for_knowledge(&clean_result.messages);
+    info!(
+        "[KNOWLEDGE_FILTER] {} -> {} chars; {} messages removed, {} tool blocks removed",
+        knowledge_input.original_chars,
+        knowledge_input.filtered_chars,
+        knowledge_input.removed_messages,
+        knowledge_input.removed_tool_blocks
+    );
+
     // ── Stage 3: LLM CHUNK ───────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("LLM_CHUNKED"), None, None)?;
 
-    let chunk_result = chunk_for_llm(job.session_id, &clean_result.messages);
+    let chunk_result = chunk_for_llm(job.session_id, &knowledge_input.messages);
     save_chunks(db, &chunk_result.chunks)?;
 
     repo.record_stage(
@@ -699,11 +711,24 @@ async fn run_pipeline(
         None,
         Some(&serde_json::json!({
             "chunks": chunk_result.chunks.len(),
-            "messages_per_chunk": clean_result.cleaned_count / chunk_result.chunks.len().max(1)
+            "messages_per_chunk": knowledge_input.messages.len() / chunk_result.chunks.len().max(1),
+            "knowledge_original_chars": knowledge_input.original_chars,
+            "knowledge_filtered_chars": knowledge_input.filtered_chars,
+            "knowledge_removed_messages": knowledge_input.removed_messages,
+            "knowledge_removed_tool_blocks": knowledge_input.removed_tool_blocks,
+            "knowledge_error_evidence": knowledge_input.retained_error_evidence,
+            "knowledge_estimated_tokens_before": knowledge_input.original_chars.div_ceil(3),
+            "knowledge_estimated_tokens_after": knowledge_input.filtered_chars.div_ceil(3)
         })),
         None,
     )?;
     info!("[CHUNK] {} LLM chunks", chunk_result.chunks.len());
+
+    if chunk_result.chunks.is_empty() {
+        info!("[KNOWLEDGE_FILTER] no extractable conversation; skipping AI");
+        repo.mark_finished(run_id, "RAW_ONLY")?;
+        return Ok(());
+    }
 
     // ── Stage 4: AI EXTRACT ──────────────────────────────────────────────────
     if !ai_config.enabled {
