@@ -3,6 +3,10 @@ import { shouldUseMock } from "../api/client";
 import { canConfirmIsolatedRestore, type OfflineRestorePreview } from "../offline-restore";
 
 export function OfflineRestore() {
+  const [managedDestination, setManagedDestination] = useState("");
+  const [managedConfirmed, setManagedConfirmed] = useState("");
+  const [managedBusy, setManagedBusy] = useState(false);
+  const [managedMessage, setManagedMessage] = useState("");
   const [sourceWorkspace, setSourceWorkspace] = useState("");
   const [backupOutput, setBackupOutput] = useState("");
   const [creating, setCreating] = useState(false);
@@ -18,6 +22,26 @@ export function OfflineRestore() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const isMock = shouldUseMock();
+
+  const createManaged = async () => {
+    if (isMock || managedBusy || !managedDestination.trim() ||
+      managedDestination.trim() !== managedConfirmed.trim()) return;
+    setManagedBusy(true);
+    setManagedMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const count = await invoke<number>("create_managed_offline_backup", {
+        destinationPath: managedDestination,
+        confirmedDestinationPath: managedConfirmed,
+      });
+      setManagedMessage("当前工作空间完整备份完成，共 " + count + " 个文件。SiYuan 已尝试恢复运行。");
+      setManagedConfirmed("");
+    } catch (error) {
+      setManagedMessage("当前工作空间备份失败：" + String(error) + "。如 SiYuan 无法恢复，请检查故障锁定状态。");
+    } finally {
+      setManagedBusy(false);
+    }
+  };
 
   const checkRecovery = async () => {
     if (isMock) {
@@ -133,6 +157,24 @@ export function OfflineRestore() {
       <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
         此入口仅支持校验已有备份并恢复到全新独立目录，不覆盖当前工作空间。开始前请关闭 SiYuan 写入。
       </p>
+      <div className="mb-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+        <h4 className="mb-2 text-xs font-semibold">当前 AIKS 工作空间备份（受控停写）</h4>
+        <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">此操作会暂时阻止后台写入并停止内嵌 SiYuan，备份完成后尝试重新启动；备份目标必须是数据目录之外的新目录。不要在备份过程中通过其他程序修改 SiYuan 工作空间。</p>
+        <input aria-label="当前工作空间备份目标" value={managedDestination}
+          onChange={e => { setManagedDestination(e.target.value); setManagedConfirmed(""); }}
+          disabled={managedBusy} placeholder="例如 E:\\AIKS-Backup\\snapshot-1"
+          className="mb-2 w-full rounded border bg-transparent p-2 text-xs" />
+        <input aria-label="重新输入备份目标以确认" value={managedConfirmed}
+          onChange={e => setManagedConfirmed(e.target.value)} disabled={managedBusy}
+          placeholder="再次输入相同的新目录路径"
+          className="mb-2 w-full rounded border bg-transparent p-2 text-xs" />
+        <button type="button" disabled={isMock || managedBusy || !managedDestination.trim() ||
+          managedDestination.trim() !== managedConfirmed.trim()} onClick={() => void createManaged()}
+          className="rounded bg-amber-600 px-3 py-2 text-xs text-white disabled:opacity-50">
+          {managedBusy ? "正在停写、备份及重启…" : "确认创建当前工作空间备份"}
+        </button>
+        {managedMessage && <p role="status" className="mt-2 break-words text-xs">{managedMessage}</p>}
+      </div>
       <div className="mb-4 border-b border-gray-200 pb-4 dark:border-gray-700">
         <h4 className="mb-2 text-xs font-semibold">SiYuan 故障恢复核验</h4>
         <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">仅当备份失败导致写入锁定时使用。此操作不会自动重启内核，也不能强制解锁。</p>

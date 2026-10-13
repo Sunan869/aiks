@@ -137,6 +137,7 @@ pub fn run() {
             backup_commands::inspect_offline_backup_capacity,
             backup_commands::verify_managed_siyuan_recovery,
             backup_commands::get_managed_backup_recovery_required,
+            backup_commands::create_managed_offline_backup,
             backup_commands::create_offline_backup_from_stopped_workspace,
             backup_commands::verify_offline_backup_manifest,
             backup_commands::restore_offline_backup_isolated,
