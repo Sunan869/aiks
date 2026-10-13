@@ -1,3 +1,4 @@
+import { UiButton, UiSelect } from "./ui/fields";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -194,7 +195,7 @@ export default function AskAiksPanel({
             </div>
             <div className="mt-0.5 truncate text-[11px] text-gray-400">基于知识与 AI 对话记录检索回答，并提供可追溯引用</div>
           </div>
-          <button
+          <UiButton variant="ghost" size="sm"
             type="button"
             onClick={clear}
             disabled={loading || messages.length === 0}
@@ -202,19 +203,19 @@ export default function AskAiksPanel({
             title="新对话"
           >
             <Trash2 className="h-4 w-4" />
-          </button>
-          <button
+          </UiButton>
+          <UiButton variant="ghost" size="sm"
             type="button"
             onClick={onClose}
             className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             title="关闭"
           >
             <X className="h-4 w-4" />
-          </button>
+          </UiButton>
         </header>
         <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2 text-xs dark:border-gray-800">
           <label htmlFor="ask-aiks-project-filter" className="text-gray-500">检索范围</label>
-          <select
+          <UiSelect
             id="ask-aiks-project-filter"
             aria-label="问 AIKS 项目范围"
             value={selectedProject}
@@ -228,9 +229,9 @@ export default function AskAiksPanel({
           >
             <option value="">所有项目</option>
             {projectChoices.map(project => <option key={project} value={project}>{project}</option>)}
-          </select>
+          </UiSelect>
           <label htmlFor="ask-aiks-source-filter" className="text-gray-500">来源</label>
-          <select
+          <UiSelect
             id="ask-aiks-source-filter"
             aria-label="问 AIKS 数据源范围"
             value={selectedSource}
@@ -244,7 +245,7 @@ export default function AskAiksPanel({
           >
             <option value="">所有来源</option>
             {sourceChoices.map(source => <option key={source} value={source}>{source}</option>)}
-          </select>
+          </UiSelect>
         </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 dark:bg-gray-950/20">
@@ -261,7 +262,7 @@ export default function AskAiksPanel({
               </div>
               <div className="mt-6 grid gap-2">
                 {QUICK_PROMPTS.map(prompt => (
-                  <button
+                  <UiButton variant="ghost" size="sm"
                     key={prompt}
                     type="button"
                     onClick={() => {
@@ -272,7 +273,7 @@ export default function AskAiksPanel({
                   >
                     <BookOpen className="h-4 w-4 flex-shrink-0 text-gray-400 transition group-hover:text-blue-500" />
                     <span>{prompt}</span>
-                  </button>
+                  </UiButton>
                 ))}
               </div>
             </div>
@@ -322,7 +323,7 @@ export default function AskAiksPanel({
             />
             <div className="mt-1.5 flex items-center justify-between px-1">
               <span className="text-[10px] text-gray-400">Enter 发送 · Shift+Enter 换行 · 基于检索证据回答</span>
-              <button
+              <UiButton variant="ghost" size="sm"
                 type="button"
                 onClick={() => void submit()}
                 disabled={loading || !aiHealthy || !input.trim()}
@@ -330,7 +331,7 @@ export default function AskAiksPanel({
                 title="发送"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
+              </UiButton>
             </div>
           </div>
           <div className="mt-2 w-full text-center text-[10px] text-gray-400">
@@ -361,7 +362,7 @@ function renderInline(
     if (citationMatch) {
       const citation = citations?.find(item => item.index === Number(citationMatch[1]));
       parts.push(citation ? (
-        <button
+        <UiButton variant="ghost" size="sm"
           key={"citation-" + index}
           type="button"
           onClick={() => onOpenCitation(citation)}
@@ -369,7 +370,7 @@ function renderInline(
           title={citation.title}
         >
           {citation.index}
-        </button>
+        </UiButton>
       ) : token);
     } else if (token.startsWith("**")) {
       parts.push(
@@ -655,7 +656,7 @@ function Message({
             </summary>
             <div className="space-y-1.5 border-t border-gray-100 p-2 dark:border-gray-800">
               {message.citations.map(citation => (
-                <button
+                <UiButton variant="ghost" size="sm"
                   key={citation.corpus + ":" + citation.entityId + ":" + (citation.chunkId ?? citation.index)}
                   type="button"
                   onClick={() => onOpenCitation(citation)}
@@ -677,7 +678,7 @@ function Message({
                       {citation.snippet}
                     </div>
                   )}
-                </button>
+                </UiButton>
               ))}
             </div>
           </details>
@@ -685,7 +686,7 @@ function Message({
 
         {message.content && (
           <div className="mt-2.5 flex items-center gap-1 text-[10px] text-gray-400">
-            <button
+            <UiButton variant="ghost" size="sm"
               type="button"
               onClick={() => void navigator.clipboard?.writeText(message.content)}
               className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
@@ -693,7 +694,7 @@ function Message({
             >
               <Copy className="h-3 w-3" />
               复制
-            </button>
+            </UiButton>
             {message.model && (
               <span className="ml-auto text-gray-300 dark:text-gray-600">{message.model}</span>
             )}

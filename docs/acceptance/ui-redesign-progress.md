@@ -65,3 +65,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - KnowledgeEditor now uses responsive narrow-window layout, shared form/button primitives, a labelled modal dialog, autofocus, keyboard Escape, disabled close during save, and announced validation errors. Business save/update APIs and manual-edit protection remain unchanged.
 - UnifiedSearchDialog now has narrow-window spacing, explicit labelled modal semantics, an accessible search field and announced errors while retaining progressive retrieval and cancellation.
 - CI and Windows visual acceptance are still required; no claim of official Radix/shadcn installation.
+
+## 2026-10-13 AI assistant and storage setup control batch
+
+- Ask AIKS panel now reuses shared button and selection controls while preserving progressive RAG streaming, source/project filters, result actions, history, and disabled conditions.
+- First-run storage setup and storage management now reuse shared buttons; first-run setup has a labelled dialog and a bounded scroll region on small screens, without changing storage migration or restart operations.
+- A lightweight cross-component contract test verifies nonregression of core AI streaming and data-location calls. Radix/shadcn and Windows UI acceptance remain outstanding.
