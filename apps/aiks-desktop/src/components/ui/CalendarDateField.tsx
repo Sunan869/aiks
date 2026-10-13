@@ -37,6 +37,11 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     return () => document.removeEventListener("pointerdown", close);
   }, [open]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  useEffect(() => {
+    if (!open) return;
+    const selected = dayButtons.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+    (selected ?? dayButtons.current?.querySelector<HTMLButtonElement>("button[data-day]"))?.focus();
+  }, [open]);
   const first = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells = Array.from({ length: Math.ceil((first + days) / 7) * 7 }, (_, index) => index - first + 1);
@@ -49,6 +54,12 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   const moveFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const delta: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
     const step = delta[event.key];
+    if (event.key === "Home" || event.key === "End") {
+      const buttons = Array.from(dayButtons.current?.querySelectorAll<HTMLButtonElement>("button[data-day]") ?? []);
+      event.preventDefault();
+      buttons[event.key === "Home" ? 0 : buttons.length - 1]?.focus();
+      return;
+    }
     if (step === undefined) return;
     const buttons = Array.from(dayButtons.current?.querySelectorAll<HTMLButtonElement>("button[data-day]") ?? []);
     const selectedIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -58,7 +69,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
   };
   return (
     <div ref={root} className="relative inline-block min-w-[180px]">
-      <button type="button" aria-label={label} aria-expanded={open} aria-controls={id}
+      <button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
         ref={trigger} disabled={disabled} onClick={() => { setMonth(parse(value) ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setOpen(current => !current); }}
         className="aiks-field-date flex w-full items-center gap-2 px-3 text-left">
         <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
