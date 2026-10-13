@@ -1,3 +1,4 @@
+import * as Tabs from "@radix-ui/react-tabs";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiInput, UiTextarea } from "../components/ui/fields";
@@ -421,22 +422,18 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
           options={projects.map(item => ({ value: item.id, label: `${item.title} · ${item.session_count} 会话` }))} />
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
-      <nav aria-label="项目记忆工作区" className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <Tabs.Root value={workspaceTab} onValueChange={value => setWorkspaceTab(value as typeof workspaceTab)}>
+      <Tabs.List aria-label="项目记忆工作区" className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         {([
           ["knowledge", "知识概览"],
           ["review", "待复核"],
           ["evolution", "知识演进"],
           ["tools", "项目工具"],
         ] as const).map(([key, label]) => (
-          <UiButton variant="outline" size="sm" key={key} type="button" aria-pressed={workspaceTab === key}
-            onClick={() => setWorkspaceTab(key)}
-            className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${workspaceTab === key
-              ? "bg-slate-900 text-white shadow-sm dark:bg-sky-600"
-              : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
-            {label}
-          </UiButton>
+          <Tabs.Trigger value={key} key={key} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 data-[state=active]:bg-slate-900 data-[state=active]:text-white dark:text-slate-300 dark:hover:bg-slate-800 dark:data-[state=active]:bg-sky-600 dark:data-[state=active]:text-white">{label}</Tabs.Trigger>
         ))}
-      </nav>
+      </Tabs.List>
+      </Tabs.Root>
       <section className={`memory-panel ${workspaceTab === "tools" ? "" : "hidden"}`}>
         <h2 className="font-semibold">人工修正项目归属（仅 AIKS 本地）</h2>
         <p className="mt-2 text-xs text-gray-500">

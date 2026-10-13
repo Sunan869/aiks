@@ -1,3 +1,4 @@
+import * as Tabs from "@radix-ui/react-tabs";
 import { useEffect, useRef, useState } from "react";
 import { UiButton, UiInput, UiSelect, UiTextarea } from "./ui/fields";
 import { useModalFocus } from "./ui/useModalFocus";
@@ -160,10 +161,12 @@ export default function KnowledgeEditor({ open, initial, onClose, onSaved }: Pro
 
           <div className="flex min-h-[220px] flex-col md:min-h-0">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-gray-800">
-              <div className="flex rounded-md bg-gray-100 p-0.5 dark:bg-gray-800">
-                <UiButton variant={!preview ? "secondary" : "ghost"} size="sm" aria-pressed={!preview} onClick={() => setPreview(false)} className={`rounded px-3 py-1 text-xs ${!preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}>Markdown</UiButton>
-                <UiButton variant={preview ? "secondary" : "ghost"} size="sm" aria-pressed={preview} onClick={() => setPreview(true)} className={`flex items-center gap-1 rounded px-3 py-1 text-xs ${preview ? "bg-white shadow-sm dark:bg-gray-700" : "text-gray-500"}`}><Eye className="h-3 w-3" />预览</UiButton>
-              </div>
+              <Tabs.Root value={preview ? "preview" : "edit"} onValueChange={value => setPreview(value === "preview")}>
+                <Tabs.List aria-label="知识编辑模式" className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+                  <Tabs.Trigger value="edit" className="rounded-md px-3 py-1.5 text-xs text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-700 dark:data-[state=active]:text-white">Markdown</Tabs.Trigger>
+                  <Tabs.Trigger value="preview" className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-700 dark:data-[state=active]:text-white"><Eye className="h-3 w-3"/>预览</Tabs.Trigger>
+                </Tabs.List>
+              </Tabs.Root>
               <span className="text-[10px] text-gray-400">{content.length} 字符</span>
             </div>
 

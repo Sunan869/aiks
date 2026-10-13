@@ -1,3 +1,4 @@
+import * as Switch from "@radix-ui/react-switch";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useEffect, useState } from "react";
@@ -548,15 +549,10 @@ function Toggle({ label, desc, value, onChange }: { label: string; desc: string;
         <div className="text-sm">{label}</div>
         {desc && <div className="text-xs text-gray-400">{desc}</div>}
       </div>
-      <UiButton variant="ghost" size="sm"
-        role="switch"
-        aria-label={label}
-        aria-checked={value}
-        onClick={() => onChange(!value)}
-        className={`aiks-switch relative shrink-0 w-10 h-5 rounded-full transition-colors ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
-      </UiButton>
+      <Switch.Root checked={value} onCheckedChange={onChange} aria-label={label}
+        className="group relative h-6 w-11 shrink-0 rounded-full bg-slate-300 outline-none transition-colors data-[state=checked]:bg-sky-600 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:bg-slate-600 dark:data-[state=checked]:bg-sky-500">
+        <Switch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[22px]" />
+      </Switch.Root>
     </div>
   );
 }
