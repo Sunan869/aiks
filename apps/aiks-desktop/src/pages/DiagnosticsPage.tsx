@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle, XCircle, RefreshCw, Cpu, FileText } from "lucide-react";
@@ -65,14 +66,14 @@ export default function DiagnosticsPage() {
           <h1 className="text-2xl font-bold tracking-tight">帮助与诊断</h1>
           <p className="text-xs text-gray-400 mt-0.5">系统组件、知识工作台与迁移状态</p>
         </div>
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={runDiag}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           重新检测
-        </button>
+        </UiButton>
       </div>
 
       <div className="space-y-2 mb-6">
@@ -174,20 +175,20 @@ export default function DiagnosticsPage() {
       </section>
 
       <div className="space-y-2">
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("open_data_folder")}
           className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <FileText className="w-4 h-4 text-gray-400" />
           打开数据目录
-        </button>
-        <button
+        </UiButton>
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("restart_siyuan")}
           className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className="w-4 h-4 text-gray-400" />
           重新启动知识引擎
-        </button>
+        </UiButton>
       </div>
 
       <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-600 dark:text-blue-400">

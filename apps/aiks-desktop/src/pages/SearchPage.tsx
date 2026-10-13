@@ -1,3 +1,4 @@
+import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SearchResponse, SearchResult } from "../api/types";
@@ -48,7 +49,7 @@ export default function SearchPage({ onViewKnowledge }: Props) {
 
       {/* Search input */}
       <div className="flex gap-2 mb-6">
-        <input
+        <UiInput
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
@@ -57,13 +58,13 @@ export default function SearchPage({ onViewKnowledge }: Props) {
           className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           autoFocus
         />
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={search}
           disabled={!query.trim() || loading}
           className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-sm rounded-lg transition-colors font-medium"
         >
           {loading ? "搜索中..." : "搜索"}
-        </button>
+        </UiButton>
       </div>
 
       {error && (

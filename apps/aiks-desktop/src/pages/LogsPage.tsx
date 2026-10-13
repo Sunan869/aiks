@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
@@ -36,12 +37,12 @@ export default function LogsPage() {
           <h1 className="text-2xl font-bold">日志</h1>
           <p className="text-gray-500 text-sm mt-1">运行日志</p>
         </div>
-        <button
+        <UiButton variant="outline" size="sm"
           onClick={() => setLogs([])}
           className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded border"
         >
           清空
-        </button>
+        </UiButton>
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs shadow-sm">

@@ -1,4 +1,4 @@
-import { UiSelect } from "../components/ui/fields";
+import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
@@ -104,7 +104,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
           {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条</p>}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <UiButton variant="outline" size="sm"
             onClick={() => {
               setShowImport(true);
               setImportError(null);
@@ -113,7 +113,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
             className="px-3 py-1.5 text-sm font-medium rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             导入分享链接
-          </button>
+          </UiButton>
           <UiSelect aria-label="工作记录来源"
             value={source}
             onChange={e => { setSource(e.target.value); setPage(0); }}
@@ -127,10 +127,10 @@ export default function SessionsPage({ onViewDetail }: Props) {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-        <input aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
+        <UiInput aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
           placeholder="搜索当前页标题、会话 ID 或项目…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
         <span className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} 条 · 全部 {data?.total ?? 0} 条</span>
-        {currentPageQuery && <button type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</button>}
+        {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
       </div>
       {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
       {error && (
@@ -208,17 +208,17 @@ export default function SessionsPage({ onViewDetail }: Props) {
                   支持 ChatGPT、Claude、Gemini、DeepSeek、豆包、Kimi、腾讯元宝、千问的公开 Share URL
                 </p>
               </div>
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={() => !importing && setShowImport(false)}
                 disabled={importing}
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-40"
                 aria-label="关闭"
               >
                 ×
-              </button>
+              </UiButton>
             </div>
             <div className="space-y-3 px-5 py-4">
-              <input
+              <UiInput
                 autoFocus
                 value={shareUrl}
                 onChange={e => setShareUrl(e.target.value)}
@@ -245,20 +245,20 @@ export default function SessionsPage({ onViewDetail }: Props) {
               )}
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-100 dark:border-gray-700 px-5 py-3">
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={() => setShowImport(false)}
                 disabled={importing}
                 className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 disabled:opacity-40"
               >
                 关闭
-              </button>
-              <button
+              </UiButton>
+              <UiButton variant="outline" size="sm"
                 onClick={() => void importShare()}
                 disabled={importing || !shareUrl.trim()}
                 className="rounded bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
               >
                 {importing ? "正在导入..." : "导入"}
-              </button>
+              </UiButton>
             </div>
           </div>
         </div>
@@ -271,16 +271,16 @@ export default function SessionsPage({ onViewDetail }: Props) {
             第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条，共 {data.total} 条
           </span>
           <div className="flex gap-2">
-            <button
+            <UiButton variant="outline" size="sm"
               onClick={() => setPage(p => p - 1)}
               disabled={page === 0}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
-            >上一页</button>
-            <button
+            >上一页</UiButton>
+            <UiButton variant="outline" size="sm"
               onClick={() => setPage(p => p + 1)}
               disabled={(page + 1) * PAGE_SIZE >= data.total}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
-            >下一页</button>
+            >下一页</UiButton>
           </div>
         </div>
       )}

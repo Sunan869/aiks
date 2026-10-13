@@ -21,3 +21,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Adopted the primitives in source-provider actions and search, and processing-page primary actions and search. Existing onClick handlers and provider read-only safeguards remain unchanged.
 - npm Registry could not be reached from the execution environment; **Radix and official shadcn/ui packages are not installed**, and this commit must not be counted as a completed official migration.
 - CI, desktop build and actual Windows visual acceptance remain required after commit.
+
+## 2026-10-13 shared-control adoption, six-page batch
+
+- Reused the accessible button primitive across Overview, Sync, Logs, Diagnostics, Sessions and Search pages, preserving all previous click handlers, disabled logic, and domain operations.
+- Reused the input primitive in Sessions and Search while retaining existing source selection, pagination, and search logic.
+- This is **shared-component consolidation**, not the official shadcn/Radix migration. A real npm install, locked dependencies, keyboard/visual checks and CI remain prerequisites for calling that migration complete.
+- No data model, provider write permissions, SiYuan overwrite behavior, or backup entry points were modified.

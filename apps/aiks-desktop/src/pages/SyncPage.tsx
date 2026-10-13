@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCw } from "lucide-react";
@@ -91,12 +92,12 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
         <div className="mb-4 text-xs text-red-500">{result.error}</div>
       )}
 
-      <button onClick={doSync} disabled={syncing}
+      <UiButton variant="outline" size="sm" onClick={doSync} disabled={syncing}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
       >
         <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
         {syncing ? "同步中..." : "立即同步"}
-      </button>
+      </UiButton>
 
       <div className="mt-3 text-xs text-gray-400">
         同步完成后，AIKS 会自动对有价值的会话排队进行 AI 智能整理。
