@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import css from "../index.css?raw";
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 import sidebar from "../components/Sidebar.tsx?raw";
 import sources from "../pages/SourcesPage.tsx?raw";
 import select from "../components/ui/SearchSelect.tsx?raw";

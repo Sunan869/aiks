@@ -142,7 +142,7 @@ export default function SourcesPage({ fullStatus }: Props) {
       {(sourceQuery || onlyIssues) && <UiButton variant="outline" size="sm" type="button" onClick={() => { setSourceQuery(""); setOnlyIssues(false); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">重置筛选</UiButton>}
       <span role="status" className="text-xs text-slate-500">显示 {visibleSources.length} / {configurableSources.length} 个数据源</span>
     </div>
-    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
+    <div className="aiks-source-grid grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">{visibleSources.map(source => <SourceCard key={source.key} source={source} count={fullStatus?.scan_by_source[source.display_name] ?? 0} diagnostics={fullStatus?.provider_diagnostics?.[source.key] ?? []} refresh={refresh} />)}</div>
     {!loading && visibleSources.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">没有符合筛选条件的数据源，可清空搜索或关闭“仅异常”。</p>}
   </div>;
 }

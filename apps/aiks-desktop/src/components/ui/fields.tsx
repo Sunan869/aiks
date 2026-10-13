@@ -43,9 +43,24 @@ export const UiTextarea = forwardRef<HTMLTextAreaElement, ComponentPropsWithoutR
   return <textarea ref={ref} {...props} className={`aiks-field-input resize-y ${className}`} />;
 });
 
-type ButtonProps = ComponentPropsWithoutRef<"button"> & { variant?: "primary" | "secondary" | "outline" | "ghost" | "danger"; size?: "sm" | "md" };
+type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
+type ButtonSize = "sm" | "md";
+type ButtonProps = ComponentPropsWithoutRef<"button"> & { variant?: ButtonVariant; size?: ButtonSize };
+// Literal class references are required for Tailwind 3 content scanning.
+// Template-based class construction caused the shared action styles to be purged.
+const buttonVariants: Record<ButtonVariant, string> = {
+  primary: "aiks-button--primary",
+  secondary: "aiks-button--secondary",
+  outline: "aiks-button--outline",
+  ghost: "aiks-button--ghost",
+  danger: "aiks-button--danger",
+};
+const buttonSizes: Record<ButtonSize, string> = {
+  sm: "aiks-button--sm",
+  md: "aiks-button--md",
+};
 export const UiButton = forwardRef<HTMLButtonElement, ButtonProps>(function UiButton(
   { variant = "secondary", size = "md", className = "", type = "button", ...props }, ref,
 ) {
-  return <button ref={ref} type={type} {...props} className={`aiks-button aiks-button--${variant} aiks-button--${size} ${className}`} />;
+  return <button ref={ref} type={type} {...props} className={`aiks-button ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`} />;
 });
