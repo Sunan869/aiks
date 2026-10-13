@@ -16,8 +16,8 @@ describe("unified desktop action controls", () => {
   it("keeps shared actions and permits intentional accessible native disclosures", () => {
     for (const [index, page] of pages.entries()) {
       expect(page).toContain("UiButton");
-      const nativeOpenButtons = page.match(/<button\\b/g) ?? [];
-      const nativeCloseButtons = page.match(/<\\/button>/g) ?? [];
+      const nativeOpenButtons = page.match(/<button\b/g) ?? [];
+      const nativeCloseButtons = page.match(/<\/button>/g) ?? [];
       const expected = index === 3 || index === 5 ? 1 : 0;
       expect(nativeOpenButtons).toHaveLength(expected);
       expect(nativeCloseButtons).toHaveLength(expected);
