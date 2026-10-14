@@ -37,7 +37,7 @@ const THIRD_PARTY = [
 
 export default function AboutPage() {
   return (
-    <div className="p-6 max-w-xl">
+    <div className="aiks-page-shell max-w-3xl">
       <div className="mb-6">
         <div className="text-4xl font-bold text-blue-600 mb-1">AIKS</div>
         <div className="text-gray-400 text-sm">AI Knowledge Sync · v0.2.0</div>

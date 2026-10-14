@@ -14,5 +14,12 @@ export default {
       },
     },
   },
+  // Preserve component-layer selectors even when variants are selected dynamically.
+  safelist: [
+    "aiks-button", "aiks-button--sm", "aiks-button--md",
+    "aiks-button--primary", "aiks-button--secondary", "aiks-button--outline",
+    "aiks-button--ghost", "aiks-button--danger",
+    "aiks-field-input", "aiks-field-select", "aiks-field-date",
+  ],
   plugins: [],
 };

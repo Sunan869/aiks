@@ -7,13 +7,14 @@ import OverviewPage from "./pages/OverviewPage";
 import SessionsPage from "./pages/SessionsPage";
 import SessionDetailPage from "./pages/SessionDetailPage";
 import KnowledgeWorkspacePage from "./pages/KnowledgeWorkspacePage";
+import ProjectMemoryPage from "./pages/ProjectMemoryPage";
 import ProcessingPage from "./pages/ProcessingPage";
 import ProcessingDetailPage from "./pages/ProcessingDetailPage";
 import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
 import StartupScreen from "./components/StartupScreen";
-import { DataStorageSettingsSection, DataStorageSetupGate } from "./components/DataStorage";
+import { DataStorageSetupGate } from "./components/DataStorage";
 import { getApi, shouldUseMock } from "./api/client";
 import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
@@ -115,7 +116,7 @@ export default function App() {
     );
   }
 
-  const sessionCount = fullStatus?.scan_total ?? 0;
+  const sessionCount = fullStatus?.db_total ?? 0;
   const isHealthy = fullStatus ? fullStatus.db_failed === 0 && fullStatus.db_conflict === 0 : true;
 
   const navigate = (page: Page) => {
@@ -177,6 +178,9 @@ export default function App() {
     switch (nav.page) {
       case "overview": return <OverviewPage fullStatus={fullStatus} aiStatus={aiStatus} syncInProgress={syncInProgress} onRefresh={refreshStatus} />;
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
+
+      case "projects": return <ProjectMemoryPage onOpenKnowledge={viewKnowledgeDetail} onOpenSession={viewSessionDetail} />;
+      case "review": return <ProjectMemoryPage initialTab="review" onOpenKnowledge={viewKnowledgeDetail} onOpenSession={viewSessionDetail} />;
       case "knowledge": return (
         <KnowledgeWorkspacePage
           workspaceMode={nav.workbenchMode}
@@ -186,35 +190,22 @@ export default function App() {
           externalOverlayOpen={askOpen}
         />
       );
-      case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} />;
+      case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} onViewSession={viewSessionDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
-      case "settings": return <><SettingsPage /><DataStorageSettingsSection /></>;
+      case "settings": return <SettingsPage />;
       case "diagnostics": return <DiagnosticsPage />;
     }
   };
 
   return (
     <>
-      <div className="flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-        <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
-            {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
-          </div>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            {aiStatus && <div className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} /><span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span></div>}
-            {syncInProgress && <span className="text-blue-500">扫描中...</span>}
-            {fullStatus && !syncInProgress && <span>{fullStatus.scan_total} 条工作记录</span>}
-          </div>
-        </div>
-
+      <div className="aiks-app-shell flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
         <div className="flex flex-1 overflow-hidden">
           <Sidebar page={nav.page} onNavigate={navigate} sessionCount={sessionCount} knowledgeCount={knowledgeCount} aiHealthy={aiStatus?.healthy ?? false} />
-          <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">{renderMain()}</main>
+          <main className="aiks-main-scroll flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">{renderMain()}</main>
         </div>
 
-        <div className="flex h-7 flex-shrink-0 items-center gap-3 border-t border-gray-200 bg-white px-4 text-xs text-gray-400 dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex h-8 flex-shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-950">
           {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
           {isMock && <span className="text-yellow-500">Mock 模式 — 仅用于开发</span>}
 

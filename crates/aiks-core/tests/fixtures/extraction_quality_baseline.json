@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "short_technical_fix",
+      "scenario": "short_session",
+      "expected_terms": [
+        "timeout",
+        "retry"
+      ],
+      "output": {
+        "session_summary": "Client timeouts resolved by bounded retry",
+        "knowledge_score": 0.85,
+        "worth_extracting": true,
+        "items": [
+          {
+            "title": "Bounded retry for timeout",
+            "category": "solution",
+            "summary": "Retries stop after a finite number of attempts",
+            "content": "Use timeout and retry with bounded attempts",
+            "problem": "timeout",
+            "root_causes": [
+              "short timeout"
+            ],
+            "solutions": [
+              "retry with limit"
+            ],
+            "key_commands": [],
+            "key_files": [],
+            "decisions": [
+              "bounded retry"
+            ],
+            "tags": [
+              "timeout",
+              "retry"
+            ],
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "id": "long_session_reduction",
+      "scenario": "long_session",
+      "expected_terms": [
+        "chunks",
+        "cache"
+      ],
+      "output": {
+        "session_summary": "Several chunks reduced to one consistent summary",
+        "knowledge_score": 0.83,
+        "worth_extracting": true,
+        "items": [
+          {
+            "title": "Chunked cache strategy",
+            "category": "decision",
+            "summary": "Summarize chunks and reuse cache",
+            "content": "Session chunks use content addressed cache",
+            "problem": null,
+            "root_causes": null,
+            "solutions": [
+              "cache repeated chunks"
+            ],
+            "key_commands": [],
+            "key_files": [],
+            "decisions": [
+              "use chunks"
+            ],
+            "tags": [
+              "chunks",
+              "cache"
+            ],
+            "confidence": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated_tool_noise",
+      "scenario": "tool_noise",
+      "expected_terms": [],
+      "output": {
+        "session_summary": "Repeated tool output without reusable knowledge",
+        "knowledge_score": 0.1,
+        "worth_extracting": false,
+        "items": []
+      }
+    },
+    {
+      "id": "decision_reversal",
+      "scenario": "changing_decision",
+      "expected_terms": [
+        "migration",
+        "rollback"
+      ],
+      "output": {
+        "session_summary": "Migration needed a rollback plan",
+        "knowledge_score": 0.92,
+        "worth_extracting": true,
+        "items": [
+          {
+            "title": "Migration rollback procedure",
+            "category": "decision",
+            "summary": "Preserve pre-migration backup and rollback",
+            "content": "The migration can rollback after a failed verification",
+            "problem": "migration failure",
+            "root_causes": [
+              "schema mismatch"
+            ],
+            "solutions": [
+              "rollback"
+            ],
+            "key_commands": [],
+            "key_files": [],
+            "decisions": [
+              "verify migration"
+            ],
+            "tags": [
+              "migration",
+              "rollback"
+            ],
+            "confidence": 0.85
+          }
+        ]
+      }
+    },
+    {
+      "id": "mixed_chinese",
+      "scenario": "mixed_zh_en",
+      "expected_terms": [
+        "SQLite",
+        "中文"
+      ],
+      "output": {
+        "session_summary": "中文 SQLite 数据修复",
+        "knowledge_score": 0.82,
+        "worth_extracting": true,
+        "items": [
+          {
+            "title": "SQLite 中文数据处理",
+            "category": "solution",
+            "summary": "修复 SQLite 中文文本写入",
+            "content": "SQLite 中文处理需检查编码",
+            "problem": "编码错误",
+            "root_causes": [
+              "编码不一致"
+            ],
+            "solutions": [
+              "统一 UTF-8"
+            ],
+            "key_commands": [],
+            "key_files": [],
+            "decisions": [],
+            "tags": [
+              "SQLite",
+              "中文"
+            ],
+            "confidence": 0.83
+          }
+        ]
+      }
+    }
+  ]
+}

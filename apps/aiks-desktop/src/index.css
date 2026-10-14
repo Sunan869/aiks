@@ -30,3 +30,85 @@ body {
   background: rgba(0,0,0,0.2);
   border-radius: 3px;
 }
+
+
+/* Project memory surfaces use Tailwind composition; keep custom classes for shared layout. */
+@layer components {
+  .memory-workspace { @apply w-full min-w-0 max-w-none; }
+  .memory-hero { @apply rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50 p-5 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800; }
+  .memory-stat { @apply flex flex-col gap-1 rounded-xl border border-white bg-white/80 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800/80; }
+  .memory-stat span { @apply text-xs font-medium text-slate-500 dark:text-slate-400; }
+  .memory-stat strong { @apply text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-100; }
+  .memory-project-picker { @apply rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900; }
+  .memory-panel { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900; }
+  .memory-evidence { @apply rounded-xl border border-slate-200 bg-slate-50/60 p-4 transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60; }
+  .memory-panel h2 { @apply text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100; }
+  .memory-panel button { @apply transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2; }
+}
+
+
+/* AIKS shared workspace visual foundations. These styles deliberately do not
+   override embedded SiYuan webview content or change application behavior. */
+@layer components {
+  .aiks-page-shell { @apply mx-0 w-full min-w-0 max-w-none space-y-5 px-4 py-4 sm:px-5 sm:py-5; }
+  .aiks-surface { @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+  .aiks-app-shell button { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950; }
+  .aiks-main-scroll input:not([type="checkbox"]):not([type="radio"]),
+  .aiks-main-scroll select,
+  .aiks-main-scroll textarea { @apply min-h-[36px] rounded-lg border-slate-300 bg-white text-slate-900 shadow-sm transition-colors focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
+}
+
+/* Shared Radix selector trigger styles; interactive menu lives in the Radix portal. */
+@layer components {
+  .aiks-field-select { @apply min-h-[38px] max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
+}
+
+/* Consolidated workspace section controls (all existing business actions stay mounted). */
+@layer components {
+  .memory-workspace [role="tablist"][aria-label="项目记忆工作区"] { @apply sticky top-0 z-10; }
+  .memory-workspace .memory-panel { @apply min-w-0; }
+}
+
+@layer components {
+  .aiks-surface button:not(:disabled) { @apply transition-colors; }
+  .aiks-page-shell > h1 { @apply tracking-tight; }
+  .aiks-page-shell [role="alert"] { @apply break-words; }
+}
+
+/* Legacy shared utility classes retained for compatibility with CVA/Tailwind controls. */
+@layer components {
+  .aiks-field-input { @apply min-h-[38px] min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
+  .aiks-button { @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-950; }
+  .aiks-button--sm { @apply min-h-[34px] px-3 py-1.5 text-xs; }
+  .aiks-button--md { @apply min-h-[38px] px-4 py-2 text-sm; }
+  .aiks-button--primary { @apply border-sky-600 bg-sky-600 text-white hover:bg-sky-700; }
+  .aiks-button--secondary { @apply border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700; }
+  .aiks-button--outline { @apply border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800; }
+  .aiks-button--ghost { @apply border-transparent bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
+  .aiks-button--danger { @apply border-red-600 bg-red-600 text-white hover:bg-red-700; }
+}
+
+/* Desktop list/table usability: keyboard scroll, sticky headings, consistent hover. */
+@layer components {
+  .aiks-data-table { @apply min-w-0 scroll-smooth; scrollbar-gutter: stable; }
+  .aiks-data-table:focus-visible { @apply outline-none ring-2 ring-sky-500 ring-inset; }
+  .aiks-data-table tbody tr { @apply transition-colors hover:bg-sky-50/60 dark:hover:bg-slate-800/70; }
+  .aiks-data-table td { @apply align-middle; }
+}
+
+
+/* Final narrow-window safeguards for desktop-only workspaces. */
+@layer components {
+  .aiks-page-shell .aiks-surface { @apply min-w-0; }
+  .aiks-page-shell pre { @apply max-w-full overflow-auto; }
+  .aiks-page-shell table { @apply text-left; }
+  .aiks-main-scroll { @apply min-w-0; }
+}
+
+/* Windows visual review: desktop canvas, consistent actions and popup focus. */
+@layer components {
+  .aiks-main-scroll .aiks-page-shell, .aiks-main-scroll .memory-workspace { max-width: none; margin-left: 0; margin-right: 0; }
+  .aiks-source-grid > section { @apply flex h-full min-w-0 flex-col; }
+  .aiks-search-popup input { @apply min-h-0 border-0 bg-transparent shadow-none; }
+  .aiks-search-popup input:focus { @apply border-transparent outline-none ring-0 shadow-none; }
+}

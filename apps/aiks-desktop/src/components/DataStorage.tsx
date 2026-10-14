@@ -1,3 +1,4 @@
+import { UiButton } from "./ui/fields";
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, HardDrive, MoveRight } from "lucide-react";
 import { shouldUseMock } from "../api/client";
@@ -73,8 +74,8 @@ export function DataStorageSetupGate({ onRequired }: { onRequired: () => void })
   if (isMock || !settings?.setup_required) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-800">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm sm:p-6">
+      <div role="dialog" aria-modal="true" aria-label="选择 AIKS 数据存储位置" className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-800 sm:p-6">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-blue-50 p-2 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
             <HardDrive size={22} />
@@ -95,15 +96,15 @@ export function DataStorageSetupGate({ onRequired }: { onRequired: () => void })
         {error && <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
 
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button
+          <UiButton variant="outline" size="sm"
             type="button"
             disabled={busy}
             onClick={() => void useDefault()}
             className="rounded border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-700"
           >
             使用默认位置
-          </button>
-          <button
+          </UiButton>
+          <UiButton variant="outline" size="sm"
             type="button"
             disabled={busy}
             onClick={() => void selectCustom()}
@@ -111,7 +112,7 @@ export function DataStorageSetupGate({ onRequired }: { onRequired: () => void })
           >
             <FolderOpen size={16} />
             {busy ? "正在应用..." : "选择其他目录"}
-          </button>
+          </UiButton>
         </div>
         <div className="mt-3 text-right text-[11px] text-gray-400">保存后 AIKS 会自动重启并使用新目录。</div>
       </div>
@@ -162,8 +163,8 @@ export function DataStorageSettingsSection() {
   if (isMock) return null;
 
   return (
-    <div className="px-6 pb-8">
-      <div className="border-t border-gray-200 pt-6 dark:border-gray-700">
+    <section aria-label="数据存储位置" className="mb-5 min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div>
         <div className="mb-3 flex items-center gap-2">
           <HardDrive size={17} className="text-gray-500" />
           <h2 className="text-sm font-semibold">数据存储位置</h2>
@@ -187,21 +188,21 @@ export function DataStorageSettingsSection() {
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <button
+                  <UiButton variant="outline" size="sm"
                     type="button"
                     onClick={() => void openFolder()}
                     className="flex items-center gap-1.5 rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                   >
                     <FolderOpen size={14} /> 打开目录
-                  </button>
-                  <button
+                  </UiButton>
+                  <UiButton variant="outline" size="sm"
                     type="button"
                     disabled={busy || settings.env_override}
                     onClick={() => void changeLocation()}
                     className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <MoveRight size={14} /> {busy ? "正在重启..." : "更改位置"}
-                  </button>
+                  </UiButton>
                 </div>
               </div>
 
@@ -220,6 +221,6 @@ export function DataStorageSettingsSection() {
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

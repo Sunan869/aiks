@@ -5,8 +5,24 @@ import type {
   SessionPage,
   PipelineSummary,
   PipelineStats,
+  TaskCenterEntry,
+  TaskCenterStats,
+  AiUsageStats,
   KnowledgePage,
   KnowledgeDetail,
+  OrganizationAuditEntry,
+  ProjectOverview,
+  ProjectMemorySnapshot,
+  ProjectReportDraft,
+  ProjectReportVersion,
+  ProjectSessionBinding,
+  ProjectEvolutionSnapshot,
+  KnowledgeFeedback,
+  KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationReviewHistory,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -32,11 +48,39 @@ export interface AiksApi {
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
+  getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
+  getTaskCenterStats(): Promise<TaskCenterStats>;
+  getAiUsageStats(): Promise<AiUsageStats>;
+  retryFailedAiTask(sessionId: number): Promise<string>;
+  runPipelineForSession(sessionId: number): Promise<string>;
+  cancelPendingAiTask(sessionId: number): Promise<boolean>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;
+  getProjectMemories(): Promise<ProjectOverview[]>;
+  getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot>;
+  getProjectSessionBindings(): Promise<ProjectSessionBinding[]>;
+  bindProjectSession(sessionId: number, targetProjectId: string): Promise<ProjectSessionBinding>;
+  clearProjectSessionBinding(sessionId: number): Promise<boolean>;
+  getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot>;
+  createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string>;
+  listProjectReportDrafts(projectId: string): Promise<ProjectReportDraft[]>;
+  getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion>;
+  saveProjectReportDraft(draftId: string | null, projectId: string, from: string, through: string, source: string | null, expectedRevision: number, body: string): Promise<ProjectReportVersion>;
+  createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string>;
+  createCuratedAgentContextPack(projectId: string, maxTokens: number, source: string | undefined, knowledgeIds: string[]): Promise<string>;
   getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail>;
+  getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]>;
+  getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]>;
+  getKnowledgeRelationReviews(knowledgeId: string): Promise<KnowledgeRelationReviewHistory>;
+  suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation>;
+  reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, 'suggested'>): Promise<KnowledgeRelation>;
+  addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback>;
   createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail>;
+  createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<KnowledgeDetail>;
+  getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]>;
+  recoverOrganizationAudit(derivedKnowledgeId: string, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<boolean>;
+  validateOrganizationScope(knowledgeIds: string[]): Promise<boolean>;
   updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail>;
   setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail>;
   archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail>;

@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use super::service::EmbeddingProvider;
+use super::service::{validate_embedding_vector, EmbeddingProvider};
 use crate::storage::StateDb;
 
 const CHARS_PER_TOKEN: f64 = 3.5;
@@ -105,7 +105,7 @@ impl SessionIndexService {
             .optional()?
         };
 
-        if state.as_ref().is_some_and(|state| {
+        let skip_candidate = state.as_ref().is_some_and(|state| {
             can_skip(
                 state,
                 &content_hash,
@@ -113,7 +113,14 @@ impl SessionIndexService {
                 embedding_model.as_deref(),
                 configured_dimensions,
             )
-        }) {
+        });
+        if skip_candidate
+            && self.persisted_index_is_complete(
+                input.session_id,
+                state.as_ref().expect("skip_candidate requires index state"),
+                embedding_enabled,
+            )?
+        {
             self.upsert_fts(
                 input.session_id,
                 external_id,
@@ -193,6 +200,41 @@ impl SessionIndexService {
             embedded_count: vectors.len(),
             skipped: false,
         })
+    }
+
+    fn persisted_index_is_complete(
+        &self,
+        session_id: i64,
+        state: &SessionIndexState,
+        embedding_enabled: bool,
+    ) -> anyhow::Result<bool> {
+        let conn = self.db.conn();
+        let (chunk_count, embedding_count, invalid_dimensions): (i64, i64, i64) = conn.query_row(
+            "SELECT COUNT(c.id), COUNT(e.id),
+                        COALESCE(SUM(CASE WHEN e.id IS NOT NULL AND
+                            (e.dimensions <= 0 OR e.dimensions != ?2 OR
+                             e.model != ?3 OR
+                             LENGTH(e.vector) != e.dimensions * 4)
+                            THEN 1 ELSE 0 END), 0)
+                 FROM session_search_chunk c
+                 LEFT JOIN session_embedding_record e ON e.chunk_id = c.id
+                 WHERE c.session_id = ?1",
+            params![
+                session_id,
+                state.embedding_dimensions,
+                state.embedding_model
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if chunk_count != state.chunk_count as i64 {
+            return Ok(false);
+        }
+        if embedding_enabled {
+            return Ok(state.embedding_dimensions.is_some_and(|dim| dim > 0)
+                && embedding_count == chunk_count
+                && invalid_dimensions == 0);
+        }
+        Ok(embedding_count == 0)
     }
 
     pub fn remove_session(&self, session_id: i64) -> anyhow::Result<()> {
@@ -331,19 +373,7 @@ impl SessionIndexService {
                 );
             }
             for vector in &batch_vectors {
-                if vector.is_empty() {
-                    anyhow::bail!("Embedding response contained an empty vector");
-                }
-                match dimensions {
-                    Some(expected) if expected != vector.len() => {
-                        anyhow::bail!(
-                            "Embedding dimension mismatch: expected {expected}, got {}",
-                            vector.len()
-                        );
-                    }
-                    None => dimensions = Some(vector.len()),
-                    _ => {}
-                }
+                validate_embedding_vector(vector, &mut dimensions)?;
             }
             vectors.extend(batch_vectors);
         }
@@ -369,21 +399,35 @@ impl SessionIndexService {
 
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
-        let current: Option<(String, String)> = conn
-            .query_row(
-                "SELECT status, COALESCE(indexed_hash, '') FROM session_index_state WHERE session_id = ?1",
-                params![session_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if current.as_ref().map(|value| value.0.as_str()) != Some("indexing")
-            || current.as_ref().map(|value| value.1.as_str()) != Some(content_hash)
-        {
-            anyhow::bail!("Session index rebuild was superseded: {session_id}");
-        }
-
         conn.execute_batch("BEGIN IMMEDIATE")?;
         let result: anyhow::Result<()> = (|| {
+            let current: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT status, COALESCE(indexed_hash, '') FROM session_index_state WHERE session_id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if current.as_ref().map(|value| value.0.as_str()) != Some("indexing")
+                || current.as_ref().map(|value| value.1.as_str()) != Some(content_hash)
+            {
+                anyhow::bail!("Session index rebuild was superseded: {session_id}");
+            }
+            let stored_chunks: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM session_search_chunk WHERE session_id = ?1 ORDER BY chunk_index",
+                )?;
+                let rows = stmt.query_map(params![session_id], |row| row.get(0))?;
+                rows.collect::<rusqlite::Result<Vec<String>>>()?
+            };
+            if stored_chunks.len() != chunks.len()
+                || stored_chunks
+                    .iter()
+                    .zip(chunks.iter())
+                    .any(|(stored, prepared)| stored != &prepared.id)
+            {
+                anyhow::bail!("Session index rebuild generation was superseded: {session_id}");
+            }
             if let Some(model) = embedding_model {
                 for (chunk, vector) in chunks.iter().zip(vectors.iter()) {
                     conn.execute(
@@ -604,6 +648,410 @@ mod tests {
         }
     }
 
+    struct MalformedEmbedding(Vec<f32>);
+
+    #[async_trait]
+    impl EmbeddingProvider for MalformedEmbedding {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn model_name(&self) -> &str {
+            "session-test-embed"
+        }
+
+        fn dimensions(&self) -> Option<usize> {
+            Some(2)
+        }
+
+        async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(vec![self.0.clone(); texts.len()])
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_embedding_vectors_never_enter_session_index() {
+        for invalid in [
+            vec![f32::INFINITY, 1.0],
+            vec![0.0, 0.0],
+            vec![1.0],
+            vec![1.0; 16_385],
+        ] {
+            let dir = tempdir().unwrap();
+            let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+            let session_id = seed_session(&db);
+            let indexer =
+                SessionIndexService::new(db.clone(), Arc::new(MalformedEmbedding(invalid)));
+            let result = indexer
+                .index_session(SessionIndexInput {
+                    session_id,
+                    external_id: "session-v42".into(),
+                    source: "claude_code".into(),
+                    title: None,
+                    normalized_text: "important searchable content".into(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(result.embedded_count, 0);
+            let conn = db.conn();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+            let lexical_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(lexical_count, 1);
+        }
+    }
+
+    struct LateBadEmbedding {
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for LateBadEmbedding {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn model_name(&self) -> &str {
+            "session-test-embed"
+        }
+
+        fn dimensions(&self) -> Option<usize> {
+            Some(2)
+        }
+
+        fn batch_size(&self) -> usize {
+            1
+        }
+
+        fn chunk_target_tokens(&self) -> usize {
+            2
+        }
+
+        fn chunk_overlap_tokens(&self) -> usize {
+            0
+        }
+
+        async fn embed(&self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
+            let mut count = self.calls.lock().unwrap();
+            *count += 1;
+            let vector = if *count == 1 {
+                vec![1.0, 0.0]
+            } else {
+                vec![f32::NAN, 0.0]
+            };
+            Ok(vec![vector; texts.len()])
+        }
+    }
+
+    #[tokio::test]
+    async fn later_invalid_embedding_batch_is_atomic_and_recoverable() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "first chunk and then a later chunk".into(),
+        };
+        let bad = SessionIndexService::new(
+            db.clone(),
+            Arc::new(LateBadEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let result = bad.index_session(input.clone()).await.unwrap();
+        assert!(result.chunk_count > 1);
+        assert_eq!(result.embedded_count, 0);
+        {
+            let conn = db.conn();
+            let vectors: i64 = conn
+                .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(vectors, 0);
+            let (status, last_error): (String, Option<String>) = conn
+                .query_row(
+                    "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(status, "ready");
+            assert!(last_error.unwrap().contains("non-finite"));
+            let lexical_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(lexical_count, 1);
+        }
+
+        let repaired = SessionIndexService::new(
+            db.clone(),
+            Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let retry = repaired.index_session(input).await.unwrap();
+        assert!(!retry.skipped);
+        assert_eq!(retry.embedded_count, retry.chunk_count);
+        assert_eq!(retry.chunk_count, 1);
+        let (recovered_status, recovered_error): (String, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(recovered_status, "ready");
+        assert!(recovered_error.is_none());
+        let recovered_vectors: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(recovered_vectors, retry.chunk_count as i64);
+    }
+
+    #[test]
+    fn concurrent_same_content_rebuild_rejects_stale_embedding_generation() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let service = SessionIndexService::new(
+            db.clone(),
+            Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            }),
+        );
+        let old_chunks = vec![PreparedSessionChunk {
+            id: "old-generation".into(),
+            index: 0,
+            hash: "same".into(),
+            text: "searchable".into(),
+        }];
+        let new_chunks = vec![PreparedSessionChunk {
+            id: "new-generation".into(),
+            index: 0,
+            hash: "same".into(),
+            text: "searchable".into(),
+        }];
+        for chunks in [&old_chunks, &new_chunks] {
+            service
+                .begin_rebuild(&SessionRebuildContext {
+                    session_id,
+                    external_id: "session-v42",
+                    source: "claude_code",
+                    title: "Session Search",
+                    project_name: Some("AIKS"),
+                    normalized_text: "searchable",
+                    content_hash: "same",
+                    chunks,
+                })
+                .unwrap();
+        }
+        let stale_vectors = vec![vec![1.0, 0.0]];
+        let stale = service.finish_rebuild(&SessionFinishContext {
+            session_id,
+            content_hash: "same",
+            chunks: &old_chunks,
+            embedding_model: Some("session-test-embed"),
+            dimensions: Some(2),
+            vectors: &stale_vectors,
+            last_error: None,
+        });
+        assert!(stale.unwrap_err().to_string().contains("superseded"));
+        let pending: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, "indexing");
+        let persisted_generation: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM session_search_chunk WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted_generation, "new-generation");
+        let premature_vectors: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(premature_vectors, 0);
+        service
+            .finish_rebuild(&SessionFinishContext {
+                session_id,
+                content_hash: "same",
+                chunks: &new_chunks,
+                embedding_model: Some("session-test-embed"),
+                dimensions: Some(2),
+                vectors: &stale_vectors,
+                last_error: None,
+            })
+            .unwrap();
+        let conn = db.conn();
+        let stored: String = conn
+            .query_row("SELECT chunk_id FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, "new-generation");
+    }
+
+    #[tokio::test]
+    async fn missing_persisted_embedding_rebuilds_instead_of_falsely_skipping() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let provider = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let service = SessionIndexService::new(db.clone(), provider.clone());
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "searchable current content".into(),
+        };
+        let initial = service.index_session(input.clone()).await.unwrap();
+        assert_eq!(initial.embedded_count, 1);
+        assert!(service.index_session(input.clone()).await.unwrap().skipped);
+        {
+            let conn = db.conn();
+            conn.execute(
+                "DELETE FROM session_embedding_record WHERE chunk_id IN
+                 (SELECT id FROM session_search_chunk WHERE session_id = ?1)",
+                params![session_id],
+            )
+            .unwrap();
+        }
+        let recovered = service.index_session(input.clone()).await.unwrap();
+        assert!(!recovered.skipped);
+        assert_eq!(recovered.embedded_count, 1);
+        assert_eq!(*provider.calls.lock().unwrap(), 2);
+        assert!(service.index_session(input).await.unwrap().skipped);
+    }
+
+    #[tokio::test]
+    async fn malformed_persisted_vector_rebuilds_before_idempotent_skip() {
+        for corrupt_vector in [vec![0_u8; 3], vec![0_u8; 4]] {
+            let dir = tempdir().unwrap();
+            let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+            let session_id = seed_session(&db);
+            let provider = Arc::new(FakeEmbedding {
+                calls: Mutex::new(0),
+            });
+            let service = SessionIndexService::new(db.clone(), provider.clone());
+            let input = SessionIndexInput {
+                session_id,
+                external_id: "session-v42".into(),
+                source: "claude_code".into(),
+                title: None,
+                normalized_text: "searchable current content".into(),
+            };
+            assert_eq!(
+                service
+                    .index_session(input.clone())
+                    .await
+                    .unwrap()
+                    .embedded_count,
+                1
+            );
+            {
+                let conn = db.conn();
+                conn.execute(
+                    "UPDATE session_embedding_record SET vector = ?1 WHERE chunk_id IN
+                     (SELECT id FROM session_search_chunk WHERE session_id = ?2)",
+                    params![corrupt_vector, session_id],
+                )
+                .unwrap();
+            }
+            let repaired = service.index_session(input.clone()).await.unwrap();
+            assert!(!repaired.skipped);
+            assert_eq!(repaired.embedded_count, 1);
+            assert_eq!(*provider.calls.lock().unwrap(), 2);
+            let (stored_dimensions, stored_bytes): (i64, i64) = db
+                .conn()
+                .query_row(
+                    "SELECT dimensions, LENGTH(vector) FROM session_embedding_record",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(stored_dimensions, 2);
+            assert_eq!(stored_bytes, 8);
+            assert!(service.index_session(input).await.unwrap().skipped);
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_persisted_embedding_model_rebuilds_without_falsely_skipping() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let provider = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let service = SessionIndexService::new(db.clone(), provider.clone());
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: None,
+            normalized_text: "project context and session evidence".into(),
+        };
+        let first = service.index_session(input.clone()).await.unwrap();
+        assert_eq!(first.embedded_count, 1);
+        assert!(service.index_session(input.clone()).await.unwrap().skipped);
+        {
+            let conn = db.conn();
+            conn.execute(
+                "UPDATE session_embedding_record SET model = ?1
+                 WHERE chunk_id IN (SELECT id FROM session_search_chunk WHERE session_id = ?2)",
+                params!["old-embedding-model", session_id],
+            )
+            .unwrap();
+        }
+        let rebuilt = service.index_session(input.clone()).await.unwrap();
+        assert!(!rebuilt.skipped);
+        assert_eq!(rebuilt.embedded_count, 1);
+        let restored_model: String = db
+            .conn()
+            .query_row("SELECT model FROM session_embedding_record", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(restored_model, "session-test-embed");
+        assert_eq!(*provider.calls.lock().unwrap(), 2);
+        assert!(service.index_session(input).await.unwrap().skipped);
+    }
+
     fn seed_session(db: &StateDb) -> i64 {
         SourceSessionRepo::new(db)
             .upsert(
@@ -618,6 +1066,52 @@ mod tests {
                 Some("test"),
             )
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn malformed_embedding_preserves_lexical_session_and_allows_retry() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let session_id = seed_session(&db);
+        let input = SessionIndexInput {
+            session_id,
+            external_id: "session-v42".into(),
+            source: "claude_code".into(),
+            title: Some("Session Search".into()),
+            normalized_text: "still searchable".into(),
+        };
+        let bad = SessionIndexService::new(
+            db.clone(),
+            Arc::new(MalformedEmbedding(vec![f32::NAN, 0.0])),
+        );
+        let result = bad.index_session(input.clone()).await.unwrap();
+        assert_eq!(result.embedded_count, 0);
+        let (status, error): (String, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT status, last_error FROM session_index_state WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "ready");
+        assert!(error.unwrap().contains("Embedding response"));
+        let fts_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM session_search_fts WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fts_count, 1);
+        let good = Arc::new(FakeEmbedding {
+            calls: Mutex::new(0),
+        });
+        let repaired = SessionIndexService::new(db.clone(), good);
+        let retry = repaired.index_session(input).await.unwrap();
+        assert!(!retry.skipped);
+        assert_eq!(retry.embedded_count, 1);
     }
 
     #[tokio::test]

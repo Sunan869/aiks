@@ -314,19 +314,7 @@ impl KnowledgeIndexService {
             }
 
             for vector in &vectors {
-                if vector.is_empty() {
-                    anyhow::bail!("Embedding response contained an empty vector");
-                }
-                let dimensions = vector.len();
-                match actual_dimensions {
-                    Some(expected) if expected != dimensions => {
-                        anyhow::bail!(
-                            "Embedding dimension mismatch: expected {expected}, got {dimensions}"
-                        );
-                    }
-                    None => actual_dimensions = Some(dimensions),
-                    _ => {}
-                }
+                validate_embedding_vector(vector, &mut actual_dimensions)?;
             }
             all_vectors.extend(vectors);
         }
@@ -455,6 +443,44 @@ impl KnowledgeIndexService {
         )?;
         Ok(())
     }
+}
+
+/// Last-line defense for native indexers, including alternate EmbeddingProvider
+/// implementations that do not use the HTTP client.
+pub(super) fn validate_embedding_vector(
+    vector: &[f32],
+    expected_dimensions: &mut Option<usize>,
+) -> anyhow::Result<()> {
+    const MAX_DIMENSIONS: usize = 16_384;
+    let dimensions = vector.len();
+    anyhow::ensure!(
+        (1..=MAX_DIMENSIONS).contains(&dimensions),
+        "Embedding response contained invalid vector size {dimensions}"
+    );
+    anyhow::ensure!(
+        vector.iter().all(|value| value.is_finite()),
+        "Embedding response contained non-finite values"
+    );
+    let norm_squared: f64 = vector
+        .iter()
+        .map(|value| {
+            let value = f64::from(*value);
+            value * value
+        })
+        .sum();
+    anyhow::ensure!(
+        norm_squared.is_finite() && norm_squared > 0.0,
+        "Embedding response contained a zero or non-normalizable vector"
+    );
+    if let Some(expected) = *expected_dimensions {
+        anyhow::ensure!(
+            expected == dimensions,
+            "Embedding dimension mismatch: expected {expected}, got {dimensions}"
+        );
+    } else {
+        *expected_dimensions = Some(dimensions);
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

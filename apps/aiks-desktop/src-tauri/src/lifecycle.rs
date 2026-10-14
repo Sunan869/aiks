@@ -18,6 +18,7 @@ use aiks_core::bootstrap::{ensure_notebook, validate_runtime, BootstrapConfig, D
 use aiks_core::knowledge::ContentMigrationService;
 use aiks_core::runtime::{RuntimeState, SiyuanRuntime};
 use aiks_core::sink::SiYuanSink;
+use aiks_core::storage::backup_quiescence::BackupQuiescence;
 use aiks_core::watcher::WatchEvent;
 use aiks_core::{AiksEngine, AiksEngineConfig};
 use tauri::{AppHandle, Emitter, Manager};
@@ -107,11 +108,15 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
             error!("SiYuan failed to start: {}", e);
             emit_error(&app, &format!("知识引擎启动失败：{}", e));
             show_control_center(&app);
-            let engine = AiksEngine::initialize(AiksEngineConfig {
-                config_path: config_file_path().exists().then_some(config_file_path()),
-                siyuan_base_url: None,
-                siyuan_token: None,
-            })
+            let engine = AiksEngine::initialize_with_backup_gate(
+                AiksEngineConfig {
+                    config_path: config_file_path().exists().then_some(config_file_path()),
+                    siyuan_base_url: None,
+                    siyuan_token: None,
+                },
+                app.try_state::<Arc<BackupQuiescence>>()
+                    .map(|gate| Arc::clone(&gate)),
+            )
             .map(Arc::new)
             .ok();
             let engine_ref = engine.clone();
@@ -162,7 +167,11 @@ pub async fn startup(app: AppHandle) -> anyhow::Result<()> {
     };
 
     emit_progress(&app, "init_engine", "正在初始化采集引擎...");
-    let engine = match AiksEngine::initialize(engine_config) {
+    let engine = match AiksEngine::initialize_with_backup_gate(
+        engine_config,
+        app.try_state::<Arc<BackupQuiescence>>()
+            .map(|gate| Arc::clone(&gate)),
+    ) {
         Ok(e) => e,
         Err(e) => {
             error!("Engine init failed: {}", e);
@@ -281,8 +290,19 @@ fn spawn_startup_migration_then_tasks(
             SiYuanSink::embedded(engine.siyuan_base_url(), &config.siyuan.notebook_name)
         };
 
+        let migration_gate = app_bg
+            .try_state::<Arc<BackupQuiescence>>()
+            .map(|gate| Arc::clone(&gate));
         match sink_result {
             Ok(sink) if sink.health_check().await => {
+                let Some(_writer) = migration_gate
+                    .as_ref()
+                    .and_then(|gate| gate.try_begin_write())
+                else {
+                    warn!("Content migration postponed: backup gate missing or paused");
+                    spawn_background_tasks(&app_bg, Some(engine), watcher_rx);
+                    return;
+                };
                 let db = engine.db();
                 let migration = ContentMigrationService::new(db.as_ref());
                 let _ = app_bg.emit(
@@ -348,10 +368,16 @@ fn spawn_background_tasks(
     let Some(engine) = engine else {
         return;
     };
+    let Some(gate) = app.try_state::<Arc<BackupQuiescence>>() else {
+        error!("Missing backup write gate; refusing background sync startup");
+        return;
+    };
+    let gate = Arc::clone(&gate);
 
     {
         let engine_bg = engine.clone();
         let app_bg = app.clone();
+        let gate_bg = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             info!("[STARTUP] Beginning initial scan...");
             let _ = app_bg.emit("sync-status", serde_json::json!({"status": "scanning"}));
@@ -362,6 +388,10 @@ fn spawn_background_tasks(
                 overwrite: false,
             };
 
+            let Some(_writer) = gate_bg.try_begin_write() else {
+                warn!("Startup sync deferred while backup write gate is paused");
+                return;
+            };
             match engine_bg
                 .sync_and_enqueue_extraction_with_trigger(opts, "startup")
                 .await
@@ -396,6 +426,7 @@ fn spawn_background_tasks(
     {
         let engine_w = engine.clone();
         let app_w = app.clone();
+        let gate_w = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             while let Some(event) = watcher_rx.recv().await {
                 let source = event.source.as_str().to_string();
@@ -403,6 +434,10 @@ fn spawn_background_tasks(
                     source_filter: Some(source),
                     dry_run: false,
                     overwrite: false,
+                };
+                let Some(_writer) = gate_w.try_begin_write() else {
+                    warn!("Watcher sync deferred while backup write gate is paused");
+                    continue;
                 };
                 match engine_w
                     .sync_and_enqueue_extraction_with_trigger(opts, "watcher")
@@ -425,6 +460,7 @@ fn spawn_background_tasks(
 
     {
         let engine_p = engine.clone();
+        let gate_p = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
             let interval_secs = engine_p.config().sync.scan_interval_seconds.max(30);
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
@@ -437,6 +473,10 @@ fn spawn_background_tasks(
                     source_filter: None,
                     dry_run: false,
                     overwrite: false,
+                };
+                let Some(_writer) = gate_p.try_begin_write() else {
+                    warn!("Periodic sync skipped while backup write gate is paused");
+                    continue;
                 };
                 match engine_p
                     .sync_and_enqueue_extraction_with_trigger(opts, "periodic")
@@ -495,7 +535,11 @@ async fn startup_with_external_siyuan(
         siyuan_token: token.clone(),
     };
 
-    let engine = Arc::new(AiksEngine::initialize(engine_config)?);
+    let engine = Arc::new(AiksEngine::initialize_with_backup_gate(
+        engine_config,
+        app.try_state::<Arc<BackupQuiescence>>()
+            .map(|gate| Arc::clone(&gate)),
+    )?);
     let (watcher_handle, watcher_rx) = start_watcher_for_engine(&Some(engine.clone()));
 
     let state = AppState {

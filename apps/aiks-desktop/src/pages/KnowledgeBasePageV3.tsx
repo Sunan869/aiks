@@ -1,3 +1,7 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiInput } from "../components/ui/fields";
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { KnowledgeSummary, KnowledgePage } from "../api/types";
@@ -29,7 +33,7 @@ function parseTags(tags: string): string[] {
 function KnowledgeCard({ item }: { item: KnowledgeSummary }) {
   const tags = parseTags(item.tags);
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors cursor-pointer">
+    <div className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-sky-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-700">
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">{item.title}</h3>
         <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded ${CATEGORY_COLORS[item.category] ?? CATEGORY_COLORS.general}`}>
@@ -62,6 +66,7 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [category, setCategory] = useState("");
+  const [currentPageQuery, setCurrentPageQuery] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const PAGE_SIZE = 30;
@@ -103,20 +108,21 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
 
   const categories = ["", ...Object.keys(CATEGORY_LABELS)];
 
+  const currentPageItems = (data?.items ?? []).filter(item => {
+    const query = currentPageQuery.trim().toLocaleLowerCase();
+    return !query || [item.title, item.summary, item.category]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(query));
+  });
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
-          {data && <p className="text-sm text-gray-500 mt-0.5">共 {data.total} 条知识</p>}
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="aiks-page-shell min-w-0">
+      <PageHeader title="知识库" description={data ? `共 ${data.total} 条知识` : "本地知识库"} actions={<>
           {syncResult && (
             <span className={`text-xs ${syncResult.startsWith("同步失败") ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
               {syncResult}
             </span>
           )}
-          <button
+          <UiButton variant="outline" size="sm"
             onClick={handleSyncToSiyuan}
             disabled={syncing}
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
@@ -133,19 +139,17 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
               </svg>
             )}
             {syncing ? "同步中..." : "同步到 SiYuan"}
-          </button>
-          <select
-            value={category}
-            onChange={e => { setCategory(e.target.value); setPage(0); }}
-            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-          >
-            {categories.map(c => (
-              <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+          </UiButton>
+          <RadixSelectField label="知识分类" value={category} onValueChange={value => { setCategory(value); setPage(0); }}
+            className="min-w-[140px] text-sm"
+            options={categories.map(c => ({ value: c, label: c ? CATEGORY_LABELS[c] ?? c : "全部分类" }))} /></>} />
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <UiInput aria-label="搜索当前页知识" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}
+          placeholder="搜索当前页知识标题或摘要…" className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
+        <span role="status" className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} / {data?.items.length ?? 0} 条 · 全库 {data?.total ?? 0} 条</span>
+        {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
+      </div>
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700">
           {error}
@@ -154,16 +158,16 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
 
       {loading ? (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
-      ) : data?.total === 0 ? (
+      ) : currentPageItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-          <p className="text-sm">暂无知识条目</p>
-          <p className="text-xs mt-1">请先处理工作记录以提炼知识</p>
+          <p className="text-sm">{currentPageQuery ? "当前页没有匹配的知识" : "暂无知识条目"}</p>
+          <p className="text-xs mt-1">{currentPageQuery ? "可以清空关键词，或切换页面继续查找。" : "请先处理工作记录以提炼知识"}</p>
         </div>
       ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {data?.items.map((item: KnowledgeSummary) => (
-              <div key={item.id} onClick={() => onViewDetail?.(item.id)}>
-                <KnowledgeCard item={item} />
+            {currentPageItems.map((item: KnowledgeSummary) => (
+              <div key={item.id} className="min-w-0 rounded-xl focus-within:ring-2 focus-within:ring-sky-500">
+                {onViewDetail ? <button type="button" className="block w-full text-left" onClick={() => onViewDetail(item.id)} aria-label={`查看知识：${item.title}`}><KnowledgeCard item={item} /></button> : <KnowledgeCard item={item} />}
               </div>
             ))}
         </div>
@@ -175,14 +179,14 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
             第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} 条
           </span>
           <div className="flex gap-2">
-            <button onClick={() => setPage(p => p - 1)} disabled={page === 0}
+            <UiButton variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 0}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
               上一页
-            </button>
-            <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
+            </UiButton>
+            <UiButton variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total}
               className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50">
               下一页
-            </button>
+            </UiButton>
           </div>
         </div>
       )}

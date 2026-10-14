@@ -502,7 +502,13 @@ impl SiYuanSink {
             )
         };
 
-        let short_id: String = session_id.chars().take(8).collect();
+        // Provider IDs often share a long prefix (e.g. Codex rollout-*).
+        // Hash the complete source + ID, not just the first eight characters.
+        use sha2::{Digest, Sha256};
+        let identity = format!("{source}:{session_id}");
+        let digest = hex::encode(Sha256::digest(identity.as_bytes()));
+        let readable: String = session_id.chars().take(8).collect();
+        let short_id = format!("{readable}-{}", &digest[..16]);
         let title_part = title
             .unwrap_or("Untitled")
             .chars()
@@ -582,6 +588,33 @@ pub struct DocumentInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_sessions_with_shared_rollout_prefix_have_distinct_paths() {
+        let sink = SiYuanSink::embedded("http://127.0.0.1:6806", "AIKS").unwrap();
+        let a = sink.build_document_path(
+            "codex",
+            "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1",
+            Some("Untitled"),
+            None,
+        );
+        let b = sink.build_document_path(
+            "codex",
+            "rollout-2026-09-29T10-34-36-01a0eb03-99b0",
+            Some("Untitled"),
+            None,
+        );
+        assert_ne!(a, b);
+        assert_eq!(
+            a,
+            sink.build_document_path(
+                "codex",
+                "rollout-2026-09-29T10-47-59-01a0eb0f-d7c1",
+                Some("Untitled"),
+                None,
+            )
+        );
+    }
 
     #[test]
     fn strip_kramdown_attrs_removes_block_ids() {

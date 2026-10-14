@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BookOpen, ExternalLink, Loader2 } from "lucide-react";
@@ -47,8 +48,8 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-6">
+    <div className="aiks-page-shell w-full min-w-0 max-w-5xl">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
             <BookOpen className="w-5 h-5" />
@@ -56,18 +57,18 @@ export default function KnowledgePage() {
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">AI 精炼的工程知识</p>
         </div>
-        <button
+        <UiButton variant="primary" size="sm"
           onClick={openKnowledge}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs transition-colors"
         >
           <ExternalLink className="w-3 h-3" />
           打开知识库
-        </button>
+        </UiButton>
       </div>
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "精炼知识", value: stats.success, color: "text-green-600" },
             { label: "已跳过", value: stats.skipped, color: "text-gray-400" },
@@ -90,13 +91,13 @@ export default function KnowledgePage() {
           <div className="text-xs mt-1">或点击数据源中的「立即整理」</div>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {items.map((item, i) => (
             <div
               key={i}
-              className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:border-blue-300 transition-colors cursor-pointer"
-              onClick={openKnowledge}
+              className="aiks-surface group min-w-0 p-0 transition-colors hover:border-sky-300 dark:hover:border-sky-600"
             >
+              <button type="button" onClick={() => void openKnowledge()} aria-label={`打开知识库查看会话 ${item.session_id}`} className="block w-full rounded-xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -114,15 +115,16 @@ export default function KnowledgePage() {
                   {item.score?.toFixed(2)}
                 </div>
               </div>
+              </button>
             </div>
           ))}
           <div className="text-center pt-2">
-            <button
+            <UiButton variant="outline" size="sm"
               onClick={openKnowledge}
               className="text-xs text-blue-500 hover:text-blue-600"
             >
               在知识库中查看全部 →
-            </button>
+            </UiButton>
           </div>
         </div>
       )}

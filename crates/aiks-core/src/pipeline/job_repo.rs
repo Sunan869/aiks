@@ -146,14 +146,9 @@ impl<'a> PipelineJobRepo<'a> {
         let mut conn = self.db.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        // A dead worker eventually releases its claim. Live workers renew their
-        // lease periodically, so this only recovers genuinely abandoned work.
-        tx.execute(
-            "UPDATE pipeline_job
-             SET status = 'PENDING', lease_until = NULL, available_at = ?1, updated_at = ?1
-             WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
-            params![now],
-        )?;
+        // Reclaims and retry-budget terminalization share this transaction
+        // with claim_next, so an expired third attempt is never claimed a fourth time.
+        Self::expire_leases(&tx, &now)?;
 
         let row = tx
             .query_row(
@@ -232,69 +227,75 @@ impl<'a> PipelineJobRepo<'a> {
         }))
     }
 
-    pub fn renew_lease(&self, durable_job_id: &str) -> anyhow::Result<bool> {
+    /// Extend a lease only for the still-active claim generation. A late worker
+    /// must never renew a lease obtained by another worker after recovery.
+    pub fn renew_lease(&self, durable_job_id: &str, attempt: i64) -> anyhow::Result<bool> {
         let now_dt = Utc::now();
         let lease_until = (now_dt + Duration::seconds(LEASE_SECONDS)).to_rfc3339();
         let now = now_dt.to_rfc3339();
         let conn = self.db.conn();
         let changed = conn.execute(
             "UPDATE pipeline_job SET lease_until = ?1, updated_at = ?2
-             WHERE id = ?3 AND status = 'RUNNING'",
-            params![lease_until, now, durable_job_id],
+             WHERE id = ?3 AND status = 'RUNNING' AND attempt = ?4
+               AND lease_until IS NOT NULL AND lease_until > ?2",
+            params![lease_until, now, durable_job_id, attempt],
         )?;
         Ok(changed == 1)
     }
 
-    pub fn mark_succeeded(&self, durable_job_id: &str) -> anyhow::Result<()> {
+    /// Reject completion from an expired or re-claimed attempt. Both ownership
+    /// checks and the status transition happen atomically in SQLite.
+    pub fn mark_succeeded(&self, durable_job_id: &str, attempt: i64) -> anyhow::Result<bool> {
         let now = Utc::now().to_rfc3339();
         let conn = self.db.conn();
-        conn.execute(
+        let changed = conn.execute(
             "UPDATE pipeline_job
              SET status = 'DONE', lease_until = NULL, available_at = NULL,
                  last_error = NULL, updated_at = ?1
-             WHERE id = ?2",
-            params![now, durable_job_id],
+             WHERE id = ?2 AND status = 'RUNNING' AND attempt = ?3
+               AND lease_until IS NOT NULL AND lease_until > ?1",
+            params![now, durable_job_id, attempt],
         )?;
-        Ok(())
+        Ok(changed == 1)
     }
 
+    /// None means this attempt no longer owns a live lease, so it cannot
+    /// reschedule, fail, or overwrite another worker's claim.
     pub fn mark_failed(
         &self,
         durable_job_id: &str,
+        attempt: i64,
         error: &str,
-    ) -> anyhow::Result<FailureDisposition> {
+    ) -> anyhow::Result<Option<FailureDisposition>> {
         let now_dt = Utc::now();
         let now = now_dt.to_rfc3339();
         let conn = self.db.conn();
-        let attempt: i64 = conn.query_row(
-            "SELECT attempt FROM pipeline_job WHERE id = ?1",
-            params![durable_job_id],
-            |row| row.get(0),
-        )?;
 
         if attempt >= MAX_ATTEMPTS {
-            conn.execute(
+            let changed = conn.execute(
                 "UPDATE pipeline_job
                  SET status = 'FAILED', lease_until = NULL, available_at = NULL,
                      last_error = ?1, updated_at = ?2
-                 WHERE id = ?3",
-                params![error, now, durable_job_id],
+                 WHERE id = ?3 AND status = 'RUNNING' AND attempt = ?4
+                   AND lease_until IS NOT NULL AND lease_until > ?2",
+                params![error, now, durable_job_id, attempt],
             )?;
-            return Ok(FailureDisposition::Terminal);
+            return Ok((changed == 1).then_some(FailureDisposition::Terminal));
         }
 
         let backoff_index =
             (attempt.saturating_sub(1) as usize).min(RETRY_BACKOFF_SECONDS.len().saturating_sub(1));
         let available_at =
             (now_dt + Duration::seconds(RETRY_BACKOFF_SECONDS[backoff_index])).to_rfc3339();
-        conn.execute(
+        let changed = conn.execute(
             "UPDATE pipeline_job
              SET status = 'PENDING', lease_until = NULL, available_at = ?1,
                  last_error = ?2, updated_at = ?3
-             WHERE id = ?4",
-            params![available_at, error, now, durable_job_id],
+             WHERE id = ?4 AND status = 'RUNNING' AND attempt = ?5
+               AND lease_until IS NOT NULL AND lease_until > ?3",
+            params![available_at, error, now, durable_job_id, attempt],
         )?;
-        Ok(FailureDisposition::Retry)
+        Ok((changed == 1).then_some(FailureDisposition::Retry))
     }
 
     pub fn has_any_job(&self, source: &str, external_session_id: &str) -> anyhow::Result<bool> {
@@ -307,15 +308,211 @@ impl<'a> PipelineJobRepo<'a> {
         Ok(count > 0)
     }
 
-    pub fn recover_expired_leases(&self) -> anyhow::Result<usize> {
-        let now = Utc::now().to_rfc3339();
+    /// Atomically cancel queued work; never cancel a claimed worker.
+    pub fn cancel_pending_for_session(&self, session_id: i64) -> anyhow::Result<bool> {
         let conn = self.db.conn();
         let changed = conn.execute(
             "UPDATE pipeline_job
-             SET status = 'PENDING', lease_until = NULL, available_at = ?1, updated_at = ?1
-             WHERE status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?1",
-            params![now],
+             SET status = 'CANCELLED', available_at = NULL, lease_until = NULL,
+                 updated_at = ?1
+             WHERE session_id = ?2 AND status = 'PENDING'
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_job running
+                   WHERE running.session_id = ?2 AND running.status = 'RUNNING'
+               )",
+            params![Utc::now().to_rfc3339(), session_id],
         )?;
+        Ok(changed > 0)
+    }
+
+    /// An abandoned worker consumes its attempt budget just like a reported
+    /// failure. Otherwise repeated crashes could retry forever.
+    fn expire_leases(conn: &rusqlite::Connection, now: &str) -> rusqlite::Result<usize> {
+        let exhausted = conn.execute(
+            "UPDATE pipeline_job
+             SET status = 'FAILED', lease_until = NULL, available_at = NULL,
+                 last_error = 'Worker lease expired; retry budget exhausted',
+                 updated_at = ?1
+             WHERE status = 'RUNNING' AND lease_until IS NOT NULL
+               AND lease_until <= ?1 AND attempt >= ?2",
+            params![now, MAX_ATTEMPTS],
+        )?;
+        let recoverable = conn.execute(
+            "UPDATE pipeline_job
+             SET status = 'PENDING', lease_until = NULL, available_at = ?1,
+                 last_error = 'Worker lease expired; retry scheduled',
+                 updated_at = ?1
+             WHERE status = 'RUNNING' AND lease_until IS NOT NULL
+               AND lease_until <= ?1 AND attempt < ?2",
+            params![now, MAX_ATTEMPTS],
+        )?;
+        Ok(exhausted + recoverable)
+    }
+
+    pub fn recover_expired_leases(&self) -> anyhow::Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let mut conn = self.db.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = Self::expire_leases(&tx, &now)?;
+        tx.commit()?;
         Ok(changed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    fn setup() -> (tempfile::TempDir, Arc<StateDb>, PipelineJob) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+        let id: i64 = db
+            .conn()
+            .query_row(
+                "INSERT INTO source_session
+                 (source, external_session_id, content_hash, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'retry-race', 'hash-v1', 'now', 'now', 'now')
+                 RETURNING id",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO pipeline_run
+                 (id, session_id, status, pipeline_version, created_at, updated_at)
+                 VALUES ('retry-run', ?1, 'FAILED', 'v3', 'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+        (
+            dir,
+            db,
+            PipelineJob {
+                pipeline_run_id: "retry-run".to_string(),
+                session_id: id,
+                session_external_id: "retry-race".to_string(),
+                source: "codex".to_string(),
+                session_title: None,
+                project_name: None,
+            },
+        )
+    }
+
+    #[test]
+    fn concurrent_submissions_create_exactly_one_active_job() {
+        let (_dir, db, job) = setup();
+        let barrier = Arc::new(Barrier::new(8));
+        let mut threads = Vec::new();
+        for _ in 0..8 {
+            let db = Arc::clone(&db);
+            let job = job.clone();
+            let barrier = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                PipelineJobRepo::new(&db).enqueue(&job).unwrap()
+            }));
+        }
+        let results: Vec<_> = threads
+            .into_iter()
+            .map(|task| task.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|item| item.inserted).count(), 1);
+        assert!(results
+            .iter()
+            .all(|item| item.durable_job_id == results[0].durable_job_id));
+        let active: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_job
+                 WHERE session_id = ?1 AND status IN ('PENDING', 'RUNNING')",
+                params![job.session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, 1);
+    }
+
+    #[test]
+    fn completed_failure_can_be_retried_without_resurrecting_old_job() {
+        let (_dir, db, job) = setup();
+        let repo = PipelineJobRepo::new(&db);
+        let first = repo.enqueue(&job).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'FAILED' WHERE id = ?1",
+                params![first.durable_job_id],
+            )
+            .unwrap();
+        let second = repo.enqueue(&job).unwrap();
+        assert!(second.inserted);
+        assert_ne!(first.durable_job_id, second.durable_job_id);
+        assert!(!repo.enqueue(&job).unwrap().inserted);
+        let failed: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_job WHERE status = 'FAILED'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(failed, 1);
+        let old_status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![first.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_status, "FAILED");
+        let current_status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![second.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(current_status, "PENDING");
+    }
+
+    #[test]
+    fn cancel_pending_preserves_running_work_and_history() {
+        let (_dir, db, job) = setup();
+        let repo = PipelineJobRepo::new(&db);
+        let first = repo.enqueue(&job).unwrap();
+        assert!(repo.cancel_pending_for_session(job.session_id).unwrap());
+        assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
+        let status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![first.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "CANCELLED");
+        assert!(repo.claim_next().unwrap().is_none());
+        let second = repo.enqueue(&job).unwrap();
+        assert!(second.inserted);
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET status = 'RUNNING' WHERE id = ?1",
+                params![second.durable_job_id],
+            )
+            .unwrap();
+        assert!(!repo.cancel_pending_for_session(job.session_id).unwrap());
+        let running: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM pipeline_job WHERE id = ?1",
+                params![second.durable_job_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(running, "RUNNING");
     }
 }

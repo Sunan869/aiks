@@ -1,3 +1,6 @@
+import { UiButton } from "./ui/fields";
+import { RadixSelectField } from "./ui/RadixSelectField";
+import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -13,7 +16,9 @@ import {
   X,
 } from "lucide-react";
 import { askAiksProgressively } from "../api/rag-progress";
-import type { RagCitation, RagTurn } from "../api/rag";
+import { getApi } from "../api/client";
+import type { RagCitation } from "../api/rag";
+import { appendRagDelta, completeRagAnswer, markRagIncomplete, ragHistory, type RagUiMessage } from "../rag-conversation";
 
 interface Props {
   open: boolean;
@@ -22,14 +27,7 @@ interface Props {
   onOpenCitation: (citation: RagCitation) => void;
 }
 
-type UiMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  citations?: RagCitation[];
-  model?: string;
-  warnings?: string[];
-};
+type UiMessage = RagUiMessage;
 
 const QUICK_PROMPTS = [
   "总结一下最近讨论的向量模型部署方案",
@@ -51,8 +49,43 @@ export default function AskAiksPanel({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectChoices, setProjectChoices] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState("");
+  const [sourceChoices, setSourceChoices] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void getApi().getKnowledge({ limit: 200 }).then(page => {
+      if (!active) return;
+      const options = Array.from(new Set(
+        page.items.map(item => item.project_name).filter((name): name is string => Boolean(name))
+      )).sort();
+      setProjectChoices(options);
+    }).catch(() => {
+      if (active) setProjectChoices([]);
+    });
+    return () => { active = false; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    // Derive source options from canonical project/session metadata instead
+    // of hardcoding Provider names or sampling only the first 200 knowledge rows.
+    void getApi().getProjectMemories().then(projects => {
+      if (active) {
+        setSourceChoices(Array.from(new Set(projects.flatMap(project => project.sources))).sort());
+      }
+    }).catch(() => {
+      if (active) setSourceChoices([]);
+    });
+    return () => { active = false; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,37 +101,58 @@ export default function AskAiksPanel({
     });
   }, [open, messages, loading]);
 
+  // A response belongs to the exact visible dialogue which started it.
+  // Invalidation is UI-only: it does not claim to cancel the Rust/model request.
+  const requestEpoch = useRef(0);
+  const activeAssistantId = useRef<string | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  const invalidateInFlight = () => {
+    requestEpoch.current += 1;
+    const assistantId = activeAssistantId.current;
+    activeAssistantId.current = null;
+    if (assistantId !== null) {
+      setMessages(current => markRagIncomplete(current, assistantId));
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+    if (!open) invalidateInFlight();
+  }, [open]);
+
+  useEffect(() => () => {
+    requestEpoch.current += 1;
+    activeAssistantId.current = null;
+  }, []);
 
   const clear = () => {
-    if (loading) return;
+    if (activeAssistantId.current !== null) return;
     setMessages([]);
     setInput("");
     setError(null);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
+  const dismiss = () => {
+    if (activeAssistantId.current !== null) return;
+    onClose();
+  };
+
   const submit = async () => {
     const question = input.trim();
-    if (!question || loading || !aiHealthy) return;
-
-    const history: RagTurn[] = messages.map(message => ({
-      role: message.role,
-      content: message.content,
-    }));
+    // Ref gate protects against two Enter/click submissions in one React tick.
+    if (!openRef.current || !question || activeAssistantId.current !== null || !aiHealthy) return;
+    const history = ragHistory(messages);
     const assistantId = messageId();
+    const epoch = ++requestEpoch.current;
+    activeAssistantId.current = assistantId;
 
     setMessages(current => [
       ...current,
       { id: messageId(), role: "user", content: question },
-      { id: assistantId, role: "assistant", content: "" },
+      { id: assistantId, role: "assistant", content: "", state: "pending" },
     ]);
     setInput("");
     setError(null);
@@ -106,45 +160,41 @@ export default function AskAiksPanel({
 
     try {
       const result = await askAiksProgressively(
-        { question, history },
+        { question, history, project: selectedProject || undefined, source: selectedSource || undefined },
         {
           onDelta: delta => {
-            setMessages(current => current.map(message => (
-              message.id === assistantId
-                ? { ...message, content: message.content + delta }
-                : message
-            )));
+            if (requestEpoch.current !== epoch || !openRef.current) return;
+            setMessages(current => requestEpoch.current === epoch && openRef.current
+              ? appendRagDelta(current, assistantId, delta) : current);
           },
         },
       );
-      setMessages(current => current.map(message => (
-        message.id === assistantId
-          ? {
-              ...message,
-              content: result.answer || message.content,
-              citations: result.citations,
-              model: result.model,
-              warnings: result.warnings,
-            }
-          : message
-      )));
+      if (requestEpoch.current !== epoch || !openRef.current) return;
+      setMessages(current => requestEpoch.current === epoch && openRef.current
+        ? completeRagAnswer(current, assistantId, result) : current);
     } catch (reason) {
-      setMessages(current => current.filter(
-        message => message.id !== assistantId || message.content.trim().length > 0,
-      ));
+      if (requestEpoch.current !== epoch || !openRef.current) return;
+      setMessages(current => requestEpoch.current === epoch && openRef.current
+        ? markRagIncomplete(current, assistantId) : current);
       setError(String(reason));
     } finally {
-      setLoading(false);
-      window.setTimeout(() => textareaRef.current?.focus(), 0);
+      if (requestEpoch.current === epoch) {
+        activeAssistantId.current = null;
+        setLoading(false);
+        window.setTimeout(() => {
+          if (requestEpoch.current === epoch && openRef.current) textareaRef.current?.focus();
+        }, 0);
+      }
     }
   };
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/15 backdrop-blur-[1px]" onMouseDown={onClose}>
+    <ModalBackdrop kind="assistant" onClose={dismiss} dismissOnBackdrop={false}>
       <aside
-        className="absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+        ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
+        className="pointer-events-auto absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
         onMouseDown={event => event.stopPropagation()}
         aria-label="问 AIKS"
       >
@@ -159,7 +209,7 @@ export default function AskAiksPanel({
             </div>
             <div className="mt-0.5 truncate text-[11px] text-gray-400">基于知识与 AI 对话记录检索回答，并提供可追溯引用</div>
           </div>
-          <button
+          <UiButton variant="ghost" size="sm"
             type="button"
             onClick={clear}
             disabled={loading || messages.length === 0}
@@ -167,16 +217,29 @@ export default function AskAiksPanel({
             title="新对话"
           >
             <Trash2 className="h-4 w-4" />
-          </button>
-          <button
+          </UiButton>
+          <UiButton variant="ghost" size="sm"
             type="button"
-            onClick={onClose}
+            onClick={dismiss}
+            disabled={loading}
             className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            title="关闭"
+            title={loading ? "回答生成中，请等待完成" : "关闭"}
           >
             <X className="h-4 w-4" />
-          </button>
+          </UiButton>
         </header>
+        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2 text-xs dark:border-gray-800">
+          <label htmlFor="ask-aiks-project-filter" className="text-gray-500">检索范围</label>
+          <RadixSelectField label="问 AIKS 项目范围" value={selectedProject} disabled={loading}
+            options={[{value:"",label:"所有项目"},...projectChoices.map(project=>({value:project,label:project}))]}
+            onValueChange={value => { setSelectedProject(value); setMessages([]); setError(null); }}
+            className="min-w-0 flex-1 text-xs" />
+          <label htmlFor="ask-aiks-source-filter" className="text-gray-500">来源</label>
+          <RadixSelectField label="问 AIKS 数据源范围" value={selectedSource} disabled={loading}
+            options={[{value:"",label:"所有来源"},...sourceChoices.map(source=>({value:source,label:source}))]}
+            onValueChange={value => { setSelectedSource(value); setMessages([]); setError(null); }}
+            className="min-w-0 max-w-36 text-xs" />
+        </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 dark:bg-gray-950/20">
           {messages.length === 0 ? (
@@ -192,7 +255,7 @@ export default function AskAiksPanel({
               </div>
               <div className="mt-6 grid gap-2">
                 {QUICK_PROMPTS.map(prompt => (
-                  <button
+                  <UiButton variant="ghost" size="sm"
                     key={prompt}
                     type="button"
                     onClick={() => {
@@ -203,7 +266,7 @@ export default function AskAiksPanel({
                   >
                     <BookOpen className="h-4 w-4 flex-shrink-0 text-gray-400 transition group-hover:text-blue-500" />
                     <span>{prompt}</span>
-                  </button>
+                  </UiButton>
                 ))}
               </div>
             </div>
@@ -253,7 +316,7 @@ export default function AskAiksPanel({
             />
             <div className="mt-1.5 flex items-center justify-between px-1">
               <span className="text-[10px] text-gray-400">Enter 发送 · Shift+Enter 换行 · 基于检索证据回答</span>
-              <button
+              <UiButton variant="ghost" size="sm"
                 type="button"
                 onClick={() => void submit()}
                 disabled={loading || !aiHealthy || !input.trim()}
@@ -261,7 +324,7 @@ export default function AskAiksPanel({
                 title="发送"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
+              </UiButton>
             </div>
           </div>
           <div className="mt-2 w-full text-center text-[10px] text-gray-400">
@@ -269,7 +332,7 @@ export default function AskAiksPanel({
           </div>
         </div>
       </aside>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -292,7 +355,7 @@ function renderInline(
     if (citationMatch) {
       const citation = citations?.find(item => item.index === Number(citationMatch[1]));
       parts.push(citation ? (
-        <button
+        <UiButton variant="ghost" size="sm"
           key={"citation-" + index}
           type="button"
           onClick={() => onOpenCitation(citation)}
@@ -300,7 +363,7 @@ function renderInline(
           title={citation.title}
         >
           {citation.index}
-        </button>
+        </UiButton>
       ) : token);
     } else if (token.startsWith("**")) {
       parts.push(
@@ -558,18 +621,22 @@ function Message({
             onOpenCitation={onOpenCitation}
             streaming={streaming}
           />
-        ) : (
+        ) : message.state === "pending" ? (
           <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs text-gray-500 shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
             <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>正在检索知识并组织回答…</span>
             </div>
           </div>
+        ) : (
+          <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            没有可核实的完整回答。请检查模型服务后重试。
+          </div>
         )}
 
         {message.warnings && message.warnings.length > 0 && (
-          <div className="mt-2 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-            {message.warnings[0]}
+          <div role="status" className="mt-2 space-y-1 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+            {message.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </div>
         )}
 
@@ -586,7 +653,7 @@ function Message({
             </summary>
             <div className="space-y-1.5 border-t border-gray-100 p-2 dark:border-gray-800">
               {message.citations.map(citation => (
-                <button
+                <UiButton variant="ghost" size="sm"
                   key={citation.corpus + ":" + citation.entityId + ":" + (citation.chunkId ?? citation.index)}
                   type="button"
                   onClick={() => onOpenCitation(citation)}
@@ -608,15 +675,15 @@ function Message({
                       {citation.snippet}
                     </div>
                   )}
-                </button>
+                </UiButton>
               ))}
             </div>
           </details>
         )}
 
-        {message.content && (
+        {message.content && message.state === "complete" && (
           <div className="mt-2.5 flex items-center gap-1 text-[10px] text-gray-400">
-            <button
+            <UiButton variant="ghost" size="sm"
               type="button"
               onClick={() => void navigator.clipboard?.writeText(message.content)}
               className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
@@ -624,7 +691,7 @@ function Message({
             >
               <Copy className="h-3 w-3" />
               复制
-            </button>
+            </UiButton>
             {message.model && (
               <span className="ml-auto text-gray-300 dark:text-gray-600">{message.model}</span>
             )}

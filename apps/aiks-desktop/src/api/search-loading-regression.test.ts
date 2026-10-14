@@ -10,7 +10,7 @@ describe("unified search loading regression", () => {
   });
 
   it("only displays the disabled notice for a completed successful current query", () => {
-    const match = source.match(/\{(query\.trim\(\)[^\n]+?) && \(\n\s*<div className="border-b border-sky/);
+    const match = source.match(/\{(query\.trim\(\)[^\n]+?) && \(\s*<div className="border-b border-sky/);
     expect(match).not.toBeNull();
     const visible = Function("query", "outcome", "current", "loading", "error", `return Boolean(${match![1]})`);
     const disabled = { semantic_enabled: false, degraded: false };

@@ -1,4 +1,9 @@
+import { UiStatusBadge } from "../components/ui/workspace";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
+import { UiButton } from "../components/ui/fields";
 import { useState, useEffect } from "react";
+import { collectDiagnostics, type DiagnosticProbeName } from "../diagnostics-probes";
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle, XCircle, RefreshCw, Cpu, FileText } from "lucide-react";
 import { getApi } from "../api/client";
@@ -13,20 +18,40 @@ export default function DiagnosticsPage() {
   const [aiOk, setAiOk] = useState<boolean | null>(null);
   const [v41, setV41] = useState<V41Diagnostics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState("");
+  const [probeFailures, setProbeFailures] = useState<DiagnosticProbeName[]>([]);
+  const [lastSuccessfulCheck, setLastSuccessfulCheck] = useState<string | null>(null);
 
   const runDiag = async () => {
+    if (loading) return;
     setLoading(true);
+    setDiagnosticError("");
+    setProbeFailures([]);
+    // Never show stale green health when a fresh probe fails.
+    setDoctor(null);
+    setAiOk(null);
+    setV41(null);
     try {
-      const [d, ai, workbench] = await Promise.all([
-        invoke<DoctorResult>("get_doctor"),
-        invoke<boolean>("test_ai_connection"),
-        api.getV41Diagnostics(),
-      ]);
-      setDoctor(d);
-      setAiOk(ai);
-      setV41(workbench);
-    } catch (e) {
-      console.error(e);
+      const result = await collectDiagnostics({
+        doctor: () => invoke<DoctorResult>("get_doctor"),
+        ai: () => invoke<boolean>("test_ai_connection"),
+        workbench: () => api.getV41Diagnostics(),
+      });
+      setDoctor(result.doctor.status === "ok" ? result.doctor.value : null);
+      setAiOk(result.ai.status === "ok" ? result.ai.value : null);
+      setV41(result.workbench.status === "ok" ? result.workbench.value : null);
+      setProbeFailures(result.failures);
+      if (result.failures.length > 0) {
+        const names: Record<DiagnosticProbeName, string> = {
+          doctor: "本地环境", ai: "AI 连接", workbench: "知识工作台",
+        };
+        setDiagnosticError("以下检测未完成：" + result.failures.map(failure => names[failure]).join("、")
+          + "。为保护敏感配置，不显示原始错误详情。");
+      } else {
+        setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
+      }
+    } catch {
+      setDiagnosticError("诊断未完成，请检查本地服务状态；未展示原始错误详情。");
     } finally { setLoading(false); }
   };
 
@@ -41,6 +66,8 @@ export default function DiagnosticsPage() {
     "Claude Code": "Claude Code",
   };
 
+  const aiProbeFailed = probeFailures.includes("ai");
+  const workbenchProbeFailed = probeFailures.includes("workbench");
   const workbenchMounted = Boolean(v41?.workbench.mounted);
   const workbenchStatus = !v41?.siyuan_ready
     ? "不可用"
@@ -59,25 +86,28 @@ export default function DiagnosticsPage() {
   const workspaceMode = v41?.workbench.mode === "session" ? "原始会话" : "知识";
 
   return (
-    <div className="w-full min-w-0 p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-semibold">帮助与诊断</h1>
-          <p className="text-xs text-gray-400 mt-0.5">系统组件、知识工作台与迁移状态</p>
-        </div>
-        <button
+    <div className="aiks-page-shell w-full min-w-0">
+      <PageHeader title="帮助与诊断" description="系统组件、知识工作台与迁移状态" actions={<>
+        <UiButton variant="outline" size="sm"
           onClick={runDiag}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           重新检测
-        </button>
-      </div>
+        </UiButton></>} />
 
-      <div className="space-y-2 mb-6">
+      {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
+      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近全部检测请求成功：{lastSuccessfulCheck}</p>}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <UiMetric label="本地环境" value={doctor ? `${doctor.checks.filter(c => c.ok).length} / ${doctor.checks.length}` : "—"} detail="正常组件 / 检测组件" />
+        <UiMetric label="AI 连接" value={aiProbeFailed ? "检测失败" : aiOk === null ? "—" : aiOk ? "正常" : "不可用"} detail="以最新检测为准" />
+        <UiMetric label="知识工作台" value={v41 ? bridgeStatus : "—"} detail="Bridge 连接状态" />
+      </div>
+      <UiSection title="本地组件检查" description="各组件最近一次检测状态">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {doctor?.checks.map((check) => (
-          <div key={check.name} className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+          <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {check.ok ? (
               <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
             ) : (
@@ -95,9 +125,9 @@ export default function DiagnosticsPage() {
           </div>
         ))}
 
-        <div className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {aiOk === null ? (
-            <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            aiProbeFailed ? <XCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" /> : <Cpu className="w-4 h-4 text-gray-400 flex-shrink-0" />
           ) : aiOk ? (
             <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
           ) : (
@@ -109,13 +139,12 @@ export default function DiagnosticsPage() {
               <div className="text-xs text-gray-400">无法连接当前配置的 AI 服务</div>
             )}
           </div>
-          <div className={`text-xs ${aiOk ? "text-green-600" : aiOk === false ? "text-yellow-500" : "text-gray-400"}`}>
-            {aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}
-          </div>
+          <UiStatusBadge tone={aiProbeFailed ? "warning" : aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiProbeFailed ? "检测失败" : aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
         </div>
       </div>
+      </UiSection>
 
-      <section className="mb-6">
+      <UiSection title="知识工作台与迁移" description="SiYuan Kernel、Bridge 与知识内容迁移状态">
         <div className="flex items-end justify-between mb-2">
           <div>
             <h2 className="text-sm font-semibold">V4.2 知识工作台</h2>
@@ -132,24 +161,24 @@ export default function DiagnosticsPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">SiYuan Kernel</div>
             <div className={`text-sm font-medium mt-1 ${v41?.siyuan_ready ? "text-green-600" : "text-yellow-500"}`}>
-              {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : "检测中"}
+              {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">Embedded Workbench</div>
             <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? workbenchStatus : "检测中"}
+              {v41 ? workbenchStatus : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">AIKS Bridge</div>
             <div className={`text-sm font-medium mt-1 ${bridgeHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : "检测中"}
+              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : workbenchProbeFailed ? "检测失败" : "检测中"}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">当前工作区</div>
-            <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : "检测中"}</div>
+            <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : workbenchProbeFailed ? "检测失败" : "检测中"}</div>
           </div>
         </div>
 
@@ -171,24 +200,26 @@ export default function DiagnosticsPage() {
             ))}
           </div>
         </div>
-      </section>
+      </UiSection>
 
-      <div className="space-y-2">
-        <button
+      <UiSection title="常用工具" description="仅在明确点击后执行本地操作">
+      <div className="flex flex-wrap gap-2">
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("open_data_folder")}
-          className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <FileText className="w-4 h-4 text-gray-400" />
           打开数据目录
-        </button>
-        <button
+        </UiButton>
+        <UiButton variant="outline" size="sm"
           onClick={() => invoke("restart_siyuan")}
           className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <RefreshCw className="w-4 h-4 text-gray-400" />
           重新启动知识引擎
-        </button>
+        </UiButton>
       </div>
+      </UiSection>
 
       <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-600 dark:text-blue-400">
         💡 原始会话仍会正常保存，AI 整理不可用不影响主要功能。
