@@ -10,7 +10,8 @@ describe("desktop shared action hierarchy", () => {
     expect(work).toContain('variant="primary" size="md"');
     expect(work).toContain('variant={view === key ? "primary" : "ghost"}');
     expect(work).toContain("aria-pressed={view === key}");
-    expect(overview).toContain('variant="primary" size="sm" onClick={handleSync}');
+    expect(overview).toContain('variant="primary" size="sm" onClick={() => void handleSync()}');
+    expect(overview).toContain('disabled={isSyncing}');
     expect(legacy).toContain('variant="primary" size="sm"');
   });
   it("preserves editor controls and accessible settings switches", () => {
