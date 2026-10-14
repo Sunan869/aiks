@@ -14,7 +14,7 @@ describe("consistent business list filtering", () => {
   it("searches loaded knowledge and retains category filtering and publish command", () => {
     expect(knowledge).toContain('aria-label="搜索当前页知识"');
     expect(knowledge).toContain("currentPageItems.map(");
-    expect(knowledge).toContain('<UiSelect aria-label="知识分类"');
+    expect(knowledge).toContain('<RadixSelectField label="知识分类"');
     expect(knowledge).toContain("handleSyncToSiyuan");
   });
   it("supports resetting source diagnostics filters", () => {

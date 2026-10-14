@@ -42,7 +42,7 @@ describe("V4.2 real-machine UX regressions", () => {
     expect(appSource).toContain("getApi().reloadWorkbench()");
   });
   it("exposes user-controlled extraction concurrency from desktop to core without lifting the safe default", () => {
-    expect(settingsSource).toContain('aria-label="提炼并发数"');
+    expect(settingsSource).toContain('label="提炼并发数"');
     expect(settingsSource).toContain("ai_max_concurrent: settings.ai_max_concurrent");
     expect(settingsSource).toContain("ai_max_concurrent: 1");
     expect(settingsCommandsSource).toContain("config.ai.max_concurrent = settings.ai_max_concurrent;");

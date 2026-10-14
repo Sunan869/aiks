@@ -34,7 +34,7 @@ describe("WorkBuddy display boundaries", () => {
 
   it("keeps sync and filter values as provider IDs", () => {
     expect(sourcesSource).toContain("syncCatalogSource(getApi(), source)");
-    expect(sessionsSource).toContain("value={option.value}");
+    expect(sessionsSource).toContain("value: option.value");
     expect(sessionsSource).toContain("source: source || undefined");
   });
 });
