@@ -69,7 +69,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
 
   useEffect(() => { void loadTaskStats(); void loadAiKnowledgeCount(); void loadUsage(); }, [loadTaskStats, loadAiKnowledgeCount, loadUsage]);
 
-  const handleRefresh = () => { onRefresh(); void loadTaskStats(); void loadAiKnowledgeCount(); };
+  const handleRefresh = () => { onRefresh(); void loadTaskStats(); void loadAiKnowledgeCount(); void loadUsage(); };
   const handleSync = async () => {
     if (syncing || syncInProgress) return;
     setSyncing(true);
@@ -80,6 +80,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
       onRefresh();
       void loadTaskStats();
       void loadAiKnowledgeCount();
+      void loadUsage();
     } catch {
       // Transport exceptions may contain local paths, provider payloads, or credentials.
       setSyncMsg("同步未完成，请到处理中心检查任务状态并重试。");
