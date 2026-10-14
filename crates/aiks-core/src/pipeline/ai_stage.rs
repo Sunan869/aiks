@@ -150,6 +150,96 @@ fn extraction_concurrency_respects_explicit_bound_and_sequential_default() {
     assert_eq!(extraction_batch_size(usize::MAX), 4);
 }
 
+/// Prepared requests are transient; the raw session_chunk rows and knowledge
+/// source evidence remain unchanged. Counts are recorded for diagnostics.
+struct PreparedExtraction {
+    parts: Vec<(i32, String)>,
+    source_chunks: usize,
+    split_source_chunks: usize,
+    input_saved_chars: usize,
+}
+
+/// Compress only adjacent, byte-identical terminal log lines. Preserve the
+/// first occurrence, an exact repetition count and the untouched source in DB.
+/// Never compact fenced code, SQL, commands or non-log conversational evidence.
+fn compact_extraction_input(text: &str) -> String {
+    fn repeatable_log(line: &str) -> bool {
+        let trimmed = line.trim_start();
+        ["INFO ", "WARN ", "ERROR ", "DEBUG ", "TRACE ",
+         "[INFO]", "[WARN]", "[ERROR]", "[DEBUG]", "[TRACE]"]
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix))
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut preceding: Option<&str> = None;
+    let mut repeats = 0usize;
+    let mut in_code_fence = false;
+    for line in text.split_inclusive('\n') {
+        let without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let payload = without_newline.strip_suffix('\r').unwrap_or(without_newline);
+        let fence = payload.trim_start().starts_with("```")
+            || payload.trim_start().starts_with("~~~");
+        if !in_code_fence && !fence && repeatable_log(payload)
+            && preceding == Some(payload)
+        {
+            repeats += 1;
+            continue;
+        }
+        if repeats > 0 {
+            result.push_str(&format!(
+                "[以上完全相同的日志又连续出现 {repeats} 次；原始记录保留在会话中]\n"
+            ));
+            repeats = 0;
+        }
+        result.push_str(line);
+        if fence {
+            in_code_fence = !in_code_fence;
+        }
+        preceding = if !in_code_fence && !fence && line.ends_with('\n')
+            && repeatable_log(payload)
+        {
+            Some(payload)
+        } else {
+            None
+        };
+    }
+    if repeats > 0 {
+        result.push_str(&format!(
+            "[以上完全相同的日志又连续出现 {repeats} 次；原始记录保留在会话中]\n"
+        ));
+    }
+    result
+}
+
+/// Partition UTF-8 at message/line boundaries when practical. Hard cuts are
+/// only used for single very long lines, and do not remove even one character.
+/// This is a reversible partition, unlike head/tail prompt truncation.
+fn split_evidence_without_loss(text: &str, max_chars: usize) -> Vec<String> {
+    assert!(max_chars > 0);
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    while start < text.len() {
+        let remaining = &text[start..];
+        let Some((offset, _)) = remaining.char_indices().nth(max_chars) else {
+            parts.push(remaining.to_string());
+            break;
+        };
+        let hard_end = start + offset;
+        let newline_end = text[start..hard_end].rfind('\n').map(|n| start + n + 1);
+        let end = newline_end.filter(|&n| {
+            text[start..n].chars().count() >= max_chars / 2
+        }).unwrap_or(hard_end);
+        debug_assert!(end > start);
+        parts.push(text[start..end].to_string());
+        start = end;
+    }
+    parts
+}
+
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
         let client = AiClient::new(config.clone())?;
@@ -181,41 +271,74 @@ impl AiStage {
         ((usable as f64) * BUDGET_CHARS_PER_TOKEN) as usize
     }
 
-    /// Keep source context head, original tail and the final /no_think switch.
-    /// The omission marker is part of the character budget: the previous
-    /// formatter appended it AFTER allocating the entire budget to source text.
-    /// Reject too-small context windows instead of sending near-empty prompts
-    /// that could falsely return a successful but evidence-free extraction.
+    /// The prompt must be pre-partitioned before this guard: never silently
+    /// drop middle-of-session evidence to fit a context window.
     fn fit_to_budget(&self, prompt: &str) -> anyhow::Result<String> {
-        let max_chars = self.prompt_char_budget();
+        let limit = self.prompt_char_budget();
+        anyhow::ensure!(limit >= 512, "AI context budget is too small for reliable extraction");
         anyhow::ensure!(
-            max_chars >= 512,
-            "AI context budget is too small for reliable extraction"
+            prompt.chars().count() <= limit,
+            "AI prompt exceeds context budget after preparation; refusing to discard evidence"
         );
-        let total = prompt.chars().count();
-        if total <= max_chars {
-            return Ok(prompt.to_string());
+        Ok(prompt.to_string())
+    }
+
+    /// Prepare every LLM request before network calls, preserving its source
+    /// order and all evidence except safely collapsed redundant terminal logs.
+    /// Budget includes system/frame metadata and a safety reserve for UTF-8
+    /// tokenizer variation. Source chunks in SQLite are never rewritten.
+    fn prepare_extraction_chunks(
+        &self,
+        session_title: Option<&str>,
+        project_name: Option<&str>,
+        source: &[(i32, String)],
+    ) -> anyhow::Result<PreparedExtraction> {
+        let empty_context = chunk_context(&self.sanitizer, session_title, project_name, "");
+        let frame_chars = make_v3_extraction_prompt(&empty_context).chars().count();
+        let payload_budget = self.prompt_char_budget()
+            .checked_sub(frame_chars.saturating_add(256))
+            .unwrap_or(0);
+        anyhow::ensure!(
+            payload_budget >= 512,
+            "AI context budget is too small for the extraction JSON frame and evidence"
+        );
+        let mut parts = Vec::new();
+        let mut split_source_chunks = 0usize;
+        let mut input_saved_chars = 0usize;
+        for (chunk_index, original) in source {
+            // Redact over the *complete* source chunk, before splitting; a
+            // secret that straddles a new part boundary is still protected.
+            let sanitized = self.sanitizer.sanitize(original);
+            let compacted = compact_extraction_input(&sanitized);
+            input_saved_chars += sanitized.chars().count()
+                .saturating_sub(compacted.chars().count());
+
+            // Retain v5 cache identity for unchanged, within-budget chunks.
+            // Only genuinely modified/split evidence gets different keys.
+            let ready = if compacted == *original {
+                original.clone()
+            } else {
+                compacted
+            };
+            let pieces = split_evidence_without_loss(&ready, payload_budget);
+            if pieces.len() > 1 {
+                split_source_chunks += 1;
+            }
+            for piece in pieces {
+                let context = chunk_context(
+                    &self.sanitizer, session_title, project_name, &piece
+                );
+                let prompt = make_v3_extraction_prompt(&context);
+                self.fit_to_budget(&prompt)?;
+                parts.push((*chunk_index, piece));
+            }
         }
-        let marker = format!("\n\n[...中间内容已截断，原文总长 {total} 字符...]\n\n");
-        let marker_chars = marker.chars().count();
-        anyhow::ensure!(
-            marker_chars < max_chars,
-            "AI context budget cannot include the truncation marker"
-        );
-        let available = max_chars - marker_chars;
-        let head = available * 2 / 3;
-        let tail = available - head;
-        let head_s: String = prompt.chars().take(head).collect();
-        let tail_s: String = prompt.chars().skip(total - tail).collect();
-        tracing::warn!(
-            chars = total,
-            max_chars,
-            dropped = total - available,
-            "Prompt exceeds model context budget; truncating middle"
-        );
-        let fitted = format!("{head_s}{marker}{tail_s}");
-        debug_assert!(fitted.chars().count() <= max_chars);
-        Ok(fitted)
+        Ok(PreparedExtraction {
+            parts,
+            source_chunks: source.len(),
+            split_source_chunks,
+            input_saved_chars,
+        })
     }
 
     /// Run AI extraction on a session's LLM chunks.
@@ -231,19 +354,25 @@ impl AiStage {
         let pipeline_repo = PipelineRepo::new(db);
         let knowledge_repo = KnowledgeRepo::new(db);
 
-        // Load chunks from DB
-        let chunks = load_chunks(db, session_id)?;
-
-        if chunks.is_empty() {
+        // Prepare bounded, evidence-preserving requests without mutating DB
+        // source chunks. Large chunks may require additional model calls.
+        let source_chunks = load_chunks(db, session_id)?;
+        if source_chunks.is_empty() {
             anyhow::bail!("No chunks found for session {}", session_id);
         }
-
         ensure_chunk_cache_table(db)?;
         let t0 = Instant::now();
+        let prepared = self.prepare_extraction_chunks(
+            session_title, project_name, &source_chunks
+        )?;
+        let chunks = &prepared.parts;
         info!(
             session_id,
-            chunks = chunks.len(),
-            "[AI] Starting extraction"
+            source_chunks = prepared.source_chunks,
+            extraction_parts = chunks.len(),
+            split_source_chunks = prepared.split_source_chunks,
+            input_saved_chars = prepared.input_saved_chars,
+            "[AI] Starting evidence-preserving extraction"
         );
 
         let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
@@ -301,13 +430,16 @@ impl AiStage {
                 pipeline_run_id,
                 "AI_EXTRACTED",
                 "SUCCESS",
-                Some(chunks.len() as i32),
+                Some(prepared.source_chunks as i32),
                 Some(0),
                 Some(latency_ms),
                 Some(&serde_json::json!({
                     "score": result.knowledge_score,
                     "items": 0,
                     "cache_hits": cache_hits,
+                    "extraction_parts": chunks.len(),
+                    "split_source_chunks": prepared.split_source_chunks,
+                    "input_saved_chars": prepared.input_saved_chars,
                     "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                     "llm_calls": llm_calls,
                     "configured_concurrency": self.config.max_concurrent,
@@ -347,13 +479,16 @@ impl AiStage {
             pipeline_run_id,
             "AI_EXTRACTED",
             "SUCCESS",
-            Some(chunks.len() as i32),
+            Some(prepared.source_chunks as i32),
             Some(item_count as i32),
             Some(latency_ms),
             Some(&serde_json::json!({
                 "score": result.knowledge_score,
                 "items": item_count,
                 "cache_hits": cache_hits,
+                    "extraction_parts": chunks.len(),
+                    "split_source_chunks": prepared.split_source_chunks,
+                    "input_saved_chars": prepared.input_saved_chars,
                 "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
                 "llm_calls": llm_calls,
                 "configured_concurrency": self.config.max_concurrent,
@@ -1871,42 +2006,80 @@ mod tests {
         assert_eq!(stage.fit_to_budget(&prompt).unwrap(), prompt);
     }
 
-    /// An oversized prompt keeps head and tail and marks the dropped middle —
-    /// the request becomes merely degraded instead of impossible.
+    /// Oversized prompts must fail rather than dropping important middle facts.
     #[test]
-    fn fit_to_budget_truncates_oversized_prompt_middle() {
+    fn fit_to_budget_refuses_silent_middle_truncation() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
-        let budget = stage.prompt_char_budget();
-        assert!(budget > 0);
-
-        let head_marker = "HEAD_START_ABCDEF";
-        let tail_marker = "TAIL_END_UVWXYZ";
-        let filler = "x".repeat(budget); // alone already over budget
-        let prompt = format!("{}{}{}", head_marker, filler, tail_marker);
-
-        let fitted = stage.fit_to_budget(&prompt).unwrap();
-        assert!(fitted.chars().count() < prompt.chars().count());
-        assert!(fitted.starts_with(head_marker), "head must be preserved");
-        assert!(fitted.ends_with(tail_marker), "tail must be preserved");
-        assert!(fitted.contains("已截断"), "drop marker must be present");
+        let prompt = format!("开始{}中段重要 SQL{}", "甲".repeat(
+            stage.prompt_char_budget()
+        ), "尾段");
+        assert!(stage.fit_to_budget(&prompt).is_err());
     }
 
-    /// The omitted-middle marker must consume part of the exact prompt
-    /// budget; previously the marker alone overflowed the model window.
     #[test]
-    fn prompt_budget_includes_truncation_marker_even_with_multibyte_text() {
-        let stage = AiStage::new(AiModelConfig::default()).unwrap();
-        let max_chars = stage.prompt_char_budget();
-        let prompt = format!(
-            "开始 {} 最后/no_think",
-            "中\n工具输出🔧".repeat(max_chars / 4)
+    fn evidence_partition_round_trips_unicode_sql_and_middle_content() {
+        let source = format!(
+            "开始🔧\n{}SELECT * FROM 重要表;\n{}最后验证成功\n",
+            "中段".repeat(900), "输出".repeat(750)
         );
-        let output = stage.fit_to_budget(&prompt).unwrap();
-        assert_eq!(output.chars().count(), max_chars);
-        assert!(output.starts_with("开始 "));
-        assert!(output.ends_with("最后/no_think"));
-        assert!(output.contains("已截断"));
-        assert!(!output.contains("\u{fffd}"));
+        let parts = split_evidence_without_loss(&source, 333);
+        assert!(parts.len() > 2);
+        assert_eq!(parts.concat(), source);
+        assert!(parts.iter().all(|s| s.chars().count() <= 333));
+        assert!(!parts.concat().contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn extraction_preparation_preserves_large_evidence_and_prompt_bounds() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let middle = "SELECT * FROM critical_middle_table;\n";
+        let raw = format!(
+            "{}{}{}", "开始🔧\n".repeat(6000), middle, "最终修复成功\n".repeat(6000)
+        );
+        let prepared = stage.prepare_extraction_chunks(
+            Some("Session"), Some("项目"), &[(0, raw.clone())]
+        ).unwrap();
+        assert_eq!(prepared.source_chunks, 1);
+        assert!(prepared.split_source_chunks > 0);
+        assert!(prepared.parts.len() > 1);
+        assert_eq!(
+            prepared.parts.iter().map(|(_, text)| text.as_str()).collect::<String>(),
+            raw
+        );
+        for (_, part) in &prepared.parts {
+            let prompt = make_v3_extraction_prompt(&chunk_context(
+                &stage.sanitizer, Some("Session"), Some("项目"), part
+            ));
+            assert!(stage.fit_to_budget(&prompt).is_ok());
+        }
+        assert!(prepared.parts.iter().any(|(_, s)| s.contains(middle)));
+    }
+
+    #[test]
+    fn compaction_counts_only_adjacent_exact_terminal_logs() {
+        let input = "INFO task completed\nINFO task completed\nINFO task completed\n\
+SELECT 1;\nSELECT 1;\n```\nERROR same\nERROR same\n```\n\
+ERROR first\nERROR second\n";
+        let compact = compact_extraction_input(input);
+        assert!(compact.contains("INFO task completed\n[以上完全相同的日志又连续出现 2 次"));
+        assert!(compact.contains("SELECT 1;\nSELECT 1;"));
+        assert!(compact.contains("ERROR same\nERROR same"));
+        assert!(compact.contains("ERROR first\nERROR second"));
+    }
+
+    #[test]
+    fn unchanged_small_chunk_keeps_legacy_cache_identity() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let original = "SELECT COUNT(*) FROM source_session;\n".to_string();
+        let result = stage.prepare_extraction_chunks(
+            Some("Session"), Some("Project"), &[(3, original.clone())]
+        ).unwrap();
+        assert_eq!(result.parts, vec![(3, original.clone())]);
+        assert_eq!(result.input_saved_chars, 0);
+        assert_eq!(
+            chunk_cache_key(&stage.config, Some("Session"), Some("Project"), &result.parts[0].1),
+            chunk_cache_key(&stage.config, Some("Session"), Some("Project"), &original)
+        );
     }
 
     /// A malformed user-supplied context window is an explicit stage failure,
