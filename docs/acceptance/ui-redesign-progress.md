@@ -312,3 +312,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Unknown values render as em dash, not misleading zero; task stats are refreshed separately and errors never print potentially sensitive transport details.
 - Provider scan totals and stored DB totals are different populations: the numerical difference is not automatically missed synchronization. For rigorous reconciliation, compare canonical provider session identifiers and storage entries by source.
 - Updated app header/footer count to use db_total.
+
+## Overview AI knowledge count correctness
+
+- The old extraction_success metric came from legacy knowledge_extraction statuses, not the current V3 knowledge store; a zero therefore did not mean no AI-generated knowledge.
+- Dashboard now queries the same active conversation-source knowledge listing contract as Knowledge Workbench (limit=1, total gives full match count), explicitly labels the metric 'AI 知识条目', and shows unknown rather than zero when the request fails.
+- Refresh and sync rerun the knowledge-count request; errors are redacted and do not substitute legacy counters.

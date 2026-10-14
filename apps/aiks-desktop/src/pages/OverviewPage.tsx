@@ -26,6 +26,8 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
   const [taskError, setTaskError] = useState(false);
   const [taskLoading, setTaskLoading] = useState(true);
+  const [aiKnowledgeCount, setAiKnowledgeCount] = useState<number | null>(null);
+  const [aiKnowledgeError, setAiKnowledgeError] = useState(false);
 
   const loadTaskStats = useCallback(async () => {
     try {
@@ -39,9 +41,20 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
     }
   }, []);
 
-  useEffect(() => { void loadTaskStats(); }, [loadTaskStats]);
+  const loadAiKnowledgeCount = useCallback(async () => {
+    try {
+      const page = await getApi().getKnowledge({ status: "active", sourceType: "conversation", limit: 1, offset: 0 });
+      setAiKnowledgeCount(page.total);
+      setAiKnowledgeError(false);
+    } catch {
+      setAiKnowledgeCount(null);
+      setAiKnowledgeError(true);
+    }
+  }, []);
 
-  const handleRefresh = () => { onRefresh(); void loadTaskStats(); };
+  useEffect(() => { void loadTaskStats(); void loadAiKnowledgeCount(); }, [loadTaskStats, loadAiKnowledgeCount]);
+
+  const handleRefresh = () => { onRefresh(); void loadTaskStats(); void loadAiKnowledgeCount(); };
   const handleSync = async () => {
     if (syncing || syncInProgress) return;
     setSyncing(true);
@@ -51,6 +64,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
       setSyncMsg(`同步提交完成：+${r.new_count} 新增，${r.updated_count} 更新`);
       onRefresh();
       void loadTaskStats();
+      void loadAiKnowledgeCount();
     } catch {
       // Transport exceptions may contain local paths, provider payloads, or credentials.
       setSyncMsg("同步未完成，请到处理中心检查任务状态并重试。");
@@ -71,7 +85,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const metrics = [
     { label: "本地工作记录", value: hasStatus ? format(fullStatus.db_total) : "—", detail: "已入库的不同会话" },
     { label: "Provider 扫描发现", value: hasStatus ? format(fullStatus.scan_total) : "—", detail: "实时来源发现量，非入库数" },
-    { label: "AI 提炼成功", value: hasStatus ? format(fullStatus.extraction_success) : "—", detail: "提炼成功数，不等同知识条目数" },
+    { label: "AI 知识条目", value: aiKnowledgeCount === null ? "—" : format(aiKnowledgeCount), detail: "知识库中当前有效的会话来源知识条目" },
     { label: "活跃数据源", value: hasStatus ? format(sources.length) : "—", detail: "扫描发现至少一条会话的来源" },
   ];
 
@@ -93,6 +107,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
       </UiStatGrid>
 
       {!hasStatus && <UiNotice tone="warning">状态尚未加载。这里不会把未知的统计值显示成 0。</UiNotice>}
+      {aiKnowledgeError && <UiNotice tone="warning">AI 知识条目统计读取失败，请刷新重试；此处不再使用旧提炼表的成功数替代。</UiNotice>}
       {syncMsg && <UiNotice tone={syncMsg.startsWith("同步提交完成") ? "success" : "danger"}>{syncMsg}</UiNotice>}
 
       <div className="grid gap-4 xl:grid-cols-2">

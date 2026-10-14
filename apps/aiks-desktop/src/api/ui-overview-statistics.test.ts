@@ -8,6 +8,9 @@ describe("Overview snapshot consistency", () => {
     expect(overview).toContain('label: "Provider 扫描发现"');
     expect(overview).toContain("fullStatus.scan_total");
     expect(app).toContain("fullStatus?.db_total");
+    expect(overview).toContain('label: "AI 知识条目"');
+    expect(overview).toContain('getKnowledge({ status: "active", sourceType: "conversation", limit: 1, offset: 0 })');
+    expect(overview).not.toContain("format(fullStatus.extraction_success)");
     expect(app).toContain("fullStatus.db_total} 条本地工作记录");
   });
   it("keeps sync totals independently classified and reports unclassified entries", () => {
