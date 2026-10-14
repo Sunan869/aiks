@@ -272,3 +272,8 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Calendar validates local ISO date-only values including years 0000-0099, opens with DayPicker keyboard focus, confines Escape to its popover, and adds a clear-date action with focus return.
 - The narrow-window and Radix source contracts now match actual behavior; new behavior tests cover identity, duplicate values, sentinels, leap days and month boundaries.
 - No change to Core, Provider read permissions, SiYuan documents, SQLite migration, or backup APIs. Run npm ci, npm test and npm run build in apps/aiks-desktop and test keyboard-only nested popovers, small windows and assistive technology on real Windows. CI and mocks do not replace real-device acceptance.
+
+## Explicit Radix Select migrations (major filters/settings)
+
+- Converted Sessions, Knowledge Base, Knowledge Workbench and Settings fixed-choice fields to RadixSelectField with onValueChange callbacks; removed fake DOM event reliance from these screens.
+- Retained page reset on source/category change and numeric conversion of scan interval and AI concurrency. Remaining legacy adapter calls in Knowledge Detail / Project Memory need dedicated cleanup.

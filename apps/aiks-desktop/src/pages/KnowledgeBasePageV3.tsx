@@ -1,7 +1,7 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiInput } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
-import { UiSelect } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { KnowledgeSummary, KnowledgePage } from "../api/types";
@@ -140,15 +140,9 @@ export default function KnowledgeBasePageV3({ onViewDetail }: Props) {
             )}
             {syncing ? "同步中..." : "同步到 SiYuan"}
           </UiButton>
-          <UiSelect aria-label="知识分类"
-            value={category}
-            onChange={e => { setCategory(e.target.value); setPage(0); }}
-            className="text-sm border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-          >
-            {categories.map(c => (
-              <option key={c} value={c}>{c ? CATEGORY_LABELS[c] ?? c : "全部分类"}</option>
-            ))}
-          </UiSelect></>} />
+          <RadixSelectField label="知识分类" value={category} onValueChange={value => { setCategory(value); setPage(0); }}
+            className="min-w-[140px] text-sm"
+            options={categories.map(c => ({ value: c, label: c ? CATEGORY_LABELS[c] ?? c : "全部分类" }))} /></>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <UiInput aria-label="搜索当前页知识" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}

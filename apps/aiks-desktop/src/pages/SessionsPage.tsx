@@ -1,5 +1,6 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
-import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
+import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
@@ -110,15 +111,9 @@ export default function SessionsPage({ onViewDetail }: Props) {
           >
             导入分享链接
           </UiButton>
-          <UiSelect aria-label="工作记录来源"
-            value={source}
-            onChange={e => { setSource(e.target.value); setPage(0); }}
+          <RadixSelectField label="工作记录来源" value={source} onValueChange={value => { setSource(value); setPage(0); }}
             className="min-w-[140px] text-sm"
-          >
-            {sourceOptions.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </UiSelect></>} />
+            options={sourceOptions.map(option => ({ value: option.value, label: option.label }))} /></>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <UiInput aria-label="搜索当前页工作记录" value={currentPageQuery} onChange={event => setCurrentPageQuery(event.target.value)}

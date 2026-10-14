@@ -25,7 +25,7 @@ describe("shared calendar and searchable selection contract", () => {
     expect(calendarSource).toContain('onClick={() => selectDate(new Date())}');
   });
   it("keeps session source filters connected", () => {
-    expect(sessionSource).toContain('onChange={e => { setSource(e.target.value); setPage(0); }}');
-    expect(sessionSource).toContain('<UiSelect aria-label="工作记录来源"');
+    expect(sessionSource).toContain('onValueChange={value => { setSource(value); setPage(0); }}');
+    expect(sessionSource).toContain('<RadixSelectField label="工作记录来源"');
   });
 });

@@ -1,6 +1,6 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
-import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, FilePenLine, Plus, RefreshCw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -120,14 +120,9 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <UiSelect aria-label="知识分类"
-            value={category}
-            onChange={e => { setCategory(e.target.value); setPage(0); }}
-            className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-          >
-            <option value="">全部分类</option>
-            {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </UiSelect>
+          <RadixSelectField label="知识分类" value={category} onValueChange={value => { setCategory(value); setPage(0); }}
+            className="min-w-[140px] text-xs"
+            options={[{ value: "", label: "全部分类" }, ...Object.entries(CATEGORY_LABELS).map(([key, label]) => ({ value: key, label }))]} />
           <UiButton variant="ghost" size="sm" type="button" aria-label="刷新知识列表" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </UiButton>

@@ -1,6 +1,7 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import * as Switch from "@radix-ui/react-switch";
 import { PageHeader } from "../components/ui/PageHeader";
-import { UiSelect, UiButton, UiInput } from "../components/ui/fields";
+import { UiButton, UiInput } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { CheckCircle } from "lucide-react";
 import { OfflineRestore } from "../components/OfflineRestore";
@@ -309,13 +310,10 @@ export default function SettingsPage() {
             <div className="text-sm">定时扫描间隔</div>
             <div className="text-xs text-gray-400">重启 AIKS 后生效</div>
           </div>
-          <UiSelect
-            className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
-            value={settings.scan_interval_seconds / 60}
-            onChange={event => update("scan_interval_seconds", +event.target.value * 60)}
-          >
-            {[1, 5, 10, 15, 30].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
-          </UiSelect>
+          <RadixSelectField label="自动扫描间隔" value={String(settings.scan_interval_seconds / 60)}
+            onValueChange={value => update("scan_interval_seconds", Number(value) * 60)}
+            className="min-w-[120px] text-sm"
+            options={[1, 5, 10, 15, 30].map(minutes => ({ value: String(minutes), label: `${minutes} 分钟` }))} />
         </div>
       </Section>
 
@@ -327,9 +325,10 @@ export default function SettingsPage() {
             <div className="text-sm">提炼并发数</div>
             <div className="text-xs text-gray-400">默认 1（保守）；vLLM 可先尝试 2 路并观察 tokens/s、显存和超时，4 路不保证更快；重启后生效</div>
           </div>
-          <UiSelect aria-label="提炼并发数" value={settings.ai_max_concurrent} onChange={event => update("ai_max_concurrent", Number(event.target.value))} className="min-w-[96px] text-sm">
-            {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value} 路</option>)}
-          </UiSelect>
+          <RadixSelectField label="提炼并发数" value={String(settings.ai_max_concurrent)}
+            onValueChange={value => update("ai_max_concurrent", Number(value))}
+            className="min-w-[96px] text-sm"
+            options={[1, 2, 3, 4].map(value => ({ value: String(value), label: `${value} 路` }))} />
         </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
@@ -350,15 +349,12 @@ export default function SettingsPage() {
         <div className="py-3 space-y-3">
           <div>
             <div className="text-xs text-gray-400 mb-1">向量模型预设</div>
-            <UiSelect
-              value={embeddingPreset}
-              onChange={event => applyEmbeddingPreset(event.target.value)}
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700"
-            >
-              <option value="lco">LCO Omni 3B 2605（推荐 · 2048 维）</option>
-              <option value="bge">BGE-M3（轻量 · 1024 维）</option>
-              <option value="custom">自定义</option>
-            </UiSelect>
+            <RadixSelectField label="Embedding 模型预设" value={embeddingPreset}
+            onValueChange={applyEmbeddingPreset}
+            className="w-full text-sm"
+            options={[{ value: "lco", label: "LCO Omni 3B 2605（推荐 · 2048 维）" },
+              { value: "bge", label: "BGE-M3（轻量 · 1024 维）" },
+              { value: "custom", label: "自定义" }]} />
             <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
           </div>
           <div>
