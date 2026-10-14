@@ -3,7 +3,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { UiButton } from "../components/ui/fields";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Cpu, Database, Search, AlertTriangle } from "lucide-react";
+import { RefreshCw, Cpu, Search, AlertTriangle } from "lucide-react";
 import { getApi } from "../api/client";
 import type { FullStatus, AiStatus, TaskCenterStats } from "../api/types";
 
