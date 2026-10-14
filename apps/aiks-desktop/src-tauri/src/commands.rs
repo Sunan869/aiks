@@ -659,9 +659,7 @@ pub async fn get_task_center_stats(
 /// Aggregate only provider-reported usage, never session chunk estimates.
 /// Null means no token counts were returned by the model.
 #[tauri::command]
-pub async fn get_ai_usage_stats(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_ai_usage_stats(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let conn = db.conn();
@@ -677,19 +675,25 @@ pub async fn get_ai_usage_stats(
         )
         .map_err(|error| error.to_string())?;
     let mut by_model = Vec::new();
-    let mut stmt = conn.prepare(
-        "SELECT model, COUNT(*), SUM(input_tokens), SUM(output_tokens)
+    let mut stmt = conn
+        .prepare(
+            "SELECT model, COUNT(*), SUM(input_tokens), SUM(output_tokens)
          FROM ai_request_log GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 8",
-    ).map_err(|error| error.to_string())?;
-    let rows = stmt.query_map([], |row| {
-        Ok(serde_json::json!({
-            "model": row.get::<_, String>(0)?,
-            "requests": row.get::<_, i64>(1)?,
-            "input_tokens": row.get::<_, Option<i64>>(2)?,
-            "output_tokens": row.get::<_, Option<i64>>(3)?,
-        }))
-    }).map_err(|error| error.to_string())?;
-    for row in rows { by_model.push(row.map_err(|error| error.to_string())?); }
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(serde_json::json!({
+                "model": row.get::<_, String>(0)?,
+                "requests": row.get::<_, i64>(1)?,
+                "input_tokens": row.get::<_, Option<i64>>(2)?,
+                "output_tokens": row.get::<_, Option<i64>>(3)?,
+            }))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        by_model.push(row.map_err(|error| error.to_string())?);
+    }
     Ok(serde_json::json!({
         "requests": requests,
         "measured_requests": measured,
