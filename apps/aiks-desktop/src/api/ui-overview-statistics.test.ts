@@ -11,7 +11,8 @@ describe("Overview snapshot consistency", () => {
     expect(overview).toContain('label: "AI 知识条目"');
     expect(overview).toContain('getKnowledge({ status: "active", sourceType: "conversation", limit: 1, offset: 0 })');
     expect(overview).not.toContain("format(fullStatus.extraction_success)");
-    expect(app).toContain("fullStatus.db_total} 条本地工作记录");
+    expect(app).toContain("sessionCount={sessionCount}");
+    expect(app).not.toContain("fullStatus.db_total} 条本地工作记录");
   });
   it("keeps sync totals independently classified and reports unclassified entries", () => {
     expect(overview).toContain("status.db_synced + status.db_pending + status.db_conflict + status.db_failed");
