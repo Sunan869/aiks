@@ -45,11 +45,10 @@ function NavButton({ item, page, onNavigate }: { item: NavItem; page: Page; onNa
     <button type="button"
       onClick={() => onNavigate(item.id)}
       aria-current={isActive ? "page" : undefined}
-      className={`mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
-        isActive
+      className={`mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isActive
           ? "bg-slate-900 text-white font-semibold shadow-sm dark:bg-sky-500/15 dark:text-sky-200"
           : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-      }`}
+        }`}
     >
       <Icon className="w-4 h-4 flex-shrink-0" />
       {item.label}
@@ -60,7 +59,7 @@ function NavButton({ item, page, onNavigate }: { item: NavItem; page: Page; onNa
 export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount, aiHealthy }: Props) {
   return (
     <aside className="flex w-52 min-w-0 flex-shrink-0 flex-col xl:w-56 border-r border-slate-200/80 bg-white/95 dark:border-slate-800 dark:bg-slate-950" aria-label="主导航">
-      <div className="px-4 pb-3 pt-5"><div className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">AI Knowledge Sync</div><div className="mt-1 text-[11px] text-slate-500">本地知识工作空间</div></div>
+      <div className="px-4 pb-3 pt-5"><div className="mt-1 text-[11px] text-slate-500">本地知识工作空间</div></div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto py-2" aria-label="功能导航">
         {mainNavItems.map((item) => (
           <NavButton key={item.id} item={item} page={page} onNavigate={onNavigate} />
