@@ -12,8 +12,8 @@ describe("cross-page UI batch maintains business controls", () => {
     expect(sources).toContain("关闭来源不会删除已导入记录");
   });
   it("keeps source filtering and AI concurrency controls", () => {
-    expect(sessions).toContain('aria-label="工作记录来源"');
-    expect(settings).toContain('aria-label="提炼并发数"');
+    expect(sessions).toContain('label="工作记录来源"');
+    expect(settings).toContain('label="提炼并发数"');
     expect(settings).toContain("ai_max_concurrent");
   });
   it("exposes an identified, keyboard-navigable combobox list", () => {

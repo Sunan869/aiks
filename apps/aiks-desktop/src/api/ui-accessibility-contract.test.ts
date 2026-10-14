@@ -19,7 +19,7 @@ describe("desktop shared interaction accessibility", () => {
     expect(calendar).toContain("if (disabled) setOpen(false)");
   });
   it("retains knowledge filtering and unifies the selection control", () => {
-    expect(workbench).toContain("UiSelect");
+    expect(workbench).toContain("RadixSelectField");
     expect(workbench).toContain("知识库");
   });
   it("uses the application page shell for credits", () => {
