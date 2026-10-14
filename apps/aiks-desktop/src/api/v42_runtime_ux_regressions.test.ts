@@ -19,7 +19,8 @@ describe("V4.2 real-machine UX regressions", () => {
     expect(embeddingCommandsSource).not.toContain("aiks.toml.embedding.tmp");
     expect(settingsSource).toContain("saveWarning");
     expect(settingsSource).toContain("throw new Error(`语义搜索配置已保存，但桌面设置更新失败");
-    expect(settingsCommandsSource).toContain('let autostart_warning = autostart_result.err()');
+    expect(settingsCommandsSource).toContain("let autostart_warning = (if startup_changed {");
+    expect(settingsCommandsSource).toContain("config.desktop.startup != settings.startup");
     expect(settingsCommandsSource).toContain('"autostart_warning": autostart_warning');
     expect(settingsCommandsSource).not.toContain('autostart.enable().map_err(|e| e.to_string())?');
 
