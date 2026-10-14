@@ -1,3 +1,4 @@
+import { DataStorageSettingsSection } from "../components/DataStorage";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import * as Switch from "@radix-ui/react-switch";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -295,7 +296,7 @@ export default function SettingsPage() {
   if (!settings) return <div className="p-6 text-gray-400 text-sm">加载中...</div>;
 
   return (
-    <div className="aiks-page-shell w-full min-w-0 pb-24">
+    <div className="aiks-page-shell w-full min-w-0 pb-6">
       <PageHeader title="设置" description="桌面行为立即生效；AI、同步、内容和语义搜索配置需要重启 AIKS。" />
 
       <Section title="常规">
@@ -499,7 +500,8 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="mb-5"><OfflineRestore /></div>
+      <div className="mb-4"><OfflineRestore /></div>
+      <DataStorageSettingsSection />
 
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 dark:bg-blue-900/20 dark:text-blue-300">
         AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。

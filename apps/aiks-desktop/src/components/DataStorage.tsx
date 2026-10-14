@@ -163,8 +163,8 @@ export function DataStorageSettingsSection() {
   if (isMock) return null;
 
   return (
-    <div className="px-6 pb-8">
-      <div className="border-t border-gray-200 pt-6 dark:border-gray-700">
+    <section aria-label="数据存储位置" className="mb-5 min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div>
         <div className="mb-3 flex items-center gap-2">
           <HardDrive size={17} className="text-gray-500" />
           <h2 className="text-sm font-semibold">数据存储位置</h2>
@@ -221,6 +221,6 @@ export function DataStorageSettingsSection() {
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

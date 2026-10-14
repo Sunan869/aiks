@@ -318,3 +318,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - The old extraction_success metric came from legacy knowledge_extraction statuses, not the current V3 knowledge store; a zero therefore did not mean no AI-generated knowledge.
 - Dashboard now queries the same active conversation-source knowledge listing contract as Knowledge Workbench (limit=1, total gives full match count), explicitly labels the metric 'AI 知识条目', and shows unknown rather than zero when the request fails.
 - Refresh and sync rerun the knowledge-count request; errors are redacted and do not substitute legacy counters.
+
+## 2026-10-14 Settings and Diagnostics shell simplification
+
+- Removed redundant AIKS/V4.2 global top bar, retained Sidebar and footer.
+- Moved storage location settings into SettingsPage and removed pb-24 gap and nested storage top padding.
+- Reorganized diagnostics into overview metrics, responsive component health grid, workbench/migration section, and tools, retaining all original probes and actions.

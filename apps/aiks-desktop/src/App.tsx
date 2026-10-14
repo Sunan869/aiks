@@ -14,7 +14,7 @@ import SourcesPage from "./pages/SourcesPage";
 import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
 import StartupScreen from "./components/StartupScreen";
-import { DataStorageSettingsSection, DataStorageSetupGate } from "./components/DataStorage";
+import { DataStorageSetupGate } from "./components/DataStorage";
 import { getApi, shouldUseMock } from "./api/client";
 import { shouldKeepWorkbenchMounted } from "./api/workbench";
 import type { FullStatus, AiStatus } from "./api/types";
@@ -191,7 +191,7 @@ export default function App() {
       );
       case "processing": return <ProcessingPage onViewDetail={viewPipelineDetail} onViewSession={viewSessionDetail} />;
       case "sources": return <SourcesPage fullStatus={fullStatus} />;
-      case "settings": return <><SettingsPage /><DataStorageSettingsSection /></>;
+      case "settings": return <SettingsPage />;
       case "diagnostics": return <DiagnosticsPage />;
     }
   };
@@ -199,19 +199,6 @@ export default function App() {
   return (
     <>
       <div className="aiks-app-shell flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
-        <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 dark:border-slate-800 dark:bg-slate-950">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">AIKS</span>
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">V4.2 Workbench</span>
-            {isMock && <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">MOCK</span>}
-          </div>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            {aiStatus && <div className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} /><span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span></div>}
-            {syncInProgress && <span className="text-blue-500">扫描中...</span>}
-            {fullStatus && !syncInProgress && <span>{fullStatus.db_total} 条本地工作记录</span>}
-          </div>
-        </div>
-
         <div className="flex flex-1 overflow-hidden">
           <Sidebar page={nav.page} onNavigate={navigate} sessionCount={sessionCount} knowledgeCount={knowledgeCount} aiHealthy={aiStatus?.healthy ?? false} />
           <main className="aiks-main-scroll flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">{renderMain()}</main>

@@ -99,7 +99,13 @@ export default function DiagnosticsPage() {
 
       {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
       {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近全部检测请求成功：{lastSuccessfulCheck}</p>}
-      <div className="space-y-2 mb-6">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <UiMetric label="本地环境" value={doctor ? `${doctor.checks.filter(c => c.ok).length} / ${doctor.checks.length}` : "—"} detail="正常组件 / 检测组件" />
+        <UiMetric label="AI 连接" value={aiProbeFailed ? "检测失败" : aiOk === null ? "—" : aiOk ? "正常" : "不可用"} detail="以最新检测为准" />
+        <UiMetric label="知识工作台" value={v41 ? bridgeStatus : "—"} detail="Bridge 连接状态" />
+      </div>
+      <UiSection title="本地组件检查" description="各组件最近一次检测状态">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {doctor?.checks.map((check) => (
           <div key={check.name} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {check.ok ? (
@@ -136,8 +142,9 @@ export default function DiagnosticsPage() {
           <UiStatusBadge tone={aiProbeFailed ? "warning" : aiOk === null ? "neutral" : aiOk ? "success" : "warning"}>{aiProbeFailed ? "检测失败" : aiOk === null ? "检测中" : aiOk ? "正常" : "暂时不可用"}</UiStatusBadge>
         </div>
       </div>
+      </UiSection>
 
-      <section className="mb-6">
+      <UiSection title="知识工作台与迁移" description="SiYuan Kernel、Bridge 与知识内容迁移状态">
         <div className="flex items-end justify-between mb-2">
           <div>
             <h2 className="text-sm font-semibold">V4.2 知识工作台</h2>
@@ -193,12 +200,13 @@ export default function DiagnosticsPage() {
             ))}
           </div>
         </div>
-      </section>
+      </UiSection>
 
-      <div className="space-y-2">
+      <UiSection title="常用工具" description="仅在明确点击后执行本地操作">
+      <div className="flex flex-wrap gap-2">
         <UiButton variant="outline" size="sm"
           onClick={() => invoke("open_data_folder")}
-          className="w-full flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <FileText className="w-4 h-4 text-gray-400" />
           打开数据目录
@@ -211,6 +219,7 @@ export default function DiagnosticsPage() {
           重新启动知识引擎
         </UiButton>
       </div>
+      </UiSection>
 
       <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-600 dark:text-blue-400">
         💡 原始会话仍会正常保存，AI 整理不可用不影响主要功能。
