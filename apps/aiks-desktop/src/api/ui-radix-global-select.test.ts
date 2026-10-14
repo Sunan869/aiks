@@ -6,11 +6,10 @@ import sessions from "../pages/SessionsPage.tsx?raw";
 import memory from "../pages/ProjectMemoryPage.tsx?raw";
 import knowledge from "../pages/KnowledgeWorkbenchPage.tsx?raw";
 describe("Radix Select global native dropdown migration", () => {
-  it("routes legacy UiSelect through a real Radix Select", () => {
-    expect(fields).toContain("function extractOptions");
-    expect(fields).toContain("child.type !== \"option\"");
-    expect(fields).toContain("return <RadixSelectField");
-    expect(fields).toContain("onChange?.({ target: { value: next }");
+  it("uses real Radix Select without legacy synthetic DOM change events", () => {
+    expect(fields).not.toContain("function extractOptions");
+    expect(fields).not.toContain("onChange?.({ target: { value: next }");
+    expect(fields).not.toContain("export function UiSelect");
     expect(radix).toContain("<Select.Root");
     expect(radix).toContain("<Select.Portal>");
     expect(radix).toContain("onValueChange(fromRadix(next))");

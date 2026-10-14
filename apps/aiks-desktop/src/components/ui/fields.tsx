@@ -1,6 +1,4 @@
-import { Children, Fragment, forwardRef, isValidElement, useState, type ChangeEvent, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import { RadixSelectField, type RadixChoice } from "./RadixSelectField";
-import { CalendarDays } from "lucide-react";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { cva } from "class-variance-authority";
@@ -21,70 +19,6 @@ const buttonStyles = cva(
     }, defaultVariants: { variant: "secondary", size: "md" } }
 );
 const inputStyles = "aiks-field-input min-h-[38px] min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
-type SelectProps = ComponentPropsWithoutRef<"select">;
-type DateProps = Omit<ComponentPropsWithoutRef<"input">, "type">;
-
-/** Read existing JSX <option> children so all existing screens can migrate in one batch. */
-function extractOptions(children: ReactNode): RadixChoice[] {
-  const result: RadixChoice[] = [];
-  const visit = (nodes: ReactNode) => {
-    Children.forEach(nodes, child => {
-      if (!isValidElement(child)) return;
-      if (child.type === Fragment) {
-        visit((child.props as { children?: ReactNode }).children);
-        return;
-      }
-      if (child.type !== "option") return;
-      const props = child.props as { value?: string | number; children?: ReactNode; disabled?: boolean };
-      const optionValue = String(props.value ?? props.children ?? "");
-      const content = Children.toArray(props.children).map(item => typeof item === "string" || typeof item === "number" ? String(item) : "").join("");
-      result.push({ value: optionValue, label: content || optionValue, disabled: props.disabled });
-    });
-  };
-  visit(children);
-  return result;
-}
-
-/**
- * Radix-backed compatibility adapter for all existing select call sites.
- * Keep the legacy ChangeEvent-like onChange contract until business screens
- * migrate individually to onValueChange.
- */
-export function UiSelect({
-  className = "", children, value, defaultValue, onChange, disabled, "aria-label": ariaLabel,
-  id, name, required,
-}: SelectProps) {
-  const options = extractOptions(children);
-  const [uncontrolled, setUncontrolled] = useState(String(defaultValue ?? options[0]?.value ?? ""));
-  const currentValue = value !== undefined && value !== null ? String(value) : uncontrolled;
-  const onValueChange = (next: string) => {
-    if (value === undefined || value === null) setUncontrolled(next);
-    onChange?.({ target: { value: next }, currentTarget: { value: next } } as ChangeEvent<HTMLSelectElement>);
-  };
-  return <RadixSelectField
-    label={String(ariaLabel ?? name ?? id ?? "选择选项")}
-    value={currentValue}
-    onValueChange={onValueChange}
-    options={options}
-    disabled={disabled}
-    name={name}
-    required={required}
-    className={className}
-  />;
-}
-
-/** Consistent calendar icon and focus treatment while retaining OS-native date input. */
-export const DateField = forwardRef<HTMLInputElement, DateProps>(function DateField(
-  { className = "", ...props }, ref,
-) {
-  return (
-    <span className="relative inline-flex min-w-0 items-center">
-      <CalendarDays aria-hidden="true" className="pointer-events-none absolute left-3 h-4 w-4 text-slate-400" />
-      <input ref={ref} type="date" {...props} className={`aiks-field-date pl-9 ${className}`} />
-    </span>
-  );
-});
-
 /** Shared focus and disabled-state inputs for native keyboard and IME behavior. */
 export const UiInput = forwardRef<HTMLInputElement, ComponentPropsWithoutRef<"input">>(function UiInput(
   { className = "", ...props }, ref,

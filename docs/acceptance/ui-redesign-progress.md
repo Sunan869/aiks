@@ -290,3 +290,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Knowledge Detail multi-source selector converted from a broken native-select compatibility path to accessible checkbox group, retaining max-four selection and full draft invalidation.
 - Updated historical regression contracts to assert the new controls and their safeguards rather than outdated UiSelect markup.
 - Remaining CSS and true Windows behavioral validation are still outstanding.
+
+## Final removal of unused native selection compatibility
+
+- Removed UiSelect synthetic change-event adapter and the unused native DateField helper after source inspection confirmed page/component usage had migrated to RadixSelectField and CalendarDateField.
+- Updated the global Radix test to require the absence of the compatibility path. Explicit Radix API, regular inputs/textareas and CVA button utilities remain.
+- Windows visual acceptance and CSS duplication audit still need real-machine verification.
