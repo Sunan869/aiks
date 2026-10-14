@@ -5,7 +5,6 @@ import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { CalendarDateField } from "../components/ui/CalendarDateField";
 import { SearchSelect } from "../components/ui/SearchSelect";
-import { UiSelect } from "../components/ui/fields";
 import { useEffect, useRef, useState } from "react";
 import { getApi } from "../api/client";
 import { AGENT_EXPORT_FORMATS, projectExportFileName, renderAgentSuggestion, type AgentExportFormat } from "../agent-export";
@@ -447,24 +446,16 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
         )}
         <div className="mt-3 flex flex-wrap items-end gap-2 text-xs">
           <label className="min-w-0 flex-1">选择 Session
-            <UiSelect aria-label="待调整 Session" value={bindingSession}
-              onChange={event => setBindingSession(event.target.value)}
-              className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
-              {sessionChoices.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.source} · {item.title || item.session_id}（{item.project_name || "项目未知"}）
-                </option>
-              ))}
-            </UiSelect>
+            <RadixSelectField label="待调整 Session" value={bindingSession} onValueChange={setBindingSession}
+              className="mt-1 w-full" options={sessionChoices.map(item => ({
+                value:String(item.id),label:`${item.source} · ${item.title || item.session_id}（${item.project_name || "项目未知"}）`
+              }))} />
           </label>
           <label className="min-w-0 flex-1">目标项目
-            <UiSelect aria-label="项目归属目标" value={bindingTarget}
-              onChange={event => setBindingTarget(event.target.value)}
-              className="mt-1 block w-full rounded border bg-transparent p-2 dark:border-gray-700">
-              {projects.filter(item => item.verified_path).map(item => (
-                <option key={item.id} value={item.id}>{item.title} · {item.sources.join("、")}</option>
-              ))}
-            </UiSelect>
+            <RadixSelectField label="项目归属目标" value={bindingTarget} onValueChange={setBindingTarget}
+              className="mt-1 w-full" options={projects.filter(item => item.verified_path).map(item => ({
+                value:item.id,label:`${item.title} · ${item.sources.join("、")}`
+              }))} />
           </label>
           <UiButton variant="outline" size="sm" type="button" disabled={bindingBusy || !bindingSession || !bindingTarget}
             onClick={() => void applyProjectBinding()}
@@ -694,16 +685,13 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
             <p className="mt-2 text-xs text-gray-500">先生成可编辑预览，再复制使用。不会自动写入项目文件或外部服务。</p>
             <label htmlFor="project-memory-source" className="my-3 flex items-center gap-2 text-xs">
               来源范围
-              <UiSelect id="project-memory-source" value={sourceFilter}
-                className="rounded border bg-transparent p-2 dark:border-gray-700"
-                onChange={event => {
+              <RadixSelectField label="来源范围" value={sourceFilter} className="min-w-[150px]" 
+                onValueChange={value => {
                   invalidatePreview();
                   setSelectedAgentKnowledgeIds([]);
-                  setSourceFilter(event.target.value);
-                }}>
-                <option value="">全部来源</option>
-                {detail.project.sources.map(source => <option key={source} value={source}>{source}</option>)}
-              </UiSelect>
+                  setSourceFilter(value);
+                }}
+                options={[{value:"",label:"全部来源"},...detail.project.sources.map(source => ({value:source,label:source}))]} />
             </label>
             <div className="my-3 flex flex-wrap items-center gap-2 text-xs">
               <UiButton variant="outline" size="sm" type="button" onClick={() => chooseReportRange("today")}
@@ -786,26 +774,18 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                 历史最多显示最近 100 份报告。
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <UiSelect aria-label="已保存回顾草稿" value={reportDraftId || ""}
-                  className="max-w-full flex-1 rounded border bg-transparent p-2 dark:border-gray-700"
-                  onChange={event => void openSavedReport(event.target.value)}
-                  disabled={reportBusy}>
-                  <option value="">选择已保存的本地回顾</option>
-                  {reportDrafts.map(item => (
-                    <option value={item.id} key={item.id}>
-                      {item.from_date}～{item.through_date} · v{item.current_revision} · {item.source_filter || "全部来源"}
-                    </option>
-                  ))}
-                </UiSelect>
+                <RadixSelectField label="已保存回顾草稿" value={reportDraftId || ""}
+                  className="max-w-full flex-1" disabled={reportBusy}
+                  onValueChange={value => { if (value) void openSavedReport(value); }}
+                  options={[{value:"",label:"选择已保存的本地回顾"},...reportDrafts.map(item => ({
+                    value:item.id,label:`${item.from_date}～${item.through_date} · v${item.current_revision} · ${item.source_filter || "全部来源"}`
+                  }))]} />
                 {reportDraftId && (
-                  <UiSelect aria-label="回顾历史修订版本" value={reportViewedRevision}
-                    className="rounded border bg-transparent p-2 dark:border-gray-700"
-                    disabled={reportBusy} onChange={event => void openSavedReport(
-                      reportDraftId, Number(event.target.value)
-                    )}>
-                    {Array.from({ length: reportCurrentRevision }, (_, index) => index + 1)
-                      .map(number => <option key={number} value={number}>v{number}</option>)}
-                  </UiSelect>
+                  <RadixSelectField label="回顾历史修订版本" value={String(reportViewedRevision)}
+                    disabled={reportBusy} onValueChange={value => void openSavedReport(reportDraftId!,Number(value))}
+                    options={Array.from({length:reportCurrentRevision},(_,index)=>index+1).map(number => ({
+                      value:String(number),label:`v${number}`
+                    }))} />
                 )}
               </div>
               {reportError && <p className="mt-2 text-red-600" role="alert">{reportError}</p>}

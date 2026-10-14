@@ -1,3 +1,4 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
 import { UiSelect } from "../components/ui/fields";
@@ -538,13 +539,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <datalist id="knowledge-relation-candidates">
             {relationCandidates.filter(item => item.id !== knowledgeId && item.status === "active").map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </datalist>
-          <UiSelect aria-label="关联类型" value={relationType} onChange={event => setRelationType(event.target.value as KnowledgeRelationType)} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600">
-            <option value="related">相关</option>
-            <option value="supplements">补充</option>
-            <option value="corrects">纠正</option>
-            <option value="supersedes">替代</option>
-            <option value="resolved_by">由其解决</option>
-          </UiSelect>
+          <RadixSelectField label="关联类型" value={relationType} onValueChange={value => setRelationType(value as KnowledgeRelationType)}
+            className="min-w-[130px] text-xs" options={[
+              {value:"related",label:"相关"},{value:"supplements",label:"补充"},{value:"corrects",label:"纠正"},
+              {value:"supersedes",label:"替代"},{value:"resolved_by",label:"由其解决"}
+            ]} />
         </div>
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <UiTextarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
@@ -642,13 +641,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">知识质量反馈</h2>
         <p className="mb-3 text-xs text-gray-500">反馈只保存在本地，不会自动删除知识或覆盖人工编辑。</p>
         <div className="flex flex-wrap gap-2">
-          <UiSelect aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value as KnowledgeFeedbackKind)} className="rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600">
-            <option value="useful">有用</option>
-            <option value="incorrect">错误</option>
-            <option value="duplicate">重复</option>
-            <option value="outdated">过时</option>
-            <option value="needs_detail">需补充</option>
-          </UiSelect>
+          <RadixSelectField label="反馈类型" value={feedbackKind} onValueChange={value => setFeedbackKind(value as KnowledgeFeedbackKind)}
+            className="min-w-[130px] text-sm" options={[
+              {value:"useful",label:"有用"},{value:"incorrect",label:"错误"},{value:"duplicate",label:"重复"},
+              {value:"outdated",label:"过时"},{value:"needs_detail",label:"需补充"}
+            ]} />
           <UiInput aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
           <UiButton variant="outline" size="sm" type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</UiButton>
         </div>
@@ -668,9 +665,9 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">受控知识整理 · 草稿预览</h2>
         <p className="mb-3 text-xs text-gray-500">生成建议只预览、不写入；确认「创建」会在 SiYuan 新增独立文档，不覆盖原文。归档与恢复仅变更 AIKS 本地状态，不会删除 SiYuan 文档。来源变化后须重新审核。</p>
         <div className="flex flex-wrap gap-2">
-          <UiSelect aria-label="整理方式" value={organizeOperation} disabled={organizeBusy} onChange={event => {
+          <RadixSelectField label="整理方式" value={organizeOperation} disabled={organizeBusy} onValueChange={value => {
             organizationGeneration.current += 1;
-            setOrganizeOperation(event.target.value as AiAssistOperation);
+            setOrganizeOperation(value as AiAssistOperation);
             setOrganizeDraft("");
             setOrganizeSourceIds([]);
             setReviewedSources([]);
@@ -679,13 +676,11 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             setOrganizeSourceSnapshot(null);
             setOrganizeConfirmed(false);
             setOrganizeBusy(false);
-          }} className="rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-700">
-            <option value="structure">结构化整理</option>
-            <option value="rewrite">语言润色</option>
-            <option value="key_conclusions">提取关键结论</option>
-            <option value="compare">比较多份知识</option>
-            <option value="merge_draft">合并为新文档草稿</option>
-          </UiSelect>
+          }} className="min-w-[180px] text-xs" options={[
+            {value:"structure",label:"结构化整理"},{value:"rewrite",label:"语言润色"},
+            {value:"key_conclusions",label:"提取关键结论"},{value:"compare",label:"比较多份知识"},
+            {value:"merge_draft",label:"合并为新文档草稿"}
+          ]} />
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>

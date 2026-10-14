@@ -277,3 +277,9 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 
 - Converted Sessions, Knowledge Base, Knowledge Workbench and Settings fixed-choice fields to RadixSelectField with onValueChange callbacks; removed fake DOM event reliance from these screens.
 - Retained page reset on source/category change and numeric conversion of scan interval and AI concurrency. Remaining legacy adapter calls in Knowledge Detail / Project Memory need dedicated cleanup.
+
+## Explicit selection migration in detail and project memory
+
+- Converted 3 Knowledge Detail fixed-choice selects (relation, feedback, organization operation) and 5 Project Memory dropdowns (session, project, source, report and revision) to RadixSelectField with direct onValueChange handlers.
+- Preserved organization draft invalidation and Agent preview reset when source changes; report draft/revision remain guarded by the existing confirmation flow.
+- Knowledge Detail multiple source selection intentionally remains native until a suitable multi-select is adopted; Radix single Select cannot safely replace it.
