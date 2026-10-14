@@ -10,8 +10,23 @@ import type {
   SessionPage,
   PipelineSummary,
   PipelineStats,
+  TaskCenterEntry,
+  TaskCenterStats, AiUsageStats,
   KnowledgePage,
   KnowledgeDetail,
+  OrganizationAuditEntry,
+  ProjectOverview,
+  ProjectMemorySnapshot,
+  ProjectReportDraft,
+  ProjectReportVersion,
+  ProjectSessionBinding,
+  ProjectEvolutionSnapshot,
+  KnowledgeFeedback,
+  KnowledgeFeedbackKind,
+  KnowledgeRelation,
+  KnowledgeRelationReviewHistory,
+  KnowledgeRelationType,
+  KnowledgeRelationStatus,
   KnowledgeListOptions,
   KnowledgeWriteInput,
   KnowledgeUpdateInput,
@@ -103,6 +118,12 @@ export class TauriAiksApi implements AiksApi {
   async getPipelineRuns(limit?: number): Promise<PipelineSummary[]> { return invoke("list_pipeline_runs", { limit }); }
   async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
   async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
+  async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
+  async getTaskCenterStats(): Promise<TaskCenterStats> { return invoke("get_task_center_stats"); }
+  async getAiUsageStats(): Promise<AiUsageStats> { return invoke("get_ai_usage_stats"); }
+  async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
+  async runPipelineForSession(sessionId: number): Promise<string> { return invoke("run_pipeline_for_session", { sessionId }); }
+  async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {
     return invoke("list_knowledge_v4", {
@@ -115,8 +136,52 @@ export class TauriAiksApi implements AiksApi {
       offset: opts?.offset,
     });
   }
+  async getProjectMemories(): Promise<ProjectOverview[]> { return invoke("list_project_memory"); }
+  async getProjectMemory(projectId: string): Promise<ProjectMemorySnapshot> { return invoke("get_project_memory", { projectId }); }
+  async getProjectSessionBindings(): Promise<ProjectSessionBinding[]> { return invoke("list_project_session_bindings"); }
+  async bindProjectSession(sessionId: number, targetProjectId: string): Promise<ProjectSessionBinding> {
+    return invoke("bind_project_session", { sessionId, targetProjectId });
+  }
+  async clearProjectSessionBinding(sessionId: number): Promise<boolean> {
+    return invoke("clear_project_session_binding", { sessionId });
+  }
+  async getProjectEvolution(projectId: string): Promise<ProjectEvolutionSnapshot> { return invoke("list_project_evolution", { projectId }); }
+  async createProjectReview(projectId: string, from: string, through: string, source?: string): Promise<string> { return invoke("create_project_review", { projectId, from, through, source }); }
+  async listProjectReportDrafts(projectId: string): Promise<ProjectReportDraft[]> {
+    return invoke("list_project_report_drafts", { projectId });
+  }
+  async getProjectReportDraft(draftId: string, revision?: number): Promise<ProjectReportVersion> {
+    return invoke("get_project_report_draft", { draftId, revision });
+  }
+  async saveProjectReportDraft(draftId: string | null, projectId: string, from: string, through: string, source: string | null, expectedRevision: number, body: string): Promise<ProjectReportVersion> {
+    return invoke("save_project_report_draft", { payload: { draftId, projectId, from, through, source, expectedRevision, body } });
+  }
+  async createAgentContextPack(projectId: string, maxTokens: number, source?: string): Promise<string> { return invoke("create_agent_context_pack", { projectId, maxTokens, source }); }
+  async createCuratedAgentContextPack(projectId: string, maxTokens: number, source: string | undefined, knowledgeIds: string[]): Promise<string> {
+    return invoke("create_curated_agent_context_pack", { projectId, maxTokens, source, knowledgeIds });
+  }
   async getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("get_knowledge_detail_v4", { knowledgeId }); }
+  async getKnowledgeFeedback(knowledgeId: string): Promise<KnowledgeFeedback[]> { return invoke("list_knowledge_feedback", { knowledgeId }); }
+  async getKnowledgeRelations(knowledgeId: string): Promise<KnowledgeRelation[]> { return invoke("list_knowledge_relations", { knowledgeId }); }
+  async getKnowledgeRelationReviews(knowledgeId: string): Promise<KnowledgeRelationReviewHistory> {
+    return invoke("list_knowledge_relation_reviews", { knowledgeId });
+  }
+  async suggestKnowledgeRelation(sourceId: string, targetId: string, relationType: KnowledgeRelationType, evidence: string): Promise<KnowledgeRelation> { return invoke("suggest_knowledge_relation", { sourceId, targetId, relationType, evidence }); }
+  async reviewKnowledgeRelation(relationId: string, decision: Exclude<KnowledgeRelationStatus, "suggested">): Promise<KnowledgeRelation> { return invoke("review_knowledge_relation", { relationId, decision }); }
+  async addKnowledgeFeedback(knowledgeId: string, kind: KnowledgeFeedbackKind, note: string): Promise<KnowledgeFeedback> { return invoke("add_knowledge_feedback", { knowledgeId, kind, note }); }
   async createKnowledge(input: KnowledgeWriteInput): Promise<KnowledgeDetail> { return invoke("create_knowledge", { input }); }
+  async createOrganizedKnowledge(input: KnowledgeWriteInput, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<KnowledgeDetail> {
+    return invoke("create_organized_knowledge", { input, sourceKnowledgeIds, operation });
+  }
+  async getOrganizationAudit(sourceKnowledgeId: string): Promise<OrganizationAuditEntry[]> {
+    return invoke("list_organization_audit", { sourceKnowledgeId });
+  }
+  async recoverOrganizationAudit(derivedKnowledgeId: string, sourceKnowledgeIds: string[], operation: AiAssistInput["operation"]): Promise<boolean> {
+    return invoke("recover_organization_audit", { derivedKnowledgeId, sourceKnowledgeIds, operation });
+  }
+  async validateOrganizationScope(knowledgeIds: string[]): Promise<boolean> {
+    return invoke("validate_organization_scope", { knowledgeIds });
+  }
   async updateKnowledge(knowledgeId: string, input: KnowledgeUpdateInput): Promise<KnowledgeDetail> { return invoke("update_knowledge", { knowledgeId, input }); }
   async setKnowledgeFavorite(knowledgeId: string, favorite: boolean): Promise<KnowledgeDetail> { return invoke("set_knowledge_favorite", { knowledgeId, favorite }); }
   async archiveKnowledge(knowledgeId: string): Promise<KnowledgeDetail> { return invoke("archive_knowledge", { knowledgeId }); }

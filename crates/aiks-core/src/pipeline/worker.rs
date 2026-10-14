@@ -7,7 +7,11 @@
 ///       → EMBED_CHUNKED → EMBEDDED → INDEXED → READY
 ///
 /// Runs automatically when new sessions are discovered via sync.
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tracing::{error, info, warn};
@@ -20,10 +24,12 @@ use crate::pipeline::ai_stage::AiStage;
 use crate::pipeline::cleaner::clean_messages;
 use crate::pipeline::embedding_client::EmbeddingConfig;
 use crate::pipeline::job_repo::{FailureDisposition, PipelineJobRepo};
+use crate::pipeline::knowledge_input::project_for_knowledge;
 use crate::pipeline::repo::PipelineRepo;
 use crate::pipeline::session_chunker::{chunk_for_llm, save_chunks};
 use crate::providers::{ProviderRegistry, SessionProvider, SessionSummary};
 use crate::renderer::MarkdownRenderer;
+use crate::storage::backup_quiescence::BackupQuiescence;
 use crate::storage::StateDb;
 
 #[derive(Debug, Clone)]
@@ -110,6 +116,39 @@ async fn resolve_session_summary(
 pub struct PipelineWorker {
     db: Arc<StateDb>,
     wake_tx: mpsc::Sender<()>,
+    backup_gate: Arc<RwLock<Option<Arc<BackupQuiescence>>>>,
+}
+
+/// Bound nested resource use. Every running durable job may spawn up to
+/// min(ai_config.max_concurrent, 4) simultaneous chunk model calls. The old
+/// worker granted max_concurrent jobs AND each could spawn max_concurrent
+/// requests, multiplying user-configured model pressure quadratically.
+/// Allocate a shared model-call budget before claiming independent jobs.
+fn worker_job_parallelism(max_jobs: usize, max_chunks_per_job: usize) -> usize {
+    let budget = max_jobs.clamp(1, 4);
+    let requests_per_job = max_chunks_per_job.clamp(1, 4);
+    budget.checked_div(requests_per_job).unwrap_or(0).max(1)
+}
+
+#[cfg(test)]
+#[test]
+fn worker_budget_does_not_multiply_model_concurrency_per_session() {
+    assert_eq!(worker_job_parallelism(1, 1), 1);
+    assert_eq!(worker_job_parallelism(2, 2), 1);
+    assert_eq!(worker_job_parallelism(3, 3), 1);
+    assert_eq!(worker_job_parallelism(4, 4), 1);
+    assert_eq!(worker_job_parallelism(4, 2), 2);
+    assert_eq!(worker_job_parallelism(4, 1), 4);
+    assert_eq!(worker_job_parallelism(0, 0), 1);
+    assert_eq!(worker_job_parallelism(usize::MAX, usize::MAX), 1);
+    // The normal start() path uses the same budget for jobs and chunks.
+    for budget in 1..=4 {
+        let permitted = worker_job_parallelism(budget, budget);
+        assert!(
+            permitted * budget <= budget,
+            "model calls must not multiply the configured global budget"
+        );
+    }
 }
 
 impl PipelineWorker {
@@ -119,8 +158,25 @@ impl PipelineWorker {
         ai_config: AiModelConfig,
         embedding_config: EmbeddingConfig,
     ) -> Self {
+        Self::start_with_gate(db, registry, ai_config, embedding_config, None)
+    }
+
+    pub fn start_with_gate(
+        db: Arc<StateDb>,
+        registry: Arc<ProviderRegistry>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        backup_gate: Option<Arc<BackupQuiescence>>,
+    ) -> Self {
         let max_concurrent = ai_config.max_concurrent.max(1);
-        Self::start_with_limit(db, registry, ai_config, embedding_config, max_concurrent)
+        Self::start_with_limit_and_gate(
+            db,
+            registry,
+            ai_config,
+            embedding_config,
+            max_concurrent,
+            backup_gate,
+        )
     }
 
     pub fn start_with_limit(
@@ -130,27 +186,74 @@ impl PipelineWorker {
         embedding_config: EmbeddingConfig,
         max_concurrent: usize,
     ) -> Self {
+        Self::start_with_limit_and_gate(
+            db,
+            registry,
+            ai_config,
+            embedding_config,
+            max_concurrent,
+            None,
+        )
+    }
+
+    fn start_with_limit_and_gate(
+        db: Arc<StateDb>,
+        registry: Arc<ProviderRegistry>,
+        ai_config: AiModelConfig,
+        embedding_config: EmbeddingConfig,
+        max_concurrent: usize,
+        initial_gate: Option<Arc<BackupQuiescence>>,
+    ) -> Self {
         let (wake_tx, wake_rx) = mpsc::channel(1);
-        let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
+        // An explicit start_with_limit cap also constrains per-session chunk
+        // fan-out. Otherwise 2 jobs * 4 requests each defeats a two-request
+        // budget. The default start() uses the same config for both limits.
+        let mut bounded_ai_config = ai_config;
+        bounded_ai_config.max_concurrent = bounded_ai_config
+            .max_concurrent
+            .clamp(1, 4)
+            .min(max_concurrent.clamp(1, 4));
+        let permitted_jobs =
+            worker_job_parallelism(max_concurrent, bounded_ai_config.max_concurrent);
+        info!(
+            configured_jobs = max_concurrent,
+            effective_chunk_parallelism = bounded_ai_config.max_concurrent,
+            permitted_jobs,
+            "Durable worker model concurrency budget"
+        );
+        let semaphore = Arc::new(Semaphore::new(permitted_jobs));
         let worker_wake_tx = wake_tx.clone();
         let worker_db = Arc::clone(&db);
+        let backup_gate = Arc::new(RwLock::new(initial_gate));
+        let worker_gate = Arc::clone(&backup_gate);
 
         tokio::spawn(async move {
             run_worker(
                 wake_rx,
                 worker_db,
                 registry,
-                ai_config,
+                bounded_ai_config,
                 embedding_config,
                 worker_wake_tx,
-                semaphore,
+                (semaphore, worker_gate),
             )
             .await;
         });
 
-        let worker = Self { db, wake_tx };
+        let worker = Self {
+            db,
+            wake_tx,
+            backup_gate,
+        };
         let _ = worker.wake_tx.try_send(());
         worker
+    }
+
+    /// Install the desktop's shared backup gate before any backup is enabled.
+    pub fn set_backup_gate(&self, gate: Arc<BackupQuiescence>) {
+        if let Ok(mut current) = self.backup_gate.write() {
+            *current = Some(gate);
+        }
     }
 
     /// Persist first, then wake the worker. A full wake channel is fine: it
@@ -248,8 +351,9 @@ async fn run_worker(
     ai_config: AiModelConfig,
     embedding_config: EmbeddingConfig,
     wake_tx: mpsc::Sender<()>,
-    semaphore: Arc<Semaphore>,
+    controls: (Arc<Semaphore>, Arc<RwLock<Option<Arc<BackupQuiescence>>>>),
 ) {
+    let (semaphore, backup_gate) = controls;
     info!("[PIPELINE] Durable worker started");
     let discovery_cache = Arc::new(ProviderDiscoveryCache::default());
     let mut poll = tokio::time::interval(Duration::from_millis(500));
@@ -270,6 +374,18 @@ async fn run_worker(
                 Ok(permit) => permit,
                 Err(tokio::sync::TryAcquireError::NoPermits) => break,
                 Err(tokio::sync::TryAcquireError::Closed) => return,
+            };
+
+            let selected_gate = backup_gate.read().ok().and_then(|guard| guard.clone());
+            let job_guard = match selected_gate {
+                Some(ref gate) => match BackupQuiescence::try_begin_owned(gate) {
+                    Some(guard) => Some(guard),
+                    None => {
+                        drop(permit);
+                        break;
+                    }
+                },
+                None => None,
             };
 
             let claimed = match PipelineJobRepo::new(&db).claim_next() {
@@ -296,6 +412,7 @@ async fn run_worker(
             let task_discovery_cache = Arc::clone(&discovery_cache);
 
             tokio::spawn(async move {
+                let _writer = job_guard;
                 let durable_job_id = claimed.durable_job_id.clone();
                 let attempt = claimed.attempt;
                 let job = claimed.job;
@@ -304,6 +421,7 @@ async fn run_worker(
                 // crashed process stops heartbeating and the lease becomes
                 // claimable by the next worker after LEASE_SECONDS.
                 let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+                let (lease_lost_tx, mut lease_lost_rx) = oneshot::channel::<()>();
                 let lease_db = Arc::clone(&task_db);
                 let lease_job_id = durable_job_id.clone();
                 let heartbeat = tokio::spawn(async move {
@@ -314,34 +432,52 @@ async fn run_worker(
                         tokio::select! {
                             _ = &mut stop_rx => break,
                             _ = tick.tick() => {
-                                if let Err(e) = PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id) {
-                                    warn!(job_id = %lease_job_id, error = %e, "[PIPELINE] Lease renewal failed");
+                                match PipelineJobRepo::new(&lease_db).renew_lease(&lease_job_id, attempt) {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        warn!(job_id = %lease_job_id, attempt, "[PIPELINE] Lease lost; cancelling obsolete pipeline attempt");
+                                        let _ = lease_lost_tx.send(());
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        warn!(job_id = %lease_job_id, attempt, error = %e, "[PIPELINE] Lease renewal failed; cancelling attempt");
+                                        let _ = lease_lost_tx.send(());
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 });
 
-                let result = run_pipeline(
-                    &task_db,
-                    &task_registry,
-                    &task_discovery_cache,
-                    &task_ai,
-                    &task_embedding,
-                    &job,
-                )
-                .await;
+                // Dropping the pipeline future prevents further normal stage work
+                // after this worker detects that it no longer owns the lease.
+                let result = tokio::select! {
+                    result = run_pipeline(
+                        &task_db,
+                        &task_registry,
+                        &task_discovery_cache,
+                        &task_ai,
+                        &task_embedding,
+                        &job,
+                    ) => result,
+                    _ = &mut lease_lost_rx => Err(anyhow::anyhow!("Durable pipeline lease lost")),
+                };
 
                 let _ = stop_tx.send(());
                 let _ = heartbeat.await;
 
                 let durable_repo = PipelineJobRepo::new(&task_db);
                 match result {
-                    Ok(()) => {
-                        if let Err(e) = durable_repo.mark_succeeded(&durable_job_id) {
+                    Ok(()) => match durable_repo.mark_succeeded(&durable_job_id, attempt) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Stale completion ignored; lease no longer owned");
+                        }
+                        Err(e) => {
                             error!(job_id = %durable_job_id, error = %e, "[PIPELINE] Failed to mark durable job DONE");
                         }
-                    }
+                    },
                     Err(e) => {
                         error!(
                             run_id = %job.pipeline_run_id,
@@ -351,31 +487,38 @@ async fn run_worker(
                             "[PIPELINE] Job attempt failed"
                         );
 
-                        // Keep pipeline_run's accurate stage failure. run_pipeline
-                        // normally records it; this is a safety net for unexpected
-                        // errors outside a stage boundary.
-                        let pipeline_repo = PipelineRepo::new(&task_db);
-                        let already_failed = pipeline_repo
-                            .get_run_detail(&job.pipeline_run_id)
-                            .ok()
-                            .flatten()
-                            .map(|d| d.status == "FAILED")
-                            .unwrap_or(false);
-                        if !already_failed {
-                            let stage = extract_failed_stage(&e.to_string());
-                            let _ = pipeline_repo.mark_failed(
-                                &job.pipeline_run_id,
-                                stage,
-                                &e.to_string(),
-                            );
-                        }
+                        // Fence the durable transition before writing the
+                        // pipeline_run fallback: a stale attempt must not mark
+                        // another worker's active generation as failed.
+                        match durable_repo.mark_failed(&durable_job_id, attempt, &e.to_string()) {
+                            Ok(Some(disposition)) => {
+                                let pipeline_repo = PipelineRepo::new(&task_db);
+                                let already_failed = pipeline_repo
+                                    .get_run_detail(&job.pipeline_run_id)
+                                    .ok()
+                                    .flatten()
+                                    .map(|d| d.status == "FAILED")
+                                    .unwrap_or(false);
+                                if !already_failed {
+                                    let stage = extract_failed_stage(&e.to_string());
+                                    let _ = pipeline_repo.mark_failed(
+                                        &job.pipeline_run_id,
+                                        stage,
+                                        &e.to_string(),
+                                    );
+                                }
 
-                        match durable_repo.mark_failed(&durable_job_id, &e.to_string()) {
-                            Ok(FailureDisposition::Retry) => {
-                                info!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job scheduled for retry");
+                                match disposition {
+                                    FailureDisposition::Retry => {
+                                        info!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job scheduled for retry");
+                                    }
+                                    FailureDisposition::Terminal => {
+                                        warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job exhausted retry budget");
+                                    }
+                                }
                             }
-                            Ok(FailureDisposition::Terminal) => {
-                                warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Durable job exhausted retry budget");
+                            Ok(None) => {
+                                warn!(job_id = %durable_job_id, attempt, "[PIPELINE] Stale failure ignored; lease no longer owned");
                             }
                             Err(mark_err) => {
                                 error!(job_id = %durable_job_id, error = %mark_err, "[PIPELINE] Failed to persist retry state");
@@ -542,10 +685,21 @@ async fn run_pipeline(
         .await
         .map_err(|error| anyhow::anyhow!("SESSION_INDEX: {error}"))?;
 
+    // Project only the LLM extraction input. Raw sessions and session search
+    // continue to use the separate, unmodified searchable_session above.
+    let knowledge_input = project_for_knowledge(&clean_result.messages);
+    info!(
+        "[KNOWLEDGE_FILTER] {} -> {} chars; {} messages removed, {} tool blocks removed",
+        knowledge_input.original_chars,
+        knowledge_input.filtered_chars,
+        knowledge_input.removed_messages,
+        knowledge_input.removed_tool_blocks
+    );
+
     // ── Stage 3: LLM CHUNK ───────────────────────────────────────────────────
     repo.update_status(run_id, "PROCESSING", Some("LLM_CHUNKED"), None, None)?;
 
-    let chunk_result = chunk_for_llm(job.session_id, &clean_result.messages);
+    let chunk_result = chunk_for_llm(job.session_id, &knowledge_input.messages);
     save_chunks(db, &chunk_result.chunks)?;
 
     repo.record_stage(
@@ -557,11 +711,24 @@ async fn run_pipeline(
         None,
         Some(&serde_json::json!({
             "chunks": chunk_result.chunks.len(),
-            "messages_per_chunk": clean_result.cleaned_count / chunk_result.chunks.len().max(1)
+            "messages_per_chunk": knowledge_input.messages.len() / chunk_result.chunks.len().max(1),
+            "knowledge_original_chars": knowledge_input.original_chars,
+            "knowledge_filtered_chars": knowledge_input.filtered_chars,
+            "knowledge_removed_messages": knowledge_input.removed_messages,
+            "knowledge_removed_tool_blocks": knowledge_input.removed_tool_blocks,
+            "knowledge_error_evidence": knowledge_input.retained_error_evidence,
+            "knowledge_estimated_tokens_before": knowledge_input.original_chars.div_ceil(3),
+            "knowledge_estimated_tokens_after": knowledge_input.filtered_chars.div_ceil(3)
         })),
         None,
     )?;
     info!("[CHUNK] {} LLM chunks", chunk_result.chunks.len());
+
+    if chunk_result.chunks.is_empty() {
+        info!("[KNOWLEDGE_FILTER] no extractable conversation; skipping AI");
+        repo.mark_finished(run_id, "RAW_ONLY")?;
+        return Ok(());
+    }
 
     // ── Stage 4: AI EXTRACT ──────────────────────────────────────────────────
     if !ai_config.enabled {

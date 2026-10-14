@@ -190,6 +190,37 @@ fn expired_running_lease_is_reclaimable() {
     let recovered = repo.claim_next().unwrap().unwrap();
     assert_eq!(recovered.durable_job_id, first.durable_job_id);
     assert_eq!(recovered.attempt, 2);
+    // A zombie from the first claim cannot renew, finish, or fail generation 2.
+    assert!(!repo
+        .renew_lease(&first.durable_job_id, first.attempt)
+        .unwrap());
+    assert!(!repo
+        .mark_succeeded(&first.durable_job_id, first.attempt)
+        .unwrap());
+    assert_eq!(
+        repo.mark_failed(&first.durable_job_id, first.attempt, "stale failure")
+            .unwrap(),
+        None
+    );
+    let (status, attempt): (String, i64) = db
+        .conn()
+        .query_row(
+            "SELECT status, attempt FROM pipeline_job WHERE id = ?1",
+            [&recovered.durable_job_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "RUNNING");
+    assert_eq!(attempt, 2);
+    assert!(repo
+        .renew_lease(&recovered.durable_job_id, recovered.attempt)
+        .unwrap());
+    assert!(repo
+        .mark_succeeded(&recovered.durable_job_id, recovered.attempt)
+        .unwrap());
+    assert!(!repo
+        .mark_succeeded(&recovered.durable_job_id, recovered.attempt)
+        .unwrap());
 }
 
 #[test]
@@ -205,11 +236,15 @@ fn retry_budget_is_persisted_and_terminal_after_three_attempts() {
         assert_eq!(claimed.attempt, expected_attempt);
 
         let disposition = repo
-            .mark_failed(&claimed.durable_job_id, "forced regression failure")
+            .mark_failed(
+                &claimed.durable_job_id,
+                claimed.attempt,
+                "forced regression failure",
+            )
             .unwrap();
 
         if expected_attempt < 3 {
-            assert_eq!(disposition, FailureDisposition::Retry);
+            assert_eq!(disposition, Some(FailureDisposition::Retry));
             db.conn()
                 .execute(
                     "UPDATE pipeline_job SET available_at = '2000-01-01T00:00:00Z' WHERE id = ?1",
@@ -217,7 +252,7 @@ fn retry_budget_is_persisted_and_terminal_after_three_attempts() {
                 )
                 .unwrap();
         } else {
-            assert_eq!(disposition, FailureDisposition::Terminal);
+            assert_eq!(disposition, Some(FailureDisposition::Terminal));
         }
     }
 
@@ -232,4 +267,116 @@ fn retry_budget_is_persisted_and_terminal_after_three_attempts() {
     assert_eq!(status, "FAILED");
     assert_eq!(attempt, 3);
     assert!(repo.claim_next().unwrap().is_none());
+}
+
+#[test]
+fn expired_claim_cannot_be_revived_without_a_fresh_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+    let job = make_durable_job(&db, "expired-claim-session");
+    let repo = PipelineJobRepo::new(&db);
+    repo.enqueue(&job).unwrap();
+    let claimed = repo.claim_next().unwrap().unwrap();
+    db.conn()
+        .execute(
+            "UPDATE pipeline_job SET lease_until = '2000-01-01T00:00:00Z' WHERE id = ?1",
+            [&claimed.durable_job_id],
+        )
+        .unwrap();
+
+    assert!(!repo
+        .renew_lease(&claimed.durable_job_id, claimed.attempt)
+        .unwrap());
+    assert!(!repo
+        .mark_succeeded(&claimed.durable_job_id, claimed.attempt)
+        .unwrap());
+    assert_eq!(
+        repo.mark_failed(&claimed.durable_job_id, claimed.attempt, "late error")
+            .unwrap(),
+        None
+    );
+    let reclaimed = repo.claim_next().unwrap().unwrap();
+    assert_eq!(reclaimed.attempt, claimed.attempt + 1);
+    let reason: String = db
+        .conn()
+        .query_row(
+            "SELECT last_error FROM pipeline_job WHERE id = ?1",
+            [&reclaimed.durable_job_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(reason, "Worker lease expired; retry scheduled");
+    assert_eq!(
+        repo.mark_failed(&reclaimed.durable_job_id, reclaimed.attempt, "new error")
+            .unwrap(),
+        Some(FailureDisposition::Retry)
+    );
+}
+
+#[test]
+fn expired_lease_after_third_claim_is_terminal_during_claim_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+    let job = make_durable_job(&db, "lease-budget-claim");
+    let repo = PipelineJobRepo::new(&db);
+    repo.enqueue(&job).unwrap();
+
+    for expected in 1..=3 {
+        let claimed = repo.claim_next().unwrap().unwrap();
+        assert_eq!(claimed.attempt, expected);
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET lease_until = '2000-01-01T00:00:00Z' WHERE id = ?1",
+                [&claimed.durable_job_id],
+            )
+            .unwrap();
+    }
+
+    assert!(repo.claim_next().unwrap().is_none());
+    let (status, attempt, error): (String, i64, Option<String>) = db
+        .conn()
+        .query_row(
+            "SELECT status, attempt, last_error FROM pipeline_job LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "FAILED");
+    assert_eq!(attempt, 3);
+    assert!(error.unwrap().contains("retry budget exhausted"));
+    // Explicit new user work remains possible; no automatic fourth attempt.
+    assert!(repo.enqueue(&job).unwrap().inserted);
+    let fresh = repo.claim_next().unwrap().unwrap();
+    assert_eq!(fresh.attempt, 1);
+}
+
+#[test]
+fn explicit_lease_recovery_respects_retry_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(StateDb::open(&dir.path().join("state.db")).unwrap());
+    let job = make_durable_job(&db, "lease-budget-recovery");
+    let repo = PipelineJobRepo::new(&db);
+    repo.enqueue(&job).unwrap();
+
+    for expected in 1..=3 {
+        let claimed = repo.claim_next().unwrap().unwrap();
+        assert_eq!(claimed.attempt, expected);
+        db.conn()
+            .execute(
+                "UPDATE pipeline_job SET lease_until = '2000-01-01T00:00:00Z' WHERE id = ?1",
+                [&claimed.durable_job_id],
+            )
+            .unwrap();
+        assert_eq!(repo.recover_expired_leases().unwrap(), 1);
+        assert_eq!(repo.recover_expired_leases().unwrap(), 0);
+    }
+
+    assert!(repo.claim_next().unwrap().is_none());
+    let status: String = db
+        .conn()
+        .query_row("SELECT status FROM pipeline_job LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "FAILED");
 }

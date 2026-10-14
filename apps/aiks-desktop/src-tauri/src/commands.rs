@@ -58,6 +58,7 @@ pub struct AppSettings {
     pub redact_secrets: bool,
     pub ai_enabled: bool,
     pub ai_auto_extract: bool,
+    pub ai_max_concurrent: usize,
     pub ai_base_url: String,
     pub ai_model: String,
 }
@@ -75,6 +76,7 @@ impl AppSettings {
             redact_secrets: config.security.redact_secrets,
             ai_enabled: config.ai.enabled,
             ai_auto_extract: config.ai.auto_extract,
+            ai_max_concurrent: config.ai.max_concurrent.clamp(1, 4),
             ai_base_url: config.ai.base_url.clone(),
             ai_model: config.ai.model.clone(),
         }
@@ -182,7 +184,11 @@ pub async fn sync_now(
     source: Option<String>,
     overwrite: Option<bool>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<SyncResponse, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -235,6 +241,7 @@ fn apply_settings_to_config(config: &mut aiks_core::Config, settings: &AppSettin
     config.desktop.close_to_tray = settings.close_to_tray;
     config.ai.enabled = settings.ai_enabled;
     config.ai.auto_extract = settings.ai_auto_extract;
+    config.ai.max_concurrent = settings.ai_max_concurrent;
     config.ai.base_url = settings
         .ai_base_url
         .trim()
@@ -300,6 +307,9 @@ pub async fn save_settings(
     if settings.ai_model.trim().is_empty() {
         return Err("AI 模型不能为空".to_string());
     }
+    if !(1..=4).contains(&settings.ai_max_concurrent) {
+        return Err("AI 提炼并发数必须为 1–4".to_string());
+    }
 
     let mut config = load_settings_config()?;
     apply_settings_to_config(&mut config, &settings);
@@ -337,11 +347,13 @@ mod settings_mapping_tests {
         let mut edited = defaults;
         edited.ai_base_url = "http://example.invalid/v1".to_string();
         edited.ai_model = "model-from-settings".to_string();
+        edited.ai_max_concurrent = 3;
         edited.close_to_tray = false;
         apply_settings_to_config(&mut config, &edited);
 
         assert_eq!(config.ai.base_url, "http://example.invalid/v1");
         assert_eq!(config.ai.model, "model-from-settings");
+        assert_eq!(config.ai.max_concurrent, 3);
         assert!(!config.desktop.close_to_tray);
         assert!(config.embedding.enabled);
         assert_eq!(config.ai.api_key.as_deref(), Some("preserve-me"));
@@ -482,7 +494,11 @@ pub async fn extract_session_now(
     source: String,
     session_id: String,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let source_kind = aiks_core::SourceKind::from_str(&source)
         .ok_or_else(|| format!("Unknown source: {}", source))?;
@@ -586,7 +602,11 @@ pub async fn get_full_status(state: State<'_, AppState>) -> Result<serde_json::V
 pub async fn sync_and_extract(
     source: Option<String>,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let opts = aiks_core::SyncOptions {
         source_filter: source,
@@ -611,6 +631,150 @@ pub async fn sync_and_extract(
         "failed_count": stats.failed_count,
         "extraction_queued": stats.extraction_candidates.len()
     }))
+}
+
+// ===== Unified Session Sync & AI Task Center =====
+
+#[tauri::command]
+pub async fn list_task_center_entries(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<aiks_core::pipeline::task_center::TaskCenterEntry>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .list_recent(limit.unwrap_or(200))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_task_center_stats(
+    state: State<'_, AppState>,
+) -> Result<aiks_core::pipeline::task_center::TaskCenterStats, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .stats()
+        .map_err(|error| error.to_string())
+}
+
+/// Aggregate only provider-reported usage, never session chunk estimates.
+/// Null means no token counts were returned by the model.
+#[tauri::command]
+pub async fn get_ai_usage_stats(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let (requests, measured, input, output, failed): (i64, i64, Option<i64>, Option<i64>, i64) = conn
+        .query_row(
+            "SELECT COUNT(*),
+                    COUNT(CASE WHEN input_tokens IS NOT NULL AND output_tokens IS NOT NULL THEN 1 END),
+                    SUM(input_tokens), SUM(output_tokens),
+                    COUNT(CASE WHEN status = 'FAILED' THEN 1 END)
+             FROM ai_request_log",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    let mut by_model = Vec::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT model, COUNT(*), SUM(input_tokens), SUM(output_tokens)
+         FROM ai_request_log GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 8",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(serde_json::json!({
+                "model": row.get::<_, String>(0)?,
+                "requests": row.get::<_, i64>(1)?,
+                "input_tokens": row.get::<_, Option<i64>>(2)?,
+                "output_tokens": row.get::<_, Option<i64>>(3)?,
+            }))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        by_model.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(serde_json::json!({
+        "requests": requests,
+        "measured_requests": measured,
+        "failed_requests": failed,
+        "input_tokens": input,
+        "output_tokens": output,
+        "by_model": by_model,
+    }))
+}
+
+/// Manually retry one failed AI extraction. Never use this to bypass SiYuan
+/// conflict/permanent errors; use the existing durable queue for deduplication.
+#[tauri::command]
+pub async fn retry_failed_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let session = {
+        let conn = db.conn();
+        conn.query_row(
+            "SELECT ss.source, ss.external_session_id, ss.title, ss.project_name
+             FROM source_session ss
+             JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
+             WHERE ss.id = ?1 AND st.status IN ('SYNCED', 'UNCHANGED')
+               AND (EXISTS (
+                   SELECT 1 FROM pipeline_run pr
+                   WHERE pr.session_id = ss.id AND pr.pipeline_version = 'v3'
+                     AND pr.status = 'FAILED'
+               ) OR EXISTS (
+                   SELECT 1 FROM pipeline_job pj
+                   WHERE pj.session_id = ss.id AND pj.status = 'FAILED'
+               ))
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_run current
+                   WHERE current.session_id = ss.id AND current.pipeline_version = 'v3'
+                     AND current.status IN ('READY', 'PROCESSING')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM pipeline_job active
+                   WHERE active.session_id = ss.id AND active.status IN ('PENDING', 'RUNNING')
+               )",
+            rusqlite::params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .map_err(|_| {
+            "该任务不满足安全重试条件：需同步成功、AI 失败且没有进行中的任务".to_string()
+        })?
+    };
+    engine
+        .enqueue_pipeline_for_session(session_id, session.1, session.0, session.2, session.3)
+        .map_err(|error| error.to_string())
+}
+
+/// Cancel only AI work waiting in the durable queue, never running workers.
+#[tauri::command]
+pub async fn cancel_pending_ai_task(
+    session_id: i64,
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<bool, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    aiks_core::pipeline::job_repo::PipelineJobRepo::new(&db)
+        .cancel_pending_for_session(session_id)
+        .map_err(|error| error.to_string())
 }
 
 // ===== V3 Pipeline Commands =====
@@ -1067,7 +1231,13 @@ pub async fn get_knowledge_detail(
 /// R09: manually trigger extraction backfill for historical sessions.
 /// Submits real PipelineJobs (not just DB rows) to the running worker.
 #[tauri::command]
-pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn backfill_extractions(
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let submitted = engine
         .backfill_pending_extractions()
@@ -1080,7 +1250,11 @@ pub async fn backfill_extractions(state: State<'_, AppState>) -> Result<serde_js
 #[tauri::command]
 pub async fn sync_knowledge_to_siyuan(
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<serde_json::Value, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let stats = engine
         .sync_knowledge_to_siyuan(false)
@@ -1095,32 +1269,30 @@ pub async fn sync_knowledge_to_siyuan(
     }))
 }
 
-/// Manually trigger pipeline for a specific session
+/// Start first-time AI processing only for an already-synced raw Session.
+/// Retry and completed-state handling belong to their dedicated safe commands.
 #[tauri::command]
 pub async fn run_pipeline_for_session(
     session_id: i64,
     state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
 ) -> Result<String, String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
-    let conn = db.conn();
-
-    let result = conn.query_row(
-        "SELECT source, external_session_id, title, project_name FROM source_session WHERE id = ?1",
-        rusqlite::params![session_id],
-        |row| Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        )),
-    ).map_err(|e| format!("Session not found: {}", e))?;
-
-    let (source, ext_id, title, project) = result;
-
+    let session = aiks_core::pipeline::first_run::load_initial_pipeline_session(&db, session_id)
+        .map_err(|error| error.to_string())?;
     engine
-        .enqueue_pipeline_for_session(session_id, ext_id, source, title, project)
-        .map_err(|e| e.to_string())
+        .enqueue_pipeline_for_session(
+            session_id,
+            session.external_id,
+            session.source,
+            session.title,
+            session.project_name,
+        )
+        .map_err(|error| error.to_string())
 }
 
 /// Get hybrid search results (FTS5 + vector) through Core.

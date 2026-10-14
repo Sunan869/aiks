@@ -1,3 +1,4 @@
+import { UiButton } from "../components/ui/fields";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { getApi } from "../api/client";
@@ -5,6 +6,7 @@ import type { KnowledgeDetail, UnifiedSearchHit } from "../api/types";
 import type { WorkspaceMode } from "../api/workbench";
 import UnifiedSearchDialog from "../components/UnifiedSearchDialog";
 import WorkbenchHost from "../components/WorkbenchHost";
+import KnowledgeDetailPage from "./KnowledgeDetailPage";
 
 interface Props {
   knowledgeId?: string;
@@ -26,9 +28,11 @@ export default function KnowledgeWorkspacePage({
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
 
   useEffect(() => {
     setError(null);
+    setMetadataOpen(false);
   }, [knowledgeId, workspaceMode, workbenchDocId]);
 
   useEffect(() => {
@@ -96,7 +100,7 @@ export default function KnowledgeWorkspacePage({
           )}
         </div>
 
-        <button
+        <UiButton variant="outline" size="sm"
           type="button"
           onClick={() => setSearchOpen(true)}
           className="ml-2 flex min-w-0 max-w-md flex-1 items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-left text-xs text-gray-400 transition-colors hover:border-gray-300 hover:bg-white dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600 dark:hover:bg-gray-800"
@@ -104,7 +108,13 @@ export default function KnowledgeWorkspacePage({
         >
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
-        </button>
+        </UiButton>
+        {knowledgeId && workspaceMode === "knowledge" && (
+          <UiButton variant="outline" size="sm" type="button" onClick={() => setMetadataOpen(open => !open)}
+            className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+            {metadataOpen ? "返回知识正文" : "详情 / 反馈 / 演进"}
+          </UiButton>
+        )}
 
       </div>
 
@@ -120,12 +130,23 @@ export default function KnowledgeWorkspacePage({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        <WorkbenchHost
-          surface={workspaceMode}
-          docId={boundDocId}
-          suspended={searchOpen || externalOverlayOpen}
-        />
+      <div className="flex min-h-0 flex-1 overflow-auto">
+        {metadataOpen && knowledgeId && workspaceMode === "knowledge" ? (
+          <div className="w-full">
+            <KnowledgeDetailPage
+              knowledgeId={knowledgeId}
+              onBack={() => setMetadataOpen(false)}
+              onViewSession={sessionId => onOpenSession?.(sessionId, null)}
+              onOpenKnowledge={onOpenKnowledge}
+            />
+          </div>
+        ) : (
+          <WorkbenchHost
+            surface={workspaceMode}
+            docId={boundDocId}
+            suspended={searchOpen || externalOverlayOpen}
+          />
+        )}
       </div>
 
       <UnifiedSearchDialog

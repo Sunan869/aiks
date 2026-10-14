@@ -184,6 +184,13 @@ pub struct AiksEngine {
 impl AiksEngine {
     /// Initialize the engine from a config
     pub fn initialize(engine_config: AiksEngineConfig) -> anyhow::Result<Self> {
+        Self::initialize_with_backup_gate(engine_config, None)
+    }
+
+    pub fn initialize_with_backup_gate(
+        engine_config: AiksEngineConfig,
+        backup_gate: Option<Arc<crate::storage::backup_quiescence::BackupQuiescence>>,
+    ) -> anyhow::Result<Self> {
         let config = match &engine_config.config_path {
             Some(path) => Config::from_file(path)?,
             None => Config::default(),
@@ -216,11 +223,12 @@ impl AiksEngine {
         let sync_engine = Arc::new(SyncEngine::new(config.clone()));
 
         // Start V3 pipeline worker
-        let pipeline_worker = Arc::new(PipelineWorker::start(
+        let pipeline_worker = Arc::new(PipelineWorker::start_with_gate(
             Arc::clone(&db),
             Arc::clone(&registry),
             config.ai.clone(),
             config.embedding.clone(),
+            backup_gate,
         ));
 
         // R13: crash recovery — resubmit runs left in PROCESSING/DISCOVERED by
@@ -471,6 +479,10 @@ impl AiksEngine {
         self.registry.clone()
     }
 
+    pub fn set_backup_gate(&self, gate: Arc<crate::storage::backup_quiescence::BackupQuiescence>) {
+        self.pipeline_worker.set_backup_gate(gate);
+    }
+
     /// Get the state DB
     pub fn db(&self) -> Arc<StateDb> {
         self.db.clone()
@@ -500,8 +512,18 @@ impl AiksEngine {
         session_title: Option<String>,
         project_name: Option<String>,
     ) -> anyhow::Result<String> {
+        // Keep the pipeline baseline aligned with the canonical Session
+        // generation, including for manual retries from the task center.
+        let source_hash: Option<String> = {
+            let conn = self.db.conn();
+            conn.query_row(
+                "SELECT content_hash FROM source_session WHERE id = ?1",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )?
+        };
         let orchestrator = PipelineOrchestrator::new(Arc::clone(&self.db));
-        let run_id = orchestrator.enqueue(session_id, None)?;
+        let run_id = orchestrator.enqueue(session_id, source_hash.as_deref())?;
         self.pipeline_worker.submit(PipelineJob {
             pipeline_run_id: run_id.clone(),
             session_id,

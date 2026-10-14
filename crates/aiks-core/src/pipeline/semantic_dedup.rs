@@ -254,7 +254,7 @@ fn merge_item(target: &mut V3KnowledgeItem, other: &V3KnowledgeItem) {
         }
     }
     if !target.summary.contains(other.summary.trim()) && !other.summary.trim().is_empty() {
-        target.summary.push_str("\n");
+        target.summary.push('\n');
         target.summary.push_str(&other.summary);
     }
     for (dst, src) in [

@@ -1,3 +1,6 @@
+import { RadixSelectField } from "../components/ui/RadixSelectField";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiButton, UiInput } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, FilePenLine, Plus, RefreshCw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -34,6 +37,7 @@ function SourceBadge({ item }: { item: KnowledgeSummary }) {
 export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
   const [view, setView] = useState<ViewFilter>("all");
   const [category, setCategory] = useState("");
+  const [pageQuery, setPageQuery] = useState("");
   const [data, setData] = useState<KnowledgePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,85 +83,81 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
     }
   };
 
+  const visibleItems = (data?.items ?? []).filter(item => {
+    const q = pageQuery.trim().toLocaleLowerCase();
+    return !q || [item.title, item.summary, item.project_name, item.category, ...parseTags(item.tags)]
+      .some(value => String(value ?? "").toLocaleLowerCase().includes(q));
+  });
+
   const tabs: Array<[ViewFilter, string]> = [
     ["all", "全部"], ["ai", "AI 提炼"], ["manual", "手动创建"], ["favorite", "收藏"], ["archived", "已归档"],
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">知识库</h1>
-            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">V4 Native</span>
-          </div>
-          <p className="mt-1 text-sm text-gray-500">AI 提炼与手工知识统一管理；SiYuan 作为可选发布目标，不再是第二套编辑器。</p>
-        </div>
-        <button
+    <div className="aiks-page-shell flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <PageHeader title="知识库" description="AI 提炼与手工知识统一管理；SiYuan 是可选发布目标。" actions={<>
+        <UiButton variant="primary" size="md"
           type="button"
           onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+          className="shadow-sm"
         >
           <Plus className="h-4 w-4" />
           新建知识
-        </button>
-      </div>
+        </UiButton></>} />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
         <div className="flex flex-wrap gap-1">
           {tabs.map(([key, label]) => (
-            <button
+            <UiButton variant={view === key ? "primary" : "ghost"} size="sm"
               key={key}
               type="button"
+              aria-pressed={view === key}
               onClick={() => { setView(key); setPage(0); }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === key
-                ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              className="rounded-lg"
             >
               {label}
-            </button>
+            </UiButton>
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={category}
-            onChange={e => { setCategory(e.target.value); setPage(0); }}
-            className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-          >
-            <option value="">全部分类</option>
-            {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
-          <button type="button" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
+          <RadixSelectField label="知识分类" value={category} onValueChange={value => { setCategory(value); setPage(0); }}
+            className="min-w-[140px] text-xs"
+            options={[{ value: "", label: "全部分类" }, ...Object.entries(CATEGORY_LABELS).map(([key, label]) => ({ value: key, label }))]} />
+          <UiButton variant="ghost" size="sm" type="button" aria-label="刷新知识列表" onClick={() => void load()} className="rounded-md border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800" title="刷新">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
+          </UiButton>
         </div>
       </div>
 
-      {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <UiInput aria-label="搜索当前页知识卡片" value={pageQuery} onChange={event => setPageQuery(event.target.value)} placeholder="搜索当前页的知识标题、摘要、标签或项目…" className="w-full flex-1 sm:min-w-[220px]" />
+        {pageQuery && <UiButton variant="ghost" size="sm" onClick={() => setPageQuery("")}>清空搜索</UiButton>}
+      </div>
+      {error && <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
 
-      <div className="mb-3 flex items-center justify-between text-xs text-gray-400">
-        <span>{data ? `共 ${data.total} 条知识` : "正在读取本地知识库..."}</span>
+      <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
+        <span>{data ? `当前页显示 ${visibleItems.length} / ${data.items.length} 条知识 · 全库 ${data.total} 条` : "正在读取本地知识库..."}</span>
         <span>发布到 SiYuan 请进入知识详情</span>
       </div>
 
       {loading && !data ? (
         <div className="flex flex-1 items-center justify-center text-sm text-gray-400">加载中...</div>
-      ) : data?.items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 text-center dark:border-gray-700">
           <div className="rounded-full bg-gray-100 p-3 dark:bg-gray-800"><FilePenLine className="h-6 w-6 text-gray-400" /></div>
-          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">当前视图暂无知识</p>
+          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">{pageQuery ? "当前页没有匹配的知识" : "当前视图暂无知识"}</p>
           <p className="mt-1 text-xs text-gray-400">可以从工作记录自动提炼，也可以直接在 AIKS 中新建。</p>
-          <button type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</button>
+          {!pageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCreating(true)} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">+ 新建第一条知识</UiButton>}
+          {pageQuery && <UiButton variant="outline" size="sm" onClick={() => setPageQuery("")}>清除搜索条件</UiButton>}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 overflow-y-auto pb-2 lg:grid-cols-2 xl:grid-cols-3">
-          {data?.items.map(item => {
+        <div className="grid min-h-0 grid-cols-1 content-start gap-3 overflow-y-auto pb-2 md:grid-cols-2 2xl:grid-cols-3">
+          {visibleItems.map(item => {
             const tags = parseTags(item.tags);
             return (
               <article
                 key={item.id}
-                onClick={() => onViewDetail?.(item.id)}
-                className="group cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-600"
+                className="group relative min-w-0 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-sky-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-600"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -167,16 +167,16 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
                       {item.managed_by === "user" && item.source_type === "conversation" && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">已人工编辑</span>}
                       {item.status === "archived" && <span className="inline-flex items-center gap-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500"><Archive className="h-2.5 w-2.5" />已归档</span>}
                     </div>
-                    <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-gray-900 dark:text-gray-100">{item.title}</h3>
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-gray-900 dark:text-gray-100"><button type="button" onClick={() => onViewDetail?.(item.id)} className="text-left hover:text-sky-700 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:text-sky-300" aria-label={`查看知识：${item.title}`}>{item.title}</button></h3>
                   </div>
-                  <button
+                  <UiButton variant="outline" size="sm"
                     type="button"
                     onClick={e => { e.stopPropagation(); void toggleFavorite(item); }}
                     className={`rounded p-1 transition ${item.is_favorite ? "text-amber-500" : "text-gray-300 opacity-50 group-hover:opacity-100 hover:text-amber-500"}`}
                     title={item.is_favorite ? "取消收藏" : "收藏"}
                   >
                     <Star className="h-4 w-4" fill={item.is_favorite ? "currentColor" : "none"} />
-                  </button>
+                  </UiButton>
                 </div>
 
                 <p className="mt-2 line-clamp-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{item.summary || "暂无摘要"}</p>
@@ -197,9 +197,9 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
       {data && data.total > PAGE_SIZE && (
         <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">上一页</button>
-          <span className="text-xs text-gray-400">{page + 1}</span>
-          <button onClick={() => setPage(value => value + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">下一页</button>
+          <UiButton variant="outline" size="sm" onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">上一页</UiButton>
+          <span aria-label={`第 ${page + 1} 页，共 ${Math.ceil(data.total / PAGE_SIZE)} 页`} className="text-xs text-gray-400">{page + 1} / {Math.ceil(data.total / PAGE_SIZE)}</span>
+          <UiButton variant="outline" size="sm" onClick={() => setPage(value => value + 1)} disabled={(page + 1) * PAGE_SIZE >= data.total} className="rounded border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700">下一页</UiButton>
         </div>
       )}
 

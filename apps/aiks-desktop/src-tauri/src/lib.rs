@@ -1,11 +1,13 @@
 mod ai_assist_commands;
 mod app_state;
+mod backup_commands;
 mod bootstrap;
 mod commands;
 mod diagnostics;
 mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
+mod project_memory_commands;
 mod provider_commands;
 mod rag_commands;
 mod search_commands;
@@ -57,6 +59,7 @@ pub fn run() {
     tracing::info!(log_path = %log_path.display(), "AIKS file logging initialized");
 
     let runtime_container: Arc<Mutex<Option<SiyuanRuntime>>> = Arc::new(Mutex::new(None));
+    let backup_gate = Arc::new(aiks_core::storage::backup_quiescence::BackupQuiescence::default());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -67,6 +70,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(runtime_container)
+        .manage(backup_gate)
         .manage(workbench::controller::WorkbenchController::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -129,6 +133,14 @@ pub fn run() {
             embedding_commands::save_embedding_settings,
             embedding_commands::test_embedding_connection_with_settings,
             embedding_commands::rebuild_semantic_index,
+            backup_commands::inspect_offline_backup,
+            backup_commands::inspect_offline_backup_capacity,
+            backup_commands::verify_managed_siyuan_recovery,
+            backup_commands::get_managed_backup_recovery_required,
+            backup_commands::create_managed_offline_backup,
+            backup_commands::create_offline_backup_from_stopped_workspace,
+            backup_commands::verify_offline_backup_manifest,
+            backup_commands::restore_offline_backup_isolated,
             storage_commands::get_data_storage_settings,
             storage_commands::pick_data_directory,
             storage_commands::set_data_storage_root,
@@ -138,6 +150,11 @@ pub fn run() {
             commands::open_knowledge_window,
             commands::get_full_status,
             commands::sync_and_extract,
+            commands::list_task_center_entries,
+            commands::get_task_center_stats,
+            commands::get_ai_usage_stats,
+            commands::retry_failed_ai_task,
+            commands::cancel_pending_ai_task,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
@@ -152,8 +169,30 @@ pub fn run() {
             commands::hybrid_search,
             // V4 Native Knowledge Workbench
             knowledge_commands::list_knowledge_v4,
+            project_memory_commands::list_project_memory,
+            project_memory_commands::get_project_memory,
+            project_memory_commands::list_project_evolution,
+            project_memory_commands::list_project_session_bindings,
+            project_memory_commands::bind_project_session,
+            project_memory_commands::clear_project_session_binding,
+            project_memory_commands::create_project_review,
+            project_memory_commands::list_project_report_drafts,
+            project_memory_commands::get_project_report_draft,
+            project_memory_commands::save_project_report_draft,
+            project_memory_commands::create_agent_context_pack,
+            project_memory_commands::create_curated_agent_context_pack,
             knowledge_commands::get_knowledge_detail_v4,
+            knowledge_commands::add_knowledge_feedback,
+            knowledge_commands::list_knowledge_feedback,
+            knowledge_commands::suggest_knowledge_relation,
+            knowledge_commands::list_knowledge_relations,
+            knowledge_commands::review_knowledge_relation,
+            knowledge_commands::list_knowledge_relation_reviews,
             knowledge_commands::create_knowledge,
+            knowledge_commands::create_organized_knowledge,
+            knowledge_commands::list_organization_audit,
+            knowledge_commands::recover_organization_audit,
+            knowledge_commands::validate_organization_scope,
             knowledge_commands::update_knowledge,
             knowledge_commands::set_knowledge_favorite,
             knowledge_commands::archive_knowledge,

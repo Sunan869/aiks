@@ -1,3 +1,7 @@
+import { UiStatGrid, UiEmptyState } from "../components/ui/workspace";
+import { PageHeader } from "../components/ui/PageHeader";
+import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
+import { UiButton } from "../components/ui/fields";
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCw } from "lucide-react";
@@ -13,6 +17,7 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
   const [result, setResult] = useState<any>(null);
 
   const doSync = async () => {
+    if (syncing) return;
     setSyncing(true);
     setResult(null);
     try {
@@ -25,23 +30,19 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
   };
 
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">同步记录</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Raw Session 同步与 AI 整理状态</p>
-      </div>
+    <div className="aiks-page-shell w-full min-w-0 max-w-5xl">
+      <PageHeader title="同步记录" description="Raw Session 同步与 AI 整理状态" />
 
       {/* Sync stats */}
       {fullStatus && (
         <>
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
-            <div className="font-medium text-sm mb-3">最近同步</div>
+          <UiSection title="最近同步" className="mb-4">
             {fullStatus.last_sync_at ? (
               <>
                 <div className="text-xs text-gray-500 mb-2">
                   {new Date(fullStatus.last_sync_at).toLocaleString("zh-CN")}
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                <UiStatGrid>
                   {[
                     { label: "发现", value: fullStatus.last_sync_discovered },
                     { label: "新增", value: fullStatus.last_sync_new },
@@ -53,17 +54,16 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                       <div className="text-gray-400">{item.label}</div>
                     </div>
                   ))}
-                </div>
+                </UiStatGrid>
               </>
             ) : (
-              <div className="text-sm text-gray-400">尚未执行同步</div>
+              <UiEmptyState title="尚未执行同步" description="点击下方立即同步，扫描本地 AI 会话并启动知识整理。" />
             )}
-          </div>
+          </UiSection>
 
           {/* AI extraction stats */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
-            <div className="font-medium text-sm mb-3">AI 智能整理</div>
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+          <UiSection title="AI 智能整理" className="mb-4">
+            <UiStatGrid>
               {[
                 { label: "待整理", value: fullStatus.extraction_pending, color: "text-blue-600" },
                 { label: "成功", value: fullStatus.extraction_success, color: "text-green-600" },
@@ -75,28 +75,28 @@ export default function SyncPage({ fullStatus, onRefresh }: Props) {
                   <div className="text-gray-400">{item.label}</div>
                 </div>
               ))}
-            </div>
-          </div>
+            </UiStatGrid>
+          </UiSection>
         </>
       )}
 
       {result && !result.error && (
-        <div className="mb-4 bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-xs text-green-700 dark:text-green-400">
+        <UiNotice tone="success" className="mb-4">
           本次同步：发现 {result.discovered}，新增 {result.new_count}，更新 {result.updated_count}，
           跳过 {result.skipped_count}，失败 {result.failed_count}
           {result.extraction_queued > 0 && `，${result.extraction_queued} 条排队 AI 整理`}
-        </div>
+        </UiNotice>
       )}
       {result?.error && (
-        <div className="mb-4 text-xs text-red-500">{result.error}</div>
+        <UiNotice tone="danger" className="mb-4">{result.error}</UiNotice>
       )}
 
-      <button onClick={doSync} disabled={syncing}
+      <UiButton variant="primary" size="md" onClick={doSync} disabled={syncing}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
       >
         <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
         {syncing ? "同步中..." : "立即同步"}
-      </button>
+      </UiButton>
 
       <div className="mt-3 text-xs text-gray-400">
         同步完成后，AIKS 会自动对有价值的会话排队进行 AI 智能整理。

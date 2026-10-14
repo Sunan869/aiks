@@ -14,6 +14,12 @@ pub const SYSTEM_PROMPT_V3: &str = r#"你是企业研发工作知识整理器（
 - 关键代码、命令、配置、文件路径
 - API 接口、版本号、环境变量
 
+输出要精炼但不能漏证据：
+- 只写能够从对话直接核实的事实，优先保留最终有效解决办法，跳过寒暄、无效试错和重复日志
+- 一条知识只描述一个可复用问题；summary 只给结论，content 补充不同的关键步骤与证据，不要重复抄写
+- commands/files/decisions 等结构化字段保留真实值，正文中引用必要上下文即可，避免全文重复
+- 复杂问题可以详细展开，不得以字数限制省略关键 SQL、参数、版本或安全注意事项
+
 category 必须是：troubleshooting, implementation, architecture, configuration, decision, research, general
 
 输出格式：严格 JSON，无代码块标记。
@@ -49,8 +55,8 @@ pub fn make_v3_extraction_prompt(session_text: &str) -> String {
     {{
       "title": "简洁标题（50字以内）",
       "category": "troubleshooting/implementation/architecture/configuration/decision/research/general",
-      "summary": "2-3句摘要",
-      "content": "详细内容（Markdown格式，包含所有关键信息）",
+      "summary": "一句话结论，不复述正文",
+      "content": "精炼Markdown：准确记录证据、关键步骤、原因及验证，避免重复摘要与整段日志；复杂问题保留所有必要细节",
       "problem": "问题描述（可为null）",
       "root_causes": ["根因1", "根因2"],
       "solutions": ["解决方案1"],
@@ -128,8 +134,8 @@ pub fn make_v3_final_prompt(
     {{
       "title": "简洁标题（50字以内）",
       "category": "troubleshooting/implementation/architecture/configuration/decision/research/general",
-      "summary": "2-3句摘要",
-      "content": "详细内容（Markdown格式，包含所有关键信息）",
+      "summary": "一句话结论，不复述正文",
+      "content": "精炼Markdown：准确记录证据、关键步骤、原因及验证，避免重复摘要与整段日志；复杂问题保留所有必要细节",
       "problem": "问题描述（可为null）",
       "root_causes": ["根因1", "根因2"],
       "solutions": ["解决方案1"],

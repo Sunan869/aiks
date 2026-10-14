@@ -11,6 +11,8 @@ describe("V4.2 product navigation", () => {
       "overview",
       "sessions",
       "knowledge",
+      "projects",
+      "review",
       "processing",
     ]);
     expect(

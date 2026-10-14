@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -45,6 +45,34 @@ pub struct RagAskRequest {
     pub question: String,
     #[serde(default)]
     pub history: Vec<RagTurn>,
+    /// Exact project filter; omitted means search all projects.
+    #[serde(default)]
+    pub project: Option<String>,
+    /// Optional exact Provider source (e.g. codex, claude_code, opencode).
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Keep user-selected project/source filters on both streaming and ordinary
+/// RAG queries. Blank means unrestricted; other values are exact SQLite-bound
+/// scope values, never interpolated into SQL or accepted as new data sources.
+fn retrieval_scope(request: &RagAskRequest) -> anyhow::Result<UnifiedSearchFilter> {
+    let normalize = |name: &str, value: &Option<String>| -> anyhow::Result<Option<String>> {
+        let value = value
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        anyhow::ensure!(
+            value.is_none_or(|text| text.chars().count() <= 256),
+            "{name} filter is too long"
+        );
+        Ok(value.map(str::to_string))
+    };
+    Ok(UnifiedSearchFilter {
+        corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
+        project: normalize("project", &request.project)?,
+        source: normalize("source", &request.source)?,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,14 +113,66 @@ struct PreparedRag {
 
 impl PreparedRag {
     fn finish(self, answer: String) -> RagAnswer {
+        let mut warnings = self.warnings;
+        let citation_warnings = audit_answer_citations(&answer, &self.citations);
+        let degraded = self.degraded || !citation_warnings.is_empty();
+        warnings.extend(citation_warnings);
         RagAnswer {
             answer: answer.trim().to_string(),
             citations: self.citations,
-            degraded: self.degraded,
-            warnings: self.warnings,
+            degraded,
+            warnings,
             model: self.model,
         }
     }
+}
+
+/// Model output is not a trusted citation map. Check that every [n] marker
+/// refers to an actually supplied evidence item and visibly flag ungrounded
+/// or missing markers. This cannot prove that the cited evidence supports the
+/// prose; that still requires a human reviewing the linked source.
+fn audit_answer_citations(answer: &str, citations: &[RagCitation]) -> Vec<String> {
+    if citations.is_empty() {
+        return Vec::new();
+    }
+    let allowed: HashSet<usize> = citations.iter().map(|item| item.index).collect();
+    let citation_pattern = regex::Regex::new(r"\[(\d+)\]").expect("fixed citation pattern");
+    let mut observed = HashSet::new();
+    let mut invalid = BTreeSet::new();
+    let mut overflow = false;
+    for found in citation_pattern.captures_iter(answer) {
+        match found[1].parse::<usize>() {
+            Ok(index) if allowed.contains(&index) => {
+                observed.insert(index);
+            }
+            Ok(index) => {
+                invalid.insert(index);
+            }
+            Err(_) => overflow = true,
+        }
+    }
+    let mut warnings = Vec::new();
+    if !invalid.is_empty() {
+        warnings.push(format!(
+            "模型引用了不存在的证据编号：{}。请勿依赖这些编号核实结论。",
+            invalid
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if overflow {
+        warnings
+            .push("模型包含超出有效编号范围的引用；请人工核实来源，不要将其当作证据。".to_string());
+    }
+    if observed.is_empty() {
+        warnings.push(
+            "模型回答未包含有效的检索证据编号；请人工检查下方参考来源，不要将回答当作已核实事实。"
+                .to_string(),
+        );
+    }
+    warnings
 }
 
 enum RagPreparation {
@@ -193,24 +273,17 @@ impl RagAnswerService {
         let question = request.question.trim().to_string();
         anyhow::ensure!(!question.is_empty(), "question must not be empty");
         anyhow::ensure!(question.chars().count() <= 4096, "question is too long");
+        let scope = retrieval_scope(&request)?;
 
         let search = UnifiedSearchService::new(self.db.clone(), self.models.clone());
         let search_started = Instant::now();
         let outcome = search
-            .search(
-                &question,
-                RETRIEVAL_LIMIT,
-                UnifiedSearchFilter {
-                    corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
-                    project: None,
-                    source: None,
-                },
-            )
+            .search(&question, RETRIEVAL_LIMIT, scope.clone())
             .await?;
         let search_ms = search_started.elapsed().as_millis() as u64;
 
         let evidence_started = Instant::now();
-        let evidence = self.collect_evidence(&question, outcome.hits)?;
+        let evidence = self.collect_evidence(&question, outcome.hits, &scope)?;
         let evidence_ms = evidence_started.elapsed().as_millis() as u64;
         if evidence.is_empty() {
             tracing::info!(
@@ -274,6 +347,7 @@ impl RagAnswerService {
         &self,
         question: &str,
         hits: Vec<UnifiedSearchHit>,
+        scope: &UnifiedSearchFilter,
     ) -> anyhow::Result<Vec<Evidence>> {
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
@@ -282,6 +356,12 @@ impl RagAnswerService {
         for hit in hits {
             if evidence.len() >= MAX_EVIDENCE_ITEMS || total_chars >= MAX_EVIDENCE_CHARS {
                 break;
+            }
+            // Search and evidence resolution are separate operations. If a
+            // source Session or Knowledge row changed since recall, reject the
+            // stale hit before opening its full text or passing it to a model.
+            if !hit_is_currently_visible(&self.db, &hit, scope)? {
+                continue;
             }
 
             let dedupe_key = format!(
@@ -294,12 +374,31 @@ impl RagAnswerService {
                 continue;
             }
 
-            let mut text = self
-                .resolve_hit_text(question, &hit)?
-                .unwrap_or_else(|| hit.snippet.clone());
-            text = text.trim().to_string();
+            // Never fall back to the search snapshot snippet if canonical
+            // content disappeared after recall: stale snippets can belong to
+            // deleted/archived knowledge or a removed Session chunk.
+            let Some(text) = self.resolve_hit_text(question, &hit)? else {
+                continue;
+            };
+            let mut text = text.trim().to_string();
             if text.is_empty() {
                 continue;
+            }
+            if hit.corpus == SearchCorpus::Knowledge {
+                let status: Option<String> = self
+                    .db
+                    .conn()
+                    .query_row(
+                        "SELECT kind FROM knowledge_feedback
+                         WHERE knowledge_id = ?1
+                         ORDER BY created_at DESC, id DESC LIMIT 1",
+                        [&hit.entity_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(warning) = status.as_deref().and_then(disputed_feedback_label) {
+                    text = format!("【{warning}】\n{text}");
+                }
             }
 
             let remaining = MAX_EVIDENCE_CHARS.saturating_sub(total_chars);
@@ -402,6 +501,61 @@ impl RagAnswerService {
     }
 }
 
+/// Revalidate a retrieved hit against current canonical SQLite scope.
+/// This closes a time-of-check/time-of-use gap between search and reading a
+/// full chunk, including when a Session changes project/source or goes missing.
+fn hit_is_currently_visible(
+    db: &StateDb,
+    hit: &UnifiedSearchHit,
+    scope: &UnifiedSearchFilter,
+) -> anyhow::Result<bool> {
+    let project = scope.project.as_deref().unwrap_or("");
+    let source = scope.source.as_deref().unwrap_or("");
+    let conn = db.conn();
+    let found: i64 = match hit.corpus {
+        SearchCorpus::Knowledge => conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM knowledge_item ki
+                LEFT JOIN source_session ss ON ss.id = ki.source_session_id
+                WHERE ki.id = ?1 AND ki.status = 'active'
+                  AND (ki.source_session_id IS NULL OR ss.is_missing = 0)
+                  AND (?2 = '' OR ki.project_name = ?2)
+                  AND (?2 = '' OR ki.source_session_id IS NULL OR ss.project_name = ?2)
+                  AND (?3 = '' OR ss.source = ?3)
+            )",
+            params![hit.entity_id.as_str(), project, source],
+            |row| row.get(0),
+        )?,
+        SearchCorpus::Session => {
+            let Ok(session_id) = hit.entity_id.parse::<i64>() else {
+                return Ok(false);
+            };
+            conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM source_session ss
+                    WHERE ss.id = ?1 AND ss.is_missing = 0
+                      AND (?2 = '' OR ss.project_name = ?2)
+                      AND (?3 = '' OR ss.source = ?3)
+                )",
+                params![session_id, project, source],
+                |row| row.get(0),
+            )?
+        }
+    };
+    Ok(found != 0)
+}
+
+/// Latest human review stays advisory; disputed material remains visible
+/// for traceability but is explicitly marked before being sent to the model.
+fn disputed_feedback_label(kind: &str) -> Option<&'static str> {
+    match kind {
+        "incorrect" => Some("用户标记为错误；未经人工核实不得作为可靠事实"),
+        "outdated" => Some("用户标记为过时；不得当作当前生效方案"),
+        "needs_detail" => Some("用户要求补充证据；需谨慎引用"),
+        _ => None,
+    }
+}
+
 fn estimate_tokens(chars: usize) -> usize {
     ((chars as f64) / CHARS_PER_TOKEN_ESTIMATE).ceil() as usize
 }
@@ -476,6 +630,214 @@ fn format_history(history: &[RagTurn]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_citation_audit_detects_missing_and_forged_reference_numbers() {
+        let citations = vec![
+            RagCitation {
+                index: 1,
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "knowledge-1".into(),
+                chunk_id: None,
+                title: "Fix".into(),
+                snippet: "Evidence".into(),
+                siyuan_doc_id: None,
+                match_types: vec!["lexical".into()],
+            },
+            RagCitation {
+                index: 2,
+                corpus: SearchCorpus::Session,
+                entity_id: "42".into(),
+                chunk_id: None,
+                title: "Session".into(),
+                snippet: "Evidence".into(),
+                siyuan_doc_id: None,
+                match_types: vec!["lexical".into()],
+            },
+        ];
+        assert!(audit_answer_citations("两个来源 [1] 与 [2]", &citations).is_empty());
+        let warnings = audit_answer_citations("伪造引用 [99]，真实引用 [1]", &citations);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("99"));
+        assert_eq!(audit_answer_citations("没有证据编号", &citations).len(), 1);
+        assert_eq!(audit_answer_citations("[0] [99]", &citations).len(), 2);
+        assert_eq!(
+            audit_answer_citations("参考 [1234] 和 [1]", &citations).len(),
+            1
+        );
+        let overflow = audit_answer_citations(
+            "模型输出了 [9999999999999999999999999999999999999] 和 [1]",
+            &citations,
+        );
+        assert_eq!(overflow.len(), 1);
+        assert!(overflow[0].contains("超出有效编号范围"));
+        assert!(audit_answer_citations("无内容", &[]).is_empty());
+    }
+
+    #[test]
+    fn rag_evidence_rechecks_live_source_and_project_before_reading_full_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDb::open(&dir.path().join("rag-scope.db")).unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO source_session
+                 (id,source,external_session_id,project_name,
+                  last_seen_at,created_at,updated_at)
+                 VALUES (1,'codex','session-1','alpha','now','now','now')",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO knowledge_item
+                 (id,source_session_id,project_name,title,category,summary,
+                  content,source_type,managed_by,status,created_at,updated_at)
+                 VALUES ('knowledge-1',1,'alpha','Fix','decision','Summary',
+                         'Body','conversation','pipeline','active','now','now')",
+                [],
+            )
+            .unwrap();
+
+        let hit = |corpus: SearchCorpus, id: &str| UnifiedSearchHit {
+            corpus,
+            entity_id: id.to_string(),
+            chunk_id: None,
+            title: "Fix".into(),
+            snippet: "Evidence".into(),
+            score: 1.0,
+            match_types: vec!["lexical".into()],
+            siyuan_doc_id: None,
+        };
+        let knowledge = hit(SearchCorpus::Knowledge, "knowledge-1");
+        let session = hit(SearchCorpus::Session, "1");
+        let scope = UnifiedSearchFilter {
+            corpora: vec![SearchCorpus::Knowledge, SearchCorpus::Session],
+            project: Some("alpha".into()),
+            source: Some("codex".into()),
+        };
+        assert!(hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        assert!(hit_is_currently_visible(&db, &session, &scope).unwrap());
+        let invalid_session = hit(SearchCorpus::Session, "not-a-number");
+        let missing_knowledge = hit(SearchCorpus::Knowledge, "missing");
+        assert!(!hit_is_currently_visible(&db, &invalid_session, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &missing_knowledge, &scope).unwrap());
+
+        db.conn()
+            .execute(
+                "UPDATE source_session SET source = 'claude_code' WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+        db.conn()
+            .execute(
+                "UPDATE source_session SET source = 'codex', project_name = 'beta' WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        db.conn()
+            .execute(
+                "UPDATE knowledge_item SET status = 'archived' WHERE id = 'knowledge-1'",
+                [],
+            )
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+        db.conn()
+            .execute("UPDATE source_session SET is_missing = 1 WHERE id = 1", [])
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &session, &scope).unwrap());
+
+        // The source may disappear while its previously extracted knowledge
+        // row still looks active. Do not send that stale evidence to the model.
+        db.conn()
+            .execute(
+                "UPDATE knowledge_item SET status = 'active' WHERE id = 'knowledge-1'",
+                [],
+            )
+            .unwrap();
+        assert!(!hit_is_currently_visible(&db, &knowledge, &scope).unwrap());
+    }
+
+    #[test]
+    fn prepared_rag_preserves_provenance_and_marks_unsupported_citations_degraded() {
+        let prepared = PreparedRag {
+            user_prompt: "test".into(),
+            citations: vec![RagCitation {
+                index: 1,
+                corpus: SearchCorpus::Knowledge,
+                entity_id: "k1".into(),
+                chunk_id: None,
+                title: "Example".into(),
+                snippet: "Example".into(),
+                siyuan_doc_id: None,
+                match_types: vec![],
+            }],
+            degraded: false,
+            warnings: vec![],
+            model: "test-model".into(),
+        };
+        let answer = prepared.finish("不受支持的引用 [4]".into());
+        assert!(answer.degraded);
+        assert!(answer.warnings.iter().any(|message| message.contains("4")));
+        assert_eq!(answer.citations[0].entity_id, "k1");
+    }
+
+    #[test]
+    fn human_quality_flags_are_visible_in_rag_evidence_context() {
+        assert!(disputed_feedback_label("incorrect").is_some());
+        assert!(disputed_feedback_label("outdated").is_some());
+        assert!(disputed_feedback_label("needs_detail").is_some());
+        assert!(disputed_feedback_label("useful").is_none());
+        assert!(disputed_feedback_label("duplicate").is_none());
+    }
+
+    #[test]
+    fn rag_request_preserves_legacy_default_and_exact_project_scope() {
+        let legacy: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","history":[]}"#).unwrap();
+        assert!(legacy.project.is_none());
+        assert!(legacy.source.is_none());
+
+        let scoped: RagAskRequest =
+            serde_json::from_str(r#"{"question":"Where is the fix?","project":"my-project"}"#)
+                .unwrap();
+        assert_eq!(scoped.project.as_deref(), Some("my-project"));
+        assert!(scoped.source.is_none());
+    }
+
+    #[test]
+    fn rag_scope_propagates_exact_project_and_provider_without_crossing_corpora() {
+        let request: RagAskRequest = serde_json::from_str(
+            r#"{"question":"lease recovery","project":" team-a ","source":" claude_code "}"#,
+        )
+        .unwrap();
+        let scope = retrieval_scope(&request).unwrap();
+        assert_eq!(scope.project.as_deref(), Some("team-a"));
+        assert_eq!(scope.source.as_deref(), Some("claude_code"));
+        assert_eq!(
+            scope.corpora,
+            vec![SearchCorpus::Knowledge, SearchCorpus::Session]
+        );
+        let unrestricted: RagAskRequest =
+            serde_json::from_str(r#"{"question":"lease recovery","project":"   ","source":""}"#)
+                .unwrap();
+        let default = retrieval_scope(&unrestricted).unwrap();
+        assert!(default.project.is_none());
+        assert!(default.source.is_none());
+        assert!(retrieval_scope(&RagAskRequest {
+            source: Some("x".repeat(257)),
+            ..request.clone()
+        })
+        .is_err());
+        assert!(retrieval_scope(&RagAskRequest {
+            project: Some("x".repeat(257)),
+            ..request
+        })
+        .is_err());
+    }
 
     #[test]
     fn evidence_anchor_prefers_longer_query_terms() {

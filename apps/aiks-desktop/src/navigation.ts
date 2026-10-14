@@ -2,6 +2,8 @@ export type Page =
   | "overview"
   | "sessions"
   | "knowledge"
+  | "projects"
+  | "review"
   | "processing"
   | "sources"
   | "settings"
@@ -27,6 +29,8 @@ export const MAIN_NAV_ITEMS: readonly NavigationItem[] = [
   { id: "overview", label: "概览" },
   { id: "sessions", label: "工作记录" },
   { id: "knowledge", label: "知识库" },
+  { id: "projects", label: "项目记忆" },
+  { id: "review", label: "待复核" },
   { id: "processing", label: "处理中心" },
 ];
 

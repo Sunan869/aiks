@@ -12,8 +12,10 @@
 /// Handles Map-Reduce for long sessions.
 use std::time::Instant;
 
+use sha2::{Digest, Sha256};
 use tracing::info;
 
+use crate::ai::client::{ChatResult, ChatUsage};
 use crate::ai::{
     config::AiModelConfig,
     prompts_v3::{make_v3_extraction_prompt, SYSTEM_PROMPT_V3},
@@ -44,6 +46,199 @@ pub struct AiStage {
 const BUDGET_CHARS_PER_TOKEN: f64 = 2.0;
 /// Tokens reserved for the system prompt + prompt frame + /no_think suffix.
 const PROMPT_OVERHEAD_TOKENS: usize = 2_000;
+
+/// A user may opt into modest parallelism; zero is treated as sequential.
+fn extraction_batch_size(configured: usize) -> usize {
+    configured.clamp(1, 4)
+}
+
+/// Share the established v5 fingerprint between single-chunk and
+/// Map-Reduce extraction; do not invalidate existing, verified cache rows.
+fn chunk_cache_key(
+    config: &AiModelConfig,
+    session_title: Option<&str>,
+    project_name: Option<&str>,
+    text: &str,
+) -> String {
+    let key_material = format!(
+        "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        crate::ai::prompts_v3::PROMPT_VERSION_V3,
+        config.base_url,
+        config.model,
+        config.temperature,
+        config.max_tokens,
+        config.max_context_tokens,
+        config.disable_thinking,
+        session_title.unwrap_or(""),
+        project_name.unwrap_or(""),
+        text
+    );
+    hex::encode(Sha256::digest(key_material.as_bytes()))
+}
+
+fn ensure_chunk_cache_table(db: &StateDb) -> anyhow::Result<()> {
+    db.conn().execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
+            cache_key TEXT PRIMARY KEY,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
+/// Inconsistent model responses must never become permanent skipped work.
+fn cacheable_extraction(result: &V3ExtractionResult) -> bool {
+    result.worth_extracting == !result.items.is_empty()
+}
+
+fn read_cached_chunk_result(
+    db: &StateDb,
+    cache_key: &str,
+) -> anyhow::Result<Option<V3ExtractionResult>> {
+    let conn = db.conn();
+    let cached: Option<String> = match conn.query_row(
+        "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
+        [cache_key],
+        |row| row.get(0),
+    ) {
+        Ok(value) => Some(value),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(cached.as_deref().and_then(parse_cached_v3_result))
+}
+
+fn store_cached_chunk_result(
+    db: &StateDb,
+    cache_key: &str,
+    result: &V3ExtractionResult,
+) -> anyhow::Result<()> {
+    if !cacheable_extraction(result) {
+        return Ok(());
+    }
+    db.conn().execute(
+        "INSERT OR REPLACE INTO ai_chunk_extract_cache
+         (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
+        rusqlite::params![
+            cache_key,
+            serde_json::to_string(result)?,
+            chrono::Utc::now().to_rfc3339()
+        ],
+    )?;
+    Ok(())
+}
+
+fn prune_chunk_cache(db: &StateDb) -> anyhow::Result<()> {
+    db.conn().execute(
+        "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
+         (SELECT cache_key FROM ai_chunk_extract_cache
+          ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
+        [],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn extraction_concurrency_respects_explicit_bound_and_sequential_default() {
+    assert_eq!(extraction_batch_size(0), 1);
+    assert_eq!(extraction_batch_size(1), 1);
+    assert_eq!(extraction_batch_size(2), 2);
+    assert_eq!(extraction_batch_size(3), 3);
+    assert_eq!(extraction_batch_size(4), 4);
+    assert_eq!(extraction_batch_size(usize::MAX), 4);
+}
+
+/// Prepared requests are transient; the raw session_chunk rows and knowledge
+/// source evidence remain unchanged. Counts are recorded for diagnostics.
+struct PreparedExtraction {
+    parts: Vec<(i32, String)>,
+    source_chunks: usize,
+    split_source_chunks: usize,
+    input_saved_chars: usize,
+}
+
+/// Compress only adjacent, byte-identical terminal log lines. Preserve the
+/// first occurrence, an exact repetition count and the untouched source in DB.
+/// Never compact fenced code, SQL, commands or non-log conversational evidence.
+fn compact_extraction_input(text: &str) -> String {
+    fn repeatable_log(line: &str) -> bool {
+        let trimmed = line.trim_start();
+        [
+            "INFO ", "WARN ", "ERROR ", "DEBUG ", "TRACE ", "[INFO]", "[WARN]", "[ERROR]",
+            "[DEBUG]", "[TRACE]",
+        ]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut preceding: Option<&str> = None;
+    let mut repeats = 0usize;
+    let mut in_code_fence = false;
+    for line in text.split_inclusive('\n') {
+        let without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let payload = without_newline
+            .strip_suffix('\r')
+            .unwrap_or(without_newline);
+        let fence =
+            payload.trim_start().starts_with("```") || payload.trim_start().starts_with("~~~");
+        if !in_code_fence && !fence && repeatable_log(payload) && preceding == Some(payload) {
+            repeats += 1;
+            continue;
+        }
+        if repeats > 0 {
+            result.push_str(&format!(
+                "[以上完全相同的日志又连续出现 {repeats} 次；原始记录保留在会话中]\n"
+            ));
+            repeats = 0;
+        }
+        result.push_str(line);
+        if fence {
+            in_code_fence = !in_code_fence;
+        }
+        preceding = if !in_code_fence && !fence && line.ends_with('\n') && repeatable_log(payload) {
+            Some(payload)
+        } else {
+            None
+        };
+    }
+    if repeats > 0 {
+        result.push_str(&format!(
+            "[以上完全相同的日志又连续出现 {repeats} 次；原始记录保留在会话中]\n"
+        ));
+    }
+    result
+}
+
+/// Partition UTF-8 at message/line boundaries when practical. Hard cuts are
+/// only used for single very long lines, and do not remove even one character.
+/// This is a reversible partition, unlike head/tail prompt truncation.
+fn split_evidence_without_loss(text: &str, max_chars: usize) -> Vec<String> {
+    assert!(max_chars > 0);
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    while start < text.len() {
+        let remaining = &text[start..];
+        let Some((offset, _)) = remaining.char_indices().nth(max_chars) else {
+            parts.push(remaining.to_string());
+            break;
+        };
+        let hard_end = start + offset;
+        let newline_end = text[start..hard_end].rfind('\n').map(|n| start + n + 1);
+        let end = newline_end
+            .filter(|&n| text[start..n].chars().count() >= max_chars / 2)
+            .unwrap_or(hard_end);
+        debug_assert!(end > start);
+        parts.push(text[start..end].to_string());
+        start = end;
+    }
+    parts
+}
 
 impl AiStage {
     pub fn new(config: AiModelConfig) -> anyhow::Result<Self> {
@@ -76,31 +271,77 @@ impl AiStage {
         ((usable as f64) * BUDGET_CHARS_PER_TOKEN) as usize
     }
 
-    /// Keep the first 2/3 and the last 1/3 of an oversized prompt, dropping
-    /// the middle with an explicit marker. Losing middle content is strictly
-    /// better than a request that can never succeed at ANY output budget
-    /// (chat() only halves max_tokens down to 1024 before giving up).
-    fn fit_to_budget(&self, prompt: &str) -> String {
-        let max_chars = self.prompt_char_budget();
-        let total = prompt.chars().count();
-        if total <= max_chars {
-            return prompt.to_string();
-        }
-        let head = max_chars * 2 / 3;
-        let tail = max_chars - head;
-        let dropped = total - max_chars;
-        let head_s: String = prompt.chars().take(head).collect();
-        let tail_s: String = prompt.chars().skip(total - tail).collect();
-        tracing::warn!(
-            chars = total,
-            max_chars,
-            dropped,
-            "Prompt exceeds model context budget; truncating middle"
+    /// The prompt must be pre-partitioned before this guard: never silently
+    /// drop middle-of-session evidence to fit a context window.
+    fn fit_to_budget(&self, prompt: &str) -> anyhow::Result<String> {
+        let limit = self.prompt_char_budget();
+        anyhow::ensure!(
+            limit >= 512,
+            "AI context budget is too small for reliable extraction"
         );
-        format!(
-            "{}\n\n[...中间内容过长，已截断 {} 字符...]\n\n{}",
-            head_s, dropped, tail_s
-        )
+        anyhow::ensure!(
+            prompt.chars().count() <= limit,
+            "AI prompt exceeds context budget after preparation; refusing to discard evidence"
+        );
+        Ok(prompt.to_string())
+    }
+
+    /// Prepare every LLM request before network calls, preserving its source
+    /// order and all evidence except safely collapsed redundant terminal logs.
+    /// Budget includes system/frame metadata and a safety reserve for UTF-8
+    /// tokenizer variation. Source chunks in SQLite are never rewritten.
+    fn prepare_extraction_chunks(
+        &self,
+        session_title: Option<&str>,
+        project_name: Option<&str>,
+        source: &[(i32, String)],
+    ) -> anyhow::Result<PreparedExtraction> {
+        let empty_context = chunk_context(&self.sanitizer, session_title, project_name, "");
+        let frame_chars = make_v3_extraction_prompt(&empty_context).chars().count();
+        let payload_budget = self
+            .prompt_char_budget()
+            .saturating_sub(frame_chars.saturating_add(256));
+        anyhow::ensure!(
+            payload_budget >= 512,
+            "AI context budget is too small for the extraction JSON frame and evidence"
+        );
+        let mut parts = Vec::new();
+        let mut split_source_chunks = 0usize;
+        let mut input_saved_chars = 0usize;
+        for (chunk_index, original) in source {
+            // Redact over the *complete* source chunk, before splitting; a
+            // secret that straddles a new part boundary is still protected.
+            let sanitized = self.sanitizer.sanitize(original);
+            let compacted = compact_extraction_input(&sanitized);
+            input_saved_chars += sanitized
+                .chars()
+                .count()
+                .saturating_sub(compacted.chars().count());
+
+            // Retain v5 cache identity for unchanged, within-budget chunks.
+            // Only genuinely modified/split evidence gets different keys.
+            let ready = if compacted == *original {
+                original.clone()
+            } else {
+                compacted
+            };
+            let pieces = split_evidence_without_loss(&ready, payload_budget);
+            if pieces.len() > 1 {
+                split_source_chunks += 1;
+            }
+            for piece in pieces {
+                let context = chunk_context(&self.sanitizer, session_title, project_name, &piece);
+                let prompt = make_v3_extraction_prompt(&context);
+                self.fit_to_budget(&prompt)?;
+                parts.push((*chunk_index, piece));
+            }
+        }
+        Ok(PreparedExtraction {
+            parts,
+            source_chunks: source.len(),
+            split_source_chunks,
+            input_saved_chars,
+        })
     }
 
     /// Run AI extraction on a session's LLM chunks.
@@ -116,48 +357,70 @@ impl AiStage {
         let pipeline_repo = PipelineRepo::new(db);
         let knowledge_repo = KnowledgeRepo::new(db);
 
-        // Load chunks from DB
-        let chunks = load_chunks(db, session_id)?;
-
-        if chunks.is_empty() {
+        // Prepare bounded, evidence-preserving requests without mutating DB
+        // source chunks. Large chunks may require additional model calls.
+        let source_chunks = load_chunks(db, session_id)?;
+        if source_chunks.is_empty() {
             anyhow::bail!("No chunks found for session {}", session_id);
         }
-
+        ensure_chunk_cache_table(db)?;
         let t0 = Instant::now();
+        let prepared =
+            self.prepare_extraction_chunks(session_title, project_name, &source_chunks)?;
+        let chunks = &prepared.parts;
         info!(
             session_id,
-            chunks = chunks.len(),
-            "[AI] Starting extraction"
+            source_chunks = prepared.source_chunks,
+            extraction_parts = chunks.len(),
+            split_source_chunks = prepared.split_source_chunks,
+            input_saved_chars = prepared.input_saved_chars,
+            "[AI] Starting evidence-preserving extraction"
         );
 
-        let mut result = if chunks.len() == 1 {
-            // Single chunk: direct extraction
-            let sanitized = self.sanitizer.sanitize(&chunks[0].1);
-            let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&sanitized));
-            let response = self.client.chat(SYSTEM_PROMPT_V3, &prompt).await?;
-            // R10: parse errors propagate — model failure / protocol breakage
-            // must surface as a stage error, never as a silent "skip".
-            parse_v3_result_typed(&response)?
+        let (mut result, cache_hits, llm_calls, actual_usage) = if chunks.len() == 1 {
+            let cache_key =
+                chunk_cache_key(&self.config, session_title, project_name, &chunks[0].1);
+            if let Some(cached) = read_cached_chunk_result(db, &cache_key)? {
+                info!(
+                    session_id,
+                    "[AI] Reusing validated single-chunk extraction cache"
+                );
+                (cached, 1usize, 0usize, None)
+            } else {
+                let sanitized = self.sanitizer.sanitize(&chunks[0].1);
+                let context =
+                    chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
+                let prompt = self.fit_to_budget(&make_v3_extraction_prompt(&context))?;
+                let response = self.client.chat_detailed(SYSTEM_PROMPT_V3, &prompt).await?;
+                let result = parse_completed_extraction_reply(&response)?;
+                store_cached_chunk_result(db, &cache_key, &result)?;
+                (result, 0usize, 1usize, response.usage)
+            }
         } else {
-            // Multiple chunks: Map-Reduce
-            self.map_reduce(db, session_title, project_name, &chunks)
+            self.map_reduce(db, session_title, project_name, chunks)
                 .await?
         };
+        prune_chunk_cache(db)?;
 
         let latency_ms = t0.elapsed().as_millis() as i64;
 
-        // Log AI request
-        log_ai_request(
-            db,
-            pipeline_run_id,
-            "AI_EXTRACT",
-            &self.config.model,
-            &self.config.base_url,
-            chunks.len(),
-            result.items.len(),
-            latency_ms,
-            true,
-        );
+        // A cache-only pass made no HTTP request, so it must not be counted
+        // as a new model call or fabricate token usage in ai_request_log.
+        if llm_calls > 0 {
+            log_ai_request(
+                db,
+                pipeline_run_id,
+                "AI_EXTRACT",
+                &self.config.model,
+                &self.config.base_url,
+                actual_usage.as_ref().and_then(|usage| usage.prompt_tokens),
+                actual_usage
+                    .as_ref()
+                    .and_then(|usage| usage.completion_tokens),
+                latency_ms,
+                true,
+            );
+        }
 
         if !result.worth_extracting || result.items.is_empty() {
             info!(
@@ -169,10 +432,22 @@ impl AiStage {
                 pipeline_run_id,
                 "AI_EXTRACTED",
                 "SUCCESS",
-                Some(chunks.len() as i32),
+                Some(prepared.source_chunks as i32),
                 Some(0),
                 Some(latency_ms),
-                Some(&serde_json::json!({"score": result.knowledge_score, "items": 0})),
+                Some(&serde_json::json!({
+                    "score": result.knowledge_score,
+                    "items": 0,
+                    "cache_hits": cache_hits,
+                    "extraction_parts": chunks.len(),
+                    "split_source_chunks": prepared.split_source_chunks,
+                    "input_saved_chars": prepared.input_saved_chars,
+                    "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
+                    "llm_calls": llm_calls,
+                    "configured_concurrency": self.config.max_concurrent,
+                    "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
+                    "actual_usage": actual_usage
+                })),
                 None,
             )?;
             return Ok(0);
@@ -206,10 +481,22 @@ impl AiStage {
             pipeline_run_id,
             "AI_EXTRACTED",
             "SUCCESS",
-            Some(chunks.len() as i32),
+            Some(prepared.source_chunks as i32),
             Some(item_count as i32),
             Some(latency_ms),
-            Some(&serde_json::json!({"score": result.knowledge_score, "items": item_count})),
+            Some(&serde_json::json!({
+                "score": result.knowledge_score,
+                "items": item_count,
+                "cache_hits": cache_hits,
+                    "extraction_parts": chunks.len(),
+                    "split_source_chunks": prepared.split_source_chunks,
+                    "input_saved_chars": prepared.input_saved_chars,
+                "cache_hit_percent": cache_hit_percent(cache_hits, chunks.len()),
+                "llm_calls": llm_calls,
+                "configured_concurrency": self.config.max_concurrent,
+                "effective_concurrency": extraction_batch_size(self.config.max_concurrent),
+                "actual_usage": actual_usage
+            })),
             None,
         )?;
 
@@ -226,106 +513,95 @@ impl AiStage {
         session_title: Option<&str>,
         project_name: Option<&str>,
         chunks: &[(i32, String)],
-    ) -> anyhow::Result<V3ExtractionResult> {
-        // Cache successful chunk extractions, not failed/incomplete responses.
-        // Changing the model, prompt version, project or chunk content
-        // invalidates the key automatically.
-        {
-            let conn = db.conn();
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS ai_chunk_extract_cache (
-                cache_key TEXT PRIMARY KEY,
-                result_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );",
-            )?;
-        }
+    ) -> anyhow::Result<(V3ExtractionResult, usize, usize, Option<ChatUsage>)> {
         // Cached results retain their original slot; uncached chunks are
         // processed in bounded pairs to avoid queueing the entire session.
         let mut results: Vec<Option<V3ExtractionResult>> = vec![None; chunks.len()];
         let mut pending: Vec<(usize, String, String)> = Vec::new();
         let mut cache_hits = 0usize;
+        let mut actual_usage: Option<ChatUsage> = None;
         for (idx, (_, text)) in chunks.iter().enumerate() {
-            use sha2::{Digest, Sha256};
-            let key_material = format!(
-                "knowledge-chunk-v4|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-                crate::ai::prompts_v3::PROMPT_VERSION_V3,
-                self.config.base_url,
-                self.config.model,
-                self.config.temperature,
-                self.config.max_tokens,
-                self.config.max_context_tokens,
-                self.config.disable_thinking,
-                session_title.unwrap_or(""),
-                project_name.unwrap_or(""),
-                text
-            );
-            let cache_key = hex::encode(Sha256::digest(key_material.as_bytes()));
-            let cached: Option<String> = {
-                let conn = db.conn();
-                match conn.query_row(
-                    "SELECT result_json FROM ai_chunk_extract_cache WHERE cache_key = ?1",
-                    [&cache_key],
-                    |row| row.get(0),
-                ) {
-                    Ok(value) => Some(value),
-                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(error.into()),
-                }
-            };
-            if let Some(result) = cached.and_then(|v| serde_json::from_str(&v).ok()) {
+            let cache_key = chunk_cache_key(&self.config, session_title, project_name, text);
+            if let Some(result) = read_cached_chunk_result(db, &cache_key)? {
                 cache_hits += 1;
                 results[idx] = Some(result);
                 continue;
             }
             let sanitized = self.sanitizer.sanitize(text);
-            let context = format!(
-                "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\\n{}",
-                session_title.unwrap_or("未知会话"),
-                project_name.unwrap_or("未知"),
-                sanitized
-            );
+            let context = chunk_context(&self.sanitizer, session_title, project_name, &sanitized);
             pending.push((
                 idx,
                 cache_key,
-                self.fit_to_budget(&make_v3_extraction_prompt(&context)),
+                self.fit_to_budget(&make_v3_extraction_prompt(&context))?,
             ));
         }
         tracing::info!(
             total_chunks = chunks.len(),
             cache_hits,
+            cache_hit_percent = cache_hit_percent(cache_hits, chunks.len()),
             llm_calls = pending.len(),
             "[AI] Chunk cache summary"
         );
 
-        // Concurrency is intentionally bounded at 2. Shared GPU backends
-        // may not support more concurrent generations; never fan out all jobs.
-        for batch in pending.chunks(2) {
+        // Default remains sequential; explicitly configured parallelism is
+        // bounded so local model endpoints cannot receive unbounded load.
+        let batch_size = extraction_batch_size(self.config.max_concurrent);
+        tracing::info!(
+            configured_concurrency = self.config.max_concurrent,
+            effective_concurrency = batch_size,
+            pending_chunks = pending.len(),
+            "[AI] Extraction concurrency budget"
+        );
+        let mut batch_latencies_ms = Vec::new();
+        for batch in pending.chunks(batch_size) {
             let started = Instant::now();
-            let first = self.client.chat(SYSTEM_PROMPT_V3, &batch[0].2);
-            let responses = if batch.len() == 2 {
-                let second = self.client.chat(SYSTEM_PROMPT_V3, &batch[1].2);
-                let (a, b) = tokio::join!(first, second);
-                vec![a, b]
-            } else {
-                vec![first.await]
+            let responses = match batch.len() {
+                1 => vec![
+                    self.client
+                        .chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2)
+                        .await,
+                ],
+                2 => {
+                    let (a, b) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                    );
+                    vec![a, b]
+                }
+                3 => {
+                    let (a, b, c) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                    );
+                    vec![a, b, c]
+                }
+                4 => {
+                    let (a, b, c, d) = tokio::join!(
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[0].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[1].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[2].2),
+                        self.client.chat_detailed(SYSTEM_PROMPT_V3, &batch[3].2),
+                    );
+                    vec![a, b, c, d]
+                }
+                _ => unreachable!("extraction concurrency is bounded to four"),
             };
+            batch_latencies_ms.push(started.elapsed().as_millis() as u64);
             // Persist each successful result even if the other request failed,
             // so the next pipeline retry does not repeat successful work.
             let mut first_error = None;
             for (request, response) in batch.iter().zip(responses) {
-                match response.and_then(|text| parse_v3_result_typed(&text)) {
+                match response.and_then(|output| {
+                    if let Some(usage) = output.usage.as_ref() {
+                        actual_usage
+                            .get_or_insert_with(ChatUsage::default)
+                            .accumulate(usage);
+                    }
+                    parse_completed_extraction_reply(&output)
+                }) {
                     Ok(result) => {
-                        let conn = db.conn();
-                        conn.execute(
-                            "INSERT OR REPLACE INTO ai_chunk_extract_cache
-                             (cache_key,result_json,created_at) VALUES (?1,?2,?3)",
-                            rusqlite::params![
-                                request.1,
-                                serde_json::to_string(&result)?,
-                                chrono::Utc::now().to_rfc3339()
-                            ],
-                        )?;
+                        store_cached_chunk_result(db, &request.1, &result)?;
                         tracing::info!(
                             chunk = request.0 + 1,
                             elapsed_ms = started.elapsed().as_millis(),
@@ -346,21 +622,74 @@ impl AiStage {
                 return Err(error);
             }
         }
-        {
-            let conn = db.conn();
-            conn.execute(
-                "DELETE FROM ai_chunk_extract_cache WHERE cache_key IN
-                 (SELECT cache_key FROM ai_chunk_extract_cache
-                  ORDER BY created_at DESC LIMIT -1 OFFSET 2000)",
-                [],
-            )?;
-        }
+        tracing::info!(
+            batches = batch_latencies_ms.len(),
+            batch_p50_ms = latency_percentile(&batch_latencies_ms, 50),
+            batch_p95_ms = latency_percentile(&batch_latencies_ms, 95),
+            "AIKS_EXTRACTION_BATCH_LATENCY"
+        );
         let results: Vec<V3ExtractionResult> = results
             .into_iter()
             .map(|r| r.ok_or_else(|| anyhow::anyhow!("Missing chunk extraction result")))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(merge_chunk_knowledge(results))
+        Ok((
+            merge_chunk_knowledge(results),
+            cache_hits,
+            pending.len(),
+            actual_usage,
+        ))
     }
+}
+
+/// Keep caller-controlled metadata from masquerading as transcript lines or
+/// consuming the evidence budget. Redact before limiting length so secrets
+/// cannot become partially visible through truncation.
+fn safe_extraction_label(sanitizer: &SecretSanitizer, value: &str) -> String {
+    sanitizer
+        .sanitize(value)
+        .chars()
+        .take(160)
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn chunk_context(
+    sanitizer: &SecretSanitizer,
+    title: Option<&str>,
+    project: Option<&str>,
+    chunk: &str,
+) -> String {
+    format!(
+        "会话：{}；项目：{}；以下是会话的一个独立片段。只根据片段里的证据提炼知识，不要推断其他片段的结果。\n{}",
+        safe_extraction_label(sanitizer, title.unwrap_or("未知会话")),
+        safe_extraction_label(sanitizer, project.unwrap_or("未知")),
+        chunk
+    )
+}
+
+/// Integer cache hit ratio avoids division by zero on empty inputs.
+fn cache_hit_percent(hits: usize, total: usize) -> usize {
+    hits.saturating_mul(100).checked_div(total).unwrap_or(0)
+}
+
+/// Nearest-rank percentile of completed batch latency, in milliseconds.
+/// These are *batch* timings, not per-request latency or whole-session P95.
+fn latency_percentile(samples: &[u64], percent: usize) -> u64 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let rank = sorted.len().saturating_mul(percent.min(100)).div_ceil(100);
+    sorted[rank.max(1) - 1]
 }
 
 /// Conservatively consolidate identical knowledge titles across chunks.
@@ -540,7 +869,91 @@ fn merge_optional_vec(target: &mut Option<Vec<String>>, incoming: Option<Vec<Str
 /// This separates "no knowledge" (valid skip) from "AI output broken" (error).
 /// The error preview is cut on character boundaries (UTF-8 safe).
 /// Public for testing.
+fn extraction_scores_valid(result: &V3ExtractionResult) -> bool {
+    result.knowledge_score.is_finite()
+        && (0.0..=1.0).contains(&result.knowledge_score)
+        && result
+            .items
+            .iter()
+            .all(|item| item.confidence.is_finite() && (0.0..=1.0).contains(&item.confidence))
+}
+
+/// Accept only strictly serialized, score-valid cache entries. A damaged
+/// cache is a miss, never a silently accepted knowledge result.
+fn parse_cached_v3_result(text: &str) -> Option<V3ExtractionResult> {
+    let result: V3ExtractionResult = serde_json::from_str(text).ok()?;
+    (extraction_scores_valid(&result) && cacheable_extraction(&result)).then_some(result)
+}
+
+/// The model's own finish_reason is a separate completeness signal from the
+/// syntax of the generated JSON. A model can emit a fully balanced but partial
+/// subset of the intended items before reaching max_tokens; the JSON parser
+/// alone cannot distinguish that case. Never publish or cache that subset.
+///
+/// Missing metadata is common with older local OpenAI-compatible servers; for
+/// those, continue using the structural completeness gate in the parser.
+pub fn parse_completed_extraction_reply(reply: &ChatResult) -> anyhow::Result<V3ExtractionResult> {
+    if let Some(reason) = reply.finish_reason.as_deref() {
+        match reason {
+            "length" | "content_filter" | "tool_calls" | "function_call" | "error" => {
+                anyhow::bail!(
+                    "AI extraction response did not finish normally (finish_reason={reason}); retry with a larger output budget, shorter input, or corrected model"
+                );
+            }
+            _ => {}
+        }
+    }
+    parse_v3_result_typed(&reply.content)
+}
+
+/// The lenient parser deliberately salvages JSON cut off by max_tokens, even
+/// when some complete item objects precede the missing tail. Such a response
+/// is useful for diagnostics, but the model might have been about to produce
+/// more items: finalizing/caching the prefix silently loses knowledge.
+///
+/// This is a structural *completeness* gate, not a replacement for schema
+/// repairs. A balanced full wrapper may still contain recoverable syntax
+/// errors (e.g. trailing commas). A leaked reasoning prefix can also have
+/// stray braces before a later complete wrapper. The bounded balanced scanner
+/// lets those complete responses proceed, while a dangling items envelope
+/// with only complete nested item objects cannot be accepted as a full result.
+fn has_incomplete_v3_envelope(response: &str) -> bool {
+    let clean = clean_json(response);
+    if !clean.contains("\"items\"") {
+        // Bare object arrays / concatenated items are handled independently
+        // by the existing degraded-schema recovery.
+        return false;
+    }
+    if serde_json::from_str::<serde_json::Value>(&clean).is_ok() {
+        return false;
+    }
+    !balanced_json_candidates(&clean)
+        .iter()
+        .any(|candidate| candidate.contains("\"items\""))
+}
+
 pub fn parse_v3_result_typed(response: &str) -> anyhow::Result<V3ExtractionResult> {
+    let result = parse_v3_result_unchecked(response)?;
+    if has_incomplete_v3_envelope(response) {
+        anyhow::bail!(
+            "AI extraction response appears truncated before completing its items array; retry with a larger max_tokens or shorter input, rather than publishing an incomplete partial result"
+        );
+    }
+    if !extraction_scores_valid(&result) {
+        anyhow::bail!("AI extraction response contains invalid score or confidence");
+    }
+    // The lenient parser can recover a truncated top-level wrapper with zero
+    // complete items. That partial response must not silently become a
+    // successful pipeline stage or enter the persistent extraction cache.
+    if !cacheable_extraction(&result) {
+        anyhow::bail!(
+            "AI extraction response contradicts its own items: worth_extracting and non-empty items disagree; retry with a larger max_tokens or a corrected model"
+        );
+    }
+    Ok(result)
+}
+
+fn parse_v3_result_unchecked(response: &str) -> anyhow::Result<V3ExtractionResult> {
     let clean = clean_json(response);
     if clean.is_empty() || (!clean.starts_with('{')) {
         anyhow::bail!(
@@ -1053,8 +1466,8 @@ fn log_ai_request(
     stage: &str,
     model: &str,
     endpoint: &str,
-    input_count: usize,
-    output_count: usize,
+    input_count: Option<u64>,
+    output_count: Option<u64>,
     latency_ms: i64,
     success: bool,
 ) {
@@ -1066,7 +1479,9 @@ fn log_ai_request(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             id, pipeline_run_id, stage, model, endpoint,
-            input_count as i64, output_count as i64, latency_ms, status, now
+            input_count.and_then(|n| i64::try_from(n).ok()),
+            output_count.and_then(|n| i64::try_from(n).ok()),
+            latency_ms, status, now
         ],
     );
 }
@@ -1074,6 +1489,337 @@ fn log_ai_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_latency_percentiles_use_nearest_rank() {
+        assert_eq!(latency_percentile(&[], 95), 0);
+        assert_eq!(latency_percentile(&[50], 95), 50);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 50), 30);
+        assert_eq!(latency_percentile(&[20, 10, 40, 30, 50], 95), 50);
+    }
+
+    #[test]
+    fn cached_extraction_obeys_production_score_validation() {
+        let valid = serde_json::json!({
+            "session_summary": "Cached decision",
+            "knowledge_score": 0.8,
+            "worth_extracting": true,
+            "items": [{
+                "title": "Bounded retry",
+                "category": "decision",
+                "summary": "Use bounded retry",
+                "content": "Limit retry attempts",
+                "problem": null,
+                "root_causes": null,
+                "solutions": null,
+                "key_commands": null,
+                "key_files": null,
+                "decisions": null,
+                "tags": ["retry"],
+                "confidence": 0.9
+            }]
+        });
+        assert!(parse_cached_v3_result(&valid.to_string()).is_some());
+
+        for (field, value) in [("knowledge_score", 1.5), ("knowledge_score", -0.1)] {
+            let mut corrupted = valid.clone();
+            corrupted[field] = serde_json::json!(value);
+            assert!(parse_cached_v3_result(&corrupted.to_string()).is_none());
+        }
+        let mut bad_confidence = valid.clone();
+        bad_confidence["items"][0]["confidence"] = serde_json::json!(1.2);
+        assert!(parse_cached_v3_result(&bad_confidence.to_string()).is_none());
+        assert!(parse_cached_v3_result("{not valid json").is_none());
+    }
+
+    #[test]
+    fn finish_reason_prevents_even_balanced_partial_json_from_being_cached() {
+        let complete = serde_json::json!({
+            "session_summary": "Safe, but potentially incomplete",
+            "knowledge_score": 0.9,
+            "worth_extracting": true,
+            "items": [{
+                "title": "Decision", "category": "decision",
+                "summary": "Only one decision shown",
+                "content": "Set cache capacity",
+                "problem": null, "root_causes": null,
+                "solutions": null, "key_commands": null,
+                "key_files": null, "decisions": null,
+                "tags": ["capacity"], "confidence": 0.8
+            }]
+        })
+        .to_string();
+        let mut reply = ChatResult {
+            content: complete,
+            usage: None,
+            finish_reason: Some("stop".into()),
+        };
+        assert_eq!(
+            parse_completed_extraction_reply(&reply)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+        // At max_tokens the model may have closed a valid JSON object but still
+        // report truncated generation: its own signal overrides parse success.
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "error",
+        ] {
+            reply.finish_reason = Some(reason.into());
+            let error = parse_completed_extraction_reply(&reply)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(reason));
+            assert!(error.contains("finish_reason"));
+        }
+        reply.finish_reason = None;
+        assert_eq!(
+            parse_completed_extraction_reply(&reply)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+
+        // Stop is not a bypass for the separate structural truncation guard.
+        reply.finish_reason = Some("stop".into());
+        assert_eq!(reply.content.pop(), Some('}'));
+        assert!(parse_completed_extraction_reply(&reply).is_err());
+    }
+
+    #[test]
+    fn both_extraction_paths_use_content_and_model_sensitive_cache_identity() {
+        let config = AiModelConfig::default();
+        let key = chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧");
+        assert_eq!(key.len(), 64);
+        assert!(!key.contains("消息"));
+        assert_eq!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧")
+        );
+        assert_ne!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Other"), "消息🔧")
+        );
+        assert_ne!(
+            key,
+            chunk_cache_key(&config, Some("Session"), Some("Project"), "消息🔧追加")
+        );
+        let mut changed = config.clone();
+        changed.max_context_tokens += 1;
+        assert_ne!(
+            key,
+            chunk_cache_key(&changed, Some("Session"), Some("Project"), "消息🔧")
+        );
+        changed = config.clone();
+        changed.model.push_str("-new");
+        assert_ne!(
+            key,
+            chunk_cache_key(&changed, Some("Session"), Some("Project"), "消息🔧")
+        );
+    }
+
+    #[test]
+    fn existing_v5_map_reduce_cache_identity_is_unchanged_for_single_chunk_reuse() {
+        let config = AiModelConfig::default();
+        let title = "Session";
+        let project = "Project";
+        let text = "historical chunk cache key";
+        // Legacy Map-Reduce v5 expression, retained as a byte-level contract
+        // for shared old/new SQLite cache rows.
+        let legacy = format!(
+            "knowledge-chunk-v5|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            crate::ai::prompts_v3::PROMPT_VERSION_V3,
+            config.base_url,
+            config.model,
+            config.temperature,
+            config.max_tokens,
+            config.max_context_tokens,
+            config.disable_thinking,
+            title,
+            project,
+            text
+        );
+        let key = chunk_cache_key(&config, Some(title), Some(project), text);
+        assert_eq!(key, hex::encode(Sha256::digest(legacy.as_bytes())));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        let db = StateDb::open(&path).unwrap();
+        ensure_chunk_cache_table(&db).unwrap();
+        let legacy_cache_result = V3ExtractionResult::skip("old cache");
+        store_cached_chunk_result(&db, &key, &legacy_cache_result).unwrap();
+        drop(db);
+        let reopened = StateDb::open(&path).unwrap();
+        assert_eq!(
+            read_cached_chunk_result(&reopened, &key)
+                .unwrap()
+                .unwrap()
+                .session_summary,
+            "old cache"
+        );
+    }
+
+    #[test]
+    fn single_chunk_cache_survives_reopen_but_rejects_contradictory_model_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        let key = "single-chunk-validated";
+        {
+            let db = StateDb::open(&path).unwrap();
+            ensure_chunk_cache_table(&db).unwrap();
+            assert!(read_cached_chunk_result(&db, key).unwrap().is_none());
+            let result = V3ExtractionResult::skip("Safe to skip");
+            store_cached_chunk_result(&db, key, &result).unwrap();
+            let loaded = read_cached_chunk_result(&db, key).unwrap().unwrap();
+            assert_eq!(loaded.session_summary, "Safe to skip");
+            assert!(!loaded.worth_extracting);
+
+            let inconsistent = V3ExtractionResult {
+                session_summary: "Truncated positive response".into(),
+                knowledge_score: 0.9,
+                worth_extracting: true,
+                items: vec![],
+            };
+            assert!(!cacheable_extraction(&inconsistent));
+            store_cached_chunk_result(&db, "bad-new", &inconsistent).unwrap();
+            assert!(read_cached_chunk_result(&db, "bad-new").unwrap().is_none());
+
+            db.conn()
+                .execute(
+                    "INSERT INTO ai_chunk_extract_cache
+                     (cache_key, result_json, created_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![
+                        "bad-existing",
+                        serde_json::to_string(&inconsistent).unwrap(),
+                        "2026-10-11T00:00:00Z"
+                    ],
+                )
+                .unwrap();
+            assert!(read_cached_chunk_result(&db, "bad-existing")
+                .unwrap()
+                .is_none());
+        }
+        let reopened = StateDb::open(&path).unwrap();
+        ensure_chunk_cache_table(&reopened).unwrap();
+        assert!(read_cached_chunk_result(&reopened, key).unwrap().is_some());
+        assert!(read_cached_chunk_result(&reopened, "bad-new")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn cache_hit_ratio_handles_empty_and_partial_batches() {
+        assert_eq!(cache_hit_percent(0, 0), 0);
+        assert_eq!(cache_hit_percent(0, 3), 0);
+        assert_eq!(cache_hit_percent(1, 3), 33);
+        assert_eq!(cache_hit_percent(3, 3), 100);
+    }
+
+    #[test]
+    fn single_chunk_prompt_includes_project_and_session_context() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Codex repair"),
+            Some("AIKS"),
+            "fixed login flow",
+        );
+        let prompt = make_v3_extraction_prompt(&context);
+        assert!(prompt.contains("Codex repair"));
+        assert!(prompt.contains("AIKS"));
+        assert!(prompt.contains("fixed login flow"));
+        assert!(context.contains("项目：AIKS"));
+    }
+
+    #[test]
+    fn extraction_metadata_is_sanitized_before_external_model_calls() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Bearer abcdefghijklmnopqrstuvwxyz"),
+            Some("API_KEY=secretvalue123"),
+            "safe session content",
+        );
+        assert!(!context.contains("abcdefghijklmnopqrstuvwxyz"));
+        assert!(!context.contains("secretvalue123"));
+        assert!(context.contains("safe session content"));
+        assert!(context.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn untrusted_extraction_metadata_cannot_inject_lines_or_evict_evidence() {
+        let long_project = "P".repeat(10_000);
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("Ordinary title\n## Forged session"),
+            Some(&long_project),
+            "The original evidence must survive.\nsecond evidence line",
+        );
+        assert!(!context.contains("\n## Forged session"));
+        assert!(context.contains("Ordinary title ## Forged session"));
+        assert!(!context.contains(&"P".repeat(161)));
+        assert!(context.contains("The original evidence must survive.\nsecond evidence line"));
+        assert!(context.chars().count() < 600);
+    }
+
+    #[test]
+    fn chunk_context_preserves_real_line_breaks() {
+        let context = chunk_context(
+            &SecretSanitizer::new(),
+            Some("A"),
+            Some("B"),
+            "line1\nline2",
+        );
+        assert!(context.contains("结果。\nline1\nline2"));
+        assert!(!context.contains(r"结果。\nline1"));
+    }
+
+    #[test]
+    fn production_parser_rejects_out_of_range_model_scores() {
+        let skip = r#"{"session_summary":"test","knowledge_score":1.5,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(skip)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid score"));
+        let nan = r#"{"session_summary":"test","knowledge_score":-0.1,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(nan).is_err());
+    }
+
+    #[test]
+    fn production_parser_rejects_contradictory_model_verdicts_to_allow_retry() {
+        let positive_without_items = r#"{"session_summary":"partial JSON","knowledge_score":0.9,"worth_extracting":true,"items":[]}"#;
+        assert!(parse_v3_result_typed(positive_without_items)
+            .unwrap_err()
+            .to_string()
+            .contains("worth_extracting"));
+        let mut contradictory = serde_json::json!({
+            "session_summary": "data exists",
+            "knowledge_score": 0.9,
+            "worth_extracting": true,
+            "items": [{
+                "title": "An actionable conclusion",
+                "category": "implementation",
+                "summary": "summary",
+                "content": "evidence",
+                "problem": null,
+                "root_causes": null,
+                "solutions": null,
+                "key_commands": null,
+                "key_files": null,
+                "decisions": null,
+                "tags": [],
+                "confidence": 0.8
+            }]
+        });
+        assert!(parse_v3_result_typed(&contradictory.to_string()).is_ok());
+        contradictory["worth_extracting"] = serde_json::json!(false);
+        assert!(parse_v3_result_typed(&contradictory.to_string()).is_err());
+        let valid_skip = r#"{"session_summary":"valid skip","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
+        assert!(parse_v3_result_typed(valid_skip).is_ok());
+    }
 
     #[test]
     fn parse_valid_v3_response() {
@@ -1179,10 +1925,11 @@ mod tests {
     #[test]
     fn parse_repairs_unicode_keys_and_python_literals() {
         let json = "{session_summary:\"x\", knowledge_score:0.4, worth_extracting:True, items:[],}";
-        let result = parse_v3_result_typed(json).unwrap();
+        let result = parse_v3_result_unchecked(json).unwrap();
         assert_eq!(result.session_summary, "x");
         assert!(result.worth_extracting);
         assert!(result.items.is_empty());
+        assert!(parse_v3_result_typed(json).is_err());
     }
 
     /// A leading BOM must not break the parse.
@@ -1258,27 +2005,116 @@ mod tests {
     fn fit_to_budget_passes_short_prompt_through() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
         let prompt = "短内容".repeat(100);
-        assert_eq!(stage.fit_to_budget(&prompt), prompt);
+        assert_eq!(stage.fit_to_budget(&prompt).unwrap(), prompt);
     }
 
-    /// An oversized prompt keeps head and tail and marks the dropped middle —
-    /// the request becomes merely degraded instead of impossible.
+    /// Oversized prompts must fail rather than dropping important middle facts.
     #[test]
-    fn fit_to_budget_truncates_oversized_prompt_middle() {
+    fn fit_to_budget_refuses_silent_middle_truncation() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
-        let budget = stage.prompt_char_budget();
-        assert!(budget > 0);
+        let prompt = format!(
+            "开始{}中段重要 SQL{}",
+            "甲".repeat(stage.prompt_char_budget()),
+            "尾段"
+        );
+        assert!(stage.fit_to_budget(&prompt).is_err());
+    }
 
-        let head_marker = "HEAD_START_ABCDEF";
-        let tail_marker = "TAIL_END_UVWXYZ";
-        let filler = "x".repeat(budget); // alone already over budget
-        let prompt = format!("{}{}{}", head_marker, filler, tail_marker);
+    #[test]
+    fn evidence_partition_round_trips_unicode_sql_and_middle_content() {
+        let source = format!(
+            "开始🔧\n{}SELECT * FROM 重要表;\n{}最后验证成功\n",
+            "中段".repeat(900),
+            "输出".repeat(750)
+        );
+        let parts = split_evidence_without_loss(&source, 333);
+        assert!(parts.len() > 2);
+        assert_eq!(parts.concat(), source);
+        assert!(parts.iter().all(|s| s.chars().count() <= 333));
+        assert!(!parts.concat().contains('\u{fffd}'));
+    }
 
-        let fitted = stage.fit_to_budget(&prompt);
-        assert!(fitted.chars().count() < prompt.chars().count());
-        assert!(fitted.starts_with(head_marker), "head must be preserved");
-        assert!(fitted.ends_with(tail_marker), "tail must be preserved");
-        assert!(fitted.contains("已截断"), "drop marker must be present");
+    #[test]
+    fn extraction_preparation_preserves_large_evidence_and_prompt_bounds() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let middle = "SELECT * FROM critical_middle_table;\n";
+        let raw = format!(
+            "{}{}{}",
+            "开始🔧\n".repeat(6000),
+            middle,
+            "最终修复成功\n".repeat(6000)
+        );
+        let prepared = stage
+            .prepare_extraction_chunks(Some("Session"), Some("项目"), &[(0, raw.clone())])
+            .unwrap();
+        assert_eq!(prepared.source_chunks, 1);
+        assert!(prepared.split_source_chunks > 0);
+        assert!(prepared.parts.len() > 1);
+        assert_eq!(
+            prepared
+                .parts
+                .iter()
+                .map(|(_, text)| text.as_str())
+                .collect::<String>(),
+            raw
+        );
+        for (_, part) in &prepared.parts {
+            let prompt = make_v3_extraction_prompt(&chunk_context(
+                &stage.sanitizer,
+                Some("Session"),
+                Some("项目"),
+                part,
+            ));
+            assert!(stage.fit_to_budget(&prompt).is_ok());
+        }
+        assert!(prepared.parts.iter().any(|(_, s)| s.contains(middle)));
+    }
+
+    #[test]
+    fn compaction_counts_only_adjacent_exact_terminal_logs() {
+        let input = "INFO task completed\nINFO task completed\nINFO task completed\n\
+SELECT 1;\nSELECT 1;\n```\nERROR same\nERROR same\n```\n\
+ERROR first\nERROR second\n";
+        let compact = compact_extraction_input(input);
+        assert!(compact.contains("INFO task completed\n[以上完全相同的日志又连续出现 2 次"));
+        assert!(compact.contains("SELECT 1;\nSELECT 1;"));
+        assert!(compact.contains("ERROR same\nERROR same"));
+        assert!(compact.contains("ERROR first\nERROR second"));
+    }
+
+    #[test]
+    fn unchanged_small_chunk_keeps_legacy_cache_identity() {
+        let stage = AiStage::new(AiModelConfig::default()).unwrap();
+        let original = "SELECT COUNT(*) FROM source_session;\n".to_string();
+        let result = stage
+            .prepare_extraction_chunks(Some("Session"), Some("Project"), &[(3, original.clone())])
+            .unwrap();
+        assert_eq!(result.parts, vec![(3, original.clone())]);
+        assert_eq!(result.input_saved_chars, 0);
+        assert_eq!(
+            chunk_cache_key(
+                &stage.config,
+                Some("Session"),
+                Some("Project"),
+                &result.parts[0].1
+            ),
+            chunk_cache_key(&stage.config, Some("Session"), Some("Project"), &original)
+        );
+    }
+
+    /// A malformed user-supplied context window is an explicit stage failure,
+    /// not a successful request containing zero trustworthy Session evidence.
+    #[test]
+    fn tiny_context_windows_refuse_extraction_instead_of_hiding_all_evidence() {
+        let mut config = AiModelConfig::default();
+        config.max_context_tokens = config.max_tokens as usize + PROMPT_OVERHEAD_TOKENS;
+        let stage = AiStage::new(config.clone()).unwrap();
+        assert_eq!(stage.prompt_char_budget(), 0);
+        assert!(stage.fit_to_budget("Some Session evidence").is_err());
+
+        config.max_context_tokens += 100;
+        let stage = AiStage::new(config).unwrap();
+        assert!(stage.fit_to_budget("Some Session evidence").is_err());
     }
 
     /// Default config numbers must leave room for output: budget chars at
@@ -1308,37 +2144,42 @@ mod tests {
     }
 
     /// max_tokens truncation mid-array (observed live: "EOF while parsing a
-    /// list at line 216", 14.7 KB of otherwise-clean JSON) — closing the
-    /// document must recover the items emitted before the cut.
+    /// list at line 216", 14.7 KB of otherwise-clean JSON) — diagnostic
+    /// recovery can show emitted items but must not publish or cache them.
     #[test]
     fn parse_closes_truncated_json() {
         let full = r#"{"session_summary":"大数据集分析","knowledge_score":0.9,"worth_extracting":true,"items":[
             {"title":"条目一","category":"architecture","summary":"s1","content":"c1","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.9},
             {"title":"条目二","category":"troubleshooting","summary":"s2","content":"c2","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8}"#;
-        let result = parse_v3_result_typed(full).unwrap();
+        let result = parse_v3_result_unchecked(full).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].title, "条目一");
+        let err = parse_v3_result_typed(full).unwrap_err().to_string();
+        assert!(err.contains("appears truncated"), "{err}");
     }
 
     /// Truncation in the middle of a string value must also close cleanly.
     /// The half-emitted item cannot satisfy the item schema (missing later
     /// required fields), so the scan falls back to closing `"items":[]` —
-    /// top-level data survives and the run is no longer a total failure.
+    /// top-level data survives for diagnostics, but production must retry.
     #[test]
     fn parse_closes_truncated_inside_string() {
         let truncated = r#"{"session_summary":"对 dataset-eval 项目进行了全面的分析。","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"条目A","category":"architecture","summary":"内容到这里被截断"#;
-        let result = parse_v3_result_typed(truncated).unwrap();
+        let result = parse_v3_result_unchecked(truncated).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(
             result.session_summary,
             "对 dataset-eval 项目进行了全面的分析。"
         );
         assert!(result.items.is_empty());
+        // Salvage diagnostics remain inspectable; a truncated positive result
+        // without a complete item is not a successful production extraction.
+        assert!(parse_v3_result_typed(truncated).is_err());
     }
 
-    /// Truncation after several complete items keeps every complete item —
-    /// the boundary cut lands on the inter-item comma.
+    /// Truncation after several complete items can recover those items for
+    /// diagnostics, but never assert that the generated knowledge is complete.
     #[test]
     fn parse_keeps_complete_items_before_truncation() {
         let item = |t: &str| {
@@ -1352,11 +2193,48 @@ mod tests {
             item("甲"),
             item("乙")
         );
-        let result = parse_v3_result_typed(&truncated).unwrap();
+        let result = parse_v3_result_unchecked(&truncated).unwrap();
         assert!(result.worth_extracting);
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].title, "甲");
         assert_eq!(result.items[1].title, "乙");
+        assert!(parse_v3_result_typed(&truncated).is_err());
+    }
+
+    /// Full wrappers may need syntactic repairs; structural completeness is
+    /// different from strict JSON syntax validity and from factual accuracy.
+    #[test]
+    fn rejects_incomplete_wrappers_without_regressing_complete_repairable_ones() {
+        let normal_skip = r#"{"session_summary":"complete","knowledge_score":0.2,"worth_extracting":false,"items":[]}"#;
+        assert!(!has_incomplete_v3_envelope(normal_skip));
+        assert!(parse_v3_result_typed(normal_skip).is_ok());
+
+        let repairable = r#"{"session_summary":"complete","knowledge_score":0.2,"worth_extracting":false,"items":[],}"#;
+        assert!(!has_incomplete_v3_envelope(repairable));
+        assert!(parse_v3_result_typed(repairable).is_ok());
+
+        // A whole, well-formed wrapper inside noisy reasoning is allowed even
+        // when the first reasoning brace is left open.
+        let prefixed = format!("{{ bogus reasoning before valid JSON\n{normal_skip}");
+        assert!(!has_incomplete_v3_envelope(&prefixed));
+        assert!(parse_v3_result_typed(&prefixed).is_ok());
+
+        // Missing tail is never safe, including a would-be skip response
+        // and an otherwise valid object with a partially emitted second item.
+        let partial_skip = r#"{"session_summary":"partial","knowledge_score":0.2,"worth_extracting":false,"items":["#;
+        assert!(has_incomplete_v3_envelope(partial_skip));
+        assert!(parse_v3_result_typed(partial_skip).is_err());
+        let partial_positive = r#"{"session_summary":"partial","knowledge_score":0.9,"worth_extracting":true,"items":[{"title":"A","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8},"#;
+        assert!(has_incomplete_v3_envelope(partial_positive));
+        let error = parse_v3_result_typed(partial_positive)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("appears truncated"), "{error}");
+
+        // Legitimate schema-degraded bare items have no false envelope.
+        let bare_item = r#"{"title":"A","category":"general","summary":"s","content":"c","problem":null,"root_causes":[],"solutions":[],"key_commands":null,"key_files":null,"decisions":null,"tags":[],"confidence":0.8}"#;
+        assert!(!has_incomplete_v3_envelope(bare_item));
+        assert!(parse_v3_result_typed(bare_item).is_ok());
     }
 
     /// Observed live (session 19): the model emitted bare item objects

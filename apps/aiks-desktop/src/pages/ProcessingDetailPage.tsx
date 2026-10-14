@@ -1,5 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { UiButton } from "../components/ui/fields";
+import { UiNotice } from "../components/ui/surfaces";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
+import { submitProcessingDetailAction } from "../processing-detail-action";
+import { fetchVerifiedProcessingDetail } from "../processing-detail-refresh";
 import type { PipelineSummary, StageRun } from "../api/types";
 import { useSourceName } from "../ProviderCatalog";
 
@@ -24,8 +28,10 @@ function StageRow({ stage }: { stage: StageRun }) {
 
   return (
     <div className="border border-gray-100 dark:border-gray-700 rounded mb-2">
-      <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40"
+      <button type="button"
+        aria-expanded={expanded}
+        aria-label={`查看${STAGE_LABELS[stage.stage] ?? stage.stage}阶段详情`}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-gray-700/40"
         onClick={() => setExpanded(e => !e)}
       >
         <div className="flex items-center gap-3">
@@ -41,7 +47,7 @@ function StageRow({ stage }: { stage: StageRun }) {
           {stage.latency_ms != null && <span>{stage.latency_ms}ms</span>}
           <span className="text-gray-400">{expanded ? "▲" : "▼"}</span>
         </div>
-      </div>
+      </button>
       {expanded && (
         <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700">
           {stage.error_message && (
@@ -71,33 +77,54 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [retryMsg, setRetryMsg] = useState<string | null>(null);
+  const [loadedRunId, setLoadedRunId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const requestGeneration = useRef(0);
+  const activeRunId = useRef(runId);
+  activeRunId.current = runId;
 
   const load = useCallback(async () => {
+    const requestId = ++requestGeneration.current;
     setLoading(true);
-    try {
-      const d = await getApi().getPipelineDetail(runId);
-      setDetail(d);
-    } finally {
-      setLoading(false);
+    setLoadedRunId(null);
+    setLoadError("");
+    const api = getApi();
+    const result = await fetchVerifiedProcessingDetail(id => api.getPipelineDetail(id), runId);
+    if (requestGeneration.current !== requestId) return;
+    if (result.status === "ok") {
+      setDetail(result.value);
+      setLoadedRunId(runId);
+    } else {
+      setDetail(null);
+      setLoadError("处理记录加载失败或身份不匹配；不会显示旧记录或允许对旧记录重试。");
     }
+    setLoading(false);
   }, [runId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { requestGeneration.current += 1; };
+  }, [load]);
 
   const handleRetry = async () => {
-    if (!detail) return;
+    if (!detail || loadedRunId !== runId || loading || retrying) return;
+    const targetRunId = runId;
     setRetrying(true);
     setRetryMsg(null);
     try {
-      // Trigger re-run via run_pipeline_for_session
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("run_pipeline_for_session", { sessionId: detail.session_id });
-      setRetryMsg("已重新提交处理任务");
-      setTimeout(load, 2000);
-    } catch (e) {
-      setRetryMsg(`错误：${e}`);
+      const disposition = await submitProcessingDetailAction(getApi(), detail);
+      if (activeRunId.current === targetRunId) {
+        setRetryMsg(disposition === "retry" ? "已通过持久任务安全重试失败阶段" : "已提交首次 AI 处理任务");
+      }
+    } catch {
+      if (activeRunId.current === targetRunId) {
+        setRetryMsg("操作未完成，请刷新任务状态后重试。");
+      }
     } finally {
-      setRetrying(false);
+      if (activeRunId.current === targetRunId) {
+        setRetrying(false);
+        await load();
+      }
     }
   };
 
@@ -105,8 +132,16 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
     <div className="p-6 flex items-center justify-center h-48 text-gray-400 text-sm">加载中...</div>
   );
 
-  if (!detail) return (
-    <div className="p-6 text-gray-400 text-sm">未找到处理记录: {runId}</div>
+  if (loadError) return (
+    <div className="aiks-page-shell space-y-3">
+      <UiNotice tone="danger">{loadError}</UiNotice>
+      <UiButton variant="outline" size="sm" onClick={() => void load()}>重新加载详情</UiButton>
+      <UiButton variant="outline" size="sm" onClick={onBack}>返回处理中心</UiButton>
+    </div>
+  );
+
+  if (!detail || loadedRunId !== runId) return (
+    <div className="p-6 text-gray-400 text-sm">处理记录尚未就绪，请刷新重试。</div>
   );
 
   const statusColor = {
@@ -115,17 +150,17 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
   }[detail.status] ?? "text-gray-600";
 
   return (
-    <div className="p-6">
+    <div className="aiks-page-shell">
       <div className="flex items-center gap-2 mb-5">
-        <button onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</button>
+        <UiButton variant="outline" size="sm" onClick={onBack} className="text-sm text-blue-500 hover:text-blue-700">← 返回</UiButton>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600 dark:text-gray-400">处理详情</span>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-5 mb-5">
+      <div className="aiks-surface mb-5">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               {detail.session_title || detail.run_id}
             </h1>
             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -143,13 +178,13 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
           <div className="flex items-center gap-3">
             <span className={`text-sm font-medium ${statusColor}`}>{detail.status}</span>
             {(detail.status === "FAILED" || detail.status === "RAW_ONLY") && (
-              <button
+              <UiButton variant="outline" size="sm"
                 onClick={handleRetry}
-                disabled={retrying}
+                disabled={retrying || loading || loadedRunId !== runId}
                 className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
               >
-                {retrying ? "提交中..." : "重新处理"}
-              </button>
+                {retrying ? "提交中..." : detail.status === "FAILED" ? "安全重试失败阶段" : "首次处理原始 Session"}
+              </UiButton>
             )}
           </div>
         </div>
@@ -162,16 +197,16 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5 text-center text-sm">
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 text-center text-sm sm:grid-cols-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.knowledge_count}</div>
           <div className="text-xs text-gray-400">知识条目</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">{detail.stage_runs.length}</div>
           <div className="text-xs text-gray-400">阶段完成</div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-3">
+        <div className="aiks-surface p-3">
           <div className="font-semibold text-gray-900 dark:text-gray-100">
             {detail.stage_runs.reduce((sum, s) => sum + (s.latency_ms ?? 0), 0)}ms
           </div>
@@ -180,7 +215,7 @@ export default function ProcessingDetailPage({ runId, onBack }: Props) {
       </div>
 
       {/* Stage trace */}
-      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">处理阶段</h2>
+      <h2 className="mb-3 text-base font-semibold text-slate-800 dark:text-slate-200">处理阶段</h2>
       {detail.stage_runs.length === 0 ? (
         <div className="text-sm text-gray-400 text-center py-8">暂无阶段记录</div>
       ) : (
