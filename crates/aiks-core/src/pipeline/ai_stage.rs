@@ -300,8 +300,7 @@ impl AiStage {
         let frame_chars = make_v3_extraction_prompt(&empty_context).chars().count();
         let payload_budget = self
             .prompt_char_budget()
-            .checked_sub(frame_chars.saturating_add(256))
-            .unwrap_or(0);
+            .saturating_sub(frame_chars.saturating_add(256));
         anyhow::ensure!(
             payload_budget >= 512,
             "AI context budget is too small for the extraction JSON frame and evidence"
@@ -398,7 +397,7 @@ impl AiStage {
                 (result, 0usize, 1usize, response.usage)
             }
         } else {
-            self.map_reduce(db, session_title, project_name, &chunks)
+            self.map_reduce(db, session_title, project_name, chunks)
                 .await?
         };
         prune_chunk_cache(db)?;
