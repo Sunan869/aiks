@@ -116,7 +116,7 @@ export default function App() {
     );
   }
 
-  const sessionCount = fullStatus?.scan_total ?? 0;
+  const sessionCount = fullStatus?.db_total ?? 0;
   const isHealthy = fullStatus ? fullStatus.db_failed === 0 && fullStatus.db_conflict === 0 : true;
 
   const navigate = (page: Page) => {
@@ -208,7 +208,7 @@ export default function App() {
           <div className="flex items-center gap-4 text-xs text-gray-400">
             {aiStatus && <div className="flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${aiStatus.healthy ? "bg-green-500" : "bg-yellow-400"}`} /><span>{aiStatus.healthy ? "AI 正常" : "AI 不可用"}</span></div>}
             {syncInProgress && <span className="text-blue-500">扫描中...</span>}
-            {fullStatus && !syncInProgress && <span>{fullStatus.scan_total} 条工作记录</span>}
+            {fullStatus && !syncInProgress && <span>{fullStatus.db_total} 条本地工作记录</span>}
           </div>
         </div>
 

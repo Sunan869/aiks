@@ -304,3 +304,11 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Replaced stale project memory nav sticky selector with Radix role=tablist selector.
 - Consolidated repeated shell min-width and duplicate button override rules; kept active shared surface/table, button, and popup focus styles.
 - UI acceptance remains pending Windows visual/keyboard review.
+
+## Overview statistics semantics and richer dashboard
+
+- Main overview work-record metric is now db_total (canonical local source_session rows), while scan_total appears separately and explicitly as live Provider discoveries.
+- Added synchronized/pending/conflict/failed local status breakdown and sum reconciliation, independently loaded Task Center global pending/running/cancelled/sync/AI issue metrics, AI availability, per-provider scan distribution, and clear follow-up notices.
+- Unknown values render as em dash, not misleading zero; task stats are refreshed separately and errors never print potentially sensitive transport details.
+- Provider scan totals and stored DB totals are different populations: the numerical difference is not automatically missed synchronization. For rigorous reconciliation, compare canonical provider session identifiers and storage entries by source.
+- Updated app header/footer count to use db_total.
