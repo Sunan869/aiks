@@ -165,10 +165,12 @@ struct PreparedExtraction {
 fn compact_extraction_input(text: &str) -> String {
     fn repeatable_log(line: &str) -> bool {
         let trimmed = line.trim_start();
-        ["INFO ", "WARN ", "ERROR ", "DEBUG ", "TRACE ",
-         "[INFO]", "[WARN]", "[ERROR]", "[DEBUG]", "[TRACE]"]
-            .iter()
-            .any(|prefix| trimmed.starts_with(prefix))
+        [
+            "INFO ", "WARN ", "ERROR ", "DEBUG ", "TRACE ", "[INFO]", "[WARN]", "[ERROR]",
+            "[DEBUG]", "[TRACE]",
+        ]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
     }
 
     let mut result = String::with_capacity(text.len());
@@ -177,12 +179,12 @@ fn compact_extraction_input(text: &str) -> String {
     let mut in_code_fence = false;
     for line in text.split_inclusive('\n') {
         let without_newline = line.strip_suffix('\n').unwrap_or(line);
-        let payload = without_newline.strip_suffix('\r').unwrap_or(without_newline);
-        let fence = payload.trim_start().starts_with("```")
-            || payload.trim_start().starts_with("~~~");
-        if !in_code_fence && !fence && repeatable_log(payload)
-            && preceding == Some(payload)
-        {
+        let payload = without_newline
+            .strip_suffix('\r')
+            .unwrap_or(without_newline);
+        let fence =
+            payload.trim_start().starts_with("```") || payload.trim_start().starts_with("~~~");
+        if !in_code_fence && !fence && repeatable_log(payload) && preceding == Some(payload) {
             repeats += 1;
             continue;
         }
@@ -196,9 +198,7 @@ fn compact_extraction_input(text: &str) -> String {
         if fence {
             in_code_fence = !in_code_fence;
         }
-        preceding = if !in_code_fence && !fence && line.ends_with('\n')
-            && repeatable_log(payload)
-        {
+        preceding = if !in_code_fence && !fence && line.ends_with('\n') && repeatable_log(payload) {
             Some(payload)
         } else {
             None
@@ -230,9 +230,9 @@ fn split_evidence_without_loss(text: &str, max_chars: usize) -> Vec<String> {
         };
         let hard_end = start + offset;
         let newline_end = text[start..hard_end].rfind('\n').map(|n| start + n + 1);
-        let end = newline_end.filter(|&n| {
-            text[start..n].chars().count() >= max_chars / 2
-        }).unwrap_or(hard_end);
+        let end = newline_end
+            .filter(|&n| text[start..n].chars().count() >= max_chars / 2)
+            .unwrap_or(hard_end);
         debug_assert!(end > start);
         parts.push(text[start..end].to_string());
         start = end;
@@ -275,7 +275,10 @@ impl AiStage {
     /// drop middle-of-session evidence to fit a context window.
     fn fit_to_budget(&self, prompt: &str) -> anyhow::Result<String> {
         let limit = self.prompt_char_budget();
-        anyhow::ensure!(limit >= 512, "AI context budget is too small for reliable extraction");
+        anyhow::ensure!(
+            limit >= 512,
+            "AI context budget is too small for reliable extraction"
+        );
         anyhow::ensure!(
             prompt.chars().count() <= limit,
             "AI prompt exceeds context budget after preparation; refusing to discard evidence"
@@ -295,7 +298,8 @@ impl AiStage {
     ) -> anyhow::Result<PreparedExtraction> {
         let empty_context = chunk_context(&self.sanitizer, session_title, project_name, "");
         let frame_chars = make_v3_extraction_prompt(&empty_context).chars().count();
-        let payload_budget = self.prompt_char_budget()
+        let payload_budget = self
+            .prompt_char_budget()
             .checked_sub(frame_chars.saturating_add(256))
             .unwrap_or(0);
         anyhow::ensure!(
@@ -310,7 +314,9 @@ impl AiStage {
             // secret that straddles a new part boundary is still protected.
             let sanitized = self.sanitizer.sanitize(original);
             let compacted = compact_extraction_input(&sanitized);
-            input_saved_chars += sanitized.chars().count()
+            input_saved_chars += sanitized
+                .chars()
+                .count()
                 .saturating_sub(compacted.chars().count());
 
             // Retain v5 cache identity for unchanged, within-budget chunks.
@@ -325,9 +331,7 @@ impl AiStage {
                 split_source_chunks += 1;
             }
             for piece in pieces {
-                let context = chunk_context(
-                    &self.sanitizer, session_title, project_name, &piece
-                );
+                let context = chunk_context(&self.sanitizer, session_title, project_name, &piece);
                 let prompt = make_v3_extraction_prompt(&context);
                 self.fit_to_budget(&prompt)?;
                 parts.push((*chunk_index, piece));
@@ -362,9 +366,8 @@ impl AiStage {
         }
         ensure_chunk_cache_table(db)?;
         let t0 = Instant::now();
-        let prepared = self.prepare_extraction_chunks(
-            session_title, project_name, &source_chunks
-        )?;
+        let prepared =
+            self.prepare_extraction_chunks(session_title, project_name, &source_chunks)?;
         let chunks = &prepared.parts;
         info!(
             session_id,
@@ -2010,9 +2013,11 @@ mod tests {
     #[test]
     fn fit_to_budget_refuses_silent_middle_truncation() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
-        let prompt = format!("开始{}中段重要 SQL{}", "甲".repeat(
-            stage.prompt_char_budget()
-        ), "尾段");
+        let prompt = format!(
+            "开始{}中段重要 SQL{}",
+            "甲".repeat(stage.prompt_char_budget()),
+            "尾段"
+        );
         assert!(stage.fit_to_budget(&prompt).is_err());
     }
 
@@ -2020,7 +2025,8 @@ mod tests {
     fn evidence_partition_round_trips_unicode_sql_and_middle_content() {
         let source = format!(
             "开始🔧\n{}SELECT * FROM 重要表;\n{}最后验证成功\n",
-            "中段".repeat(900), "输出".repeat(750)
+            "中段".repeat(900),
+            "输出".repeat(750)
         );
         let parts = split_evidence_without_loss(&source, 333);
         assert!(parts.len() > 2);
@@ -2034,21 +2040,31 @@ mod tests {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
         let middle = "SELECT * FROM critical_middle_table;\n";
         let raw = format!(
-            "{}{}{}", "开始🔧\n".repeat(6000), middle, "最终修复成功\n".repeat(6000)
+            "{}{}{}",
+            "开始🔧\n".repeat(6000),
+            middle,
+            "最终修复成功\n".repeat(6000)
         );
-        let prepared = stage.prepare_extraction_chunks(
-            Some("Session"), Some("项目"), &[(0, raw.clone())]
-        ).unwrap();
+        let prepared = stage
+            .prepare_extraction_chunks(Some("Session"), Some("项目"), &[(0, raw.clone())])
+            .unwrap();
         assert_eq!(prepared.source_chunks, 1);
         assert!(prepared.split_source_chunks > 0);
         assert!(prepared.parts.len() > 1);
         assert_eq!(
-            prepared.parts.iter().map(|(_, text)| text.as_str()).collect::<String>(),
+            prepared
+                .parts
+                .iter()
+                .map(|(_, text)| text.as_str())
+                .collect::<String>(),
             raw
         );
         for (_, part) in &prepared.parts {
             let prompt = make_v3_extraction_prompt(&chunk_context(
-                &stage.sanitizer, Some("Session"), Some("项目"), part
+                &stage.sanitizer,
+                Some("Session"),
+                Some("项目"),
+                part,
             ));
             assert!(stage.fit_to_budget(&prompt).is_ok());
         }
@@ -2071,13 +2087,18 @@ ERROR first\nERROR second\n";
     fn unchanged_small_chunk_keeps_legacy_cache_identity() {
         let stage = AiStage::new(AiModelConfig::default()).unwrap();
         let original = "SELECT COUNT(*) FROM source_session;\n".to_string();
-        let result = stage.prepare_extraction_chunks(
-            Some("Session"), Some("Project"), &[(3, original.clone())]
-        ).unwrap();
+        let result = stage
+            .prepare_extraction_chunks(Some("Session"), Some("Project"), &[(3, original.clone())])
+            .unwrap();
         assert_eq!(result.parts, vec![(3, original.clone())]);
         assert_eq!(result.input_saved_chars, 0);
         assert_eq!(
-            chunk_cache_key(&stage.config, Some("Session"), Some("Project"), &result.parts[0].1),
+            chunk_cache_key(
+                &stage.config,
+                Some("Session"),
+                Some("Project"),
+                &result.parts[0].1
+            ),
             chunk_cache_key(&stage.config, Some("Session"), Some("Project"), &original)
         );
     }
