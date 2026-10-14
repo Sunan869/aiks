@@ -1,6 +1,7 @@
+import { RadixSelectField } from "./ui/RadixSelectField";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useEffect, useRef, useState } from "react";
-import { UiButton, UiInput, UiSelect, UiTextarea } from "./ui/fields";
+import { UiButton, UiInput, UiTextarea } from "./ui/fields";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { Eye, Loader2, Save, X } from "lucide-react";
 import { getApi } from "../api/client";
@@ -136,9 +137,8 @@ export default function KnowledgeEditor({ open, initial, onClose, onSaved }: Pro
 
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">
               分类
-              <UiSelect value={category} onChange={e => setCategory(e.target.value)} className="mt-1.5 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
-                {CATEGORIES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </UiSelect>
+              <RadixSelectField label="知识分类" value={category} onValueChange={setCategory} className="mt-1.5 w-full"
+                options={CATEGORIES.map(([value,label]) => ({ value, label }))} />
             </label>
 
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">

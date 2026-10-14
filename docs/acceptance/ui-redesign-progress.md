@@ -283,3 +283,10 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Converted 3 Knowledge Detail fixed-choice selects (relation, feedback, organization operation) and 5 Project Memory dropdowns (session, project, source, report and revision) to RadixSelectField with direct onValueChange handlers.
 - Preserved organization draft invalidation and Agent preview reset when source changes; report draft/revision remain guarded by the existing confirmation flow.
 - Knowledge Detail multiple source selection intentionally remains native until a suitable multi-select is adopted; Radix single Select cannot safely replace it.
+
+## Batch completion of remaining business selectors
+
+- Knowledge editor category migrated to explicit RadixSelectField.
+- Knowledge Detail multi-source selector converted from a broken native-select compatibility path to accessible checkbox group, retaining max-four selection and full draft invalidation.
+- Updated historical regression contracts to assert the new controls and their safeguards rather than outdated UiSelect markup.
+- Remaining CSS and true Windows behavioral validation are still outstanding.

@@ -53,8 +53,8 @@ describe("S3.1 explicit local-only project session bindings", () => {
   });
 
   it("keeps mutations explicit and protects both canonical Session and original documents", () => {
-    expect(pageSource).toContain('aria-label="待调整 Session"');
-    expect(pageSource).toContain('aria-label="项目归属目标"');
+    expect(pageSource).toContain('label="待调整 Session"');
+    expect(pageSource).toContain('label="项目归属目标"');
     expect(pageSource).toContain('window.confirm(message)');
     expect(pageSource).toContain('api.bindProjectSession(sessionId, project.id)');
     expect(pageSource).toContain('api.clearProjectSessionBinding(sessionId)');

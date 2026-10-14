@@ -18,7 +18,7 @@ describe("Radix Select global native dropdown migration", () => {
   it("keeps original business filter and settings bindings", () => {
     expect(settings).toContain("<RadixSelectField");
     expect(sessions).toContain("setSource(value)");
-    expect(memory).toContain("setBindingSession(event.target.value)");
+    expect(memory).toContain("onValueChange={setBindingSession}");
     expect(knowledge).toContain("setCategory(value)");
   });
 });

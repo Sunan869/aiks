@@ -18,12 +18,12 @@ describe("S3.3 Agent suggestion export UI boundary", () => {
     expect(pageSource).toContain('setPreviewType("");');
     // The extra security reset is intentional; check the ordered sequence.
     const sourceFilterHandler = pageSource.slice(
-      pageSource.indexOf('id="project-memory-source"'),
-      pageSource.indexOf('id="project-memory-source"') + 500,
+      pageSource.indexOf('label="来源范围"'),
+      pageSource.indexOf('label="来源范围"') + 500,
     );
     expect(sourceFilterHandler).toContain('invalidatePreview();');
     expect(sourceFilterHandler).toContain('setSelectedAgentKnowledgeIds([]);');
-    expect(sourceFilterHandler).toContain('setSourceFilter(event.target.value);');
+    expect(sourceFilterHandler).toContain('setSourceFilter(value);');
     expect(sourceFilterHandler.indexOf('invalidatePreview();'))
       .toBeLessThan(sourceFilterHandler.indexOf('setSelectedAgentKnowledgeIds([]);'));
     expect(pageSource).toMatch(/invalidatePreview\(\);\s*setAgentFormat\(/);

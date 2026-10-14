@@ -1,7 +1,6 @@
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
-import { UiSelect } from "../components/ui/fields";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bot, ExternalLink, FilePenLine, Loader2, Pencil, RotateCcw, Star } from "lucide-react";
 import { getApi } from "../api/client";
@@ -684,24 +683,33 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           {(organizeOperation === "compare" || organizeOperation === "merge_draft") && (
             <label className="flex flex-col gap-1 text-xs">
               <span>可选的其他知识来源（最多 4 条，Ctrl/Command 可多选）</span>
-              <UiSelect multiple size={4} aria-label="多来源知识选择" value={selectedSources} disabled={organizeBusy}
-                onChange={event => {
-                  setSelectedSources(Array.from(event.target.selectedOptions).map(option => option.value).slice(0, 4));
-                  organizationGeneration.current += 1;
-                  setOrganizeConfirmed(false);
-                  setOrganizeDraft("");
-                  setOrganizeSourceIds([]);
-                  setReviewedSources([]);
-                  setDiffSourceId("");
-                  setSourceReviewVisitedIds([]);
-                  setOrganizeSourceSnapshot(null);
-                  setOrganizeBusy(false);
-                }}
-                className="w-full rounded border border-gray-200 bg-transparent p-2 dark:border-gray-700">
+              <div role="group" aria-label="多来源知识选择"
+                className="max-h-52 w-full space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
                 {relationCandidates.filter(item => item.id !== knowledgeId &&
                   (!data.project_name || !item.project_name || data.project_name === item.project_name))
-                  .map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </UiSelect>
+                  .map(item => (
+                    <label key={item.id} className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+                      <input type="checkbox" checked={selectedSources.includes(item.id)}
+                        disabled={organizeBusy || (!selectedSources.includes(item.id) && selectedSources.length >= 4)}
+                        onChange={event => {
+                          setSelectedSources(current => event.target.checked
+                            ? current.includes(item.id) ? current : [...current, item.id].slice(0, 4)
+                            : current.filter(id => id !== item.id));
+                          organizationGeneration.current += 1;
+                          setOrganizeConfirmed(false);
+                          setOrganizeDraft("");
+                          setOrganizeSourceIds([]);
+                          setReviewedSources([]);
+                          setDiffSourceId("");
+                          setSourceReviewVisitedIds([]);
+                          setOrganizeSourceSnapshot(null);
+                          setOrganizeBusy(false);
+                        }}
+                        className="h-4 w-4 shrink-0 accent-sky-600" />
+                      <span className="min-w-0 break-words">{item.title}</span>
+                    </label>
+                  ))}
+              </div>
             </label>
           )}
           <UiButton variant="outline" size="sm" type="button" disabled={organizeBusy}

@@ -6,7 +6,7 @@ describe("Radix detail and memory selection contracts", () => {
     expect(detail.match(/<RadixSelectField/g)?.length).toBe(3);
     expect(detail).toContain('setOrganizeOperation(value as AiAssistOperation)');
     expect(detail).toContain('setOrganizeConfirmed(false)');
-    expect(detail).toContain('<UiSelect multiple size={4}');
+    expect(detail).toContain('role="group" aria-label="多来源知识选择"');
   });
   it("preserves project binding and report review semantics", () => {
     expect(memory.match(/<RadixSelectField/g)?.length).toBeGreaterThanOrEqual(6);

@@ -19,9 +19,10 @@ describe("consistent desktop detail surfaces", () => {
   });
   it("keeps manual review and multi-source selection in knowledge detail", () => {
     expect(knowledge).toContain("aiks-page-shell");
-    expect(knowledge).toContain('<UiSelect aria-label="关联类型"');
-    expect(knowledge).toContain('<UiSelect aria-label="反馈类型"');
-    expect(knowledge).toContain("<UiSelect multiple size={4}");
+    expect(knowledge).toContain('<RadixSelectField label="关联类型"');
+    expect(knowledge).toContain('<RadixSelectField label="反馈类型"');
+    expect(knowledge).toContain('role="group" aria-label="多来源知识选择"');
+    expect(knowledge).toContain('selectedSources.length >= 4');
     expect(knowledge).toContain("发布到 SiYuan");
   });
   it("keeps searching from the same API and uses shared page shell", () => {
