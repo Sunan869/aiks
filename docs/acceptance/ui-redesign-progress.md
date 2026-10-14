@@ -296,3 +296,11 @@ Acceptance after CI: verify source filtering with warnings and empty results, pi
 - Removed UiSelect synthetic change-event adapter and the unused native DateField helper after source inspection confirmed page/component usage had migrated to RadixSelectField and CalendarDateField.
 - Updated the global Radix test to require the absence of the compatibility path. Explicit Radix API, regular inputs/textareas and CVA button utilities remain.
 - Windows visual acceptance and CSS duplication audit still need real-machine verification.
+
+## Shared CSS consolidation after Radix migration
+
+- Removed retired native DateField styles and native date color-scheme overrides.
+- Deleted obsolete .aiks-button.aiks-switch rules after Switch.Root migration.
+- Replaced stale project memory nav sticky selector with Radix role=tablist selector.
+- Consolidated repeated shell min-width and duplicate button override rules; kept active shared surface/table, button, and popup focus styles.
+- UI acceptance remains pending Windows visual/keyboard review.
