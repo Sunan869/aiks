@@ -136,7 +136,7 @@ export default function AskAiksPanel({
   };
 
   const dismiss = () => {
-    invalidateInFlight();
+    if (activeAssistantId.current !== null) return;
     onClose();
   };
 
@@ -191,7 +191,7 @@ export default function AskAiksPanel({
   if (!open) return null;
 
   return (
-    <ModalBackdrop kind="assistant" onClose={dismiss}>
+    <ModalBackdrop kind="assistant" onClose={dismiss} dismissOnBackdrop={false}>
       <aside
         ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true"
         className="pointer-events-auto absolute bottom-7 right-0 top-12 flex w-[min(680px,calc(100vw-16px))] flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
@@ -221,8 +221,9 @@ export default function AskAiksPanel({
           <UiButton variant="ghost" size="sm"
             type="button"
             onClick={dismiss}
+            disabled={loading}
             className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            title="关闭"
+            title={loading ? "回答生成中，请等待完成" : "关闭"}
           >
             <X className="h-4 w-4" />
           </UiButton>
