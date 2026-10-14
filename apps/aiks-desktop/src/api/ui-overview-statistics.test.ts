@@ -27,6 +27,14 @@ describe("Overview snapshot consistency", () => {
     expect(overview).toContain("setTaskError(true)");
     expect(overview).not.toContain("setSyncMsg(`错误：${e}`)");
   });
+  it("shows only observed AI request token usage", () => {
+    expect(overview).toContain("getAiUsageStats()");
+    expect(overview).toContain('title="AI 用量"');
+    expect(overview).toContain("usage?.input_tokens");
+    expect(overview).toContain("usage?.output_tokens");
+    expect(overview).toContain("usage?.measured_requests");
+    expect(overview).toContain("setUsage(null)");
+  });
   it("separates extraction outcomes from token usage and effective knowledge", () => {
     expect(overview).toContain('title="AI 提炼结果"');
     expect(overview).toContain("fullStatus?.extraction_success");

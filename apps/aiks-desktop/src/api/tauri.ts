@@ -11,7 +11,7 @@ import type {
   PipelineSummary,
   PipelineStats,
   TaskCenterEntry,
-  TaskCenterStats,
+  TaskCenterStats, AiUsageStats,
   KnowledgePage,
   KnowledgeDetail,
   OrganizationAuditEntry,
@@ -120,6 +120,7 @@ export class TauriAiksApi implements AiksApi {
   async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
   async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
   async getTaskCenterStats(): Promise<TaskCenterStats> { return invoke("get_task_center_stats"); }
+  async getAiUsageStats(): Promise<AiUsageStats> { return invoke("get_ai_usage_stats"); }
   async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
   async runPipelineForSession(sessionId: number): Promise<string> { return invoke("run_pipeline_for_session", { sessionId }); }
   async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }

@@ -320,6 +320,21 @@ export interface TaskCenterEntry {
 }
 
 /** Database-wide statistics, not counts from the bounded task list. */
+/** Model-reported token usage from persistent AI request logs, not chunk estimates. */
+export interface AiUsageStats {
+  requests: number;
+  measured_requests: number;
+  failed_requests: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  by_model: Array<{
+    model: string;
+    requests: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+  }>;
+}
+
 export interface TaskCenterStats {
   total_sessions: number;
   pending: number;

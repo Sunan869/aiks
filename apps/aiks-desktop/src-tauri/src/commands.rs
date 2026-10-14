@@ -656,6 +656,50 @@ pub async fn get_task_center_stats(
         .map_err(|error| error.to_string())
 }
 
+/// Aggregate only provider-reported usage, never session chunk estimates.
+/// Null means no token counts were returned by the model.
+#[tauri::command]
+pub async fn get_ai_usage_stats(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let (requests, measured, input, output, failed): (i64, i64, Option<i64>, Option<i64>, i64) = conn
+        .query_row(
+            "SELECT COUNT(*),
+                    COUNT(CASE WHEN input_tokens IS NOT NULL AND output_tokens IS NOT NULL THEN 1 END),
+                    SUM(input_tokens), SUM(output_tokens),
+                    COUNT(CASE WHEN status = 'FAILED' THEN 1 END)
+             FROM ai_request_log",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    let mut by_model = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT model, COUNT(*), SUM(input_tokens), SUM(output_tokens)
+         FROM ai_request_log GROUP BY model ORDER BY COUNT(*) DESC, model LIMIT 8",
+    ).map_err(|error| error.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "model": row.get::<_, String>(0)?,
+            "requests": row.get::<_, i64>(1)?,
+            "input_tokens": row.get::<_, Option<i64>>(2)?,
+            "output_tokens": row.get::<_, Option<i64>>(3)?,
+        }))
+    }).map_err(|error| error.to_string())?;
+    for row in rows { by_model.push(row.map_err(|error| error.to_string())?); }
+    Ok(serde_json::json!({
+        "requests": requests,
+        "measured_requests": measured,
+        "failed_requests": failed,
+        "input_tokens": input,
+        "output_tokens": output,
+        "by_model": by_model,
+    }))
+}
+
 /// Manually retry one failed AI extraction. Never use this to bypass SiYuan
 /// conflict/permanent errors; use the existing durable queue for deduplication.
 #[tauri::command]

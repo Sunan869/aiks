@@ -7,6 +7,7 @@ import type {
   PipelineStats,
   TaskCenterEntry,
   TaskCenterStats,
+  AiUsageStats,
   KnowledgePage,
   KnowledgeDetail,
   OrganizationAuditEntry,
@@ -49,6 +50,7 @@ export interface AiksApi {
   getPipelineStats(): Promise<PipelineStats>;
   getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
   getTaskCenterStats(): Promise<TaskCenterStats>;
+  getAiUsageStats(): Promise<AiUsageStats>;
   retryFailedAiTask(sessionId: number): Promise<string>;
   runPipelineForSession(sessionId: number): Promise<string>;
   cancelPendingAiTask(sessionId: number): Promise<boolean>;

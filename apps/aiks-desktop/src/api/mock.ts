@@ -5,7 +5,7 @@ import type { AiAssistInput, AiAssistSuggestion } from "./ai-assist";
 import { isReviewedOrganizationOperation } from "./ai-assist";
 import type { RagAnswer, RagAskRequest } from "./rag";
 import type {
-  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats,
+  Overview, SessionPage, SessionItem, PipelineSummary, PipelineStats, TaskCenterEntry, TaskCenterStats, AiUsageStats,
   KnowledgePage, KnowledgeSummary, KnowledgeDetail, OrganizationAuditEntry, KnowledgeFeedback, KnowledgeFeedbackKind, KnowledgeRelation, KnowledgeRelationType, KnowledgeRelationStatus, KnowledgeRelationReview, KnowledgeRelationReviewHistory, ProjectOverview, ProjectMemorySnapshot, ProjectReportDraft, ProjectReportVersion, ProjectSessionBinding, ProjectEvolutionSnapshot, KnowledgeListOptions,
   KnowledgeWriteInput, KnowledgeUpdateInput, PublishKnowledgeResult,
   SearchResponse, UnifiedSearchOptions, UnifiedSearchOutcome,
@@ -183,6 +183,7 @@ export class MockAiksApi implements AiksApi {
 
   async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
   async getTaskCenterStats(): Promise<TaskCenterStats> { await delay(); return { total_sessions: sessions.length, pending: 0, running: 0, cancelled: 0, sync_issues: 0, ai_issues: 0 }; }
+  async getAiUsageStats(): Promise<AiUsageStats> { await delay(); return { requests: 0, measured_requests: 0, failed_requests: 0, input_tokens: null, output_tokens: null, by_model: [] }; }
   async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }
   async runPipelineForSession(): Promise<string> { throw new Error("Mock first-run is not available"); }
   async cancelPendingAiTask(): Promise<boolean> { throw new Error("Mock cancel is not available"); }

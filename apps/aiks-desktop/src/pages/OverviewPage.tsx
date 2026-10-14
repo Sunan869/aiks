@@ -5,7 +5,7 @@ import { UiButton } from "../components/ui/fields";
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Cpu, Search, AlertTriangle } from "lucide-react";
 import { getApi } from "../api/client";
-import type { FullStatus, AiStatus, TaskCenterStats } from "../api/types";
+import type { FullStatus, AiStatus, TaskCenterStats, AiUsageStats } from "../api/types";
 
 interface Props {
   fullStatus: FullStatus | null;
@@ -24,6 +24,8 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
+  const [usage, setUsage] = useState<AiUsageStats | null>(null);
+  const [usageError, setUsageError] = useState(false);
   const [taskError, setTaskError] = useState(false);
   const [taskLoading, setTaskLoading] = useState(true);
   const [aiKnowledgeCount, setAiKnowledgeCount] = useState<number | null>(null);
@@ -43,6 +45,17 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
     }
   }, []);
 
+  const loadUsage = useCallback(async () => {
+    try {
+      const value = await getApi().getAiUsageStats();
+      setUsage(value);
+      setUsageError(false);
+    } catch {
+      setUsage(null);
+      setUsageError(true);
+    }
+  }, []);
+
   const loadAiKnowledgeCount = useCallback(async () => {
     try {
       const page = await getApi().getKnowledge({ status: "active", sourceType: "conversation", limit: 1, offset: 0 });
@@ -54,7 +67,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
     }
   }, []);
 
-  useEffect(() => { void loadTaskStats(); void loadAiKnowledgeCount(); }, [loadTaskStats, loadAiKnowledgeCount]);
+  useEffect(() => { void loadTaskStats(); void loadAiKnowledgeCount(); void loadUsage(); }, [loadTaskStats, loadAiKnowledgeCount, loadUsage]);
 
   const handleRefresh = () => { onRefresh(); void loadTaskStats(); void loadAiKnowledgeCount(); };
   const handleSync = async () => {
@@ -161,6 +174,30 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           {taskError && <UiNotice tone="warning" className="mt-2">任务统计获取失败，当前显示为未知；请刷新重试。</UiNotice>}
         </UiSection>
       </div>
+
+      <UiSection title="AI 用量" description="来自本地模型请求日志的累计用量；未返回 usage 的请求不做估算">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {([
+            ["输入 Token", usage?.input_tokens],
+            ["输出 Token", usage?.output_tokens],
+            ["已统计请求", usage?.measured_requests],
+            ["总请求", usage?.requests],
+          ] as const).map(([label, count]) => (
+            <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+              <div className="text-lg font-semibold tabular-nums">{count == null ? "—" : format(count)}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+            </div>
+          ))}
+        </div>
+        {usage && <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">累计失败请求 {format(usage.failed_requests)} · 完整返回输入/输出 Token 的请求 {format(usage.measured_requests)} / {format(usage.requests)}。Token 合计仅包含实际返回的数值。</p>}
+        {usage && usage.by_model.length > 0 && <div className="mt-3 space-y-2">
+          {usage.by_model.map(item => <div key={item.model} className="flex flex-wrap justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span className="min-w-0 truncate" title={item.model}>{item.model}</span>
+            <span className="tabular-nums">请求 {format(item.requests)} · 输入 {item.input_tokens == null ? "—" : format(item.input_tokens)} / 输出 {item.output_tokens == null ? "—" : format(item.output_tokens)}</span>
+          </div>)}
+        </div>}
+        {usageError && <UiNotice tone="warning" className="mt-3">AI 用量读取失败，请刷新重试。</UiNotice>}
+      </UiSection>
 
       <UiSection title="AI 提炼结果" description="基于提炼记录的状态统计；不等于有效知识条目数，也不代表模型 Token 消耗">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
