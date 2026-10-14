@@ -15,6 +15,7 @@ import { buildProjectReviewQueue, type ProjectReviewSignal } from "../project-re
 import { reportDateRange } from "../project-report-dates";
 
 interface Props {
+  initialTab?: "knowledge" | "review" | "evolution" | "tools";
   onOpenKnowledge: (knowledgeId: string) => void;
   onOpenSession: (sessionId: number) => void;
 }
@@ -41,7 +42,7 @@ function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
   );
 }
 
-export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Props) {
+export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, initialTab = "knowledge" }: Props) {
   const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<ProjectMemorySnapshot | null>(null);
@@ -72,7 +73,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
   const [selectedAgentKnowledgeIds, setSelectedAgentKnowledgeIds] = useState<string[]>([]);
   const [topicFilter, setTopicFilter] = useState<ProjectMemoryTopicFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
-  const [workspaceTab, setWorkspaceTab] = useState<"knowledge" | "review" | "evolution" | "tools">("knowledge");
+  const [workspaceTab, setWorkspaceTab] = useState<"knowledge" | "review" | "evolution" | "tools">(initialTab);
   const [projectRevision, setProjectRevision] = useState(0);
   const [sessionChoices, setSessionChoices] = useState<SessionItem[]>([]);
   const [sessionTotal, setSessionTotal] = useState(0);
@@ -603,7 +604,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession }: Pr
                   ))}
                   {reviewCandidates.length === 0 && (
                     <p className="text-xs text-gray-500">
-                      当前已加载证据中没有这一类别的显式复核线索；不代表所有知识均正确或没有过期内容。
+                      当前项目没有已提交的质量反馈或修正、替代、解决关系，因此复核队列为空。这不代表知识均已验证；目前不会自动依据 AI 置信度创建复核任务。你可以打开知识详情提交“错误 / 过时 / 重复 / 需补充”反馈。
                     </p>
                   )}
                 </div>

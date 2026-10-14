@@ -180,6 +180,7 @@ export default function App() {
       case "sessions": return <SessionsPage onViewDetail={viewSessionDetail} />;
 
       case "projects": return <ProjectMemoryPage onOpenKnowledge={viewKnowledgeDetail} onOpenSession={viewSessionDetail} />;
+      case "review": return <ProjectMemoryPage initialTab="review" onOpenKnowledge={viewKnowledgeDetail} onOpenSession={viewSessionDetail} />;
       case "knowledge": return (
         <KnowledgeWorkspacePage
           workspaceMode={nav.workbenchMode}
