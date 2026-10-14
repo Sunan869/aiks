@@ -23,7 +23,16 @@ describe("Overview snapshot consistency", () => {
     expect(overview).toContain("getTaskCenterStats()");
     expect(overview).toContain("taskStats?.ai_issues");
     expect(overview).toContain("taskStats?.pending");
+    expect(overview).toContain("setTaskStats(null)");
     expect(overview).toContain("setTaskError(true)");
     expect(overview).not.toContain("setSyncMsg(`错误：${e}`)");
+  });
+  it("separates extraction outcomes from token usage and effective knowledge", () => {
+    expect(overview).toContain('title="AI 提炼结果"');
+    expect(overview).toContain("fullStatus?.extraction_success");
+    expect(overview).toContain("fullStatus?.extraction_skipped");
+    expect(overview).toContain("fullStatus?.extraction_pending");
+    expect(overview).toContain("fullStatus?.extraction_failed");
+    expect(overview).toContain("暂不使用知识分块的 token_count");
   });
 });

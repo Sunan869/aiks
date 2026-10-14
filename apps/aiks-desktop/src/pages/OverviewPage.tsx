@@ -30,11 +30,13 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
   const [aiKnowledgeError, setAiKnowledgeError] = useState(false);
 
   const loadTaskStats = useCallback(async () => {
+    setTaskLoading(true);
     try {
       const stats = await getApi().getTaskCenterStats();
       setTaskStats(stats);
       setTaskError(false);
     } catch {
+      setTaskStats(null);
       setTaskError(true);
     } finally {
       setTaskLoading(false);
@@ -156,9 +158,26 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             <span>AI 服务：{aiStatus ? (aiStatus.healthy ? "正常" : "暂时不可用") : "未知"}{aiStatus?.display_name ? ` · ${aiStatus.display_name}` : ""}</span>
           </div>
           {taskLoading && <p className="mt-2 text-xs text-slate-500">正在读取全库任务统计…</p>}
-          {taskError && <UiNotice tone="warning" className="mt-2">任务统计获取失败，可能显示上一次成功值；请刷新重试。</UiNotice>}
+          {taskError && <UiNotice tone="warning" className="mt-2">任务统计获取失败，当前显示为未知；请刷新重试。</UiNotice>}
         </UiSection>
       </div>
+
+      <UiSection title="AI 提炼结果" description="基于提炼记录的状态统计；不等于有效知识条目数，也不代表模型 Token 消耗">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {([
+            ["提炼成功", fullStatus?.extraction_success],
+            ["已跳过", fullStatus?.extraction_skipped],
+            ["待提炼", fullStatus?.extraction_pending],
+            ["提炼失败", fullStatus?.extraction_failed],
+          ] as const).map(([label, count]) => (
+            <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+              <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">模型用量需要独立采集真实的输入、输出 Token，暂不使用知识分块的 token_count 代替。</p>
+      </UiSection>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <UiSection title="来源发现分布" description="按 Provider 实时扫描数量排列；不代表已经同步入库的数量">
