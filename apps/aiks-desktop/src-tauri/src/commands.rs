@@ -312,18 +312,24 @@ pub async fn save_settings(
     }
 
     let mut config = load_settings_config()?;
+    let startup_changed = config.desktop.startup != settings.startup;
     apply_settings_to_config(&mut config, &settings);
     persist_settings_config(&config)?;
 
     // OS autostart is optional. Its failure must not invalidate settings that
     // have already been durably saved, nor block the user's restart request.
-    let autostart = app.autolaunch();
-    let autostart_result = if settings.startup {
-        autostart.enable()
+    let autostart_warning = (if startup_changed {
+        let autostart = app.autolaunch();
+        if settings.startup {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        }
+        .err()
     } else {
-        autostart.disable()
-    };
-    let autostart_warning = autostart_result.err().map(|error| {
+        None
+    })
+    .map(|error| {
         tracing::warn!(%error, "Unable to update OS autostart preference");
         "桌面设置已保存，但开机自启动未能更新；请检查安装目录和系统启动权限。".to_string()
     });
