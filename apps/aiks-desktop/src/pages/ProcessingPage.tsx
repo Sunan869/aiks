@@ -344,7 +344,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
-                    <td className="py-2 pr-3">{task.sync_excluded ? "已排除" : task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.sync_excluded ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
@@ -374,14 +374,14 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                           disabled={!taskPanelFresh || retryingTask !== null || task.job_status === "RUNNING"}
                           onClick={async () => {
                             const next = !task.sync_excluded;
-                            if (next && !window.confirm("确认排除此会话的后续同步和 AI 排队？既有 SiYuan 文档和知识不会删除。")) return;
+                            if (next && !window.confirm("确认作废此会话？停止后续自动同步和 AI 排队，但保留原文与知识。以后可手动恢复。")) return;
                             mutationGeneration.current += 1;
                             mutationInFlight.current = true;
                             setTaskPanelFresh(false);
                             setRetryingTask(task.session_id);
                             try {
                               await getApi().setSessionSyncExcluded(task.session_id, next);
-                              setRetryNotice(next ? "已排除后续同步" : "已恢复同步资格");
+                              setRetryNotice(next ? "会话已作废，保留记录及知识" : "已恢复同步资格，后续可重新同步");
                             } catch {
                               setRetryNotice("操作未完成，请刷新后重试");
                             } finally {
@@ -390,7 +390,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                               setRetryingTask(null);
                               await load(false);
                             }
-                          }}>{task.sync_excluded ? "恢复同步" : "不同步"}</UiButton>
+                          }}>{task.sync_excluded ? "恢复并允许同步" : "作废"}</UiButton>
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (

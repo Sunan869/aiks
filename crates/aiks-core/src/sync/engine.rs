@@ -400,8 +400,21 @@ impl SyncEngine {
         );
         match excluded {
             Ok(true) => {
+                // Record provider metadata changes only. Do not load raw messages,
+                // auto-import, or update the baseline while the session is voided.
+                if let Some(updated_at) = summary.updated_at.as_ref() {
+                    if let Err(error) = db.conn().execute(
+                        "UPDATE session_sync_exclusion SET latest_seen_updated_at = ?3
+                         WHERE source = ?1 AND external_session_id = ?2",
+                        rusqlite::params![source, session_id, updated_at.to_rfc3339()],
+                    ) {
+                        return SyncOutcome::Failed {
+                            error: format!("记录作废会话变化失败: {error}"),
+                        };
+                    }
+                }
                 return SyncOutcome::Skipped {
-                    reason: "用户已排除同步".to_string(),
+                    reason: "会话已作废，等待人工恢复".to_string(),
                 };
             }
             Ok(false) => {}

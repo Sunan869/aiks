@@ -808,9 +808,12 @@ pub async fn set_session_sync_excluded(
             return Err("该会话正在 AI 处理中，请等待任务完成后再排除".to_string());
         }
         tx.execute(
-            "INSERT OR IGNORE INTO session_sync_exclusion (source, external_session_id, created_at)
-             VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-            rusqlite::params![identity.0, identity.1],
+            "INSERT OR IGNORE INTO session_sync_exclusion
+             (source, external_session_id, created_at, baseline_updated_at, latest_seen_updated_at)
+             SELECT source, external_session_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    source_updated_at, source_updated_at
+             FROM source_session WHERE id = ?3",
+            rusqlite::params![identity.0, identity.1, session_id],
         )
         .map_err(|error| error.to_string())?;
         tx.execute(

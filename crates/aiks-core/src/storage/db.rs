@@ -258,10 +258,24 @@ impl StateDb {
                 source TEXT NOT NULL,
                 external_session_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                baseline_updated_at TEXT,
+                latest_seen_updated_at TEXT,
                 PRIMARY KEY (source, external_session_id)
             );",
         )
         .context("create session sync exclusions")?;
+        Self::ensure_column(
+            &conn,
+            "session_sync_exclusion",
+            "baseline_updated_at",
+            "ALTER TABLE session_sync_exclusion ADD COLUMN baseline_updated_at TEXT",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "session_sync_exclusion",
+            "latest_seen_updated_at",
+            "ALTER TABLE session_sync_exclusion ADD COLUMN latest_seen_updated_at TEXT",
+        )?;
         Ok(())
     }
 

@@ -318,6 +318,7 @@ export interface TaskCenterEntry {
   stage_latency_ms: number | null;
   last_task_update: string | null;
   sync_excluded: boolean;
+  voided_source_changed?: boolean;
 }
 
 /** Database-wide statistics, not counts from the bounded task list. */
