@@ -863,13 +863,36 @@ pub async fn inspect_session_deletion(
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    let volume_count = if volume_table {
-        count("SELECT COUNT(*) FROM session_volume WHERE session_id = ?1")?
+    // Distinct document IDs avoid counting the primary session mapping twice
+    // when the same SiYuan document is also present in session_volume.
+    let document_query = if volume_table {
+        "SELECT COUNT(*) FROM (
+            SELECT target_id AS id FROM sync_target
+            WHERE session_id = ?1 AND target_id IS NOT NULL AND target_id <> ''
+            UNION
+            SELECT doc_id AS id FROM session_volume
+            WHERE session_id = ?1 AND doc_id IS NOT NULL AND doc_id <> ''
+        )"
     } else {
-        0
+        "SELECT COUNT(DISTINCT target_id) FROM sync_target
+         WHERE session_id = ?1 AND target_id IS NOT NULL AND target_id <> ''"
     };
-    let synced =
-        count("SELECT COUNT(*) FROM sync_target WHERE session_id = ?1 AND target_id IS NOT NULL")?;
+    let session_documents = count(document_query)?;
+    let knowledge_documents = count(
+        "SELECT COUNT(DISTINCT siyuan_doc_id) FROM knowledge_item
+         WHERE source_session_id = ?1 AND siyuan_doc_id IS NOT NULL AND siyuan_doc_id <> ''",
+    )?;
+    let chunks = count(
+        "SELECT COUNT(*) FROM knowledge_chunk
+         WHERE knowledge_id IN (SELECT id FROM knowledge_item WHERE source_session_id = ?1)",
+    )?;
+    let embeddings = count(
+        "SELECT COUNT(*) FROM embedding_record
+         WHERE chunk_id IN (
+           SELECT id FROM knowledge_chunk
+           WHERE knowledge_id IN (SELECT id FROM knowledge_item WHERE source_session_id = ?1)
+         )",
+    )?;
     Ok(serde_json::json!({
         "session_id": session_id,
         "source": source,
@@ -877,8 +900,11 @@ pub async fn inspect_session_deletion(
         "running_jobs": running,
         "pending_jobs": pending,
         "knowledge_items": knowledge,
-        "siyuan_documents": synced + volume_count,
-        "requires_remote_verification": synced + volume_count > 0,
+        "siyuan_documents": session_documents,
+        "knowledge_siyuan_documents": knowledge_documents,
+        "knowledge_chunks": chunks,
+        "embedding_records": embeddings,
+        "requires_remote_verification": session_documents + knowledge_documents > 0,
         "deletion_enabled": false,
     }))
 }
