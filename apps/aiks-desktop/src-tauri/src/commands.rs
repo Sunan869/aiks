@@ -809,14 +809,15 @@ pub async fn set_session_sync_excluded(
         }
         tx.execute(
             "INSERT OR IGNORE INTO session_sync_exclusion (source, external_session_id, created_at)
-             VALUES (?1, ?2, ?3)",
-            rusqlite::params![identity.0, identity.1, chrono::Utc::now().to_rfc3339()],
+             VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            rusqlite::params![identity.0, identity.1],
         )
         .map_err(|error| error.to_string())?;
         tx.execute(
             "UPDATE pipeline_job SET status = 'CANCELLED', available_at = NULL,
-             lease_until = NULL, updated_at = ?2 WHERE session_id = ?1 AND status = 'PENDING'",
-            rusqlite::params![session_id, chrono::Utc::now().to_rfc3339()],
+             lease_until = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE session_id = ?1 AND status = 'PENDING'",
+            rusqlite::params![session_id],
         )
         .map_err(|error| error.to_string())?;
     } else {

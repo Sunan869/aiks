@@ -22,6 +22,7 @@ function task(overrides: Partial<TaskCenterEntry> = {}): TaskCenterEntry {
     job_error: null,
     stage_latency_ms: 500,
     last_task_update: "2026-10-10T13:30:00Z",
+    sync_excluded: false,
     ...overrides,
   };
 }
