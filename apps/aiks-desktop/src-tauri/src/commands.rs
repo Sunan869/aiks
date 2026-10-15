@@ -659,6 +659,21 @@ pub async fn list_task_center_entries(
 }
 
 #[tauri::command]
+pub async fn search_task_center_page(
+    query: String,
+    status: String,
+    limit: usize,
+    offset: usize,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let (items, total) = aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .search_page(&query, &status, limit, offset)
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "items": items, "total": total }))
+}
+
+#[tauri::command]
 pub async fn get_task_center_stats(
     state: State<'_, AppState>,
 ) -> Result<aiks_core::pipeline::task_center::TaskCenterStats, String> {
@@ -772,6 +787,157 @@ pub async fn retry_failed_ai_task(
         .map_err(|error| error.to_string())
 }
 
+/// Persist exclusion identity and cancel only unclaimed pending jobs.
+#[tauri::command]
+pub async fn set_session_sync_excluded(
+    session_id: i64,
+    excluded: bool,
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<(), String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let mut conn = db.conn();
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let identity: (String, String) = tx
+        .query_row(
+            "SELECT source, external_session_id FROM source_session WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    let controlled_by_void: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_void_state
+             WHERE session_id = ?1 AND phase <> 'RESTORED')",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if controlled_by_void {
+        return Err("该会话已进入作废清理流程，请使用作废或恢复专用操作".to_string());
+    }
+    if excluded {
+        let running: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING')",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if running {
+            return Err("该会话正在 AI 处理中，请等待任务完成后再排除".to_string());
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO session_sync_exclusion
+             (source, external_session_id, created_at, baseline_updated_at, latest_seen_updated_at)
+             SELECT source, external_session_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    source_updated_at, source_updated_at
+             FROM source_session WHERE id = ?3",
+            rusqlite::params![identity.0, identity.1, session_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "UPDATE pipeline_job SET status = 'CANCELLED', available_at = NULL,
+             lease_until = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE session_id = ?1 AND status = 'PENDING'",
+            rusqlite::params![session_id],
+        )
+        .map_err(|error| error.to_string())?;
+    } else {
+        tx.execute(
+            "DELETE FROM session_sync_exclusion WHERE source = ?1 AND external_session_id = ?2",
+            rusqlite::params![identity.0, identity.1],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
+/// Read-only deletion preflight. A destructive operation must separately verify remote
+/// SiYuan ownership and user edits before deleting anything.
+#[tauri::command]
+pub async fn inspect_session_deletion(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let (source, external_id): (String, String) = conn
+        .query_row(
+            "SELECT source, external_session_id FROM source_session WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    let count = |sql: &str| -> Result<i64, String> {
+        conn.query_row(sql, rusqlite::params![session_id], |row| row.get(0))
+            .map_err(|error| error.to_string())
+    };
+    let running =
+        count("SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING'")?;
+    let pending =
+        count("SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'PENDING'")?;
+    let knowledge = count("SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1")?;
+    let volume_table: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_volume')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    // Distinct document IDs avoid counting the primary session mapping twice
+    // when the same SiYuan document is also present in session_volume.
+    let document_query = if volume_table {
+        "SELECT COUNT(*) FROM (
+            SELECT target_id AS id FROM sync_target
+            WHERE session_id = ?1 AND target_id IS NOT NULL AND target_id <> ''
+            UNION
+            SELECT doc_id AS id FROM session_volume
+            WHERE session_id = ?1 AND doc_id IS NOT NULL AND doc_id <> ''
+        )"
+    } else {
+        "SELECT COUNT(DISTINCT target_id) FROM sync_target
+         WHERE session_id = ?1 AND target_id IS NOT NULL AND target_id <> ''"
+    };
+    let session_documents = count(document_query)?;
+    let knowledge_documents = count(
+        "SELECT COUNT(DISTINCT siyuan_doc_id) FROM knowledge_item
+         WHERE source_session_id = ?1 AND siyuan_doc_id IS NOT NULL AND siyuan_doc_id <> ''",
+    )?;
+    let chunks = count(
+        "SELECT COUNT(*) FROM knowledge_chunk
+         WHERE knowledge_id IN (SELECT id FROM knowledge_item WHERE source_session_id = ?1)",
+    )?;
+    let embeddings = count(
+        "SELECT COUNT(*) FROM embedding_record
+         WHERE chunk_id IN (
+           SELECT id FROM knowledge_chunk
+           WHERE knowledge_id IN (SELECT id FROM knowledge_item WHERE source_session_id = ?1)
+         )",
+    )?;
+    Ok(serde_json::json!({
+        "session_id": session_id,
+        "source": source,
+        "external_session_id": external_id,
+        "running_jobs": running,
+        "pending_jobs": pending,
+        "knowledge_items": knowledge,
+        "siyuan_documents": session_documents,
+        "knowledge_siyuan_documents": knowledge_documents,
+        "knowledge_chunks": chunks,
+        "embedding_records": embeddings,
+        "requires_remote_verification": session_documents + knowledge_documents > 0,
+        "deletion_enabled": false,
+    }))
+}
+
 /// Cancel only AI work waiting in the durable queue, never running workers.
 #[tauri::command]
 pub async fn cancel_pending_ai_task(
@@ -832,6 +998,22 @@ pub async fn get_pipeline_stats(state: State<'_, AppState>) -> Result<serde_json
     let orchestrator = aiks_core::PipelineOrchestrator::new(db);
     let stats = orchestrator.get_stats().map_err(|e| e.to_string())?;
     serde_json::to_value(stats).map_err(|e| e.to_string())
+}
+
+/// Enumerate persisted session sources, including web share imports not managed by Providers.
+#[tauri::command]
+pub async fn list_session_sources(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT source FROM source_session WHERE source IS NOT NULL AND TRIM(source) <> '' ORDER BY source")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
 }
 
 /// List sessions (V3 version — from DB with pipeline status)

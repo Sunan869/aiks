@@ -44,16 +44,22 @@ import type { RagAnswer, RagAskRequest } from "./rag";
 export interface AiksApi {
   getOverview(): Promise<Overview>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
+  getSessionSources(): Promise<string[]>;
   importShareUrl(url: string): Promise<ShareImportResult>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
   getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
+  searchTaskCenterPage(query: string, status: string, limit: number, offset: number): Promise<{ items: TaskCenterEntry[]; total: number }>;
   getTaskCenterStats(): Promise<TaskCenterStats>;
   getAiUsageStats(): Promise<AiUsageStats>;
   retryFailedAiTask(sessionId: number): Promise<string>;
   runPipelineForSession(sessionId: number): Promise<string>;
   cancelPendingAiTask(sessionId: number): Promise<boolean>;
+  setSessionSyncExcluded(sessionId: number, excluded: boolean): Promise<void>;
+  voidSession(sessionId: number): Promise<{ state: string; documents_removed: number }>;
+  restoreVoidSession(sessionId: number): Promise<void>;
+  inspectSessionDeletion(sessionId: number): Promise<{ session_id: number; running_jobs: number; pending_jobs: number; knowledge_items: number; knowledge_chunks: number; embedding_records: number; siyuan_documents: number; knowledge_siyuan_documents: number; requires_remote_verification: boolean; deletion_enabled: false }>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;

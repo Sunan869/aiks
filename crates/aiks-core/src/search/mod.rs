@@ -297,6 +297,10 @@ impl<'a> UnifiedSearchService<'a> {
              WHERE er.model = ?1 AND ki.status = 'active' AND er.vector IS NOT NULL
                AND (?3 = '' OR ki.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
+               AND NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               )
              LIMIT ?2",
         )?;
         let db_started = Instant::now();
@@ -380,6 +384,10 @@ impl<'a> UnifiedSearchService<'a> {
              WHERE er.model = ?1 AND st.status = 'ready' AND ss.is_missing = 0
                AND (?3 = '' OR ss.project_name = ?3)
                AND (?4 = '' OR ss.source = ?4)
+               AND NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               )
              LIMIT ?2",
         )?;
         let db_started = Instant::now();

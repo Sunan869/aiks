@@ -25,7 +25,7 @@ describe("WorkBuddy display boundaries", () => {
   it.each([
     ["sessions", sessionsSource, "formatSourceName(item.source)"],
     ["session detail", sessionDetailSource, "formatSourceName(session.source)"],
-    ["processing", processingSource, "formatSourceName(run.source)"],
+    ["processing", processingSource, "formatSourceName(task.source)"],
     ["processing detail", processingDetailSource, "formatSourceName(detail.source)"],
     ["knowledge", knowledgeSource, "formatSourceName(item.source)"],
   ])("formats the provider label in %s", (_name, source, expression) => {

@@ -253,6 +253,58 @@ impl StateDb {
         conn.execute_batch(SCHEMA_V17_SQL)
             .context("run V17 project report drafts migrations")?;
 
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS session_sync_exclusion (
+                source TEXT NOT NULL,
+                external_session_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                baseline_updated_at TEXT,
+                latest_seen_updated_at TEXT,
+                PRIMARY KEY (source, external_session_id)
+            );",
+        )
+        .context("create session sync exclusions")?;
+        // Durable, resumable cross-system cleanup journal. No remote deletion
+        // takes place until every referenced document passes ownership/hash checks.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS session_void_state (
+                session_id INTEGER PRIMARY KEY,
+                phase TEXT NOT NULL,
+                last_error TEXT,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS session_volume (
+                session_id INTEGER NOT NULL,
+                volume_index INTEGER NOT NULL,
+                doc_id TEXT NOT NULL,
+                doc_path TEXT NOT NULL,
+                remote_hash TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, volume_index)
+            );
+            CREATE TABLE IF NOT EXISTS session_void_document (
+                session_id INTEGER NOT NULL,
+                doc_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                knowledge_id TEXT,
+                expected_hash TEXT NOT NULL,
+                deleted INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (session_id, doc_id)
+            );",
+        )
+        .context("create resumable session void journal")?;
+        Self::ensure_column(
+            &conn,
+            "session_sync_exclusion",
+            "baseline_updated_at",
+            "ALTER TABLE session_sync_exclusion ADD COLUMN baseline_updated_at TEXT",
+        )?;
+        Self::ensure_column(
+            &conn,
+            "session_sync_exclusion",
+            "latest_seen_updated_at",
+            "ALTER TABLE session_sync_exclusion ADD COLUMN latest_seen_updated_at TEXT",
+        )?;
         Ok(())
     }
 

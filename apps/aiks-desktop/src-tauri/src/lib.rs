@@ -11,6 +11,7 @@ mod project_memory_commands;
 mod provider_commands;
 mod rag_commands;
 mod search_commands;
+mod session_void_commands;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
@@ -151,14 +152,20 @@ pub fn run() {
             commands::get_full_status,
             commands::sync_and_extract,
             commands::list_task_center_entries,
+            commands::search_task_center_page,
             commands::get_task_center_stats,
             commands::get_ai_usage_stats,
             commands::retry_failed_ai_task,
             commands::cancel_pending_ai_task,
+            commands::set_session_sync_excluded,
+            commands::inspect_session_deletion,
+            session_void_commands::void_session,
+            session_void_commands::restore_void_session,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
             commands::list_sessions_v3,
+            commands::list_session_sources,
             commands::list_knowledge,
             commands::search_knowledge,
             commands::get_session_detail,
