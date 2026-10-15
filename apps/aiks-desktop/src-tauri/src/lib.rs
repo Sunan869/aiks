@@ -156,6 +156,7 @@ pub fn run() {
             commands::retry_failed_ai_task,
             commands::cancel_pending_ai_task,
             commands::set_session_sync_excluded,
+            commands::inspect_session_deletion,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,

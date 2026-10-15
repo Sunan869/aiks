@@ -90,6 +90,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
+  const [deletionPreflight, setDeletionPreflight] = useState<string | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [taskLoadError, setTaskLoadError] = useState("");
   const [pipelineLoadError, setPipelineLoadError] = useState("");
@@ -251,6 +252,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}}
         {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
         {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
         <p role="status" className="mb-2 text-xs text-slate-500">
@@ -358,6 +360,16 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                           onClick={() => setExpandedSession(current => current === task.session_id ? null : task.session_id)}>
                           {expandedSession === task.session_id ? "收起阶段" : "处理阶段"}
                         </UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!taskPanelFresh}
+                          onClick={async () => {
+                            try {
+                              const impact = await getApi().inspectSessionDeletion(task.session_id);
+                              setDeletionPreflight(`会话 #${impact.session_id}：待处理 ${impact.pending_jobs}，运行中 ${impact.running_jobs}，知识条目 ${impact.knowledge_items}，SiYuan 文档映射 ${impact.siyuan_documents}。删除尚未开放，需先验证远端归属及修改冲突。`);
+                            } catch {
+                              setDeletionPreflight("无法获取删除影响清单，请刷新重试");
+                            }
+                          }}>删除影响预检</UiButton>
                         <UiButton variant="outline" size="sm" type="button"
                           disabled={!taskPanelFresh || retryingTask !== null || task.job_status === "RUNNING"}
                           onClick={async () => {

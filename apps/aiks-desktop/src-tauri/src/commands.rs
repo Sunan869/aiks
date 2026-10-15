@@ -830,6 +830,61 @@ pub async fn set_session_sync_excluded(
     tx.commit().map_err(|error| error.to_string())
 }
 
+/// Read-only deletion preflight. A destructive operation must separately verify remote
+/// SiYuan ownership and user edits before deleting anything.
+#[tauri::command]
+pub async fn inspect_session_deletion(
+    session_id: i64,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let (source, external_id): (String, String) = conn
+        .query_row(
+            "SELECT source, external_session_id FROM source_session WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    let running: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING'",
+        rusqlite::params![session_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    let pending: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'PENDING'",
+        rusqlite::params![session_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    let knowledge: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1",
+        rusqlite::params![session_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    let volume_table: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_volume')",
+        [], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    let volume_count: i64 = if volume_table {
+        conn.query_row("SELECT COUNT(*) FROM session_volume WHERE session_id = ?1",
+            rusqlite::params![session_id], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+    } else { 0 };
+    let synced: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sync_target WHERE session_id = ?1 AND target_id IS NOT NULL",
+        rusqlite::params![session_id], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "session_id": session_id,
+        "source": source,
+        "external_session_id": external_id,
+        "running_jobs": running,
+        "pending_jobs": pending,
+        "knowledge_items": knowledge,
+        "siyuan_documents": synced + volume_count,
+        "requires_remote_verification": synced + volume_count > 0,
+        "deletion_enabled": false,
+    }))
+}
+
 /// Cancel only AI work waiting in the durable queue, never running workers.
 #[tauri::command]
 pub async fn cancel_pending_ai_task(
