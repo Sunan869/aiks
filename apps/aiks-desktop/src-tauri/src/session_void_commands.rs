@@ -319,21 +319,25 @@ pub async fn void_session(
     // recreated from this source Session. Require manual review before purge.
     let (user_managed, cross_session_derived): (i64, i64) = {
         let conn = db.conn();
-        let user_managed = conn.query_row(
-            "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1
+        let user_managed = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1
              AND (managed_by <> 'pipeline' OR source_type <> 'conversation')",
-            params![session_id],
-            |row| row.get(0),
-        ).map_err(sql_error)?;
-        let derived = conn.query_row(
-            "SELECT COUNT(*) FROM knowledge_organization_source os
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)?;
+        let derived = conn
+            .query_row(
+                "SELECT COUNT(*) FROM knowledge_organization_source os
              JOIN knowledge_item src ON src.id = os.source_knowledge_id
              LEFT JOIN knowledge_item derived ON derived.id = os.derived_knowledge_id
              WHERE src.source_session_id = ?1
                AND (derived.source_session_id IS NULL OR derived.source_session_id <> ?1)",
-            params![session_id],
-            |row| row.get(0),
-        ).map_err(sql_error)?;
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)?;
         (user_managed, derived)
     };
     if user_managed > 0 || cross_session_derived > 0 {
@@ -496,10 +500,8 @@ mod tests {
 
     #[test]
     fn local_cleanup_removes_knowledge_and_indexes_but_keeps_session_identity() {
-        let path = std::env::temp_dir().join(format!(
-            "aiks-session-void-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("aiks-session-void-{}.db", uuid::Uuid::new_v4()));
         let db = aiks_core::storage::StateDb::open(&path).expect("open test state db");
         let session_id = {
             let conn = db.conn();
@@ -544,23 +546,32 @@ mod tests {
         cleanup_local(&db, session_id, "codex", "void-test").expect("atomic local purge");
 
         let conn = db.conn();
-        for table in ["knowledge_item", "knowledge_chunk", "embedding_record", "knowledge_fts"] {
+        for table in [
+            "knowledge_item",
+            "knowledge_chunk",
+            "embedding_record",
+            "knowledge_fts",
+        ] {
             let sql = format!("SELECT COUNT(*) FROM {table}");
             let count: i64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap();
             assert_eq!(count, 0, "{table} should be empty");
         }
-        let (retained, hash): (i64, Option<String>) = conn.query_row(
-            "SELECT id, content_hash FROM source_session WHERE id = ?1",
-            params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
+        let (retained, hash): (i64, Option<String>) = conn
+            .query_row(
+                "SELECT id, content_hash FROM source_session WHERE id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
         assert_eq!(retained, session_id);
         assert!(hash.is_none(), "restoration must re-read source content");
-        let phase: String = conn.query_row(
-            "SELECT phase FROM session_void_state WHERE session_id = ?1",
-            params![session_id],
-            |row| row.get(0),
-        ).unwrap();
+        let phase: String = conn
+            .query_row(
+                "SELECT phase FROM session_void_state WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(phase, "VOIDED");
         drop(conn);
         drop(db);
