@@ -252,7 +252,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
-        {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}}
+        {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}
         {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
         {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
         <p role="status" className="mb-2 text-xs text-slate-500">
