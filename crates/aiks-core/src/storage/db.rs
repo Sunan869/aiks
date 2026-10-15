@@ -259,7 +259,7 @@ impl StateDb {
                 external_session_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (source, external_session_id)
-            );"
+            );",
         )
         .context("create session sync exclusions")?;
         Ok(())

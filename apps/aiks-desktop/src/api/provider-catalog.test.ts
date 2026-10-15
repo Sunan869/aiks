@@ -55,12 +55,12 @@ describe("provider catalog", () => {
     }
     expect(fixture.find(d => d.key === "workbuddy")?.display_name).toBe("WorkBuddy");
   });
-  it("both source cards and session filters consume the shared catalog", () => {
+  it("keeps provider catalog for source cards while sessions use persisted database sources", () => {
     expect(sourcesSource).toContain("useSourceCatalog");
     expect(sourcesSource).toContain("syncCatalogSource");
     expect(sourcesSource).toContain("查看详情");
     expect(sourcesSource).toContain("sourceStatusPresentation");
-    expect(sessionsSource).toContain("sourceFilterOptions");
-    expect(sessionsSource).toContain("useSourceCatalog");
+    expect(sessionsSource).toContain("getSessionSources()");
+    expect(sessionsSource).not.toContain("sourceFilterOptions(sources)");
   });
 });

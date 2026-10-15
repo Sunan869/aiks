@@ -903,7 +903,8 @@ pub async fn list_session_sources(state: State<'_, AppState>) -> Result<Vec<Stri
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
 }
 
 /// List sessions (V3 version — from DB with pipeline status)

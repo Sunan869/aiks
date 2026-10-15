@@ -10,11 +10,11 @@ describe("source and processing overview usability", () => {
     expect(sources).toContain("issueCount");
     expect(sources).toContain("visibleSources.length");
   });
-  it("keeps independent accessible task and pipeline tables", () => {
+  it("combines session and stage records in one accessible worklist", () => {
     expect(processing).toContain('aria-label="近期任务记录"');
-    expect(processing).toContain('aria-label="流水线阶段记录"');
+    expect(processing).toContain('aria-label="所选会话处理阶段"');
     expect(processing).toContain("visibleTasks.length");
-    expect(processing).toContain("filtered.length");
+    expect(processing).toContain("expandedSession");
     expect(processing).toContain("retryFailedAiTask");
     expect(processing).toContain("cancelPendingAiTask");
   });
