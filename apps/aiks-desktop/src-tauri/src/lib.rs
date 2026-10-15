@@ -159,6 +159,7 @@ pub fn run() {
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
             commands::list_sessions_v3,
+            commands::list_session_sources,
             commands::list_knowledge,
             commands::search_knowledge,
             commands::get_session_detail,

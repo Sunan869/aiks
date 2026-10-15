@@ -130,6 +130,7 @@ export class MockAiksApi implements AiksApi {
     };
   }
 
+  async getSessionSources(): Promise<string[]> { await delay(); return [...new Set(sessions.map(item => item.source))].sort(); }
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     await delay();
     const filtered = opts?.source ? sessions.filter(s => s.source === opts.source) : sessions;

@@ -4,8 +4,8 @@ import { UiButton, UiInput } from "../components/ui/fields";
 import { useState, useEffect, useCallback } from "react";
 import { getApi } from "../api/client";
 import type { SessionItem, SessionPage } from "../api/types";
-import { useSourceName, useSourceCatalog } from "../ProviderCatalog";
-import { sourceFilterOptions } from "../api/provider-catalog-model";
+import { useSourceName } from "../ProviderCatalog";
+
 
 const SOURCE_LABELS: Record<string, string> = {
   opencode: "OpenCode",
@@ -40,7 +40,8 @@ interface Props { onViewDetail?: (sessionId: number) => void; }
 
 export default function SessionsPage({ onViewDetail }: Props) {
   const formatSourceName = useSourceName();
-  const { sources, error: catalogError } = useSourceCatalog();
+  const [sessionSources, setSessionSources] = useState<string[]>([]);
+  const [sourcesError, setSourcesError] = useState(false);
   const [data, setData] = useState<SessionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +68,19 @@ export default function SessionsPage({ onViewDetail }: Props) {
     }
   }, [source, page]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const sourceOptions = [{ value: "", label: "全部来源" }, ...sourceFilterOptions(sources)];
+  const loadSources = useCallback(async () => {
+    try {
+      setSessionSources(await getApi().getSessionSources());
+      setSourcesError(false);
+    } catch {
+      setSourcesError(true);
+    }
+  }, []);
+  useEffect(() => { void loadSources(); }, [loadSources]);
+
+  const sourceOptions = [{ value: "", label: "全部来源" }, ...sessionSources.map(key => ({ value: key, label: formatSourceName(key) }))];
 
   const importShare = async () => {
     const url = shareUrl.trim();
@@ -85,6 +96,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
       setShareUrl("");
       setPage(0);
       await load();
+      await loadSources();
     } catch (e) {
       setImportError(String(e).replace(/^Error:\s*/, ""));
     } finally {
@@ -121,7 +133,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
         <span role="status" className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} / {data?.items.length ?? 0} 条 · 全库 {data?.total ?? 0} 条</span>
         {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
       </div>
-      {catalogError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{catalogError}</p>}
+      {sourcesError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{sourcesError}</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
           {error}

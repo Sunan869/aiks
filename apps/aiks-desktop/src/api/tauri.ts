@@ -73,6 +73,7 @@ export class TauriAiksApi implements AiksApi {
     };
   }
 
+  async getSessionSources(): Promise<string[]> { return invoke("list_session_sources"); }
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     return invoke("list_sessions_v3", { source: opts?.source, limit: opts?.limit, offset: opts?.offset });
   }

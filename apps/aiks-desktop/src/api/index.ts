@@ -44,6 +44,7 @@ import type { RagAnswer, RagAskRequest } from "./rag";
 export interface AiksApi {
   getOverview(): Promise<Overview>;
   getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage>;
+  getSessionSources(): Promise<string[]>;
   importShareUrl(url: string): Promise<ShareImportResult>;
   getPipelineRuns(limit?: number): Promise<PipelineSummary[]>;
   getPipelineDetail(runId: string): Promise<PipelineSummary>;

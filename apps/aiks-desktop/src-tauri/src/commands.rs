@@ -834,6 +834,21 @@ pub async fn get_pipeline_stats(state: State<'_, AppState>) -> Result<serde_json
     serde_json::to_value(stats).map_err(|e| e.to_string())
 }
 
+/// Enumerate persisted session sources, including web share imports not managed by Providers.
+#[tauri::command]
+pub async fn list_session_sources(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT source FROM source_session WHERE source IS NOT NULL AND TRIM(source) <> '' ORDER BY source")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+}
+
 /// List sessions (V3 version — from DB with pipeline status)
 #[tauri::command]
 pub async fn list_sessions_v3(
