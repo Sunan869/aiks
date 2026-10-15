@@ -365,7 +365,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                           onClick={async () => {
                             try {
                               const impact = await getApi().inspectSessionDeletion(task.session_id);
-                              setDeletionPreflight(`会话 #${impact.session_id}：待处理 ${impact.pending_jobs}，运行中 ${impact.running_jobs}，知识条目 ${impact.knowledge_items}、知识切片 ${impact.knowledge_chunks}、向量记录 ${impact.embedding_records}；SiYuan 会话文档 ${impact.siyuan_documents}、知识文档 ${impact.knowledge_siyuan_documents}。删除尚未开放，需先验证远端归属及修改冲突。`);
+                              setDeletionPreflight(`会话 #${impact.session_id}：待处理 ${impact.pending_jobs}，运行中 ${impact.running_jobs}，知识条目 ${impact.knowledge_items}、知识切片 ${impact.knowledge_chunks}、向量记录 ${impact.embedding_records}；SiYuan 会话文档 ${impact.siyuan_documents}、知识文档 ${impact.knowledge_siyuan_documents}。正式作废前会再次校验远端归属及人工修改；冲突时保持隔离，不删除用户改动。`);
                             } catch {
                               setDeletionPreflight("无法获取删除影响清单，请刷新重试");
                             }

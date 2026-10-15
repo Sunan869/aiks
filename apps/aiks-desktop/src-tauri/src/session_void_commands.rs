@@ -315,6 +315,34 @@ pub async fn void_session(
         tx.commit().map_err(sql_error)?;
     }
     mark_phase(&db, session_id, "PREPARING", None)?;
+    // User-managed knowledge and cross-session derived documents cannot be
+    // recreated from this source Session. Require manual review before purge.
+    let (user_managed, cross_session_derived): (i64, i64) = {
+        let conn = db.conn();
+        let user_managed = conn.query_row(
+            "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1
+             AND (managed_by <> 'pipeline' OR source_type <> 'conversation')",
+            params![session_id],
+            |row| row.get(0),
+        ).map_err(sql_error)?;
+        let derived = conn.query_row(
+            "SELECT COUNT(*) FROM knowledge_organization_source os
+             JOIN knowledge_item src ON src.id = os.source_knowledge_id
+             LEFT JOIN knowledge_item derived ON derived.id = os.derived_knowledge_id
+             WHERE src.source_session_id = ?1
+               AND (derived.source_session_id IS NULL OR derived.source_session_id <> ?1)",
+            params![session_id],
+            |row| row.get(0),
+        ).map_err(sql_error)?;
+        (user_managed, derived)
+    };
+    if user_managed > 0 || cross_session_derived > 0 {
+        let error = format!(
+            "存在 {user_managed} 条用户管理知识和 {cross_session_derived} 条跨会话衍生引用，需要人工审核后才能清理"
+        );
+        mark_phase(&db, session_id, "CONFLICT", Some(&error))?;
+        return Err(error);
+    }
     let docs = load_documents(&db, session_id)?;
     let documents = if docs.is_empty() {
         prepare_documents(&db, session_id)?
@@ -460,4 +488,82 @@ pub async fn restore_void_session(
     )
     .map_err(sql_error)?;
     tx.commit().map_err(sql_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_cleanup_removes_knowledge_and_indexes_but_keeps_session_identity() {
+        let path = std::env::temp_dir().join(format!(
+            "aiks-session-void-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let db = aiks_core::storage::StateDb::open(&path).expect("open test state db");
+        let session_id = {
+            let conn = db.conn();
+            conn.execute(
+                "INSERT INTO source_session
+                 (source, external_session_id, content_hash, last_seen_at, created_at, updated_at)
+                 VALUES ('codex', 'void-test', 'source-hash', 'now', 'now', 'now')",
+                [],
+            )
+            .unwrap();
+            let id = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO knowledge_item
+                 (id, source_session_id, title, content, created_at, updated_at)
+                 VALUES ('knowledge-void-test', ?1, 'Example', 'secret text', 'now', 'now')",
+                params![id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO knowledge_chunk
+                 (id, knowledge_id, chunk_index, text, content_hash, created_at)
+                 VALUES ('chunk-void-test', 'knowledge-void-test', 0, 'secret text', 'hash', 'now')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO embedding_record
+                 (id, chunk_id, model, dimensions, vector, created_at)
+                 VALUES ('vector-void-test', 'chunk-void-test', 'test', 1, X'0000803F', 'now')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO knowledge_fts (knowledge_id, title, summary, content, tags)
+                 VALUES ('knowledge-void-test', 'Example', '', 'secret text', '')",
+                [],
+            )
+            .unwrap();
+            id
+        };
+        mark_phase(&db, session_id, "REMOVING", None).unwrap();
+        cleanup_local(&db, session_id, "codex", "void-test").expect("atomic local purge");
+
+        let conn = db.conn();
+        for table in ["knowledge_item", "knowledge_chunk", "embedding_record", "knowledge_fts"] {
+            let sql = format!("SELECT COUNT(*) FROM {table}");
+            let count: i64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap();
+            assert_eq!(count, 0, "{table} should be empty");
+        }
+        let (retained, hash): (i64, Option<String>) = conn.query_row(
+            "SELECT id, content_hash FROM source_session WHERE id = ?1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(retained, session_id);
+        assert!(hash.is_none(), "restoration must re-read source content");
+        let phase: String = conn.query_row(
+            "SELECT phase FROM session_void_state WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(phase, "VOIDED");
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+    }
 }

@@ -21,6 +21,7 @@ describe("durable Session void and recovery contract", () => {
     expect(voidCommands).toContain("session_void_document");
     expect(voidCommands).toContain("mark_phase(&db, session_id, \"CONFLICT\"");
     expect(sink).toContain("remove_managed_document");
+    expect(sink).toContain("/api/filetree/removeDocByID");
     expect(sink).toContain("document {doc_id} has changed");
     expect(database).toContain("CREATE TABLE IF NOT EXISTS session_void_state");
     expect(database).toContain("CREATE TABLE IF NOT EXISTS session_void_document");

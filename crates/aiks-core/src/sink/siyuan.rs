@@ -354,7 +354,7 @@ impl SiYuanSink {
 
     /// Remove an already verified document through SiYuan's document API.
     pub async fn remove_managed_document(&self, doc_id: &str) -> anyhow::Result<()> {
-        let url = format!("{}/api/filetree/removeDoc", self.base_url);
+        let url = format!("{}/api/filetree/removeDocByID", self.base_url);
         let response: ApiResponse<serde_json::Value> = self
             .request_builder(reqwest::Method::POST, &url)
             .json(&serde_json::json!({ "id": doc_id }))
