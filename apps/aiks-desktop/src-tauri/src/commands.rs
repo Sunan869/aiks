@@ -851,15 +851,11 @@ pub async fn inspect_session_deletion(
         conn.query_row(sql, rusqlite::params![session_id], |row| row.get(0))
             .map_err(|error| error.to_string())
     };
-    let running = count(
-        "SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING'",
-    )?;
-    let pending = count(
-        "SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'PENDING'",
-    )?;
-    let knowledge = count(
-        "SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1",
-    )?;
+    let running =
+        count("SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING'")?;
+    let pending =
+        count("SELECT COUNT(*) FROM pipeline_job WHERE session_id = ?1 AND status = 'PENDING'")?;
+    let knowledge = count("SELECT COUNT(*) FROM knowledge_item WHERE source_session_id = ?1")?;
     let volume_table: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_volume')",
@@ -872,9 +868,8 @@ pub async fn inspect_session_deletion(
     } else {
         0
     };
-    let synced = count(
-        "SELECT COUNT(*) FROM sync_target WHERE session_id = ?1 AND target_id IS NOT NULL",
-    )?;
+    let synced =
+        count("SELECT COUNT(*) FROM sync_target WHERE session_id = ?1 AND target_id IS NOT NULL")?;
     Ok(serde_json::json!({
         "session_id": session_id,
         "source": source,
