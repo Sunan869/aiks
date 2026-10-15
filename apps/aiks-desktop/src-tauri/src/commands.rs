@@ -659,6 +659,21 @@ pub async fn list_task_center_entries(
 }
 
 #[tauri::command]
+pub async fn search_task_center_page(
+    query: String,
+    status: String,
+    limit: usize,
+    offset: usize,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let (items, total) = aiks_core::pipeline::task_center::TaskCenterRepo::new(&engine.db())
+        .search_page(&query, &status, limit, offset)
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "items": items, "total": total }))
+}
+
+#[tauri::command]
 pub async fn get_task_center_stats(
     state: State<'_, AppState>,
 ) -> Result<aiks_core::pipeline::task_center::TaskCenterStats, String> {

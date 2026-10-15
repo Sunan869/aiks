@@ -183,6 +183,7 @@ export class MockAiksApi implements AiksApi {
   }
 
   async getTaskCenterEntries(): Promise<TaskCenterEntry[]> { await delay(); return []; }
+  async searchTaskCenterPage(): Promise<{ items: TaskCenterEntry[]; total: number }> { await delay(); return { items: [], total: 0 }; }
   async getTaskCenterStats(): Promise<TaskCenterStats> { await delay(); return { total_sessions: sessions.length, pending: 0, running: 0, cancelled: 0, sync_issues: 0, ai_issues: 0 }; }
   async getAiUsageStats(): Promise<AiUsageStats> { await delay(); return { requests: 0, measured_requests: 0, failed_requests: 0, input_tokens: null, output_tokens: null, by_model: [] }; }
   async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }

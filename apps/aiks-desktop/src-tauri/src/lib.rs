@@ -152,6 +152,7 @@ pub fn run() {
             commands::get_full_status,
             commands::sync_and_extract,
             commands::list_task_center_entries,
+            commands::search_task_center_page,
             commands::get_task_center_stats,
             commands::get_ai_usage_stats,
             commands::retry_failed_ai_task,

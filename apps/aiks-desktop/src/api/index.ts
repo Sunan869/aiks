@@ -50,6 +50,7 @@ export interface AiksApi {
   getPipelineDetail(runId: string): Promise<PipelineSummary>;
   getPipelineStats(): Promise<PipelineStats>;
   getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]>;
+  searchTaskCenterPage(query: string, status: string, limit: number, offset: number): Promise<{ items: TaskCenterEntry[]; total: number }>;
   getTaskCenterStats(): Promise<TaskCenterStats>;
   getAiUsageStats(): Promise<AiUsageStats>;
   retryFailedAiTask(sessionId: number): Promise<string>;
