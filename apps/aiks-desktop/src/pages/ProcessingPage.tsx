@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import * as Dialog from "@radix-ui/react-dialog";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
@@ -527,15 +528,17 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
 
 
 
-      {voidCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onMouseDown={event => { if (event.target === event.currentTarget && retryingTask === null) setVoidCandidate(null); }}>
-          <div role="alertdialog" aria-modal="true" aria-labelledby="void-session-title" aria-describedby="void-session-description" className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <h2 id="void-session-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">确认作废会话</h2>
-            <p id="void-session-description" className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{voidCandidate.message}</p>
+      <Dialog.Root open={voidCandidate !== null} onOpenChange={open => { if (!open && retryingTask === null) setVoidCandidate(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-slate-100">确认作废会话</Dialog.Title>
+            <Dialog.Description className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{voidCandidate?.message}</Dialog.Description>
             <div className="mt-6 flex justify-end gap-2">
               <UiButton variant="outline" type="button" disabled={retryingTask !== null} onClick={() => setVoidCandidate(null)}>取消</UiButton>
               <UiButton variant="primary" type="button" disabled={retryingTask !== null} onClick={async () => {
-                const id = voidCandidate.task.session_id;
+                const id = voidCandidate?.task.session_id;
+                if (id === undefined) return;
                 setVoidCandidate(null);
                 mutationGeneration.current += 1;
                 mutationInFlight.current = true;
@@ -554,9 +557,9 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 }
               }}>确认作废</UiButton>
             </div>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

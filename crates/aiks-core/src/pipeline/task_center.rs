@@ -218,10 +218,8 @@ mod tests {
 
     #[test]
     fn server_search_finds_sessions_beyond_legacy_recent_window_and_pages() {
-        let path = std::env::temp_dir().join(format!(
-            "aiks-task-search-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("aiks-task-search-{}.db", uuid::Uuid::new_v4()));
         let db = StateDb::open(&path).unwrap();
         {
             let conn = db.conn();
@@ -232,7 +230,11 @@ mod tests {
                      VALUES ('codex', ?1, ?2, 'now', 'now', ?3)",
                     params![
                         format!("session-{idx:03}"),
-                        if idx == 0 { "needle-oldest" } else { "unrelated" },
+                        if idx == 0 {
+                            "needle-oldest"
+                        } else {
+                            "unrelated"
+                        },
                         format!("2026-10-15T00:{:02}:00Z", idx % 60),
                     ],
                 )
