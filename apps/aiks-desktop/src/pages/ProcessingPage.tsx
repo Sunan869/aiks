@@ -348,6 +348,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                       {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
                     </td>
                     <td className="py-2 pr-3">
+                      <div className="flex items-center gap-2">
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!onViewSession}
+                          title="查看已入库的会话详情，不改变同步或 AI 排队状态"
+                          onClick={() => onViewSession?.(task.session_id)}>预览</UiButton>
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
@@ -405,7 +410,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                             }
                           }}
                         >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</UiButton>
-                      ) : "—"}
+                      ) : null}
+                      </div>
                     </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
                       <details className="group max-w-64">
