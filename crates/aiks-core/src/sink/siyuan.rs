@@ -345,8 +345,7 @@ impl SiYuanSink {
         }
         let current = self.get_document_markdown(doc_id).await?;
         let hash = hex::encode(Sha256::digest(current.as_bytes()));
-        let matched = expected_remote_hash == hash
-            || expected_remote_hash == format!("md:{hash}");
+        let matched = expected_remote_hash == hash || expected_remote_hash == format!("md:{hash}");
         if !matched {
             anyhow::bail!("SiYuan document {doc_id} has changed since AIKS synchronization");
         }

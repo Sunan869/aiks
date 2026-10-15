@@ -30,30 +30,43 @@ fn sql_error(error: rusqlite::Error) -> String {
     error.to_string()
 }
 
-fn mark_phase(db: &aiks_core::storage::StateDb, id: i64, phase: &str, error: Option<&str>) -> Result<(), String> {
-    db.conn().execute(
-        "INSERT INTO session_void_state (session_id, phase, last_error, updated_at)
+fn mark_phase(
+    db: &aiks_core::storage::StateDb,
+    id: i64,
+    phase: &str,
+    error: Option<&str>,
+) -> Result<(), String> {
+    db.conn()
+        .execute(
+            "INSERT INTO session_void_state (session_id, phase, last_error, updated_at)
          VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
          ON CONFLICT(session_id) DO UPDATE SET phase = excluded.phase,
             last_error = excluded.last_error, updated_at = excluded.updated_at",
-        params![id, phase, error],
-    ).map_err(sql_error)?;
+            params![id, phase, error],
+        )
+        .map_err(sql_error)?;
     Ok(())
 }
 
 fn load_documents(db: &aiks_core::storage::StateDb, id: i64) -> Result<Vec<Document>, String> {
     let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT doc_id, kind, knowledge_id, expected_hash, deleted
+    let mut stmt = conn
+        .prepare(
+            "SELECT doc_id, kind, knowledge_id, expected_hash, deleted
          FROM session_void_document WHERE session_id = ?1 ORDER BY kind, doc_id",
-    ).map_err(sql_error)?;
-    let docs = stmt.query_map(params![id], |row| Ok(Document {
-        id: row.get(0)?,
-        kind: row.get(1)?,
-        knowledge_id: row.get(2)?,
-        baseline: row.get(3)?,
-        deleted: row.get::<_, i64>(4)? != 0,
-    })).map_err(sql_error)?;
+        )
+        .map_err(sql_error)?;
+    let docs = stmt
+        .query_map(params![id], |row| {
+            Ok(Document {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                knowledge_id: row.get(2)?,
+                baseline: row.get(3)?,
+                deleted: row.get::<_, i64>(4)? != 0,
+            })
+        })
+        .map_err(sql_error)?;
     docs.collect::<Result<Vec<_>, _>>().map_err(sql_error)
 }
 
@@ -65,13 +78,23 @@ fn prepare_documents(db: &aiks_core::storage::StateDb, id: i64) -> Result<Vec<Do
             "SELECT target_id, COALESCE(target_hash, '') FROM sync_target
              WHERE session_id = ?1 AND sink = 'siyuan' AND target_id IS NOT NULL AND target_id <> ''",
         ).map_err(sql_error)?;
-        let rows = stmt.query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        let rows = stmt
+            .query_map(params![id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(sql_error)?;
         for row in rows {
             let (doc_id, baseline) = row.map_err(sql_error)?;
-            documents.insert(doc_id.clone(), Document {
-                id: doc_id, kind: "session".into(), knowledge_id: None, baseline, deleted: false,
-            });
+            documents.insert(
+                doc_id.clone(),
+                Document {
+                    id: doc_id,
+                    kind: "session".into(),
+                    knowledge_id: None,
+                    baseline,
+                    deleted: false,
+                },
+            );
         }
     }
     let has_volumes: bool = conn.query_row(
@@ -79,64 +102,105 @@ fn prepare_documents(db: &aiks_core::storage::StateDb, id: i64) -> Result<Vec<Do
         [], |row| row.get(0),
     ).map_err(sql_error)?;
     if has_volumes {
-        let mut stmt = conn.prepare(
-            "SELECT doc_id, remote_hash FROM session_volume WHERE session_id = ?1",
-        ).map_err(sql_error)?;
-        let rows = stmt.query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        let mut stmt = conn
+            .prepare("SELECT doc_id, remote_hash FROM session_volume WHERE session_id = ?1")
+            .map_err(sql_error)?;
+        let rows = stmt
+            .query_map(params![id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(sql_error)?;
         for row in rows {
             let (doc_id, baseline) = row.map_err(sql_error)?;
-            documents.insert(doc_id.clone(), Document {
-                id: doc_id, kind: "session".into(), knowledge_id: None, baseline, deleted: false,
-            });
+            documents.insert(
+                doc_id.clone(),
+                Document {
+                    id: doc_id,
+                    kind: "session".into(),
+                    knowledge_id: None,
+                    baseline,
+                    deleted: false,
+                },
+            );
         }
     }
     {
-        let mut stmt = conn.prepare(
-            "SELECT id, siyuan_doc_id, COALESCE(current_remote_hash, '') FROM knowledge_item
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, siyuan_doc_id, COALESCE(current_remote_hash, '') FROM knowledge_item
              WHERE source_session_id = ?1 AND siyuan_doc_id IS NOT NULL AND siyuan_doc_id <> ''",
-        ).map_err(sql_error)?;
-        let rows = stmt.query_map(params![id], |row| Ok((
-            row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
-        ))).map_err(sql_error)?;
+            )
+            .map_err(sql_error)?;
+        let rows = stmt
+            .query_map(params![id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(sql_error)?;
         for row in rows {
             let (knowledge_id, doc_id, baseline) = row.map_err(sql_error)?;
             if documents.contains_key(&doc_id) {
-                return Err(format!("SiYuan document {doc_id} maps to both session and knowledge"));
+                return Err(format!(
+                    "SiYuan document {doc_id} maps to both session and knowledge"
+                ));
             }
-            documents.insert(doc_id.clone(), Document {
-                id: doc_id, kind: "knowledge".into(), knowledge_id: Some(knowledge_id),
-                baseline, deleted: false,
-            });
+            documents.insert(
+                doc_id.clone(),
+                Document {
+                    id: doc_id,
+                    kind: "knowledge".into(),
+                    knowledge_id: Some(knowledge_id),
+                    baseline,
+                    deleted: false,
+                },
+            );
         }
     }
     // A mapped document without a trusted baseline must not be silently orphaned.
-    let source_document: Option<String> = conn.query_row(
-        "SELECT siyuan_doc_id FROM source_session WHERE id = ?1",
-        params![id], |row| row.get(0),
-    ).map_err(sql_error)?;
+    let source_document: Option<String> = conn
+        .query_row(
+            "SELECT siyuan_doc_id FROM source_session WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)?;
     if let Some(doc_id) = source_document.filter(|value| !value.is_empty()) {
         if !documents.contains_key(&doc_id) {
-            return Err(format!("session document {doc_id} has no trusted sync baseline"));
+            return Err(format!(
+                "session document {doc_id} has no trusted sync baseline"
+            ));
         }
     }
-    let unmanaged_knowledge_links: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM knowledge_sync_target st
+    let unmanaged_knowledge_links: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM knowledge_sync_target st
          JOIN knowledge_item ki ON ki.id = st.knowledge_id
          WHERE ki.source_session_id = ?1 AND st.sink = 'siyuan'
            AND st.target_id IS NOT NULL AND st.target_id <> ''
            AND COALESCE(ki.siyuan_doc_id, '') <> st.target_id",
-        params![id], |row| row.get(0),
-    ).map_err(sql_error)?;
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)?;
     if unmanaged_knowledge_links > 0 {
         return Err("knowledge has SiYuan mappings without a verified document identity".into());
     }
     Ok(documents.into_values().collect())
 }
 
-fn cleanup_local(db: &aiks_core::storage::StateDb, session_id: i64, source: &str, external_id: &str) -> Result<(), String> {
+fn cleanup_local(
+    db: &aiks_core::storage::StateDb,
+    session_id: i64,
+    source: &str,
+    external_id: &str,
+) -> Result<(), String> {
     let mut conn = db.conn();
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql_error)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql_error)?;
     // Remove indexed material before source rows. Every step is in one transaction.
     let statements = [
         "DELETE FROM knowledge_fts WHERE knowledge_id IN (SELECT id FROM knowledge_item WHERE source_session_id = ?1)",
@@ -163,22 +227,26 @@ fn cleanup_local(db: &aiks_core::storage::StateDb, session_id: i64, source: &str
         "DELETE FROM session_volume WHERE session_id = ?1",
     ];
     for statement in statements {
-        tx.execute(statement, params![session_id]).map_err(sql_error)?;
+        tx.execute(statement, params![session_id])
+            .map_err(sql_error)?;
     }
     tx.execute(
         "DELETE FROM knowledge_extraction WHERE source = ?1 AND external_session_id = ?2",
         params![source, external_id],
-    ).map_err(sql_error)?;
+    )
+    .map_err(sql_error)?;
     tx.execute(
         "UPDATE source_session SET content_hash = NULL, source_updated_at = NULL,
          parser_version = NULL, siyuan_doc_id = NULL WHERE id = ?1",
         params![session_id],
-    ).map_err(sql_error)?;
+    )
+    .map_err(sql_error)?;
     tx.execute(
         "UPDATE session_void_state SET phase = 'VOIDED', last_error = NULL,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE session_id = ?1",
         params![session_id],
-    ).map_err(sql_error)?;
+    )
+    .map_err(sql_error)?;
     tx.commit().map_err(sql_error)
 }
 
@@ -193,41 +261,57 @@ pub async fn void_session(
     let db = engine.db();
     let (source, external_id, phase) = {
         let conn = db.conn();
-        let (source, external_id): (String, String) = conn.query_row(
-            "SELECT source, external_session_id FROM source_session WHERE id = ?1",
-            params![session_id], |row| Ok((row.get(0)?, row.get(1)?)),
-        ).map_err(sql_error)?;
-        let phase: Option<String> = conn.query_row(
-            "SELECT phase FROM session_void_state WHERE session_id = ?1",
-            params![session_id], |row| row.get(0),
-        ).optional().map_err(sql_error)?;
+        let (source, external_id): (String, String) = conn
+            .query_row(
+                "SELECT source, external_session_id FROM source_session WHERE id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(sql_error)?;
+        let phase: Option<String> = conn
+            .query_row(
+                "SELECT phase FROM session_void_state WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sql_error)?;
         (source, external_id, phase)
     };
     if phase.as_deref() == Some("VOIDED") {
-        return Ok(VoidResult { state: "VOIDED".into(), documents_removed: 0 });
+        return Ok(VoidResult {
+            state: "VOIDED".into(),
+            documents_removed: 0,
+        });
     }
     // Atomically refuse a running worker and persist the exclusion before any remote I/O.
     {
         let mut conn = db.conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql_error)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sql_error)?;
         let running: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING')",
             params![session_id], |row| row.get(0),
         ).map_err(sql_error)?;
-        if running { return Err("AI 任务正在运行，暂不能作废该会话".into()); }
+        if running {
+            return Err("AI 任务正在运行，暂不能作废该会话".into());
+        }
         tx.execute(
             "INSERT OR IGNORE INTO session_sync_exclusion
              (source, external_session_id, created_at, baseline_updated_at, latest_seen_updated_at)
              SELECT source, external_session_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     source_updated_at, source_updated_at FROM source_session WHERE id = ?1",
             params![session_id],
-        ).map_err(sql_error)?;
+        )
+        .map_err(sql_error)?;
         tx.execute(
             "UPDATE pipeline_job SET status = 'CANCELLED', available_at = NULL, lease_until = NULL,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE session_id = ?1 AND status = 'PENDING'",
             params![session_id],
-        ).map_err(sql_error)?;
+        )
+        .map_err(sql_error)?;
         tx.commit().map_err(sql_error)?;
     }
     mark_phase(&db, session_id, "PREPARING", None)?;
@@ -243,7 +327,10 @@ pub async fn void_session(
 
     // Verify every existing document before removing the first one.
     for doc in documents.iter().filter(|doc| !doc.deleted) {
-        let exists = sink.get_doc_notebook(&doc.id).await.map_err(|error| error.to_string())?;
+        let exists = sink
+            .get_doc_notebook(&doc.id)
+            .await
+            .map_err(|error| error.to_string())?;
         if exists.is_none() {
             // Only a previously journaled deletion may be reconciled as absent.
             if docs.is_empty() {
@@ -253,10 +340,17 @@ pub async fn void_session(
             }
             continue;
         }
-        if let Err(error) = sink.verify_managed_document_for_removal(
-            &doc.id, &doc.kind, &source, &external_id,
-            doc.knowledge_id.as_deref(), &doc.baseline,
-        ).await {
+        if let Err(error) = sink
+            .verify_managed_document_for_removal(
+                &doc.id,
+                &doc.kind,
+                &source,
+                &external_id,
+                doc.knowledge_id.as_deref(),
+                &doc.baseline,
+            )
+            .await
+        {
             let reason = format!("SiYuan 清理校验失败：{error}");
             mark_phase(&db, session_id, "CONFLICT", Some(&reason))?;
             return Err(reason);
@@ -265,26 +359,39 @@ pub async fn void_session(
     // A durable deletion journal exists before any remote mutation occurs.
     if docs.is_empty() {
         let mut conn = db.conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql_error)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sql_error)?;
         for doc in &documents {
             tx.execute(
                 "INSERT INTO session_void_document
                  (session_id, doc_id, kind, knowledge_id, expected_hash, deleted)
                  VALUES (?1, ?2, ?3, ?4, ?5, 0)",
                 params![session_id, doc.id, doc.kind, doc.knowledge_id, doc.baseline],
-            ).map_err(sql_error)?;
+            )
+            .map_err(sql_error)?;
         }
         tx.commit().map_err(sql_error)?;
     }
     mark_phase(&db, session_id, "REMOVING", None)?;
     let mut removed = 0;
     for doc in documents.iter().filter(|doc| !doc.deleted) {
-        let exists = sink.get_doc_notebook(&doc.id).await.map_err(|error| error.to_string())?;
+        let exists = sink
+            .get_doc_notebook(&doc.id)
+            .await
+            .map_err(|error| error.to_string())?;
         if exists.is_some() {
-            if let Err(error) = sink.verify_managed_document_for_removal(
-                &doc.id, &doc.kind, &source, &external_id,
-                doc.knowledge_id.as_deref(), &doc.baseline,
-            ).await {
+            if let Err(error) = sink
+                .verify_managed_document_for_removal(
+                    &doc.id,
+                    &doc.kind,
+                    &source,
+                    &external_id,
+                    doc.knowledge_id.as_deref(),
+                    &doc.baseline,
+                )
+                .await
+            {
                 let reason = format!("删除前二次校验失败：{error}");
                 mark_phase(&db, session_id, "CONFLICT", Some(&reason))?;
                 return Err(reason);
@@ -305,7 +412,10 @@ pub async fn void_session(
         mark_phase(&db, session_id, "FAILED", Some(&error))?;
         return Err(format!("远端清理后本地收尾失败；可重试作废：{error}"));
     }
-    Ok(VoidResult { state: "VOIDED".into(), documents_removed: removed })
+    Ok(VoidResult {
+        state: "VOIDED".into(),
+        documents_removed: removed,
+    })
 }
 
 #[tauri::command]
@@ -318,11 +428,17 @@ pub async fn restore_void_session(
     let engine = state.engine().ok_or("Engine not initialized")?;
     let db = engine.db();
     let mut conn = db.conn();
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql_error)?;
-    let phase: Option<String> = tx.query_row(
-        "SELECT phase FROM session_void_state WHERE session_id = ?1",
-        params![session_id], |row| row.get(0),
-    ).optional().map_err(sql_error)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql_error)?;
+    let phase: Option<String> = tx
+        .query_row(
+            "SELECT phase FROM session_void_state WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(sql_error)?;
     if phase.as_deref() != Some("VOIDED") {
         return Err("清理尚未完成，不能恢复；请先处理作废冲突或重试".into());
     }
@@ -330,13 +446,18 @@ pub async fn restore_void_session(
         "DELETE FROM session_sync_exclusion WHERE (source, external_session_id) IN
          (SELECT source, external_session_id FROM source_session WHERE id = ?1)",
         params![session_id],
-    ).map_err(sql_error)?;
-    tx.execute("DELETE FROM session_void_document WHERE session_id = ?1", params![session_id])
-        .map_err(sql_error)?;
+    )
+    .map_err(sql_error)?;
+    tx.execute(
+        "DELETE FROM session_void_document WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(sql_error)?;
     tx.execute(
         "UPDATE session_void_state SET phase = 'RESTORED', last_error = NULL,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE session_id = ?1",
         params![session_id],
-    ).map_err(sql_error)?;
+    )
+    .map_err(sql_error)?;
     tx.commit().map_err(sql_error)
 }
