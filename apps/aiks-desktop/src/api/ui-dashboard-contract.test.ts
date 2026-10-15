@@ -18,7 +18,9 @@ describe("unified worklist UX", () => {
     expect(processing).toContain("voidSession(task.session_id)");
     expect(processing).toContain("restoreVoidSession(task.session_id)");
     expect(processing).toContain("handleBackfill");
-    expect(processing).toContain('title="处理结果汇总"');
+    expect(processing).not.toContain('title="处理结果汇总"');
+    expect(processing).toContain('["流水线运行", stats?.total]');
+    expect(processing).toContain("searchTaskCenterPage");
   });
   it("loads work-record sources from persisted sessions including share imports", () => {
     expect(sessions).toContain("getSessionSources()");

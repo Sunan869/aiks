@@ -118,7 +118,7 @@ impl<'a> TaskCenterRepo<'a> {
         offset: usize,
     ) -> anyhow::Result<(Vec<TaskCenterEntry>, i64)> {
         let conn = self.db.conn();
-        let base = "SELECT ss.id, ss.source, ss.external_session_id, ss.title,
+        let base = "SELECT ss.id AS session_id, ss.source, ss.external_session_id, ss.title,
                     st.status AS sync_status, st.last_error AS sync_error,
                     CASE WHEN pj.status = 'PENDING' THEN 'DISCOVERED'
                          WHEN pj.status = 'RUNNING' THEN 'PROCESSING'
@@ -179,27 +179,35 @@ impl<'a> TaskCenterRepo<'a> {
         )?;
         let sql = format!("SELECT * FROM ({filtered}) ORDER BY last_task_update DESC, session_id DESC LIMIT ?3 OFFSET ?4");
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![query.trim(), status, limit.clamp(1, 100) as i64, offset as i64], |row| {
-            Ok(TaskCenterEntry {
-                session_id: row.get(0)?,
-                source: row.get(1)?,
-                external_session_id: row.get(2)?,
-                title: row.get(3)?,
-                sync_status: row.get(4)?,
-                sync_error: row.get(5)?,
-                pipeline_status: row.get(6)?,
-                current_stage: row.get(7)?,
-                pipeline_error: row.get(8)?,
-                job_status: row.get(9)?,
-                attempts: row.get(10)?,
-                job_error: row.get(11)?,
-                stage_latency_ms: row.get(12)?,
-                last_task_update: row.get(13)?,
-                sync_excluded: row.get(14)?,
-                voided_source_changed: row.get(15)?,
-                void_phase: row.get(16)?,
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![
+                query.trim(),
+                status,
+                limit.clamp(1, 100) as i64,
+                offset as i64
+            ],
+            |row| {
+                Ok(TaskCenterEntry {
+                    session_id: row.get(0)?,
+                    source: row.get(1)?,
+                    external_session_id: row.get(2)?,
+                    title: row.get(3)?,
+                    sync_status: row.get(4)?,
+                    sync_error: row.get(5)?,
+                    pipeline_status: row.get(6)?,
+                    current_stage: row.get(7)?,
+                    pipeline_error: row.get(8)?,
+                    job_status: row.get(9)?,
+                    attempts: row.get(10)?,
+                    job_error: row.get(11)?,
+                    stage_latency_ms: row.get(12)?,
+                    last_task_update: row.get(13)?,
+                    sync_excluded: row.get(14)?,
+                    voided_source_changed: row.get(15)?,
+                    void_phase: row.get(16)?,
+                })
+            },
+        )?;
         Ok((rows.collect::<Result<Vec<_>, _>>()?, total))
     }
 }
@@ -207,6 +215,44 @@ impl<'a> TaskCenterRepo<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_search_finds_sessions_beyond_legacy_recent_window_and_pages() {
+        let path = std::env::temp_dir().join(format!(
+            "aiks-task-search-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let db = StateDb::open(&path).unwrap();
+        {
+            let conn = db.conn();
+            for idx in 0..215 {
+                conn.execute(
+                    "INSERT INTO source_session
+                     (source, external_session_id, title, last_seen_at, created_at, updated_at)
+                     VALUES ('codex', ?1, ?2, 'now', 'now', ?3)",
+                    params![
+                        format!("session-{idx:03}"),
+                        if idx == 0 { "needle-oldest" } else { "unrelated" },
+                        format!("2026-10-15T00:{:02}:00Z", idx % 60),
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        let repo = TaskCenterRepo::new(&db);
+        let (matches, total) = repo.search_page("needle-oldest", "all", 50, 0).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].external_session_id, "session-000");
+        let (first, all_count) = repo.search_page("", "all", 50, 0).unwrap();
+        let (next, _) = repo.search_page("", "all", 50, 50).unwrap();
+        assert_eq!(all_count, 215);
+        assert_eq!(first.len(), 50);
+        assert_eq!(next.len(), 50);
+        assert_ne!(first[0].session_id, next[0].session_id);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn stats_count_all_sessions_outside_recent_window() {

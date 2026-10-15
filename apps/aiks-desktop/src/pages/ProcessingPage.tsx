@@ -244,7 +244,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           </UiButton></>} />
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索全部会话任务</label>
         <UiInput id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
           placeholder="查找会话标题、来源或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
@@ -294,7 +294,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         {showDiagnosticPreview && diagnosticJson !== null && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
             <p className="text-xs text-gray-500 mb-2">
-              此诊断包仅含全库统计及最近最多 200 条任务的匿名化聚合。
+              此诊断包仅含全库统计及当前分页任务的匿名化聚合。
               不导出 Session/任务 ID、标题、文件路径、原文、错误文本或密钥；
               最新任务轮询不会静默改变当前快照。
             </p>
