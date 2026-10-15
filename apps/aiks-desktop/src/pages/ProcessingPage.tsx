@@ -344,7 +344,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
-                    <td className="py-2 pr-3">{task.sync_excluded ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.sync_excluded ? (task.void_phase === "VOIDED" ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : "作废清理中/需处理冲突") : task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
@@ -369,28 +369,50 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                             } catch {
                               setDeletionPreflight("无法获取删除影响清单，请刷新重试");
                             }
-                          }}>删除影响预检</UiButton>
+                          }}>作废影响预检</UiButton>
                         <UiButton variant="outline" size="sm" type="button"
                           disabled={!taskPanelFresh || retryingTask !== null || task.job_status === "RUNNING"}
                           onClick={async () => {
-                            const next = !task.sync_excluded;
-                            if (next && !window.confirm("确认作废此会话？停止后续自动同步和 AI 排队，但保留原文与知识。以后可手动恢复。")) return;
+                            const restoring = task.void_phase === "VOIDED";
+                            if (!restoring && !task.sync_excluded) {
+                              try {
+                                const impact = await getApi().inspectSessionDeletion(task.session_id);
+                                if (!window.confirm(`作废将从 SiYuan 清理 ${impact.siyuan_documents + impact.knowledge_siyuan_documents} 个文档，并删除 ${impact.knowledge_items} 条知识及关联索引。来源 Session 记录仍保留，可在以后手动恢复。若检测到人工编辑将停止清理。确认继续？`)) return;
+                              } catch {
+                                setRetryNotice("作废预检失败，未执行删除");
+                                return;
+                              }
+                            }
                             mutationGeneration.current += 1;
                             mutationInFlight.current = true;
                             setTaskPanelFresh(false);
                             setRetryingTask(task.session_id);
                             try {
-                              await getApi().setSessionSyncExcluded(task.session_id, next);
-                              setRetryNotice(next ? "会话已作废，保留记录及知识" : "已恢复同步资格，后续可重新同步");
+                              if (restoring) {
+                                await getApi().restoreVoidSession(task.session_id);
+                                if (task.source.endsWith("_share")) {
+                                  setRetryNotice("作废记录已恢复资格；Web 分享来源请重新导入原分享链接，以重建原文与知识");
+                                } else {
+                                  try {
+                                    await getApi().syncAndExtract(task.source);
+                                    setRetryNotice("已恢复并提交来源重新扫描和完整知识提取");
+                                  } catch {
+                                    setRetryNotice("已恢复同步资格，但重新扫描未完成；请重试来源同步");
+                                  }
+                                }
+                              } else {
+                                const result = await getApi().voidSession(task.session_id);
+                                setRetryNotice(`作废清理完成，已移除 ${result.documents_removed} 个 SiYuan 文档；会话元数据保留`);
+                              }
                             } catch {
-                              setRetryNotice("操作未完成，请刷新后重试");
+                              setRetryNotice("作废/恢复未完成；可能存在 SiYuan 归属冲突或不可达。作废隔离保持有效，可稍后重试");
                             } finally {
                               mutationGeneration.current += 1;
                               mutationInFlight.current = false;
                               setRetryingTask(null);
                               await load(false);
                             }
-                          }}>{task.sync_excluded ? "恢复并允许同步" : "作废"}</UiButton>
+                          }}>{task.void_phase === "VOIDED" ? "恢复并重新提取" : task.sync_excluded ? "继续作废清理" : "作废"}</UiButton>
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (

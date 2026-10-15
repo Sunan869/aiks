@@ -796,6 +796,17 @@ pub async fn set_session_sync_excluded(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|error| error.to_string())?;
+    let controlled_by_void: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_void_state
+             WHERE session_id = ?1 AND phase <> 'RESTORED')",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if controlled_by_void {
+        return Err("该会话已进入作废清理流程，请使用作废或恢复专用操作".to_string());
+    }
     if excluded {
         let running: bool = tx
             .query_row(

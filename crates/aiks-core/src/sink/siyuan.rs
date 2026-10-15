@@ -310,6 +310,68 @@ impl SiYuanSink {
         }
     }
 
+    /// Fail closed: never remove an existing SiYuan document unless both its
+    /// AIKS ownership attributes and remote content baseline match.
+    pub async fn verify_managed_document_for_removal(
+        &self,
+        doc_id: &str,
+        expected_kind: &str,
+        source: &str,
+        external_session_id: &str,
+        knowledge_id: Option<&str>,
+        expected_remote_hash: &str,
+    ) -> anyhow::Result<()> {
+        use sha2::{Digest, Sha256};
+
+        if expected_remote_hash.is_empty() {
+            anyhow::bail!("document {doc_id} has no verified remote baseline");
+        }
+        let attrs = self.get_block_attrs(doc_id).await?;
+        if attrs.get(ATTR_MANAGED).map(String::as_str) != Some("true")
+            || attrs.get(ATTR_SESSION_ID).map(String::as_str) != Some(external_session_id)
+        {
+            anyhow::bail!("document {doc_id} is not owned by the expected AIKS session");
+        }
+        if expected_kind == "knowledge" {
+            if attrs.get(ATTR_KIND).map(String::as_str) != Some("knowledge")
+                || attrs.get("custom-aiks-knowledge-id").map(String::as_str) != knowledge_id
+            {
+                anyhow::bail!("knowledge document {doc_id} ownership mismatch");
+            }
+        } else if attrs.get(ATTR_SOURCE).map(String::as_str) != Some(source)
+            || attrs.get(ATTR_KIND).map(String::as_str) == Some("knowledge")
+        {
+            anyhow::bail!("session document {doc_id} provider or kind mismatch");
+        }
+        let current = self.get_document_markdown(doc_id).await?;
+        let hash = hex::encode(Sha256::digest(current.as_bytes()));
+        let matched = expected_remote_hash == hash
+            || expected_remote_hash == format!("md:{hash}");
+        if !matched {
+            anyhow::bail!("SiYuan document {doc_id} has changed since AIKS synchronization");
+        }
+        Ok(())
+    }
+
+    /// Remove an already verified document through SiYuan's document API.
+    pub async fn remove_managed_document(&self, doc_id: &str) -> anyhow::Result<()> {
+        let url = format!("{}/api/filetree/removeDoc", self.base_url);
+        let response: ApiResponse<serde_json::Value> = self
+            .request_builder(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({ "id": doc_id }))
+            .send()
+            .await
+            .context("remove managed SiYuan document")?
+            .error_for_status()?
+            .json()
+            .await
+            .context("parse removeDoc response")?;
+        if response.code != 0 {
+            anyhow::bail!("SiYuan removeDoc error {}: {}", response.code, response.msg);
+        }
+        Ok(())
+    }
+
     /// Update the content of an existing document.
     pub async fn update_document(&self, doc_id: &str, markdown: &str) -> anyhow::Result<()> {
         let url = format!("{}/api/block/updateBlock", self.base_url);

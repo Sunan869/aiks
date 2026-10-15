@@ -56,6 +56,8 @@ export interface AiksApi {
   runPipelineForSession(sessionId: number): Promise<string>;
   cancelPendingAiTask(sessionId: number): Promise<boolean>;
   setSessionSyncExcluded(sessionId: number, excluded: boolean): Promise<void>;
+  voidSession(sessionId: number): Promise<{ state: string; documents_removed: number }>;
+  restoreVoidSession(sessionId: number): Promise<void>;
   inspectSessionDeletion(sessionId: number): Promise<{ session_id: number; running_jobs: number; pending_jobs: number; knowledge_items: number; knowledge_chunks: number; embedding_records: number; siyuan_documents: number; knowledge_siyuan_documents: number; requires_remote_verification: boolean; deletion_enabled: false }>;
 
   // V4 Native Knowledge Workbench

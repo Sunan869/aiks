@@ -188,6 +188,8 @@ export class MockAiksApi implements AiksApi {
   async retryFailedAiTask(): Promise<string> { throw new Error("Mock retry is not available"); }
   async runPipelineForSession(): Promise<string> { throw new Error("Mock first-run is not available"); }
   async inspectSessionDeletion(sessionId: number) { await delay(); return { session_id: sessionId, running_jobs: 0, pending_jobs: 0, knowledge_items: 0, knowledge_chunks: 0, embedding_records: 0, siyuan_documents: 0, knowledge_siyuan_documents: 0, requires_remote_verification: false, deletion_enabled: false as const }; }
+  async voidSession(): Promise<{ state: string; documents_removed: number }> { await delay(); return { state: "VOIDED", documents_removed: 0 }; }
+  async restoreVoidSession(): Promise<void> { await delay(); }
   async setSessionSyncExcluded(): Promise<void> { await delay(); }
   async cancelPendingAiTask(): Promise<boolean> { throw new Error("Mock cancel is not available"); }
   async getPipelineRuns(): Promise<PipelineSummary[]> { await delay(); return []; }

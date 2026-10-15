@@ -125,6 +125,8 @@ export class TauriAiksApi implements AiksApi {
   async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
   async runPipelineForSession(sessionId: number): Promise<string> { return invoke("run_pipeline_for_session", { sessionId }); }
   async inspectSessionDeletion(sessionId: number) { return invoke<{ session_id: number; running_jobs: number; pending_jobs: number; knowledge_items: number; knowledge_chunks: number; embedding_records: number; siyuan_documents: number; knowledge_siyuan_documents: number; requires_remote_verification: boolean; deletion_enabled: false }>("inspect_session_deletion", { sessionId }); }
+  async voidSession(sessionId: number): Promise<{ state: string; documents_removed: number }> { return invoke("void_session", { sessionId }); }
+  async restoreVoidSession(sessionId: number): Promise<void> { return invoke("restore_void_session", { sessionId }); }
   async setSessionSyncExcluded(sessionId: number, excluded: boolean): Promise<void> { return invoke("set_session_sync_excluded", { sessionId, excluded }); }
   async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }
 

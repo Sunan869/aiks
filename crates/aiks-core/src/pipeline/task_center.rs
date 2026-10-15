@@ -21,6 +21,7 @@ pub struct TaskCenterEntry {
     pub stage_latency_ms: Option<i64>,
     pub last_task_update: Option<String>,
     pub sync_excluded: bool,
+    pub void_phase: Option<String>,
     pub voided_source_changed: bool,
 }
 
@@ -120,7 +121,8 @@ impl<'a> TaskCenterRepo<'a> {
                         WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
                           AND x.baseline_updated_at IS NOT NULL
                           AND x.latest_seen_updated_at IS NOT NULL
-                          AND x.latest_seen_updated_at <> x.baseline_updated_at)
+                          AND x.latest_seen_updated_at <> x.baseline_updated_at),
+                    (SELECT vs.phase FROM session_void_state vs WHERE vs.session_id = ss.id)
              FROM source_session ss
              LEFT JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
              LEFT JOIN pipeline_job pj ON pj.id = (
@@ -157,6 +159,7 @@ impl<'a> TaskCenterRepo<'a> {
                 last_task_update: row.get(13)?,
                 sync_excluded: row.get(14)?,
                 voided_source_changed: row.get(15)?,
+                void_phase: row.get(16)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
