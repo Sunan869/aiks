@@ -334,7 +334,7 @@ impl SiYuanSink {
         }
         if expected_kind == "knowledge" {
             if attrs.get(ATTR_KIND).map(String::as_str) != Some("knowledge")
-                || attrs.get("custom-aiks-knowledge-id").map(String::as_str) != knowledge_id
+                || attrs.get("custom-aiks-id").map(String::as_str) != knowledge_id
             {
                 anyhow::bail!("knowledge document {doc_id} ownership mismatch");
             }
