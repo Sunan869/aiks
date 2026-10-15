@@ -253,6 +253,15 @@ impl StateDb {
         conn.execute_batch(SCHEMA_V17_SQL)
             .context("run V17 project report drafts migrations")?;
 
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS session_sync_exclusion (
+                source TEXT NOT NULL,
+                external_session_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (source, external_session_id)
+            );"
+        )
+        .context("create session sync exclusions")?;
         Ok(())
     }
 

@@ -317,6 +317,7 @@ export interface TaskCenterEntry {
   job_error: string | null;
   stage_latency_ms: number | null;
   last_task_update: string | null;
+  sync_excluded: boolean;
 }
 
 /** Database-wide statistics, not counts from the bounded task list. */

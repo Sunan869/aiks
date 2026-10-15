@@ -89,6 +89,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     setDiagnosticNotice("已请求保存审核后的脱敏任务诊断快照。");
   };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
+  const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [taskLoadError, setTaskLoadError] = useState("");
   const [pipelineLoadError, setPipelineLoadError] = useState("");
@@ -341,7 +342,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
-                    <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.sync_excluded ? "已排除" : task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
@@ -353,6 +354,31 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                           disabled={!onViewSession}
                           title="查看已入库的会话详情，不改变同步或 AI 排队状态"
                           onClick={() => onViewSession?.(task.session_id)}>预览</UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          onClick={() => setExpandedSession(current => current === task.session_id ? null : task.session_id)}>
+                          {expandedSession === task.session_id ? "收起阶段" : "处理阶段"}
+                        </UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!taskPanelFresh || retryingTask !== null || task.job_status === "RUNNING"}
+                          onClick={async () => {
+                            const next = !task.sync_excluded;
+                            if (next && !window.confirm("确认排除此会话的后续同步和 AI 排队？既有 SiYuan 文档和知识不会删除。")) return;
+                            mutationGeneration.current += 1;
+                            mutationInFlight.current = true;
+                            setTaskPanelFresh(false);
+                            setRetryingTask(task.session_id);
+                            try {
+                              await getApi().setSessionSyncExcluded(task.session_id, next);
+                              setRetryNotice(next ? "已排除后续同步" : "已恢复同步资格");
+                            } catch {
+                              setRetryNotice("操作未完成，请刷新后重试");
+                            } finally {
+                              mutationGeneration.current += 1;
+                              mutationInFlight.current = false;
+                              setRetryingTask(null);
+                              await load(false);
+                            }
+                          }}>{task.sync_excluded ? "恢复同步" : "不同步"}</UiButton>
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
@@ -430,115 +456,33 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 ))}
               </tbody>
             </table>
+            {expandedSession !== null && (() => {
+              const run = runs.find(item => item.session_id === expandedSession);
+              return <div className="border-t p-4 text-xs space-y-3" role="region" aria-label="所选会话处理阶段">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>会话 #{expandedSession} · {run ? (STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
+                  {run && onViewDetail && <UiButton variant="outline" size="sm" onClick={() => onViewDetail(run.run_id)}>查看完整流水线</UiButton>}
+                </div>
+                {run && <div className="flex flex-wrap gap-3">{STAGE_ORDER.map(stage => {
+                  const item = run.stage_runs.find(entry => entry.stage === stage);
+                  return <span key={stage}>{STAGE_LABELS[stage] ?? stage}：{item?.status ?? "未开始"}</span>;
+                })}</div>}
+              </div>;
+            })()}
           </div>
         )}
       </section>
 
-      {!pipelinePanelFresh && runs.length > 0 && (
-        <UiNotice tone="warning" className="mb-3">流水线表格显示的是旧快照；打开详情后将重新请求该记录。</UiNotice>
-      )}
-      {/* Stats bar */}
-      {stats && (
-        <div className="grid grid-cols-4 gap-3 mb-5">
-          {[
-            { label: "全部", value: stats.total, key: "all", color: "text-gray-700" },
-            { label: "处理中", value: stats.processing, key: "processing", color: "text-blue-600" },
-            { label: "失败", value: stats.failed, key: "failed", color: "text-red-500" },
-            { label: "已完成", value: stats.ready, key: "ready", color: "text-green-600" },
-          ].map(item => (
-            <UiButton variant="outline" size="sm"
-              key={item.key}
-              onClick={() => setFilter(item.key)}
-              className={`text-left px-4 py-3 rounded border transition-colors ${filter === item.key
-                ? "border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700"
-                : "border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-              }`}
-            >
-              <div className={`text-xl font-bold ${item.color} dark:opacity-90`}>{item.value}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{item.label}</div>
-            </UiButton>
-          ))}
+      <UiSection title="处理结果汇总" description="会话状态与流水线执行次数采用不同口径，不进行相加">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <UiMetric label="流水线运行" value={stats?.total ?? "—"} />
+          <UiMetric label="运行失败" value={stats?.failed ?? "—"} />
+          <UiMetric label="知识条目" value={stats?.knowledge_items ?? "—"} />
+          <UiMetric label="向量索引" value={stats?.embeddings ?? "—"} />
         </div>
-      )}
+        {!pipelinePanelFresh && <UiNotice tone="warning">流水线统计暂不可用。</UiNotice>}
+      </UiSection>
 
-      {/* Knowledge & embedding stats */}
-      {stats && (
-        <div className="grid grid-cols-3 gap-3 mb-5 text-center">
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className="text-base font-semibold text-gray-800 dark:text-gray-200">{stats.knowledge_items}</div>
-            <div className="text-xs text-gray-400">知识条目</div>
-          </div>
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className="text-base font-semibold text-gray-800 dark:text-gray-200">{stats.knowledge_chunks}</div>
-            <div className="text-xs text-gray-400">向量切片</div>
-          </div>
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className={`text-base font-semibold ${stats.embeddings > 0 ? "text-green-600" : "text-gray-400"}`}>
-              {stats.embeddings > 0 ? stats.embeddings : "未配置"}
-            </div>
-            <div className="text-xs text-gray-400">向量索引</div>
-          </div>
-        </div>
-      )}
-
-      <p role="status" className="text-xs text-slate-500">流水线记录：显示 {filtered.length} / {runs.length} 条近期记录；此区域与上方任务列表可分别横向滚动。</p>
-      {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-400 text-sm">加载中...</div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-          <p className="text-sm">{searchText || filter !== "all" ? "没有符合筛选条件的流水线记录" : "暂无处理记录"}</p>
-        </div>
-      ) : (
-        <div className="aiks-data-table overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" role="region" aria-label="流水线阶段记录" tabIndex={0}>
-          <table className="w-full min-w-[880px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">会话</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 uppercase">来源</th>
-                {STAGE_ORDER.map(s => (
-                  <th key={s} className="px-2 py-2.5 text-xs font-medium text-gray-500 uppercase text-center w-12">
-                    {STAGE_LABELS[s] ?? s}
-                  </th>
-                ))}
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">知识</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">状态</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {filtered.map((run: PipelineSummary) => {
-                const cfg = STATUS_CONFIG[run.status] ?? { color: "text-gray-500", label: run.status, icon: "·" };
-                return (
-                  <tr key={run.run_id}
-                    className={`hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
-                    onClick={() => onViewDetail?.(run.run_id)}
-                  >
-                    <td className="px-4 py-2.5">
-                      <div className="text-gray-900 dark:text-gray-100 truncate max-w-[200px]">
-                        {run.session_title || run.run_id}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-500 text-xs">{formatSourceName(run.source)}</td>
-                    {STAGE_ORDER.map(s => (
-                      <StageCell key={s} stage={s} stageRuns={run.stage_runs} />
-                    ))}
-                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 text-xs">
-                      {run.knowledge_count > 0 ? run.knowledge_count : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs font-medium ${cfg.color}`}>
-                        {cfg.icon} {cfg.label}
-                      </span>
-                      {run.error_message && (
-                        <div className="text-[10px] text-red-400 truncate max-w-[120px] mt-0.5">{run.error_message}</div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

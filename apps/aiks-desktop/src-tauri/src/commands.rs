@@ -772,6 +772,63 @@ pub async fn retry_failed_ai_task(
         .map_err(|error| error.to_string())
 }
 
+/// Persist exclusion identity and cancel only unclaimed pending jobs.
+#[tauri::command]
+pub async fn set_session_sync_excluded(
+    session_id: i64,
+    excluded: bool,
+    state: State<'_, AppState>,
+    gate: State<'_, Arc<aiks_core::storage::backup_quiescence::BackupQuiescence>>,
+) -> Result<(), String> {
+    let _writer = gate
+        .try_begin_write()
+        .ok_or("正在执行备份，已暂停写入操作")?;
+    let engine = state.engine().ok_or("Engine not initialized")?;
+    let db = engine.db();
+    let mut conn = db.conn();
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let identity: (String, String) = tx
+        .query_row(
+            "SELECT source, external_session_id FROM source_session WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    if excluded {
+        let running: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pipeline_job WHERE session_id = ?1 AND status = 'RUNNING')",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if running {
+            return Err("该会话正在 AI 处理中，请等待任务完成后再排除".to_string());
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO session_sync_exclusion (source, external_session_id, created_at)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![identity.0, identity.1, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "UPDATE pipeline_job SET status = 'CANCELLED', available_at = NULL,
+             lease_until = NULL, updated_at = ?2 WHERE session_id = ?1 AND status = 'PENDING'",
+            rusqlite::params![session_id, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| error.to_string())?;
+    } else {
+        tx.execute(
+            "DELETE FROM session_sync_exclusion WHERE source = ?1 AND external_session_id = ?2",
+            rusqlite::params![identity.0, identity.1],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
 /// Cancel only AI work waiting in the durable queue, never running workers.
 #[tauri::command]
 pub async fn cancel_pending_ai_task(

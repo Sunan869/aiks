@@ -20,6 +20,7 @@ pub struct TaskCenterEntry {
     pub job_error: Option<String>,
     pub stage_latency_ms: Option<i64>,
     pub last_task_update: Option<String>,
+    pub sync_excluded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,7 +112,9 @@ impl<'a> TaskCenterRepo<'a> {
                      WHERE ps.pipeline_run_id = pr.id AND ps.latency_ms IS NOT NULL
                      ORDER BY ps.finished_at DESC, ps.rowid DESC LIMIT 1),
                     MAX(COALESCE(pj.updated_at, ''),
-                        COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, ''))
+                        COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, '')),
+                    EXISTS(SELECT 1 FROM session_sync_exclusion x
+                        WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id)
              FROM source_session ss
              LEFT JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
              LEFT JOIN pipeline_job pj ON pj.id = (
@@ -146,6 +149,7 @@ impl<'a> TaskCenterRepo<'a> {
                 job_error: row.get(11)?,
                 stage_latency_ms: row.get(12)?,
                 last_task_update: row.get(13)?,
+                sync_excluded: row.get(14)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

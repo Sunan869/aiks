@@ -55,6 +55,7 @@ export interface AiksApi {
   retryFailedAiTask(sessionId: number): Promise<string>;
   runPipelineForSession(sessionId: number): Promise<string>;
   cancelPendingAiTask(sessionId: number): Promise<boolean>;
+  setSessionSyncExcluded(sessionId: number, excluded: boolean): Promise<void>;
 
   // V4 Native Knowledge Workbench
   getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage>;

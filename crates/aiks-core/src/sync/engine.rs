@@ -392,6 +392,25 @@ impl SyncEngine {
     ) -> SyncOutcome {
         let source = summary.source.as_str();
         let session_id = &summary.external_session_id;
+        // Respect a durable exclusion before loading source content or touching SiYuan.
+        let excluded = db.conn().query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_sync_exclusion WHERE source = ?1 AND external_session_id = ?2)",
+            rusqlite::params![source, session_id],
+            |row| row.get::<_, bool>(0),
+        );
+        match excluded {
+            Ok(true) => {
+                return SyncOutcome::Skipped {
+                    reason: "用户已排除同步".to_string(),
+                };
+            }
+            Ok(false) => {}
+            Err(error) => {
+                return SyncOutcome::Failed {
+                    error: format!("读取同步排除规则失败: {error}"),
+                };
+            }
+        }
         let source_session_repo = SourceSessionRepo::new(db);
         let sync_target_repo = SyncTargetRepo::new(db);
 

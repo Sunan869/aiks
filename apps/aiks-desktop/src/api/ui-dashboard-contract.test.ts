@@ -14,8 +14,10 @@ describe("unified worklist UX", () => {
   });
   it("supports local pipeline searching while keeping task retries", () => {
     expect(processing).toContain('id="processing-run-search"');
-    expect(processing).toContain("filteredByStatus.filter(");
+    expect(processing).toContain("setExpandedSession");
+    expect(processing).toContain("setSessionSyncExcluded");
     expect(processing).toContain("handleBackfill");
+    expect(processing).toContain('title="处理结果汇总"');
   });
   it("loads work-record sources from persisted sessions including share imports", () => {
     expect(sessions).toContain("getSessionSources()");
