@@ -133,7 +133,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
         <span role="status" className="text-xs text-slate-500">当前页匹配 {currentPageItems.length} / {data?.items.length ?? 0} 条 · 全库 {data?.total ?? 0} 条</span>
         {currentPageQuery && <UiButton variant="outline" size="sm" type="button" onClick={() => setCurrentPageQuery("")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">清空</UiButton>}
       </div>
-      {sourcesError && <p role="alert" className="mb-3 text-xs text-red-600">来源筛选目录加载失败：{sourcesError}</p>}
+      {sourcesError && <p role="alert" className="mb-3 text-xs text-red-600">读取数据库来源失败，请刷新页面重试。</p>}
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded text-sm text-red-700 dark:text-red-400">
           {error}
