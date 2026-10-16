@@ -66,7 +66,7 @@ AIKS primarily addresses **personal knowledge accumulated through AI-assisted wo
 
 The following collage comes from the running AIKS desktop application and shows **Data Sources, Processing Center, Work Records, Project Memory, Ask AIKS, and Safe Voiding**. Conversation text, project details and potential personal identifiers have been heavily blurred for public sharing.
 
-![Six AIKS feature screens: Data Sources, Processing Center, Work Records, Project Memory, Ask AIKS, and Safe Voiding](docs/images/readme/aiks-gallery.webp)
+**Screenshots being updated:** The previous 5 KB collage was too compressed and has been removed from display. Individually redacted, high-resolution screenshots will replace it.
 
 > The image demonstrates product layout and feature coverage. The blur is for privacy and is not present in the application itself.
 
