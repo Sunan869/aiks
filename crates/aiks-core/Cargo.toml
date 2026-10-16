@@ -2,6 +2,7 @@
 name = "aiks-core"
 version.workspace = true
 edition.workspace = true
+license-file.workspace = true
 description = "AIKS Core library — Session collection, sync, and knowledge management"
 
 [lib]
