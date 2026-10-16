@@ -70,8 +70,8 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         Self {
-            scan_interval_seconds: 300,
-            watch_enabled: true,
+            scan_interval_seconds: 600,
+            watch_enabled: false,
             debounce_seconds: 2,
             max_parallel_sessions: 4,
         }

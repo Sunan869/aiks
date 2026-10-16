@@ -336,7 +336,7 @@ impl SyncEngine {
                     }
                 }
                 SyncOutcome::Unchanged => {
-                    debug!(session_id = %summary.external_session_id, "Unchanged");
+                    // Aggregate unchanged counts in sync summary instead of logging each session.
                     stats.unchanged_count += 1;
                 }
                 SyncOutcome::Skipped { reason } => {
