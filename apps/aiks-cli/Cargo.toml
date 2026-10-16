@@ -2,6 +2,7 @@
 name = "aiks-cli"
 version.workspace = true
 edition.workspace = true
+license-file.workspace = true
 description = "AIKS CLI — command-line interface for AIKS Core"
 
 [[bin]]

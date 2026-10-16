@@ -1,6 +1,6 @@
 # Third Party Notices
 
-> 本文件记录所有复制、修改、移植的第三方代码，以及随 AIKS 分发的开源组件。
+> **Licensing boundary / 授权范围：** This notice preserves independently licensed upstream material. AIKS-original rights-controlled portions are now offered under [PolyForm Noncommercial 1.0.0](LICENSE), but that change does **not** relicense SiYuan (AGPL-3.0), MIT/Apache-derived portions, or any contributor material without valid relicensing authority. Existing grants under older AIKS MIT releases remain valid. See [LICENSE-SCOPE.md](LICENSE-SCOPE.md).\n>\n> **Notice accuracy:** Reference-only research must be distinguished from bundled or modified code. The project's compliance obligations for AGPL runtime distribution must be reviewed for each binary release; merely linking upstream source may not exhaust all obligations.\n\n> 本文件记录所有复制、修改、移植的第三方代码，以及随 AIKS 分发的开源组件。
 > 必须包含来源仓库、固定 Commit SHA/Version、License 和衍生/分发文件路径。
 
 ## SiYuan — Bundled Runtime (AGPL-3.0)
