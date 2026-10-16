@@ -73,6 +73,7 @@ export class TauriAiksApi implements AiksApi {
     };
   }
 
+  async getSessionSources(): Promise<string[]> { return invoke("list_session_sources"); }
   async getSessions(opts?: { source?: string; limit?: number; offset?: number }): Promise<SessionPage> {
     return invoke("list_sessions_v3", { source: opts?.source, limit: opts?.limit, offset: opts?.offset });
   }
@@ -119,10 +120,15 @@ export class TauriAiksApi implements AiksApi {
   async getPipelineDetail(runId: string): Promise<PipelineSummary> { return invoke("get_pipeline_detail", { runId }); }
   async getPipelineStats(): Promise<PipelineStats> { return invoke("get_pipeline_stats"); }
   async getTaskCenterEntries(limit?: number): Promise<TaskCenterEntry[]> { return invoke("list_task_center_entries", { limit }); }
+  async searchTaskCenterPage(query: string, status: string, limit: number, offset: number): Promise<{ items: TaskCenterEntry[]; total: number }> { return invoke("search_task_center_page", { query, status, limit, offset }); }
   async getTaskCenterStats(): Promise<TaskCenterStats> { return invoke("get_task_center_stats"); }
   async getAiUsageStats(): Promise<AiUsageStats> { return invoke("get_ai_usage_stats"); }
   async retryFailedAiTask(sessionId: number): Promise<string> { return invoke("retry_failed_ai_task", { sessionId }); }
   async runPipelineForSession(sessionId: number): Promise<string> { return invoke("run_pipeline_for_session", { sessionId }); }
+  async inspectSessionDeletion(sessionId: number) { return invoke<{ session_id: number; running_jobs: number; pending_jobs: number; knowledge_items: number; knowledge_chunks: number; embedding_records: number; siyuan_documents: number; knowledge_siyuan_documents: number; requires_remote_verification: boolean; deletion_enabled: false }>("inspect_session_deletion", { sessionId }); }
+  async voidSession(sessionId: number): Promise<{ state: string; documents_removed: number }> { return invoke("void_session", { sessionId }); }
+  async restoreVoidSession(sessionId: number): Promise<void> { return invoke("restore_void_session", { sessionId }); }
+  async setSessionSyncExcluded(sessionId: number, excluded: boolean): Promise<void> { return invoke("set_session_sync_excluded", { sessionId, excluded }); }
   async cancelPendingAiTask(sessionId: number): Promise<boolean> { return invoke("cancel_pending_ai_task", { sessionId }); }
 
   async getKnowledge(opts?: KnowledgeListOptions): Promise<KnowledgePage> {

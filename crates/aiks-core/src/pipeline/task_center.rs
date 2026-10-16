@@ -20,6 +20,9 @@ pub struct TaskCenterEntry {
     pub job_error: Option<String>,
     pub stage_latency_ms: Option<i64>,
     pub last_task_update: Option<String>,
+    pub sync_excluded: bool,
+    pub void_phase: Option<String>,
+    pub voided_source_changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -89,29 +92,58 @@ impl<'a> TaskCenterRepo<'a> {
         Ok(result)
     }
 
+    /// Server-side search and pagination across the entire persisted Session set.
+    pub fn search_page(
+        &self,
+        query: &str,
+        status: &str,
+        limit: usize,
+        offset: usize,
+    ) -> anyhow::Result<(Vec<TaskCenterEntry>, i64)> {
+        let all = self.list_recent_query(query, status, limit, offset)?;
+        Ok(all)
+    }
+
     /// Bounded list of canonical sessions and their independent persisted states.
     /// No raw Session content, prompts, endpoints, or API keys are returned.
     pub fn list_recent(&self, limit: usize) -> anyhow::Result<Vec<TaskCenterEntry>> {
+        Ok(self.list_recent_query("", "all", limit, 0)?.0)
+    }
+
+    fn list_recent_query(
+        &self,
+        query: &str,
+        status: &str,
+        limit: usize,
+        offset: usize,
+    ) -> anyhow::Result<(Vec<TaskCenterEntry>, i64)> {
         let conn = self.db.conn();
-        let mut stmt = conn.prepare(
-            "SELECT ss.id, ss.source, ss.external_session_id, ss.title,
-                    st.status, st.last_error,
+        let base = "SELECT ss.id AS session_id, ss.source, ss.external_session_id, ss.title,
+                    st.status AS sync_status, st.last_error AS sync_error,
                     CASE WHEN pj.status = 'PENDING' THEN 'DISCOVERED'
                          WHEN pj.status = 'RUNNING' THEN 'PROCESSING'
                          WHEN pj.status = 'CANCELLED' THEN 'CANCELLED'
-                         ELSE pr.status END,
+                         ELSE pr.status END AS pipeline_status,
                     CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'CANCELLED') THEN NULL
                          ELSE pr.current_stage END,
                     CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'DONE', 'CANCELLED') THEN NULL
-                         ELSE pr.error_message END,
-                    pj.status, pj.attempt,
+                         ELSE pr.error_message END AS pipeline_error,
+                    pj.status AS job_status, pj.attempt,
                     CASE WHEN pj.status IN ('PENDING', 'RUNNING', 'DONE', 'CANCELLED') THEN NULL
-                         ELSE pj.last_error END,
+                         ELSE pj.last_error END AS job_error,
                     (SELECT ps.latency_ms FROM pipeline_stage_run ps
                      WHERE ps.pipeline_run_id = pr.id AND ps.latency_ms IS NOT NULL
                      ORDER BY ps.finished_at DESC, ps.rowid DESC LIMIT 1),
                     MAX(COALESCE(pj.updated_at, ''),
-                        COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, ''))
+                        COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, '')) AS last_task_update,
+                    EXISTS(SELECT 1 FROM session_sync_exclusion x
+                        WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id),
+                    EXISTS(SELECT 1 FROM session_sync_exclusion x
+                        WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+                          AND x.baseline_updated_at IS NOT NULL
+                          AND x.latest_seen_updated_at IS NOT NULL
+                          AND x.latest_seen_updated_at <> x.baseline_updated_at),
+                    (SELECT vs.phase FROM session_void_state vs WHERE vs.session_id = ss.id)
              FROM source_session ss
              LEFT JOIN sync_target st ON st.session_id = ss.id AND st.sink = 'siyuan'
              LEFT JOIN pipeline_job pj ON pj.id = (
@@ -126,35 +158,103 @@ impl<'a> TaskCenterRepo<'a> {
                  ORDER BY p.updated_at DESC, p.created_at DESC, p.rowid DESC
                  LIMIT 1)
              ) AND pr.session_id = ss.id AND pr.pipeline_version = 'v3'
-             ORDER BY MAX(COALESCE(pj.updated_at, ''),
-                          COALESCE(pr.updated_at, ''), COALESCE(ss.updated_at, '')) DESC,
-                      ss.id DESC LIMIT ?1",
+             ";
+        let filtered = format!(
+            "SELECT * FROM ({base}) WHERE
+             (?1 = '' OR instr(lower(COALESCE(title, '')), lower(?1)) > 0
+                OR instr(lower(source), lower(?1)) > 0
+                OR instr(lower(external_session_id), lower(?1)) > 0
+                OR instr(lower(COALESCE(sync_error, '')), lower(?1)) > 0
+                OR instr(lower(COALESCE(pipeline_error, '')), lower(?1)) > 0
+                OR instr(lower(COALESCE(job_error, '')), lower(?1)) > 0)
+             AND (?2 = 'all'
+                 OR (?2 = 'sync_failed' AND (sync_status LIKE 'FAILED%' OR sync_status = 'CONFLICT'))
+                 OR (?2 = 'ai_failed' AND (pipeline_status = 'FAILED' OR job_status = 'FAILED'))
+                 OR (?2 = 'active' AND (sync_status = 'PENDING' OR pipeline_status = 'PROCESSING' OR job_status = 'RUNNING')))"
+        );
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM ({filtered})"),
+            params![query.trim(), status],
+            |row| row.get(0),
         )?;
-        let rows = stmt.query_map(params![limit.clamp(1, 500) as i64], |row| {
-            Ok(TaskCenterEntry {
-                session_id: row.get(0)?,
-                source: row.get(1)?,
-                external_session_id: row.get(2)?,
-                title: row.get(3)?,
-                sync_status: row.get(4)?,
-                sync_error: row.get(5)?,
-                pipeline_status: row.get(6)?,
-                current_stage: row.get(7)?,
-                pipeline_error: row.get(8)?,
-                job_status: row.get(9)?,
-                attempts: row.get(10)?,
-                job_error: row.get(11)?,
-                stage_latency_ms: row.get(12)?,
-                last_task_update: row.get(13)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        let sql = format!("SELECT * FROM ({filtered}) ORDER BY last_task_update DESC, session_id DESC LIMIT ?3 OFFSET ?4");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![
+                query.trim(),
+                status,
+                limit.clamp(1, 100) as i64,
+                offset as i64
+            ],
+            |row| {
+                Ok(TaskCenterEntry {
+                    session_id: row.get(0)?,
+                    source: row.get(1)?,
+                    external_session_id: row.get(2)?,
+                    title: row.get(3)?,
+                    sync_status: row.get(4)?,
+                    sync_error: row.get(5)?,
+                    pipeline_status: row.get(6)?,
+                    current_stage: row.get(7)?,
+                    pipeline_error: row.get(8)?,
+                    job_status: row.get(9)?,
+                    attempts: row.get(10)?,
+                    job_error: row.get(11)?,
+                    stage_latency_ms: row.get(12)?,
+                    last_task_update: row.get(13)?,
+                    sync_excluded: row.get(14)?,
+                    voided_source_changed: row.get(15)?,
+                    void_phase: row.get(16)?,
+                })
+            },
+        )?;
+        Ok((rows.collect::<Result<Vec<_>, _>>()?, total))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_search_finds_sessions_beyond_legacy_recent_window_and_pages() {
+        let path =
+            std::env::temp_dir().join(format!("aiks-task-search-{}.db", uuid::Uuid::new_v4()));
+        let db = StateDb::open(&path).unwrap();
+        {
+            let conn = db.conn();
+            for idx in 0..215 {
+                conn.execute(
+                    "INSERT INTO source_session
+                     (source, external_session_id, title, last_seen_at, created_at, updated_at)
+                     VALUES ('codex', ?1, ?2, 'now', 'now', ?3)",
+                    params![
+                        format!("session-{idx:03}"),
+                        if idx == 0 {
+                            "needle-oldest"
+                        } else {
+                            "unrelated"
+                        },
+                        format!("2026-10-15T00:{:02}:00Z", idx % 60),
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        let repo = TaskCenterRepo::new(&db);
+        let (matches, total) = repo.search_page("needle-oldest", "all", 50, 0).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].external_session_id, "session-000");
+        let (first, all_count) = repo.search_page("", "all", 50, 0).unwrap();
+        let (next, _) = repo.search_page("", "all", 50, 50).unwrap();
+        assert_eq!(all_count, 215);
+        assert_eq!(first.len(), 50);
+        assert_eq!(next.len(), 50);
+        assert_ne!(first[0].session_id, next[0].session_id);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn stats_count_all_sessions_outside_recent_window() {

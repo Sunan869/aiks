@@ -7,17 +7,18 @@ mod diagnostics;
 mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
+mod log_rotation;
 mod project_memory_commands;
 mod provider_commands;
 mod rag_commands;
 mod search_commands;
+mod session_void_commands;
 pub mod session_workbench;
 mod share_import_commands;
 mod storage_commands;
 mod tray;
 mod workbench;
 
-use std::fs::{self, OpenOptions};
 use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::Mutex;
 
@@ -28,22 +29,15 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 pub fn run() {
     let log_dir = app_state::data_dir().join("logs");
     let log_path = log_dir.join("aiks.log");
-    let file_layer = fs::create_dir_all(&log_dir)
-        .ok()
-        .and_then(|_| {
-            OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .ok()
-        })
-        .map(|file| {
+    let file_layer = log_rotation::make_writer(&log_dir)
+        .map(|writer| {
             tracing_subscriber::fmt::layer()
                 .compact()
                 .with_ansi(false)
                 .with_target(false)
-                .with_writer(std::sync::Mutex::new(file))
-        });
+                .with_writer(writer)
+        })
+        .ok();
 
     let console_layer = tracing_subscriber::fmt::layer()
         .compact()
@@ -51,7 +45,7 @@ pub fn run() {
         .with_writer(std::io::stdout);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new("aiks=debug,info"))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
         .with(console_layer)
         .with(file_layer)
         .init();
@@ -151,14 +145,20 @@ pub fn run() {
             commands::get_full_status,
             commands::sync_and_extract,
             commands::list_task_center_entries,
+            commands::search_task_center_page,
             commands::get_task_center_stats,
             commands::get_ai_usage_stats,
             commands::retry_failed_ai_task,
             commands::cancel_pending_ai_task,
+            commands::set_session_sync_excluded,
+            commands::inspect_session_deletion,
+            session_void_commands::void_session,
+            session_void_commands::restore_void_session,
             commands::list_pipeline_runs,
             commands::get_pipeline_detail,
             commands::get_pipeline_stats,
             commands::list_sessions_v3,
+            commands::list_session_sources,
             commands::list_knowledge,
             commands::search_knowledge,
             commands::get_session_detail,

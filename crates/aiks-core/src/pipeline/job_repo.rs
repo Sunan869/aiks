@@ -60,6 +60,15 @@ impl<'a> PipelineJobRepo<'a> {
             .optional()?
             .ok_or_else(|| anyhow::anyhow!("source_session not found: {}", job.session_id))?;
 
+        let excluded: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_sync_exclusion WHERE source = ?1 AND external_session_id = ?2)",
+            params![canonical_source, canonical_external_id],
+            |row| row.get(0),
+        )?;
+        if excluded {
+            anyhow::bail!("该会话已设置不同步，不能进入 AI 队列");
+        }
+
         let run_exists: i64 = tx.query_row(
             "SELECT COUNT(*) FROM pipeline_run WHERE id = ?1 AND session_id = ?2",
             params![job.pipeline_run_id, job.session_id],

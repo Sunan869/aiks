@@ -170,6 +170,10 @@ fn indexed(
              WHERE knowledge_fts MATCH ?1 AND ki.status = 'active'
                AND (?2 = '' OR ki.project_name = ?2)
                AND (?3 = '' OR ss.source = ?3)
+               AND (ss.id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               ))
              ORDER BY rank LIMIT ?4"
         }
         SearchCorpus::Session => {
@@ -187,6 +191,10 @@ fn indexed(
              WHERE session_search_fts MATCH ?1 AND ss.is_missing = 0
                AND (?2 = '' OR ss.project_name = ?2)
                AND (?3 = '' OR ss.source = ?3)
+               AND (ss.id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               ))
              ORDER BY rank LIMIT ?4"
         }
     };
@@ -224,7 +232,11 @@ fn substring(
              LEFT JOIN source_session ss ON ss.id = ki.source_session_id
              WHERE ki.status = 'active'
                AND (?1 = '' OR ki.project_name = ?1)
-               AND (?2 = '' OR ss.source = ?2)",
+               AND (?2 = '' OR ss.source = ?2)
+               AND (ss.id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               ))",
             "lower(ki.title || ' ' || ki.summary || ' ' || ki.content || ' ' || ki.tags)",
         ),
         SearchCorpus::Session => (
@@ -236,7 +248,11 @@ fn substring(
              CROSS JOIN source_session ss ON ss.id = sf.session_id
              WHERE ss.is_missing = 0
                AND (?1 = '' OR ss.project_name = ?1)
-               AND (?2 = '' OR ss.source = ?2)",
+               AND (?2 = '' OR ss.source = ?2)
+               AND (ss.id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               ))",
             "lower(COALESCE(ss.title, '') || ' ' || COALESCE(ss.project_name, '') || ' ' || ss.source || ' ' || sf.content)",
         ),
     };
@@ -258,8 +274,16 @@ fn session_metadata(
         "SELECT CAST(ss.id AS TEXT), COALESCE(ss.title, ''),
                 COALESCE(ss.project_name, ''), ss.source, '', ss.siyuan_doc_id
          FROM source_session ss WHERE ss.is_missing = 0
+           AND NOT EXISTS (
+               SELECT 1 FROM session_sync_exclusion x
+               WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+           )
            AND (?1 = '' OR ss.project_name = ?1)
-           AND (?2 = '' OR ss.source = ?2)",
+           AND (?2 = '' OR ss.source = ?2)
+               AND (ss.id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM session_sync_exclusion x
+                   WHERE x.source = ss.source AND x.external_session_id = ss.external_session_id
+               ))",
         "lower(COALESCE(ss.title, '') || ' ' || COALESCE(ss.project_name, '') || ' ' || ss.source)",
     )
 }

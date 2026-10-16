@@ -336,7 +336,7 @@ impl SyncEngine {
                     }
                 }
                 SyncOutcome::Unchanged => {
-                    debug!(session_id = %summary.external_session_id, "Unchanged");
+                    // Aggregate unchanged counts in sync summary instead of logging each session.
                     stats.unchanged_count += 1;
                 }
                 SyncOutcome::Skipped { reason } => {
@@ -392,6 +392,38 @@ impl SyncEngine {
     ) -> SyncOutcome {
         let source = summary.source.as_str();
         let session_id = &summary.external_session_id;
+        // Respect a durable exclusion before loading source content or touching SiYuan.
+        let excluded = db.conn().query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_sync_exclusion WHERE source = ?1 AND external_session_id = ?2)",
+            rusqlite::params![source, session_id],
+            |row| row.get::<_, bool>(0),
+        );
+        match excluded {
+            Ok(true) => {
+                // Record provider metadata changes only. Do not load raw messages,
+                // auto-import, or update the baseline while the session is voided.
+                if let Some(updated_at) = summary.updated_at.as_ref() {
+                    if let Err(error) = db.conn().execute(
+                        "UPDATE session_sync_exclusion SET latest_seen_updated_at = ?3
+                         WHERE source = ?1 AND external_session_id = ?2",
+                        rusqlite::params![source, session_id, updated_at.to_rfc3339()],
+                    ) {
+                        return SyncOutcome::Failed {
+                            error: format!("记录作废会话变化失败: {error}"),
+                        };
+                    }
+                }
+                return SyncOutcome::Skipped {
+                    reason: "会话已作废，等待人工恢复".to_string(),
+                };
+            }
+            Ok(false) => {}
+            Err(error) => {
+                return SyncOutcome::Failed {
+                    error: format!("读取同步排除规则失败: {error}"),
+                };
+            }
+        }
         let source_session_repo = SourceSessionRepo::new(db);
         let sync_target_repo = SyncTargetRepo::new(db);
 

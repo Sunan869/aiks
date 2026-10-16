@@ -1,4 +1,5 @@
 import { PageHeader } from "../components/ui/PageHeader";
+import * as Dialog from "@radix-ui/react-dialog";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApi } from "../api/client";
@@ -54,6 +55,11 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [tasks, setTasks] = useState<TaskCenterEntry[]>([]);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
+  const [page, setPage] = useState(0);
+  const [pageTotal, setPageTotal] = useState(0);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [voidCandidate, setVoidCandidate] = useState<{ task: TaskCenterEntry; message: string } | null>(null);
+  const PAGE_SIZE = 50;
   const [showDiagnosticPreview, setShowDiagnosticPreview] = useState(false);
   const [diagnosticNotice, setDiagnosticNotice] = useState("");
   const [diagnosticJson, setDiagnosticJson] = useState<string | null>(null);
@@ -89,6 +95,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     setDiagnosticNotice("已请求保存审核后的脱敏任务诊断快照。");
   };
   const [retryingTask, setRetryingTask] = useState<number | null>(null);
+  const [expandedSession, setExpandedSession] = useState<number | null>(null);
+  const [deletionPreflight, setDeletionPreflight] = useState<string | null>(null);
   const [retryNotice, setRetryNotice] = useState("");
   const [taskLoadError, setTaskLoadError] = useState("");
   const [pipelineLoadError, setPipelineLoadError] = useState("");
@@ -99,6 +107,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   const [taskFilter, setTaskFilter] = useState<"all" | "sync_failed" | "ai_failed" | "active">("all");
   const [filter, setFilter] = useState<string>("all");
   const [runQuery, setRunQuery] = useState("");
+  useEffect(() => { const handle = window.setTimeout(() => setDebouncedQuery(runQuery.trim()), 300); return () => window.clearTimeout(handle); }, [runQuery]);
+  useEffect(() => { setPage(0); }, [debouncedQuery, taskFilter]);
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState("");
@@ -119,27 +129,33 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     const startedGeneration = mutationGeneration.current;
     if (showLoading) setLoading(true);
     try {
-      const result = await collectProcessingPanels(getApi());
+      const [result, paged] = await Promise.allSettled([
+        collectProcessingPanels(getApi()),
+        getApi().searchTaskCenterPage(debouncedQuery, taskFilter, PAGE_SIZE, page * PAGE_SIZE),
+      ]);
+      if (result.status !== "fulfilled") throw new Error("processing refresh failed");
+      const panels = result.value;
       if (!mountedRef.current) return;
       const refreshedAt = new Date().toLocaleTimeString("zh-CN");
-      if (result.tasks.status === "ok" &&
+      if (panels.tasks.status === "ok" && paged.status === "fulfilled" &&
           isFreshProcessingRead(startedGeneration, mutationGeneration.current, mutationInFlight.current)) {
-        setTasks(result.tasks.first);
-        setTaskStats(result.tasks.second);
+        setTasks(paged.value.items);
+        setPageTotal(paged.value.total);
+        setTaskStats(panels.tasks.second);
         setTaskPanelFresh(true);
         setTaskLoadError("");
         setTaskRefreshFailures(0);
         setLastTaskRefresh(refreshedAt);
-      } else if (result.tasks.status === "error") {
+      } else if (panels.tasks.status === "error" || paged.status === "rejected") {
         setTaskPanelFresh(false);
         setTaskRefreshFailures(previous => previous + 1);
         setTaskLoadError("任务列表或全库统计读取失败，已保留旧数据；刷新恢复前禁止任务写操作。");
       } else {
         setTaskPanelFresh(false);
       }
-      if (result.pipeline.status === "ok") {
-        setRuns(result.pipeline.first);
-        setStats(result.pipeline.second);
+      if (panels.pipeline.status === "ok") {
+        setRuns(panels.pipeline.first);
+        setStats(panels.pipeline.second);
         setPipelinePanelFresh(true);
         setPipelineLoadError("");
         setPipelineRefreshFailures(0);
@@ -159,7 +175,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
       inFlightRef.current = false;
       if (showLoading && mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [debouncedQuery, taskFilter, page]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -210,16 +226,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
     !searchText || [run.session_title, run.run_id, run.source, run.error_message]
       .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText))
   );
-  const visibleTasks = tasks.filter(task => {
-    const matchesStatus = taskFilter === "all" ||
-      (taskFilter === "sync_failed" && (task.sync_status?.startsWith("FAILED") || task.sync_status === "CONFLICT")) ||
-      (taskFilter === "ai_failed" && (task.pipeline_status === "FAILED" || task.job_status === "FAILED")) ||
-      (taskFilter === "active" && (task.sync_status === "PENDING" || task.pipeline_status === "PROCESSING" || task.job_status === "RUNNING"));
-    const matchesText = !searchText ||
-      [task.title, task.external_session_id, task.source, task.sync_error, task.pipeline_error, task.job_error]
-        .some(value => String(value ?? "").toLocaleLowerCase().includes(searchText));
-    return matchesStatus && matchesText;
-  });
+  const visibleTasks = tasks;
 
   return (
     <div className="aiks-page-shell min-w-0">
@@ -238,7 +245,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
           </UiButton></>} />
 
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索任务与处理记录</label>
+        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400" htmlFor="processing-run-search">搜索全部会话任务</label>
         <UiInput id="processing-run-search" value={runQuery} onChange={event => setRunQuery(event.target.value)}
           placeholder="查找会话标题、来源或错误内容…" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700" />
       </div>
@@ -250,6 +257,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
         {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}
         {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
         {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
         <p role="status" className="mb-2 text-xs text-slate-500">
@@ -260,7 +268,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         {!taskPanelFresh && tasks.length > 0 && (
           <UiNotice tone="warning" className="mb-3">以下是上次成功刷新时的任务快照，状态可能已变化，重试与取消暂不可用。</UiNotice>
         )}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" role="status" aria-label="任务统计">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5" role="status" aria-label="任务统计">
           {([
             ["总会话", taskStats?.total_sessions],
             ["待处理", taskStats?.pending],
@@ -268,6 +276,10 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             ["已取消", taskStats?.cancelled],
             ["同步异常", taskStats?.sync_issues],
             ["AI 异常", taskStats?.ai_issues],
+            ["流水线运行", stats?.total],
+            ["运行失败", stats?.failed],
+            ["知识条目", stats?.knowledge_items],
+            ["向量索引", stats?.embeddings],
           ] as const).map(([label, value]) => (
             <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/70">
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
@@ -283,7 +295,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         {showDiagnosticPreview && diagnosticJson !== null && (
           <div className="mb-3 rounded border border-gray-200 dark:border-gray-700 p-3">
             <p className="text-xs text-gray-500 mb-2">
-              此诊断包仅含全库统计及最近最多 200 条任务的匿名化聚合。
+              此诊断包仅含全库统计及当前分页任务的匿名化聚合。
               不导出 Session/任务 ID、标题、文件路径、原文、错误文本或密钥；
               最新任务轮询不会静默改变当前快照。
             </p>
@@ -325,7 +337,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             >{label}</UiButton>
           ))}
         </div>
-        <p className="mb-2 text-xs text-slate-500" role="status">当前显示 {visibleTasks.length} / {tasks.length} 条近期任务；全库统计不受筛选影响。</p>
+        <p className="mb-2 text-xs text-slate-500" role="status">当前页 {visibleTasks.length} 条，匹配全库 {pageTotal} 条；每页 {PAGE_SIZE} 条，统计按全库计算。</p>
         {visibleTasks.length === 0 ? (
           <p className="text-xs text-gray-400">{searchText || taskFilter !== "all" ? "没有符合筛选条件的任务" : "暂无会话同步任务记录"}</p>
         ) : (
@@ -341,13 +353,76 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                   <tr key={task.session_id} className="border-b border-gray-100 dark:border-gray-700/40">
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
-                    <td className="py-2 pr-3">{task.sync_status || "未同步"}</td>
+                    <td className="py-2 pr-3">{task.sync_excluded ? (task.void_phase === "VOIDED" ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : "作废清理中/需处理冲突") : task.sync_status || "未同步"}</td>
                     <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
                     <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
                       {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
                     </td>
                     <td className="py-2 pr-3">
+                      <div className="flex items-center gap-2">
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!onViewSession}
+                          title="查看已入库的会话详情，不改变同步或 AI 排队状态"
+                          onClick={() => onViewSession?.(task.session_id)}>预览</UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          onClick={() => setExpandedSession(current => current === task.session_id ? null : task.session_id)}>
+                          {expandedSession === task.session_id ? "收起阶段" : "处理阶段"}
+                        </UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!taskPanelFresh}
+                          onClick={async () => {
+                            try {
+                              const impact = await getApi().inspectSessionDeletion(task.session_id);
+                              setDeletionPreflight(`会话 #${impact.session_id}：待处理 ${impact.pending_jobs}，运行中 ${impact.running_jobs}，知识条目 ${impact.knowledge_items}、知识切片 ${impact.knowledge_chunks}、向量记录 ${impact.embedding_records}；SiYuan 会话文档 ${impact.siyuan_documents}、知识文档 ${impact.knowledge_siyuan_documents}。正式作废前会再次校验远端归属及人工修改；冲突时保持隔离，不删除用户改动。`);
+                            } catch {
+                              setDeletionPreflight("无法获取删除影响清单，请刷新重试");
+                            }
+                          }}>作废影响预检</UiButton>
+                        <UiButton variant="outline" size="sm" type="button"
+                          disabled={!taskPanelFresh || retryingTask !== null || task.job_status === "RUNNING"}
+                          onClick={async () => {
+                            const restoring = task.void_phase === "VOIDED";
+                            if (!restoring && !task.sync_excluded) {
+                              try {
+                                const impact = await getApi().inspectSessionDeletion(task.session_id);
+                                setVoidCandidate({ task, message: `将清理 ${impact.siyuan_documents + impact.knowledge_siyuan_documents} 个 SiYuan 文档、${impact.knowledge_items} 条知识和关联索引。会话来源记录保留，之后可手动恢复并重新提取。检测到人工改动将停止清理。` });
+                                return;
+                              } catch {
+                                setRetryNotice("作废预检失败，未执行删除");
+                                return;
+                              }
+                            }
+                            mutationGeneration.current += 1;
+                            mutationInFlight.current = true;
+                            setTaskPanelFresh(false);
+                            setRetryingTask(task.session_id);
+                            try {
+                              if (restoring) {
+                                await getApi().restoreVoidSession(task.session_id);
+                                if (task.source.endsWith("_share")) {
+                                  setRetryNotice("作废记录已恢复资格；Web 分享来源请重新导入原分享链接，以重建原文与知识");
+                                } else {
+                                  try {
+                                    await getApi().syncAndExtract(task.source);
+                                    setRetryNotice("已恢复并提交来源重新扫描和完整知识提取");
+                                  } catch {
+                                    setRetryNotice("已恢复同步资格，但重新扫描未完成；请重试来源同步");
+                                  }
+                                }
+                              } else {
+                                const result = await getApi().voidSession(task.session_id);
+                                setRetryNotice(`作废清理完成，已移除 ${result.documents_removed} 个 SiYuan 文档；会话元数据保留`);
+                              }
+                            } catch {
+                              setRetryNotice("作废/恢复未完成；可能存在 SiYuan 归属冲突或不可达。作废隔离保持有效，可稍后重试");
+                            } finally {
+                              mutationGeneration.current += 1;
+                              mutationInFlight.current = false;
+                              setRetryingTask(null);
+                              await load(false);
+                            }
+                          }}>{task.void_phase === "VOIDED" ? "恢复并重新提取" : task.sync_excluded ? "继续作废清理" : "作废"}</UiButton>
                       {(task.sync_status === "SYNCED" || task.sync_status === "UNCHANGED") &&
                       (task.pipeline_status === "FAILED" || task.job_status === "FAILED") &&
                       task.job_status !== "RUNNING" && task.job_status !== "PENDING" ? (
@@ -405,7 +480,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                             }
                           }}
                         >{retryingTask === task.session_id ? "处理中…" : "取消排队"}</UiButton>
-                      ) : "—"}
+                      ) : null}
+                      </div>
                     </td>
                     <td className="py-2 max-w-64 truncate text-red-500" title={task.sync_error || task.pipeline_error || task.job_error || ""}>
                       <details className="group max-w-64">
@@ -424,115 +500,66 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 ))}
               </tbody>
             </table>
+            {expandedSession !== null && (() => {
+              const run = runs.find(item => item.session_id === expandedSession);
+              return <div className="border-t p-4 text-xs space-y-3" role="region" aria-label="所选会话处理阶段">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>会话 #{expandedSession} · {run ? (STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
+                  {run && onViewDetail && <UiButton variant="outline" size="sm" onClick={() => onViewDetail(run.run_id)}>查看完整流水线</UiButton>}
+                </div>
+                {run && <div className="flex flex-wrap gap-3">{STAGE_ORDER.map(stage => {
+                  const item = run.stage_runs.find(entry => entry.stage === stage);
+                  return <span key={stage}>{STAGE_LABELS[stage] ?? stage}：{item?.status ?? "未开始"}</span>;
+                })}</div>}
+              </div>;
+            })()}
           </div>
         )}
+
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+          <span>第 {page + 1} / {Math.max(1, Math.ceil(pageTotal / PAGE_SIZE))} 页</span>
+          <div className="flex gap-2">
+            <UiButton variant="outline" size="sm" type="button" disabled={page === 0} onClick={() => setPage(n => Math.max(0, n - 1))}>上一页</UiButton>
+            <UiButton variant="outline" size="sm" type="button" disabled={(page + 1) * PAGE_SIZE >= pageTotal} onClick={() => setPage(n => n + 1)}>下一页</UiButton>
+          </div>
+        </div>
       </section>
 
-      {!pipelinePanelFresh && runs.length > 0 && (
-        <UiNotice tone="warning" className="mb-3">流水线表格显示的是旧快照；打开详情后将重新请求该记录。</UiNotice>
-      )}
-      {/* Stats bar */}
-      {stats && (
-        <div className="grid grid-cols-4 gap-3 mb-5">
-          {[
-            { label: "全部", value: stats.total, key: "all", color: "text-gray-700" },
-            { label: "处理中", value: stats.processing, key: "processing", color: "text-blue-600" },
-            { label: "失败", value: stats.failed, key: "failed", color: "text-red-500" },
-            { label: "已完成", value: stats.ready, key: "ready", color: "text-green-600" },
-          ].map(item => (
-            <UiButton variant="outline" size="sm"
-              key={item.key}
-              onClick={() => setFilter(item.key)}
-              className={`text-left px-4 py-3 rounded border transition-colors ${filter === item.key
-                ? "border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700"
-                : "border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
-              }`}
-            >
-              <div className={`text-xl font-bold ${item.color} dark:opacity-90`}>{item.value}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{item.label}</div>
-            </UiButton>
-          ))}
-        </div>
-      )}
 
-      {/* Knowledge & embedding stats */}
-      {stats && (
-        <div className="grid grid-cols-3 gap-3 mb-5 text-center">
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className="text-base font-semibold text-gray-800 dark:text-gray-200">{stats.knowledge_items}</div>
-            <div className="text-xs text-gray-400">知识条目</div>
-          </div>
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className="text-base font-semibold text-gray-800 dark:text-gray-200">{stats.knowledge_chunks}</div>
-            <div className="text-xs text-gray-400">向量切片</div>
-          </div>
-          <div className="px-3 py-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-            <div className={`text-base font-semibold ${stats.embeddings > 0 ? "text-green-600" : "text-gray-400"}`}>
-              {stats.embeddings > 0 ? stats.embeddings : "未配置"}
+
+
+      <Dialog.Root open={voidCandidate !== null} onOpenChange={open => { if (!open && retryingTask === null) setVoidCandidate(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <Dialog.Title className="text-base font-semibold text-slate-900 dark:text-slate-100">确认作废会话</Dialog.Title>
+            <Dialog.Description className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{voidCandidate?.message}</Dialog.Description>
+            <div className="mt-6 flex justify-end gap-2">
+              <UiButton variant="outline" type="button" disabled={retryingTask !== null} onClick={() => setVoidCandidate(null)}>取消</UiButton>
+              <UiButton variant="primary" type="button" disabled={retryingTask !== null} onClick={async () => {
+                const id = voidCandidate?.task.session_id;
+                if (id === undefined) return;
+                setVoidCandidate(null);
+                mutationGeneration.current += 1;
+                mutationInFlight.current = true;
+                setTaskPanelFresh(false);
+                setRetryingTask(id);
+                try {
+                  const result = await getApi().voidSession(id);
+                  setRetryNotice(`作废清理完成，已移除 ${result.documents_removed} 个 SiYuan 文档`);
+                } catch {
+                  setRetryNotice("作废未完成：可能存在远端修改冲突或连接问题，隔离状态保留，可稍后继续清理");
+                } finally {
+                  mutationGeneration.current += 1;
+                  mutationInFlight.current = false;
+                  setRetryingTask(null);
+                  await load(false);
+                }
+              }}>确认作废</UiButton>
             </div>
-            <div className="text-xs text-gray-400">向量索引</div>
-          </div>
-        </div>
-      )}
-
-      <p role="status" className="text-xs text-slate-500">流水线记录：显示 {filtered.length} / {runs.length} 条近期记录；此区域与上方任务列表可分别横向滚动。</p>
-      {loading ? (
-        <div className="flex items-center justify-center h-40 text-gray-400 text-sm">加载中...</div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-          <p className="text-sm">{searchText || filter !== "all" ? "没有符合筛选条件的流水线记录" : "暂无处理记录"}</p>
-        </div>
-      ) : (
-        <div className="aiks-data-table overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" role="region" aria-label="流水线阶段记录" tabIndex={0}>
-          <table className="w-full min-w-[880px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">会话</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 uppercase">来源</th>
-                {STAGE_ORDER.map(s => (
-                  <th key={s} className="px-2 py-2.5 text-xs font-medium text-gray-500 uppercase text-center w-12">
-                    {STAGE_LABELS[s] ?? s}
-                  </th>
-                ))}
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">知识</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">状态</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {filtered.map((run: PipelineSummary) => {
-                const cfg = STATUS_CONFIG[run.status] ?? { color: "text-gray-500", label: run.status, icon: "·" };
-                return (
-                  <tr key={run.run_id}
-                    className={`hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors ${onViewDetail ? "cursor-pointer" : ""}`}
-                    onClick={() => onViewDetail?.(run.run_id)}
-                  >
-                    <td className="px-4 py-2.5">
-                      <div className="text-gray-900 dark:text-gray-100 truncate max-w-[200px]">
-                        {run.session_title || run.run_id}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-500 text-xs">{formatSourceName(run.source)}</td>
-                    {STAGE_ORDER.map(s => (
-                      <StageCell key={s} stage={s} stageRuns={run.stage_runs} />
-                    ))}
-                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 text-xs">
-                      {run.knowledge_count > 0 ? run.knowledge_count : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs font-medium ${cfg.color}`}>
-                        {cfg.icon} {cfg.label}
-                      </span>
-                      {run.error_message && (
-                        <div className="text-[10px] text-red-400 truncate max-w-[120px] mt-0.5">{run.error_message}</div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
