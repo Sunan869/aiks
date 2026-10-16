@@ -24,7 +24,6 @@ AIKS is more than a combined chat history viewer. It turns AI-assisted work into
 
 Session formats differ across tools. AIKS uses Provider adapters to normalize supported local histories and selected public share conversations into a Canonical Session model. Browse, preview, filter, and locate source context in **Work Records** without hopping between apps.
 
-*Screenshot placeholder: Data sources, session filters, and conversation preview.*
 
 ### 02 · Knowledge extraction, not just archiving
 
@@ -32,13 +31,11 @@ Importing a conversation is only the beginning. AIKS uses a durable pipeline for
 
 The **Processing Center** exposes task stages and failures, so background processing does not remain a black box.
 
-*Screenshot placeholder: Processing Center task list, stages, and summary metrics.*
 
 ### 03 · Find ideas even when you forget the exact words
 
 AIKS provides full-text search and optional embedding-based semantic retrieval, with knowledge reuse through its workspace and **Ask AIKS**. When an embedding service is unavailable, text search still works.
 
-*Screenshot placeholder: Search results and Ask AIKS.*
 
 ### 04 · Knowledge with provenance and lifecycle
 
@@ -46,7 +43,6 @@ Generated knowledge is not assumed to be permanently correct. Organize records b
 
 **Void and restore** goes beyond hiding a result: it isolates a session from automatic work, safely cleans up eligible AIKS-managed documents, extracted knowledge, and indexes, while retaining source identity for a later manual re-import. Conflicts halt cleanup rather than deleting user edits.
 
-*Screenshot placeholder: Knowledge detail, project context, and lifecycle actions.*
 
 ### 05 · Local-first with observable processing
 
@@ -66,15 +62,13 @@ AIKS primarily addresses **personal knowledge accumulated through AI-assisted wo
 
 **Typical workflow:** Enable sources → scan sessions → inspect extraction → review knowledge → search and reuse → revise or void as needed.
 
-## Screenshots
+## Product screenshots (redacted)
 
-> Placeholder checklist: add privacy-reviewed product screenshots under `docs/images/readme/` before referencing actual image files. Avoid broken Markdown image links until assets exist.
+The following collage comes from the running AIKS desktop application and shows **Data Sources, Processing Center, Work Records, Project Memory, Ask AIKS, and Safe Voiding**. Conversation text, project details and potential personal identifiers have been heavily blurred for public sharing.
 
-- **A · Data Sources** — providers, directories, and enablement.
-- **B · Work Records** — source filtering and Session preview.
-- **C · Processing Center** — pagination, stages, retries, and void actions.
-- **D · Knowledge Workspace** — categories, projects, and provenance.
-- **E · Search / Ask AIKS** — retrieval and source context.
+![Six AIKS feature screens: Data Sources, Processing Center, Work Records, Project Memory, Ask AIKS, and Safe Voiding](docs/images/readme/aiks-gallery.webp)
+
+> The image demonstrates product layout and feature coverage. The blur is for privacy and is not present in the application itself.
 
 ## Features
 
