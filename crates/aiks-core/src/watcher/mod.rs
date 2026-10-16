@@ -135,6 +135,14 @@ impl FileWatcher {
     /// Start watching. Returns a handle that stops watching when dropped.
     ///
     /// This spawns a blocking thread for the watcher and sends events over `event_tx`.
+    fn is_transient_path(path: &std::path::Path) -> bool {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let lower = name.to_ascii_lowercase();
+        lower.ends_with("-shm") || lower.ends_with("-wal")
+            || lower.ends_with("-journal") || lower.ends_with(".tmp")
+            || lower.ends_with(".swp") || lower.ends_with(".part")
+    }
+
     pub fn start(&self) -> anyhow::Result<WatcherHandle> {
         let targets = self.watch_targets();
         if targets.is_empty() {
@@ -184,6 +192,7 @@ impl FileWatcher {
                                 if !is_relevant {
                                     continue;
                                 }
+                                if Self::is_transient_path(path) { continue; }
                                 if let Some(source) = Self::path_to_source(path, &targets_clone) {
                                     if seen_sources.insert(source) {
                                         debug!(
@@ -231,6 +240,15 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use std::sync::Arc;
+
+    #[test]
+    fn ignores_sqlite_auxiliary_events() {
+        for name in ["opencode.db-shm", "opencode.db-wal", "opencode.db-journal", "scan.tmp"] {
+            assert!(FileWatcher::is_transient_path(std::path::Path::new(name)));
+        }
+        assert!(!FileWatcher::is_transient_path(std::path::Path::new("opencode.db")));
+        assert!(!FileWatcher::is_transient_path(std::path::Path::new("session.jsonl")));
+    }
 
     #[test]
     fn no_targets_when_dirs_absent() {

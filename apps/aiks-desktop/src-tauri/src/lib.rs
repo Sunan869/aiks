@@ -7,6 +7,7 @@ mod diagnostics;
 mod embedding_commands;
 mod knowledge_commands;
 mod lifecycle;
+mod log_rotation;
 mod project_memory_commands;
 mod provider_commands;
 mod rag_commands;
@@ -18,7 +19,7 @@ mod storage_commands;
 mod tray;
 mod workbench;
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::Mutex;
 
@@ -29,22 +30,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 pub fn run() {
     let log_dir = app_state::data_dir().join("logs");
     let log_path = log_dir.join("aiks.log");
-    let file_layer = fs::create_dir_all(&log_dir)
-        .ok()
-        .and_then(|_| {
-            OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .ok()
-        })
-        .map(|file| {
-            tracing_subscriber::fmt::layer()
-                .compact()
-                .with_ansi(false)
-                .with_target(false)
-                .with_writer(std::sync::Mutex::new(file))
-        });
+    let file_layer = log_rotation::make_writer(&log_dir)
+        .map(|writer| tracing_subscriber::fmt::layer()
+            .compact().with_ansi(false).with_target(false).with_writer(writer))
+        .ok();
 
     let console_layer = tracing_subscriber::fmt::layer()
         .compact()
@@ -52,7 +41,7 @@ pub fn run() {
         .with_writer(std::io::stdout);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::new("aiks=debug,info"))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(console_layer)
         .with(file_layer)
         .init();
