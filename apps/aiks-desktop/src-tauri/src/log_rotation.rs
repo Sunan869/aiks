@@ -89,8 +89,11 @@ fn bound_legacy_archive(path: &Path) -> io::Result<()> {
     }
     old.seek(SeekFrom::Start(size - MAX_BYTES))?;
     let temp = path.with_extension("log.1.trim");
-    let mut output = OpenOptions::new().create_new(true).write(true).open(&temp)?;
-    io::copy(&mut old.take(MAX_BYTES), &mut output)?;
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp)?;
+    io::copy(&mut (&mut old).take(MAX_BYTES), &mut output)?;
     output.flush()?;
     output.sync_all()?;
     drop(output);
