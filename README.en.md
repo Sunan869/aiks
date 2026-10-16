@@ -4,6 +4,78 @@
 
 > **Local-first desktop knowledge management for AI-assisted work.** Import sessions from AI coding assistants and supported public conversation shares, distill structured knowledge through a durable pipeline, search across your work, and optionally sync documents with SiYuan.
 
+## Why AIKS?
+
+AI assistants help us debug incidents, discuss architecture, write code, and work through complex decisions. Yet the useful reasoning is often scattered across tools and workspaces. **The task gets done, but the experience remains buried in a conversation.** Weeks later, we repeat the search, rebuild context, and solve the same problem again.
+
+AIKS is more than a combined chat history viewer. It turns AI-assisted work into knowledge you can actually reuse:
+
+- **Recover the process:** Read historical sessions from multiple coding assistants without manually copying conversations.
+- **Extract the outcome:** Turn long discussions into structured problems, findings, steps, and solutions, not merely raw chat archives.
+- **Preserve context:** Associate knowledge with original sessions, projects, and documents so conclusions can be traced back.
+- **Reuse what you learned:** Find prior answers through full-text search, optional semantic retrieval, and knowledge Q&A.
+- **Stay in control:** Keep data local-first, inspect every processing stage, manage incorrect knowledge, and void/rebuild AIKS-managed content when appropriate.
+
+> **From “AI helped me finish this task” to “Every AI-assisted task contributes to experience I can reuse.”**
+
+## What makes AIKS different?
+
+### 01 · Many assistants, one work-history view
+
+Session formats differ across tools. AIKS uses Provider adapters to normalize supported local histories and selected public share conversations into a Canonical Session model. Browse, preview, filter, and locate source context in **Work Records** without hopping between apps.
+
+*Screenshot placeholder: Data sources, session filters, and conversation preview.*
+
+### 02 · Knowledge extraction, not just archiving
+
+Importing a conversation is only the beginning. AIKS uses a durable pipeline for parsing, cleaning, chunking, AI extraction, and optional embedding. Knowledge records have structured fields such as titles, categories, summaries, content, and tags. **A lengthy debugging conversation can become a findable, maintainable solution.**
+
+The **Processing Center** exposes task stages and failures, so background processing does not remain a black box.
+
+*Screenshot placeholder: Processing Center task list, stages, and summary metrics.*
+
+### 03 · Find ideas even when you forget the exact words
+
+AIKS provides full-text search and optional embedding-based semantic retrieval, with knowledge reuse through its workspace and **Ask AIKS**. When an embedding service is unavailable, text search still works.
+
+*Screenshot placeholder: Search results and Ask AIKS.*
+
+### 04 · Knowledge with provenance and lifecycle
+
+Generated knowledge is not assumed to be permanently correct. Organize records by project, category, and tags, provide human feedback, and manage relations. SiYuan integration provides document access and sync with ownership and content-hash conflict protection.
+
+**Void and restore** goes beyond hiding a result: it isolates a session from automatic work, safely cleans up eligible AIKS-managed documents, extracted knowledge, and indexes, while retaining source identity for a later manual re-import. Conflicts halt cleanup rather than deleting user edits.
+
+*Screenshot placeholder: Knowledge detail, project context, and lifecycle actions.*
+
+### 05 · Local-first with observable processing
+
+AIKS maintains its state, knowledge, and retrieval indexes in local SQLite and reads provider files without rewriting them. Scanning can be manual or periodic. AI and embedding endpoints are optional and disabled by default.
+
+AIKS primarily addresses **personal knowledge accumulated through AI-assisted work**. It is not presented as a finished enterprise-wide collaboration and authorization platform.
+
+## Practical use cases
+
+| Scenario | Workflow | Benefit |
+| --- | --- | --- |
+| Engineering debugging | Distill a multi-step incident investigation from a Session | Recover diagnostics, causes, and fixes next time |
+| Architecture and design | Connect design discussions to a project | Reuse trade-offs and the reasoning behind decisions |
+| Testing and quality | Capture reproduction steps, test plans, and fix analysis | Build a searchable bank of practical cases |
+| Learning and research | Import useful AI discussions and supported public shares | Preserve conclusions and source context |
+| Cross-assistant workflows | Work across different coding assistants | Search past experience from one place |
+
+**Typical workflow:** Enable sources → scan sessions → inspect extraction → review knowledge → search and reuse → revise or void as needed.
+
+## Screenshots
+
+> Placeholder checklist: add privacy-reviewed product screenshots under `docs/images/readme/` before referencing actual image files. Avoid broken Markdown image links until assets exist.
+
+- **A · Data Sources** — providers, directories, and enablement.
+- **B · Work Records** — source filtering and Session preview.
+- **C · Processing Center** — pagination, stages, retries, and void actions.
+- **D · Knowledge Workspace** — categories, projects, and provenance.
+- **E · Search / Ask AIKS** — retrieval and source context.
+
 ## Features
 
 | Feature | Details |
