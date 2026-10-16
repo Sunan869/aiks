@@ -1,6 +1,6 @@
 //! Size-bounded logging; avoid unbounded aiks.log growth across long-lived sessions.
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -78,6 +78,27 @@ impl Write for RotatingWriter {
     }
 }
 
+/// A legacy append-only log can be several GB. Keep only the newest bounded
+/// diagnostic tail after rotating it; otherwise the old oversized archive would
+/// continue consuming disk space indefinitely.
+fn bound_legacy_archive(path: &Path) -> io::Result<()> {
+    let mut old = File::open(path)?;
+    let size = old.metadata()?.len();
+    if size <= MAX_BYTES {
+        return Ok(());
+    }
+    old.seek(SeekFrom::Start(size - MAX_BYTES))?;
+    let temp = path.with_extension("log.1.trim");
+    let mut output = OpenOptions::new().create_new(true).write(true).open(&temp)?;
+    io::copy(&mut old.take(MAX_BYTES), &mut output)?;
+    output.flush()?;
+    output.sync_all()?;
+    drop(output);
+    drop(old);
+    fs::remove_file(path)?;
+    fs::rename(&temp, path)
+}
+
 pub fn make_writer(
     dir: &Path,
 ) -> io::Result<impl Fn() -> RotatingWriter + Clone + Send + Sync + 'static> {
@@ -95,6 +116,7 @@ pub fn make_writer(
             .lock()
             .map_err(|_| io::Error::other("log lock poisoned"))?
             .rotate()?;
+        bound_legacy_archive(&dir.join("aiks.log.1"))?;
     }
     Ok(move || RotatingWriter(Arc::clone(&state)))
 }
@@ -115,6 +137,7 @@ mod tests {
         w.write_all(b"hello").unwrap();
         assert!(path.metadata().unwrap().len() < MAX_BYTES);
         assert!(dir.join("aiks.log.1").exists());
+        assert!(dir.join("aiks.log.1").metadata().unwrap().len() <= MAX_BYTES);
         drop(w);
         drop(factory);
         fs::remove_dir_all(dir).unwrap();
