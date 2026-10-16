@@ -31,8 +31,13 @@ pub fn run() {
     let log_dir = app_state::data_dir().join("logs");
     let log_path = log_dir.join("aiks.log");
     let file_layer = log_rotation::make_writer(&log_dir)
-        .map(|writer| tracing_subscriber::fmt::layer()
-            .compact().with_ansi(false).with_target(false).with_writer(writer))
+        .map(|writer| {
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_ansi(false)
+                .with_target(false)
+                .with_writer(writer)
+        })
         .ok();
 
     let console_layer = tracing_subscriber::fmt::layer()
@@ -41,7 +46,7 @@ pub fn run() {
         .with_writer(std::io::stdout);
 
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
         .with(console_layer)
         .with(file_layer)
         .init();

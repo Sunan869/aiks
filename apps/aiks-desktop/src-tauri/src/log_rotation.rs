@@ -20,14 +20,25 @@ impl State {
             let from = self.path.with_extension(format!("log.{index}"));
             let to = self.path.with_extension(format!("log.{}", index + 1));
             if from.exists() {
-                if to.exists() { fs::remove_file(&to)?; }
+                if to.exists() {
+                    fs::remove_file(&to)?;
+                }
                 fs::rename(from, to)?;
             }
         }
         let first = self.path.with_extension("log.1");
-        if first.exists() { fs::remove_file(&first)?; }
-        if self.path.exists() { fs::rename(&self.path, first)?; }
-        self.file = Some(OpenOptions::new().create(true).append(true).open(&self.path)?);
+        if first.exists() {
+            fs::remove_file(&first)?;
+        }
+        if self.path.exists() {
+            fs::rename(&self.path, first)?;
+        }
+        self.file = Some(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)?,
+        );
         self.bytes = 0;
         Ok(())
     }
@@ -38,29 +49,52 @@ pub struct RotatingWriter(Arc<Mutex<State>>);
 
 impl Write for RotatingWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut state = self.0.lock().map_err(|_| io::Error::other("log lock poisoned"))?;
+        let mut state = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("log lock poisoned"))?;
         if state.bytes.saturating_add(buf.len() as u64) > MAX_BYTES && state.bytes > 0 {
             state.rotate()?;
         }
-        let n = state.file.as_mut().ok_or_else(|| io::Error::other("log file closed"))?.write(buf)?;
+        let n = state
+            .file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("log file closed"))?
+            .write(buf)?;
         state.bytes += n as u64;
         Ok(n)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut state = self.0.lock().map_err(|_| io::Error::other("log lock poisoned"))?;
-        state.file.as_mut().ok_or_else(|| io::Error::other("log file closed"))?.flush()
+        let mut state = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("log lock poisoned"))?;
+        state
+            .file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("log file closed"))?
+            .flush()
     }
 }
 
-pub fn make_writer(dir: &Path) -> io::Result<impl Fn() -> RotatingWriter + Clone + Send + Sync + 'static> {
+pub fn make_writer(
+    dir: &Path,
+) -> io::Result<impl Fn() -> RotatingWriter + Clone + Send + Sync + 'static> {
     fs::create_dir_all(dir)?;
     let path = dir.join("aiks.log");
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
     let bytes = file.metadata()?.len();
-    let state = Arc::new(Mutex::new(State { path, file: Some(file), bytes }));
+    let state = Arc::new(Mutex::new(State {
+        path,
+        file: Some(file),
+        bytes,
+    }));
     if bytes >= MAX_BYTES {
-        state.lock().map_err(|_| io::Error::other("log lock poisoned"))?.rotate()?;
+        state
+            .lock()
+            .map_err(|_| io::Error::other("log lock poisoned"))?
+            .rotate()?;
     }
     Ok(move || RotatingWriter(Arc::clone(&state)))
 }

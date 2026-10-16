@@ -138,9 +138,12 @@ impl FileWatcher {
     fn is_transient_path(path: &std::path::Path) -> bool {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let lower = name.to_ascii_lowercase();
-        lower.ends_with("-shm") || lower.ends_with("-wal")
-            || lower.ends_with("-journal") || lower.ends_with(".tmp")
-            || lower.ends_with(".swp") || lower.ends_with(".part")
+        lower.ends_with("-shm")
+            || lower.ends_with("-wal")
+            || lower.ends_with("-journal")
+            || lower.ends_with(".tmp")
+            || lower.ends_with(".swp")
+            || lower.ends_with(".part")
     }
 
     pub fn start(&self) -> anyhow::Result<WatcherHandle> {
@@ -192,7 +195,9 @@ impl FileWatcher {
                                 if !is_relevant {
                                     continue;
                                 }
-                                if Self::is_transient_path(path) { continue; }
+                                if Self::is_transient_path(path) {
+                                    continue;
+                                }
                                 if let Some(source) = Self::path_to_source(path, &targets_clone) {
                                     if seen_sources.insert(source) {
                                         debug!(
@@ -243,11 +248,20 @@ mod tests {
 
     #[test]
     fn ignores_sqlite_auxiliary_events() {
-        for name in ["opencode.db-shm", "opencode.db-wal", "opencode.db-journal", "scan.tmp"] {
+        for name in [
+            "opencode.db-shm",
+            "opencode.db-wal",
+            "opencode.db-journal",
+            "scan.tmp",
+        ] {
             assert!(FileWatcher::is_transient_path(std::path::Path::new(name)));
         }
-        assert!(!FileWatcher::is_transient_path(std::path::Path::new("opencode.db")));
-        assert!(!FileWatcher::is_transient_path(std::path::Path::new("session.jsonl")));
+        assert!(!FileWatcher::is_transient_path(std::path::Path::new(
+            "opencode.db"
+        )));
+        assert!(!FileWatcher::is_transient_path(std::path::Path::new(
+            "session.jsonl"
+        )));
     }
 
     #[test]
