@@ -48,6 +48,27 @@ SiYuan is a document runtime and a knowledge export/sync target, **not** the onl
 
 Download the relevant Windows, macOS, or Linux package from [GitHub Releases](https://github.com/Sunan869/aiks/releases). Supported package types depend on the assets attached to each release.
 
+### macOS: install and launch
+
+1. Download the `.dmg` for your Mac from [Releases](https://github.com/Sunan869/aiks/releases): choose `aarch64/arm64` for Apple Silicon (M-series) or `x64` for an Intel Mac.
+2. Open the DMG and drag **AIKS.app** into **Applications**.
+3. Launch AIKS from Finder → Applications.
+
+**Unsigned builds:** Current macOS releases have not been signed with an Apple Developer ID and notarized by Apple. Gatekeeper may block the first launch or warn that macOS cannot verify whether AIKS contains malware. Verify the download came from the linked GitHub release and matches your platform. Check **System Settings → Privacy & Security** for an **Open Anyway** option for AIKS.
+
+Only if you trust this specific release and accept the risks of bypassing that check, run the following in Terminal:
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/AIKS.app
+open /Applications/AIKS.app
+```
+
+This removes the app's quarantine attribute; it **does not sign or notarize AIKS**. Do not run the command on untrusted software and do not disable Gatekeeper system-wide. Adjust the path if AIKS is installed elsewhere. If it still fails, report the macOS version, CPU architecture, and error message in an Issue.
+
+### Windows / Linux
+
+On Windows, use the `.exe` installer or `.msi` for your platform. On Linux, use the appropriate `.deb` or `.AppImage`; an AppImage may require `chmod +x <filename>.AppImage` before launch.
+
 1. Open **Data Sources** and enable the providers and directories you need.
 2. Configure an AI endpoint and optional embedding endpoint in **Settings**. **AI and embeddings are disabled by default**, and imported data can be browsed without them.
 3. Scan/synchronize sources, inspect task stages in **Processing Center**, preview conversations in **Work Records**, and explore extracted items in the knowledge workspace.

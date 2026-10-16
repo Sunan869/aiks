@@ -48,6 +48,27 @@ SiYuan 是 AIKS 使用的文档引擎与知识出口之一；AIKS 的会话状�
 
 从 [GitHub Releases](https://github.com/Sunan869/aiks/releases) 获取 Windows、macOS 或 Linux 对应安装包。安装包版本和可用平台以实际 Release 资产为准。
 
+### macOS 安装与首次运行
+
+1. 从 [Releases](https://github.com/Sunan869/aiks/releases) 下载与你的 Mac 芯片架构匹配的 `.dmg`：Apple Silicon（M1/M2/M3/M4 等）选择 `aarch64/arm64`，Intel Mac 选择 `x64`。
+2. 双击打开 DMG，将 **AIKS.app** 拖到「应用程序（Applications）」文件夹。
+3. 在 Finder 的「应用程序」中启动 AIKS。
+
+**关于未签名安装包：** 当前发布包尚未完成 Apple Developer ID 签名和 Apple 公证，macOS 可能提示“无法验证 AIKS 是否包含恶意软件”或拦截首次启动。请先确认文件来自上述 GitHub Release、版本与架构匹配，并在 macOS「系统设置 → 隐私与安全性」中查看是否提供针对 AIKS 的「仍要打开（Open Anyway）」选项。
+
+若系统仍阻止启动，且**你确认该安装包可信并愿意承担绕过校验的风险**，可在终端仅针对 AIKS.app 执行：
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/AIKS.app
+open /Applications/AIKS.app
+```
+
+说明：`xattr` 命令会移除应用的下载隔离标记，**不会**提供开发者签名或公证；不要在未知来源的应用上使用，也不要执行全局关闭 Gatekeeper 的命令。如果应用安装在其他路径，请将 `/Applications/AIKS.app` 替换成实际路径。若仍失败，请记录 macOS 版本、芯片架构及错误提示并提交 Issue。
+
+### Windows / Linux
+
+Windows 下载与系统架构匹配的 `.exe` 安装程序或 `.msi`；Linux 使用对应架构的 `.deb` 或 `.AppImage`。Linux AppImage 首次运行通常需赋予执行权限（`chmod +x <文件名>.AppImage`）。
+
 初次运行建议：
 1. 在「数据源」页面检查 Provider 及扫描目录，仅启用需要的来源。
 2. 在「设置」中配置 AI 模型与可选 Embedding 服务；**AI/Embedding 默认关闭**，未配置也可以浏览已导入内容。
