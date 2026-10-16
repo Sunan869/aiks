@@ -4,8 +4,6 @@
 
 > **本地优先的 AI 工作会话与知识管理桌面应用。** 从多种 AI 编程助手的历史对话与公开分享链接中整理知识，支持可追踪的提炼流水线、知识工作台、全文/语义检索与 SiYuan 同步。
 
-> **授权变更提示：** AIKS 由原 MIT 授权转为 **PolyForm Noncommercial 1.0.0（非商业使用）**，仅适用于授权方拥有相应权利的 AIKS 代码。该许可**不是 OSI 认可的开源许可**。旧版本的既有 MIT 权利不受追溯影响；第三方软件仍遵守各自许可。详见 [LICENSE](LICENSE)、[授权范围](LICENSE-SCOPE.md) 与 [第三方声明](THIRD_PARTY_NOTICES.md)。
-
 ## 功能概览
 
 | 能力 | 说明 |
@@ -97,23 +95,20 @@ cargo run -p aiks-cli -- --config ./config.toml doctor
 
 ## 致谢与第三方项目
 
-AIKS 受许多优秀项目启发，部分解析实现也基于第三方 MIT 许可代码进行适配。特别感谢：
+AIKS 受许多优秀项目启发，部分会话与分享解析能力也参考并改编了相关项目的实现。特别感谢：
 
-- [SiYuan / 思源笔记](https://github.com/siyuan-note/siyuan) — 内嵌知识文档引擎和 HTTP API；SiYuan 为 **AGPL-3.0**，其授权及版权与 AIKS **独立**。
-- [AICoder Session Viewer](https://github.com/seastart/aicoder-session-viewer) — Claude/Codex/Gemini/OpenCode 会话解析的早期重要参考与改编来源（MIT）。
+- [SiYuan / 思源笔记](https://github.com/siyuan-note/siyuan) — 内嵌知识文档引擎和 HTTP API。
+- [AICoder Session Viewer](https://github.com/seastart/aicoder-session-viewer) — Claude/Codex/Gemini/OpenCode 会话解析的早期重要参考与改编来源。
 - [CC Switch](https://github.com/farion1231/cc-switch)、[ccusage](https://github.com/ccusage/ccusage) — 数据源发现、会话扫描及使用信息处理的参考。
 - [OpenAI Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli)、[OpenCode](https://github.com/anomalyco/opencode)、[Claude Code](https://github.com/anthropics/claude-code) — Provider 格式及行为兼容参考；引用并不代表项目背书。
-- [chatgpt-share-parser](https://github.com/evanhu1/chatgpt-share-parser)、[chat-share-reader](https://github.com/pencil311/chat-share-reader) 等 — 公开分享对话格式研究及解析参考；准确来源、改编范围与许可证以 [第三方声明](THIRD_PARTY_NOTICES.md) 为准。
+- [chatgpt-share-parser](https://github.com/evanhu1/chatgpt-share-parser)、[chat-share-reader](https://github.com/pencil311/chat-share-reader) 等 — 公开分享对话格式研究及解析参考；详细项目来源和改编说明见 [第三方致谢](THIRD_PARTY_NOTICES.md)。
 - [Tauri](https://github.com/tauri-apps/tauri)、[React](https://github.com/facebook/react)、[Radix UI](https://github.com/radix-ui/primitives) 及 Rust 社区 — 桌面应用和 UI 基础设施。
 
-上述项目商标和版权属于各自所有者；AIKS 与这些项目不存在当然的官方隶属或认可关系。**详细许可证、固定版本、参考/改编范围：** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+上述项目商标和版权属于各自所有者；AIKS 与这些项目不存在当然的官方隶属或认可关系。**详细项目来源、固定版本及参考/改编范围：** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-## 授权、贡献与免责声明
+## 贡献与免责声明
 
-- **AIKS 自有且授权方有权重新许可的代码：** [PolyForm Noncommercial 1.0.0](LICENSE)；非商业研究、个人学习等在许可范围内。商业用途需另行取得相关权利人的书面授权。
-- **第三方和旧版：** 不改变 SiYuan（AGPL-3.0）及其他依赖/移植代码原有许可证；此前已经以 MIT 发布的版本，其既有许可证与已授予权利继续有效。范围请见 [LICENSE-SCOPE.md](LICENSE-SCOPE.md)。
-- **关于“开源”：** 非商业使用限制不符合 OSI 开源定义，本仓库对受此限制的部分使用 **source-available / 源码可见** 的表述。
-- 欢迎讨论、Issue 和合规贡献；提交前阅读 `AGENTS.md`，并确保你有权为贡献内容授予相应许可。
+- 欢迎提交 Issue、使用反馈和改进建议；贡献代码前请阅读 `AGENTS.md`。
 - 软件按现状提供，不承诺一定兼容所有 Provider 版本，也不保证提炼结果完全准确。执行作废、重建或升级前请备份重要资料。
 
 ---

@@ -4,8 +4,6 @@
 
 > **Local-first desktop knowledge management for AI-assisted work.** Import sessions from AI coding assistants and supported public conversation shares, distill structured knowledge through a durable pipeline, search across your work, and optionally sync documents with SiYuan.
 
-> **License change:** Maintainer-controlled AIKS code is now offered under the **PolyForm Noncommercial License 1.0.0**, which is **source-available, not OSI-approved open source**. Previously granted MIT rights remain in force for previous releases, and third-party components retain their own licenses. Read [LICENSE](LICENSE), [License scope](LICENSE-SCOPE.md), and [Third-party notices](THIRD_PARTY_NOTICES.md).
-
 ## Features
 
 | Feature | Details |
@@ -92,23 +90,20 @@ Never commit API keys, tokens, user conversation content, private file paths, or
 
 ## Acknowledgments and upstream projects
 
-AIKS builds on and draws inspiration from a broad open-source ecosystem. Some session parsing and public-share parsing logic was adapted under third-party permissive licenses. Particular thanks to:
+AIKS builds on and draws inspiration from many excellent projects. Some session and public-share parsing implementations also build on upstream work. Particular thanks to:
 
-- [SiYuan](https://github.com/siyuan-note/siyuan) — bundled knowledge document runtime and public HTTP API. **SiYuan is AGPL-3.0 licensed**, independently of AIKS's license.
-- [AICoder Session Viewer](https://github.com/seastart/aicoder-session-viewer) — important early reference and adapted source for Claude/Codex/Gemini/OpenCode session parsers (MIT).
+- [SiYuan](https://github.com/siyuan-note/siyuan) — bundled knowledge document runtime and public HTTP API.
+- [AICoder Session Viewer](https://github.com/seastart/aicoder-session-viewer) — important early reference and adapted source for Claude/Codex/Gemini/OpenCode session parsers.
 - [CC Switch](https://github.com/farion1231/cc-switch) and [ccusage](https://github.com/ccusage/ccusage) — approaches to source discovery, session scanning, and usage information.
 - [OpenAI Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [OpenCode](https://github.com/anomalyco/opencode), and [Claude Code](https://github.com/anthropics/claude-code) — official format/behavior references.
 - [chatgpt-share-parser](https://github.com/evanhu1/chatgpt-share-parser), [chat-share-reader](https://github.com/pencil311/chat-share-reader), and other public-conversation parsing references.
 - [Tauri](https://github.com/tauri-apps/tauri), [React](https://github.com/facebook/react), [Radix UI](https://github.com/radix-ui/primitives), and the Rust ecosystem — desktop and UI foundations.
 
-The projects and trademarks belong to their respective owners. Acknowledgment does **not** imply sponsorship, affiliation, or endorsement. Detailed attributions, pinned versions, and the distinction between reference-only usage and adapted/vendored code are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The projects and trademarks belong to their respective owners. Acknowledgment does **not** imply sponsorship, affiliation, or endorsement. Detailed project references, pinned versions, and notes on adapted code are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## License, contributions, and disclaimer
+## Contributions and disclaimer
 
-- **AIKS-original, rights-controlled code:** [PolyForm Noncommercial 1.0.0](LICENSE), subject to its terms. Commercial permission, when available, requires a separate written license from the relevant rights holder(s).
-- **Third-party and prior versions:** This license change does not relicense bundled SiYuan (AGPL-3.0), libraries, or adapted third-party portions. It does not revoke existing MIT grants for previous AIKS releases. See [LICENSE-SCOPE.md](LICENSE-SCOPE.md).
-- **Source-available vs. open source:** A commercial-use restriction is incompatible with the OSI Open Source Definition. Do not describe the noncommercial-licensed AIKS portions as OSI open source.
-- Contributions and reproducible issue reports are welcome. Read `AGENTS.md` and ensure that you have the right to license your contribution.
+- Contributions and reproducible issue reports are welcome. Please read `AGENTS.md` before contributing.
 - Software is supplied without warranty. Back up important data before voiding, rebuilding, or upgrading; AI-generated knowledge must be reviewed for accuracy.
 
 Thanks to every upstream maintainer, contributor, and tester who makes this ecosystem possible.
