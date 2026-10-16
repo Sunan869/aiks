@@ -19,7 +19,6 @@ mod storage_commands;
 mod tray;
 mod workbench;
 
-use std::fs;
 use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::Mutex;
 
