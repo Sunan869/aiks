@@ -619,6 +619,15 @@ fn update_index_rebuild_state(
     )?)
 }
 
+
+fn required_text(field: &str, value: &str) -> anyhow::Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field} is required");
+    }
+    Ok(trimmed.to_string())
+}
+
 #[cfg(test)]
 mod feedback_loop_tests {
     use super::*;
@@ -662,12 +671,4 @@ mod feedback_loop_tests {
             assert_eq!(remote_hash, hash);
         }
     }
-}
-
-fn required_text(field: &str, value: &str) -> anyhow::Result<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        anyhow::bail!("{field} is required");
-    }
-    Ok(trimmed.to_string())
 }
