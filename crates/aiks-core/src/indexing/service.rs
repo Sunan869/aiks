@@ -619,7 +619,6 @@ fn update_index_rebuild_state(
     )?)
 }
 
-
 fn required_text(field: &str, value: &str) -> anyhow::Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
