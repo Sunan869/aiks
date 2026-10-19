@@ -265,15 +265,11 @@ impl KnowledgeIndexService {
         let result: anyhow::Result<()> = (|| {
             delete_vector_derivatives(&conn, knowledge_id)?;
             upsert_fts(&conn, knowledge_id, title, summary, markdown, tags_json)?;
-            let changed = conn.execute(
-                "UPDATE knowledge_item
-                 SET content = ?2, current_remote_hash = ?3, index_status = 'indexing',
-                     indexed_hash = NULL, indexed_at = NULL, embedding_model = NULL,
-                     embedding_dimensions = NULL, index_chunk_count = 0,
-                     last_index_error = NULL, updated_at = ?4
-                 WHERE id = ?1",
-                params![knowledge_id, markdown, content_hash, now],
-            )?;
+            // Canonical SiYuan Markdown is an indexing input, never the editable
+            // extracted knowledge body. Writing it back to knowledge_item.content
+            // causes the next sync to wrap the rendered document again, growing
+            // titles, sections, blocks and SiYuan history on every sync cycle.
+            let changed = update_index_rebuild_state(&conn, knowledge_id, content_hash, &now)?;
             if changed == 0 {
                 anyhow::bail!("Knowledge item not found: {knowledge_id}");
             }
@@ -606,10 +602,72 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn update_index_rebuild_state(
+    conn: &rusqlite::Connection,
+    knowledge_id: &str,
+    content_hash: &str,
+    now: &str,
+) -> anyhow::Result<usize> {
+    Ok(conn.execute(
+        "UPDATE knowledge_item
+         SET current_remote_hash = ?2, index_status = 'indexing',
+             indexed_hash = NULL, indexed_at = NULL, embedding_model = NULL,
+             embedding_dimensions = NULL, index_chunk_count = 0,
+             last_index_error = NULL, updated_at = ?3
+         WHERE id = ?1",
+        params![knowledge_id, content_hash, now],
+    )?)
+}
+
 fn required_text(field: &str, value: &str) -> anyhow::Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         anyhow::bail!("{field} is required");
     }
     Ok(trimmed.to_string())
+}
+
+#[cfg(test)]
+mod feedback_loop_tests {
+    use super::*;
+
+    #[test]
+    fn index_rebuild_preserves_extracted_content_across_repeated_runs() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE knowledge_item (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                current_remote_hash TEXT,
+                index_status TEXT NOT NULL DEFAULT 'ready',
+                indexed_hash TEXT,
+                indexed_at TEXT,
+                embedding_model TEXT,
+                embedding_dimensions INTEGER,
+                index_chunk_count INTEGER NOT NULL DEFAULT 0,
+                last_index_error TEXT,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO knowledge_item (id, content, updated_at)
+            VALUES ('k1', 'original extracted knowledge', 'earlier');",
+        )
+        .unwrap();
+
+        for pass in 0..100 {
+            let hash = format!("rendered-remote-hash-{pass}");
+            assert_eq!(
+                update_index_rebuild_state(&conn, "k1", &hash, "later").unwrap(),
+                1
+            );
+            let (content, remote_hash): (String, String) = conn
+                .query_row(
+                    "SELECT content, current_remote_hash FROM knowledge_item WHERE id = 'k1'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(content, "original extracted knowledge");
+            assert_eq!(remote_hash, hash);
+        }
+    }
 }
