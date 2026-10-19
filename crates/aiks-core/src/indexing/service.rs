@@ -602,7 +602,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
-
 fn update_index_rebuild_state(
     conn: &rusqlite::Connection,
     knowledge_id: &str,
