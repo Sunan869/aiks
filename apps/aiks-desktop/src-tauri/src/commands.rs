@@ -412,6 +412,28 @@ pub async fn get_siyuan_url(state: State<'_, AppState>) -> Result<Option<String>
     Ok(state.siyuan_url().await)
 }
 
+/// Open the currently running embedded SiYuan in the system default browser.
+/// The URL is obtained from runtime state, never from untrusted UI input.
+#[tauri::command]
+pub async fn open_siyuan_in_browser(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let url = state
+        .siyuan_url()
+        .await
+        .ok_or_else(|| "SiYuan 尚未启动或服务地址不可用".to_string())?;
+    let parsed = url::Url::parse(&url).map_err(|error| error.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("SiYuan 服务地址不是 HTTP(S) 地址".to_string());
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|error| format!("打开浏览器失败：{error}"))
+}
+
 #[tauri::command]
 pub async fn get_sessions(
     source: Option<String>,

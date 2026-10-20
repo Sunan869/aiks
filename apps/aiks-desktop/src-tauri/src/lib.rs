@@ -118,6 +118,7 @@ pub fn run() {
             commands::restart_app,
             commands::restart_siyuan,
             commands::get_siyuan_url,
+            commands::open_siyuan_in_browser,
             commands::get_sessions,
             commands::get_sync_history,
             commands::get_ai_status,

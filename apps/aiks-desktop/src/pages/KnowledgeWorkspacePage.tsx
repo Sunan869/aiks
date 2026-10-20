@@ -1,6 +1,7 @@
 import { UiButton } from "../components/ui/fields";
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { ExternalLink, Search } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { getApi } from "../api/client";
 import type { KnowledgeDetail, UnifiedSearchHit } from "../api/types";
 import type { WorkspaceMode } from "../api/workbench";
@@ -29,6 +30,7 @@ export default function KnowledgeWorkspacePage({
   const [error, setError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [metadataOpen, setMetadataOpen] = useState(false);
+  const [openingSiyuan, setOpeningSiyuan] = useState(false);
 
   useEffect(() => {
     setError(null);
@@ -55,6 +57,18 @@ export default function KnowledgeWorkspacePage({
       cancelled = true;
     };
   }, [knowledgeId]);
+
+  const openSiyuanWeb = async () => {
+    setOpeningSiyuan(true);
+    setError(null);
+    try {
+      await invoke("open_siyuan_in_browser");
+    } catch (e) {
+      setError(`无法打开 SiYuan 网页版：${String(e)}`);
+    } finally {
+      setOpeningSiyuan(false);
+    }
+  };
 
   const boundDocId = workspaceMode === "session"
     ? workbenchDocId
@@ -108,6 +122,15 @@ export default function KnowledgeWorkspacePage({
         >
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
+        </UiButton>
+        <UiButton variant="outline" size="sm" type="button"
+          onClick={() => void openSiyuanWeb()}
+          disabled={openingSiyuan}
+          title="在系统默认浏览器打开当前 SiYuan"
+          className="ml-auto flex-shrink-0 gap-1.5 whitespace-nowrap"
+        >
+          <ExternalLink className="h-4 w-4" />
+          打开网页版
         </UiButton>
         {knowledgeId && workspaceMode === "knowledge" && (
           <UiButton variant="outline" size="sm" type="button" onClick={() => setMetadataOpen(open => !open)}
