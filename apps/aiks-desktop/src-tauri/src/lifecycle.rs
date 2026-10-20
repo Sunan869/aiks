@@ -379,6 +379,10 @@ fn spawn_background_tasks(
         let app_bg = app.clone();
         let gate_bg = Arc::clone(&gate);
         tauri::async_runtime::spawn(async move {
+            if !engine_bg.config().providers.any_enabled() {
+                info!("[STARTUP] No providers enabled; skipping initial scan until user opts in");
+                return;
+            }
             info!("[STARTUP] Beginning initial scan...");
             let _ = app_bg.emit("sync-status", serde_json::json!({"status": "scanning"}));
 
@@ -468,6 +472,9 @@ fn spawn_background_tasks(
             ticker.tick().await;
             loop {
                 ticker.tick().await;
+                if !engine_p.config().providers.any_enabled() {
+                    continue;
+                }
                 info!("[SCAN] Periodic scan triggered (every {}s)", interval_secs);
                 let opts = aiks_core::SyncOptions {
                     source_filter: None,
