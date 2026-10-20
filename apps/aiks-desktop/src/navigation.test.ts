@@ -12,9 +12,9 @@ describe("V4.2 product navigation", () => {
       "sessions",
       "knowledge",
       "projects",
-      "review",
       "processing",
     ]);
+    expect(MAIN_NAV_ITEMS.some(item => item.id === "review")).toBe(false);
     expect(
       [...MAIN_NAV_ITEMS, ...BOTTOM_NAV_ITEMS].some(item => String(item.id) === "search"),
     ).toBe(false);
