@@ -425,7 +425,7 @@ pub async fn open_siyuan_in_browser(
         .siyuan_url()
         .await
         .ok_or_else(|| "SiYuan 尚未启动或服务地址不可用".to_string())?;
-    let parsed = url::Url::parse(&url).map_err(|error| error.to_string())?;
+    let parsed = tauri::Url::parse(&url).map_err(|error| error.to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("SiYuan 服务地址不是 HTTP(S) 地址".to_string());
     }
