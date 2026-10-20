@@ -11,6 +11,8 @@ const MAX_EMBEDDING_DIMENSIONS: usize = 16_384;
 #[serde(default)]
 pub struct EmbeddingConfig {
     pub enabled: bool,
+    /// openai (default), ollama
+    pub api_format: String,
     pub base_url: String,
     pub model: String,
     pub api_key: Option<String>,
@@ -25,6 +27,7 @@ impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            api_format: "openai".to_string(),
             base_url: String::new(),
             model: "LCO-Embedding/LCO-Embedding-Omni-3B-2605".to_string(),
             api_key: None,
@@ -46,6 +49,11 @@ struct EmbedRequest {
 #[derive(Deserialize)]
 struct EmbedResponse {
     data: Vec<EmbedData>,
+}
+
+#[derive(Deserialize)]
+struct OllamaEmbedResponse {
+    embeddings: Vec<Vec<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -139,7 +147,17 @@ impl EmbeddingClient {
             return Ok(vec![]);
         }
 
-        let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
+        let is_ollama = self.config.api_format == "ollama";
+        anyhow::ensure!(
+            is_ollama || self.config.api_format == "openai",
+            "Unsupported embedding api_format: {}",
+            self.config.api_format
+        );
+        let url = format!(
+            "{}/{}",
+            self.config.base_url.trim_end_matches('/'),
+            if is_ollama { "embed" } else { "embeddings" }
+        );
 
         let mut req = self.http.post(&url).json(&EmbedRequest {
             model: self.config.model.clone(),
@@ -163,8 +181,20 @@ impl EmbeddingClient {
         let body = crate::util::read_bounded_http_text(resp, MAX_EMBEDDING_RESPONSE_BYTES)
             .await
             .context("read bounded Embedding API response")?;
-        let embed_resp: EmbedResponse =
-            serde_json::from_str(&body).context("decode Embedding API response")?;
+        let embed_resp: EmbedResponse = if is_ollama {
+            let native: OllamaEmbedResponse =
+                serde_json::from_str(&body).context("decode Ollama embedding response")?;
+            EmbedResponse {
+                data: native
+                    .embeddings
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, embedding)| EmbedData { embedding, index })
+                    .collect(),
+            }
+        } else {
+            serde_json::from_str(&body).context("decode Embedding API response")?
+        };
         validate_embeddings(embed_resp, texts.len(), self.config.dimensions)
     }
 

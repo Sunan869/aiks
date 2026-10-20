@@ -60,7 +60,13 @@ pub struct AppSettings {
     pub ai_auto_extract: bool,
     pub ai_max_concurrent: usize,
     pub ai_base_url: String,
+    #[serde(default = "default_ai_api_format")]
+    pub ai_api_format: String,
     pub ai_model: String,
+}
+
+fn default_ai_api_format() -> String {
+    "openai_chat".to_string()
 }
 
 impl AppSettings {
@@ -78,6 +84,7 @@ impl AppSettings {
             ai_auto_extract: config.ai.auto_extract,
             ai_max_concurrent: config.ai.max_concurrent.clamp(1, 4),
             ai_base_url: config.ai.base_url.clone(),
+            ai_api_format: config.ai.api_format.clone(),
             ai_model: config.ai.model.clone(),
         }
     }
@@ -248,6 +255,7 @@ fn apply_settings_to_config(config: &mut aiks_core::Config, settings: &AppSettin
         .trim_end_matches('/')
         .to_string();
     config.ai.model = settings.ai_model.trim().to_string();
+    config.ai.api_format = settings.ai_api_format.clone();
     config.sync.scan_interval_seconds = settings.scan_interval_seconds;
     config.sync.watch_enabled = settings.sync_enabled;
     config.security.redact_secrets = settings.redact_secrets;
@@ -306,6 +314,12 @@ pub async fn save_settings(
     }
     if settings.ai_model.trim().is_empty() {
         return Err("AI 模型不能为空".to_string());
+    }
+    if !matches!(
+        settings.ai_api_format.as_str(),
+        "openai_chat" | "openai_responses" | "ollama"
+    ) {
+        return Err("不支持的 LLM 接口协议".to_string());
     }
     if !(1..=4).contains(&settings.ai_max_concurrent) {
         return Err("AI 提炼并发数必须为 1–4".to_string());
@@ -507,6 +521,7 @@ pub async fn test_ai_connection(state: State<'_, AppState>) -> Result<bool, Stri
 pub async fn test_ai_connection_with_settings(
     base_url: String,
     model: String,
+    api_format: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     if base_url.trim().is_empty() || model.trim().is_empty() {
@@ -518,6 +533,7 @@ pub async fn test_ai_connection_with_settings(
         .unwrap_or_default();
     config.enabled = true;
     config.base_url = base_url.trim().trim_end_matches('/').to_string();
+    config.api_format = api_format;
     config.model = model.trim().to_string();
     let client = aiks_core::ai::AiClient::new(config).map_err(|e| e.to_string())?;
     Ok(client.health_check().await)

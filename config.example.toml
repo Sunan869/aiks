@@ -115,6 +115,8 @@ compression = "gzip"
 # V3 knowledge extraction. Disabled by default for a public/fresh install.
 [ai]
 enabled = false
+# openai_chat / openai_responses / ollama
+api_format = "openai_chat"
 base_url = "http://127.0.0.1:11434/v1"
 model = "qwen3"
 api_key = ""
@@ -134,6 +136,8 @@ max_context_tokens = 32768
 # Lightweight alternative: bge-m3:latest (1024 dimensions when served by Ollama).
 [embedding]
 enabled = false
+# openai / ollama
+api_format = "openai"
 base_url = ""
 model = "LCO-Embedding/LCO-Embedding-Omni-3B-2605"
 api_key = ""
