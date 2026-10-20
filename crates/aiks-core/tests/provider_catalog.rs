@@ -10,7 +10,25 @@ use aiks_core::{
 
 #[test]
 fn catalog_has_twenty_four_unique_stable_keys_and_keeps_old_provider_ids() {
-    let config = Config::default();
+    let mut config = Config::default();
+    // A fresh install is opt-in; exercise registry coverage with all sources
+    // explicitly enabled rather than assuming defaults are enabled.
+    config.providers.claude.enabled = true;
+    config.providers.codex.enabled = true;
+    config.providers.gemini.enabled = true;
+    config.providers.opencode.enabled = true;
+    config.providers.workbuddy.enabled = true;
+    config.providers.antigravity.enabled = true;
+    config.providers.cursor.enabled = true;
+    config.providers.cursor_agent.enabled = true;
+    config.providers.cline.enabled = true;
+    config.providers.roo_code.enabled = true;
+    config.providers.kilo_code.enabled = true;
+    config.providers.github_copilot.enabled = true;
+    config.providers.kimi_code.enabled = true;
+    config.providers.qwen_code.enabled = true;
+    config.providers.continue_dev.enabled = true;
+    config.providers.aider.enabled = true;
     let catalog = descriptors(&config, &[]);
     let keys: std::collections::HashSet<_> = catalog.iter().map(|s| s.key).collect();
     assert_eq!(keys.len(), 24);
