@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct AiModelConfig {
     pub enabled: bool,
+    /// openai_chat (default), openai_responses, ollama
+    pub api_format: String,
     pub base_url: String,
     pub model: String,
     pub api_key: Option<String>,
@@ -38,6 +40,7 @@ impl Default for AiModelConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            api_format: "openai_chat".to_string(),
             base_url: "http://127.0.0.1:11434/v1".to_string(),
             model: "qwen3".to_string(),
             api_key: None,
