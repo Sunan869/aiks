@@ -4,8 +4,9 @@ import sidebar from "../components/Sidebar.tsx?raw";
 import app from "../App.tsx?raw";
 import project from "../pages/ProjectMemoryPage.tsx?raw";
 describe("visible human review entry", () => {
-  it("offers dedicated review navigation and opens existing review workflow", () => {
-    expect(nav).toContain('{ id: "review", label: "待复核" }');
+  it("keeps review inside project memory without a duplicate sidebar entry", () => {
+    expect(nav).not.toContain('{ id: "review", label: "待复核" }');
+    expect(nav).toContain('{ id: "projects", label: "项目记忆" }');
     expect(sidebar).toContain("review: ClipboardCheck");
     expect(app).toContain('case "review": return <ProjectMemoryPage initialTab="review"');
     expect(project).toContain('initialTab = "knowledge"');
