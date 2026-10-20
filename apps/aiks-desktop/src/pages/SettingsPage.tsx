@@ -13,6 +13,7 @@ const BGE_MODEL = "bge-m3:latest";
 
 interface EmbeddingSettings {
   embedding_enabled: boolean;
+  embedding_api_format: string;
   embedding_base_url: string;
   embedding_model: string;
   embedding_dimensions: number;
@@ -31,6 +32,7 @@ interface Settings extends EmbeddingSettings {
   ai_auto_extract: boolean;
   ai_max_concurrent: number;
   ai_base_url: string;
+  ai_api_format: string;
   ai_model: string;
 }
 
@@ -79,8 +81,10 @@ const MOCK_SETTINGS: Settings = {
   ai_auto_extract: true,
   ai_max_concurrent: 1,
   ai_base_url: "http://localhost:11434/v1",
+  ai_api_format: "openai_chat",
   ai_model: "Qwen3.8-27B",
   embedding_enabled: false,
+  embedding_api_format: "openai",
   embedding_base_url: "http://localhost:28090/v1",
   embedding_model: LCO_MODEL,
   embedding_dimensions: 2048,
@@ -111,7 +115,7 @@ export default function SettingsPage() {
         invoke<Omit<Settings, keyof EmbeddingSettings>>("get_settings"),
         invoke<EmbeddingSettings>("get_embedding_settings"),
       ])
-        .then(([base, embedding]) => setSettings({ ...base, ...embedding }))
+.then(([base, embedding]) => setSettings({ ...MOCK_SETTINGS, ...base, ...embedding }))
         .catch(error => setSaveError(String(error)));
     });
   }, [isMock]);
@@ -146,6 +150,7 @@ export default function SettingsPage() {
       const { invoke } = await import("@tauri-apps/api/core");
       const ok = await invoke<boolean>("test_ai_connection_with_settings", {
         baseUrl: settings.ai_base_url,
+        apiFormat: settings.ai_api_format,
         model: settings.ai_model,
       });
       setAiHealthy(ok);
@@ -168,6 +173,7 @@ export default function SettingsPage() {
       const { invoke } = await import("@tauri-apps/api/core");
       const result = await invoke<EmbeddingProbeResponse>("test_embedding_connection_with_settings", {
         baseUrl: settings.embedding_base_url,
+        apiFormat: settings.embedding_api_format,
         model: settings.embedding_model,
         dimensions: settings.embedding_dimensions,
       });
@@ -235,11 +241,13 @@ export default function SettingsPage() {
           ai_auto_extract: settings.ai_auto_extract,
           ai_max_concurrent: settings.ai_max_concurrent,
           ai_base_url: settings.ai_base_url,
+          ai_api_format: settings.ai_api_format,
           ai_model: settings.ai_model,
         };
         const embeddingSettings: EmbeddingSettings = {
           embedding_enabled: settings.embedding_enabled,
           embedding_base_url: settings.embedding_base_url,
+          embedding_api_format: settings.embedding_api_format,
           embedding_model: settings.embedding_model,
           embedding_dimensions: settings.embedding_dimensions,
         };
@@ -359,6 +367,12 @@ export default function SettingsPage() {
             <div className="mt-1 text-[11px] text-gray-400">AIKS 当前只提交文本；LCO 的图片、音频、视频能力不会被调用。</div>
           </div>
           <div>
+            <RadixSelectField label="Embedding 接口协议" value={settings.embedding_api_format}
+              onValueChange={value => { update("embedding_api_format", value); setEmbeddingProbe(null); }}
+              options={[{ value: "openai", label: "OpenAI 兼容 /embeddings" }, { value: "ollama", label: "Ollama 原生 /api/embed" }]} />
+            <p className="mt-1 text-xs text-gray-400">Ollama 原生地址填写 http://127.0.0.1:11434/api；OpenAI 兼容地址一般以 /v1 结尾。</p>
+          </div>
+          <div>
             <label htmlFor="aiks-setting-embedding_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Embedding 服务地址</label>
             <UiInput
               id="aiks-setting-embedding_base_url"
@@ -451,6 +465,12 @@ export default function SettingsPage() {
             <div>
               <div className="text-xs text-gray-400 mb-1">知识引擎</div>
               <div className="text-gray-600 dark:text-gray-300">SiYuan 3.8.3 (内置)</div>
+            </div>
+            <div>
+              <RadixSelectField label="LLM 接口协议" value={settings.ai_api_format}
+                onValueChange={value => { update("ai_api_format", value); setAiHealthy(null); }}
+                options={[{ value: "openai_chat", label: "OpenAI Chat Completions" }, { value: "openai_responses", label: "OpenAI Responses（GPT-6 等）" }, { value: "ollama", label: "Ollama 原生 /api/chat" }]} />
+              <p className="mt-1 text-xs text-gray-400">Responses 使用 /v1 地址，Ollama 原生使用 /api 地址。</p>
             </div>
             <div>
               <label htmlFor="aiks-setting-ai_base_url" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">AI 服务地址</label>

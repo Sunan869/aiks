@@ -8,15 +8,22 @@ use crate::app_state::{config_file_path, AppState};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingSettings {
     pub embedding_enabled: bool,
+    #[serde(default = "default_embedding_api_format")]
+    pub embedding_api_format: String,
     pub embedding_base_url: String,
     pub embedding_model: String,
     pub embedding_dimensions: usize,
+}
+
+fn default_embedding_api_format() -> String {
+    "openai".to_string()
 }
 
 impl EmbeddingSettings {
     fn from_config(config: &Config) -> Self {
         Self {
             embedding_enabled: config.embedding.enabled,
+            embedding_api_format: config.embedding.api_format.clone(),
             embedding_base_url: config.embedding.base_url.clone(),
             embedding_model: config.embedding.model.clone(),
             embedding_dimensions: config.embedding.dimensions.unwrap_or(0),
@@ -46,6 +53,9 @@ fn persist_config(config: &Config) -> Result<(), String> {
 }
 
 fn apply_settings(config: &mut Config, settings: &EmbeddingSettings) -> Result<(), String> {
+    if !matches!(settings.embedding_api_format.as_str(), "openai" | "ollama") {
+        return Err("不支持的 Embedding 接口协议".to_string());
+    }
     if settings.embedding_enabled {
         if settings.embedding_base_url.trim().is_empty() {
             return Err("Embedding 服务地址不能为空".to_string());
@@ -59,6 +69,7 @@ fn apply_settings(config: &mut Config, settings: &EmbeddingSettings) -> Result<(
     }
 
     config.embedding.enabled = settings.embedding_enabled;
+    config.embedding.api_format = settings.embedding_api_format.clone();
     config.embedding.base_url = settings
         .embedding_base_url
         .trim()
@@ -88,6 +99,7 @@ pub async fn test_embedding_connection_with_settings(
     base_url: String,
     model: String,
     dimensions: usize,
+    api_format: String,
     state: State<'_, AppState>,
 ) -> Result<EmbeddingProbeResponse, String> {
     if base_url.trim().is_empty() || model.trim().is_empty() || dimensions == 0 {
@@ -103,6 +115,7 @@ pub async fn test_embedding_connection_with_settings(
         .map(|engine| engine.embedding_config().clone())
         .unwrap_or_default();
     config.enabled = true;
+    config.api_format = api_format;
     config.base_url = base_url.trim().trim_end_matches('/').to_string();
     config.model = model.trim().to_string();
     config.dimensions = Some(dimensions);
@@ -164,6 +177,7 @@ mod tests {
         config.embedding.batch_size = 7;
         let settings = EmbeddingSettings {
             embedding_enabled: true,
+            embedding_api_format: "openai".to_string(),
             embedding_base_url: "http://example.invalid/v1/".to_string(),
             embedding_model: "bge-m3:latest".to_string(),
             embedding_dimensions: 1024,
@@ -184,6 +198,7 @@ mod tests {
         let mut config = Config::default();
         let settings = EmbeddingSettings {
             embedding_enabled: true,
+            embedding_api_format: "openai".to_string(),
             embedding_base_url: String::new(),
             embedding_model: config.embedding.model.clone(),
             embedding_dimensions: 2048,
