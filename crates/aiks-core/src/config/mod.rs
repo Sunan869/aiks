@@ -108,10 +108,32 @@ pub struct ProviderConfig {
     pub path: String,
 }
 
+impl ProvidersConfig {
+    /// Explicitly selected sources only; auto-discovery never implies consent.
+    pub fn any_enabled(&self) -> bool {
+        self.claude.enabled
+            || self.codex.enabled
+            || self.gemini.enabled
+            || self.opencode.enabled
+            || self.workbuddy.enabled
+            || self.antigravity.enabled
+            || self.cursor.enabled
+            || self.cursor_agent.enabled
+            || self.cline.enabled
+            || self.roo_code.enabled
+            || self.kilo_code.enabled
+            || self.github_copilot.enabled
+            || self.kimi_code.enabled
+            || self.qwen_code.enabled
+            || self.continue_dev.enabled
+            || self.aider.enabled
+    }
+}
+
 impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             path: String::new(),
         }
     }
@@ -128,7 +150,7 @@ pub struct CodexProviderConfig {
 impl Default for CodexProviderConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             path: String::new(),
             include_archived_sessions: true,
         }
@@ -438,9 +460,36 @@ pub struct ExternalProviderConfig {
 impl Default for ExternalProviderConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             path: String::new(),
             paths: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod provider_opt_in_tests {
+    use super::*;
+
+    #[test]
+    fn fresh_install_has_no_active_session_sources() {
+        let config = Config::default();
+        assert!(!config.providers.any_enabled());
+    }
+
+    #[test]
+    fn explicitly_enabled_source_is_respected() {
+        let mut config = Config::default();
+        config.providers.codex.enabled = true;
+        assert!(config.providers.any_enabled());
+    }
+
+    #[test]
+    fn existing_enabled_sources_are_preserved_on_deserialization() {
+        let mut config = Config::default();
+        config.providers.claude.enabled = true;
+        let serialized = toml::to_string(&config).unwrap();
+        let loaded: Config = toml::from_str(&serialized).unwrap();
+        assert!(loaded.providers.claude.enabled);
     }
 }
