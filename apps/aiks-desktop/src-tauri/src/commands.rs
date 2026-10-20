@@ -315,7 +315,10 @@ pub async fn save_settings(
     if settings.ai_model.trim().is_empty() {
         return Err("AI 模型不能为空".to_string());
     }
-    if !matches!(settings.ai_api_format.as_str(), "openai_chat" | "openai_responses" | "ollama") {
+    if !matches!(
+        settings.ai_api_format.as_str(),
+        "openai_chat" | "openai_responses" | "ollama"
+    ) {
         return Err("不支持的 LLM 接口协议".to_string());
     }
     if !(1..=4).contains(&settings.ai_max_concurrent) {

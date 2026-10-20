@@ -185,10 +185,12 @@ impl EmbeddingClient {
             let native: OllamaEmbedResponse =
                 serde_json::from_str(&body).context("decode Ollama embedding response")?;
             EmbedResponse {
-                data: native.embeddings.into_iter().enumerate().map(|(index, embedding)| EmbedData {
-                    embedding,
-                    index,
-                }).collect(),
+                data: native
+                    .embeddings
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, embedding)| EmbedData { embedding, index })
+                    .collect(),
             }
         } else {
             serde_json::from_str(&body).context("decode Embedding API response")?

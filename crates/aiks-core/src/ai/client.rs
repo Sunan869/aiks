@@ -214,7 +214,8 @@ impl AiClient {
 
     async fn test_completion(&self) -> anyhow::Result<()> {
         if self.config.api_format != "openai_chat" {
-            self.chat_alternative("You are a helpful assistant", "Hi", 8).await?;
+            self.chat_alternative("You are a helpful assistant", "Hi", 8)
+                .await?;
             return Ok(());
         }
         let url = format!(
@@ -285,7 +286,9 @@ impl AiClient {
         requested_max_tokens: u32,
     ) -> anyhow::Result<ChatResult> {
         if self.config.api_format != "openai_chat" {
-            return self.chat_alternative(system, user, requested_max_tokens).await;
+            return self
+                .chat_alternative(system, user, requested_max_tokens)
+                .await;
         }
         let url = format!(
             "{}/chat/completions",
@@ -397,7 +400,9 @@ impl AiClient {
         F: FnMut(&str) -> anyhow::Result<()> + Send,
     {
         if self.config.api_format != "openai_chat" {
-            let result = self.chat_alternative(system, user, requested_max_tokens).await?;
+            let result = self
+                .chat_alternative(system, user, requested_max_tokens)
+                .await?;
             on_delta(&result.content)?;
             return Ok(result.content);
         }
@@ -609,7 +614,11 @@ impl AiClient {
         let url = format!(
             "{}/{}",
             self.config.base_url.trim_end_matches('/'),
-            if kind == "ollama" { "chat" } else { "responses" }
+            if kind == "ollama" {
+                "chat"
+            } else {
+                "responses"
+            }
         );
         let request = if kind == "ollama" {
             serde_json::json!({
@@ -634,7 +643,12 @@ impl AiClient {
         };
         let mut retries = 0_usize;
         loop {
-            let response = self.client.post(&url).json(&request).send().await
+            let response = self
+                .client
+                .post(&url)
+                .json(&request)
+                .send()
+                .await
                 .context("send model request")?;
             let status = response.status();
             if let Some(delay) = overload_retry_delay_ms(status.as_u16(), retries) {
@@ -644,29 +658,41 @@ impl AiClient {
             }
             let body = crate::util::read_bounded_http_text(
                 response,
-                if status.is_success() { MAX_CHAT_JSON_RESPONSE_BYTES } else { MAX_ERROR_RESPONSE_BYTES }
-            ).await.context("read model response")?;
+                if status.is_success() {
+                    MAX_CHAT_JSON_RESPONSE_BYTES
+                } else {
+                    MAX_ERROR_RESPONSE_BYTES
+                },
+            )
+            .await
+            .context("read model response")?;
             anyhow::ensure!(
                 status.is_success(),
                 "AI API error {status}: {}",
                 crate::util::truncate_chars(&body, 200)
             );
-            let json: serde_json::Value = serde_json::from_str(&body)
-                .context("parse model response")?;
+            let json: serde_json::Value =
+                serde_json::from_str(&body).context("parse model response")?;
             let (content, usage) = if kind == "ollama" {
                 anyhow::ensure!(
                     json.get("done").and_then(|v| v.as_bool()) == Some(true),
                     "Ollama response is incomplete"
                 );
-                let answer = json.pointer("/message/content")
-                    .and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+                let answer = json
+                    .pointer("/message/content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
                 let prompt = json.get("prompt_eval_count").and_then(|v| v.as_u64());
                 let completion = json.get("eval_count").and_then(|v| v.as_u64());
-                (answer, Some(ChatUsage {
-                    prompt_tokens: prompt,
-                    completion_tokens: completion,
-                    total_tokens: prompt.zip(completion).map(|(a, b)| a.saturating_add(b)),
-                }))
+                (
+                    answer,
+                    Some(ChatUsage {
+                        prompt_tokens: prompt,
+                        completion_tokens: completion,
+                        total_tokens: prompt.zip(completion).map(|(a, b)| a.saturating_add(b)),
+                    }),
+                )
             } else {
                 anyhow::ensure!(
                     json.get("status").and_then(|v| v.as_str()) == Some("completed"),
@@ -676,12 +702,14 @@ impl AiClient {
                 if let Some(items) = json.get("output").and_then(|v| v.as_array()) {
                     for item in items {
                         if item.get("type").and_then(|v| v.as_str()) != Some("message")
-                            || item.get("role").and_then(|v| v.as_str()) != Some("assistant") {
+                            || item.get("role").and_then(|v| v.as_str()) != Some("assistant")
+                        {
                             continue;
                         }
                         if let Some(parts) = item.get("content").and_then(|v| v.as_array()) {
                             for part in parts {
-                                if part.get("type").and_then(|v| v.as_str()) == Some("output_text") {
+                                if part.get("type").and_then(|v| v.as_str()) == Some("output_text")
+                                {
                                     if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                         check_chat_output_budget(output.len(), text.len())?;
                                         output.push_str(text);
@@ -698,10 +726,17 @@ impl AiClient {
                 });
                 (output, usage)
             };
-            anyhow::ensure!(!content.is_empty(), "Model returned empty assistant content");
+            anyhow::ensure!(
+                !content.is_empty(),
+                "Model returned empty assistant content"
+            );
             check_chat_output_budget(0, content.len())?;
             log_token_usage(&self.config.model, usage.as_ref());
-            return Ok(ChatResult { content, usage, finish_reason: Some("stop".to_string()) });
+            return Ok(ChatResult {
+                content,
+                usage,
+                finish_reason: Some("stop".to_string()),
+            });
         }
     }
 
