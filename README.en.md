@@ -1,9 +1,57 @@
-# AI Knowledge Sync (AIKS)
+# AIKS · AI Knowledge Sync
 
-[**简体中文**](README.md) · [**English**](README.en.md) · [Releases](https://github.com/Sunan869/aiks/releases) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[简体中文](README.md) · **English** · [Download](https://github.com/Sunan869/aiks/releases) · [Provider compatibility](docs/reference-analysis/multi-provider-support.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-> **Local-first desktop knowledge management for AI-assisted work.** Import sessions from AI coding assistants and supported public conversation shares, distill structured knowledge through a durable pipeline, search across your work, and optionally sync documents with SiYuan.
+> ### Your AI conversations should not be disposable.
+> **16 local AI coding tools + 8 public web conversation-share sources = 24 source types.** Collect supported AI sessions, extract structured knowledge, connect projects, search with full-text or optional semantic retrieval, and sync with SiYuan. Turn every AI-assisted task into experience you can reuse.
 
+**24 source types** · **Local-first** · **Read-only local providers** · **AI knowledge extraction** · **Full-text + optional semantic search** · **SiYuan integration** · **MIT-licensed / commercial use allowed**
+
+[**Download AIKS**](https://github.com/Sunan869/aiks/releases) · [Source code](https://github.com/Sunan869/aiks) · [Report an issue](https://github.com/Sunan869/aiks/issues)
+
+## 🌐 Supported AI data sources
+
+Instead of copying chats from multiple assistants into a note-taking app, import supported local sessions and public web conversation shares into one knowledge workflow.
+
+### 16 local coding assistant and agent sources
+
+| | | | |
+| --- | --- | --- | --- |
+| Claude Code | OpenAI Codex CLI | Gemini CLI | OpenCode |
+| Cursor | Cursor Agent | GitHub Copilot | Antigravity |
+| Cline | Roo Code | Kilo Code | WorkBuddy |
+| Kimi Code | Qwen Code | Continue | Aider |
+
+**Local providers are opt-in.** AIKS reads source histories without modifying upstream files. Actual support varies by version, storage layout, and path. Review the [provider compatibility matrix](docs/reference-analysis/multi-provider-support.md).
+
+### 8 public web conversation-share sources
+
+| | | | |
+| --- | --- | --- | --- |
+| ChatGPT | Claude | Gemini | DeepSeek |
+| Doubao | Kimi | Tencent Yuanbao | Qwen |
+
+Import supported **public share URLs** without connecting your accounts. Web page changes may affect individual parsers. This is **not** automatic access to all private browser or account chat history.
+
+### From conversation to reusable knowledge
+
+```text
+16 local agent sources        8 public web share sources
+              \              /
+                Unified import
+                     ↓
+         Cleaning / chunking / AI extraction
+                     ↓
+     Knowledge · Tags · Projects · Provenance
+                     ↓
+         Full-text / Semantic / Ask AIKS
+                     ↓
+             SiYuan sync (optional)
+```
+
+AI extraction and embeddings are optional and disabled by default. Imported sessions remain browsable without a configured model. SiYuan sync protects against overwriting user edits.
+
+---
 ## Why AIKS?
 
 AI assistants help us debug incidents, discuss architecture, write code, and work through complex decisions. Yet the useful reasoning is often scattered across tools and workspaces. **The task gets done, but the experience remains buried in a conversation.** Weeks later, we repeat the search, rebuild context, and solve the same problem again.
@@ -62,7 +110,7 @@ AIKS primarily addresses **personal knowledge accumulated through AI-assisted wo
 
 **Typical workflow:** Enable sources → scan sessions → inspect extraction → review knowledge → search and reuse → revise or void as needed.
 
-## Features
+## Detailed features
 
 | Feature | Details |
 | --- | --- |
