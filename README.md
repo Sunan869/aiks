@@ -1,9 +1,57 @@
-# AI Knowledge Sync (AIKS)
+# AIKS · AI Knowledge Sync
 
-[**简体中文**](README.md) · [**English**](README.en.md) · [Releases](https://github.com/Sunan869/aiks/releases) · [第三方致谢](THIRD_PARTY_NOTICES.md)
+**简体中文** · [English](README.en.md) · [下载最新版本](https://github.com/Sunan869/aiks/releases) · [数据源兼容说明](docs/reference-analysis/multi-provider-support.md) · [第三方致谢](THIRD_PARTY_NOTICES.md)
 
-> **本地优先的 AI 工作会话与知识管理桌面应用。** 从多种 AI 编程助手的历史对话与公开分享链接中整理知识，支持可追踪的提炼流水线、知识工作台、全文/语义检索与 SiYuan 同步。
+> ### 让 AI 对话不再是一次性消耗。
+> **16 种本地 AI 编程工具 + 8 种网页公开分享来源，共 24 类数据来源。** 自动整理 AI 对话，提炼知识、关联项目、全文/语义检索，并可同步到思源笔记。让每一次与 AI 的协作，都成为下次可以复用的经验。
 
+**24 类数据来源** · **本地优先** · **原始文件只读** · **自动知识提炼** · **全文与可选语义检索** · **SiYuan 集成** · **MIT 开源 / 可商用**
+
+[**下载 AIKS**](https://github.com/Sunan869/aiks/releases) · [查看源码](https://github.com/Sunan869/aiks) · [提交问题](https://github.com/Sunan869/aiks/issues)
+
+## 🌐 支持哪些 AI 数据源？
+
+无需将不同平台的对话逐条复制到笔记软件：AIKS 统一读取支持的本地会话，并允许用户导入支持的网页公开分享链接。
+
+### 16 种本地 AI 编程 / Agent 会话
+
+| | | | |
+| --- | --- | --- | --- |
+| Claude Code | OpenAI Codex CLI | Gemini CLI | OpenCode |
+| Cursor | Cursor Agent | GitHub Copilot | Antigravity |
+| Cline | Roo Code | Kilo Code | WorkBuddy |
+| Kimi Code | Qwen Code | Continue | Aider |
+
+**本地来源默认关闭，由用户按需启用。** Provider 仅读取允许范围内的会话文件，不修改上游原始记录。不同工具版本、文件格式、安装路径的实际兼容范围有所不同，参见 [详细支持矩阵](docs/reference-analysis/multi-provider-support.md)。
+
+### 8 种网页 AI 对话公开分享来源
+
+| | | | |
+| --- | --- | --- | --- |
+| ChatGPT | Claude | Gemini | DeepSeek |
+| 豆包 Doubao | Kimi | 腾讯元宝 Yuanbao | 通义千问 Qwen |
+
+可通过分享链接导入所支持的**公开对话内容**，无需统一登录各平台账户；网页结构变化可能导致特定链接解析失败。此处是公开分享链接导入，**不是**读取浏览器登录账户中的所有私有聊天历史。
+
+### 一条对话如何变成可复用的知识？
+
+```text
+本地 AI 编程会话（16 类）       网页公开分享链接（8 类）
+              \                  /
+               多来源统一导入与去重
+                        ↓
+             清洗、无损分块、AI 提炼
+                        ↓
+         知识条目 · 标签 · 项目关联 · 来源追溯
+                        ↓
+         全文搜索 · 可选语义搜索 · 问 AIKS
+                        ↓
+                  SiYuan 文档同步
+```
+
+AI 提炼和 Embedding 可按需配置，默认不启用；没有模型服务也能管理已导入的会话。SiYuan 文档存在人工编辑冲突时，AIKS 不会直接覆盖。
+
+---
 ## 为什么需要 AIKS？
 
 我们已经习惯让 AI 协助排查故障、讨论架构、编写代码和完善方案。但这些对话分散在不同的助手和工作区里：**问题解决了，结论却往往留在历史记录中**。过几周遇到类似问题，又要重新寻找上下文、重新解释、重新推理。
@@ -62,7 +110,7 @@ AIKS 当前主要面向**个人 AI 协作知识沉淀**，不是已经具备企�
 
 **典型使用路径：** 启用数据源 → 扫描历史会话 → 在处理中心观察提炼 → 查看结构化知识 → 搜索并复用 → 按需修订或作废。
 
-## 功能概览
+## 详细功能概览
 
 | 能力 | 说明 |
 | --- | --- |
