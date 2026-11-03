@@ -1,4 +1,6 @@
 import { UiButton } from "./ui/fields";
+import { useTranslation } from "react-i18next";
+import { tr } from "../i18n";
 import { RadixSelectField } from "./ui/RadixSelectField";
 import { ModalBackdrop } from "./ui/ModalBackdrop";
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +47,7 @@ export default function AskAiksPanel({
   onClose,
   onOpenCitation,
 }: Props) {
+  useTranslation();
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -259,13 +262,13 @@ export default function AskAiksPanel({
                     key={prompt}
                     type="button"
                     onClick={() => {
-                      setInput(prompt);
+                      setInput(tr(prompt));
                       window.setTimeout(() => textareaRef.current?.focus(), 0);
                     }}
                     className="group flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
                   >
                     <BookOpen className="h-4 w-4 flex-shrink-0 text-gray-400 transition group-hover:text-blue-500" />
-                    <span>{prompt}</span>
+                    <span>{tr(prompt)}</span>
                   </UiButton>
                 ))}
               </div>

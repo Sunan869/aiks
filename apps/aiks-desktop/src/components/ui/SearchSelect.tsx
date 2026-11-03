@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "../../i18n";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
@@ -10,6 +12,7 @@ export interface SearchOption { value: string; label: string }
 export function SearchSelect({ value, onChange, options, label, placeholder = "选择项目", disabled = false }: {
   value: string; onChange: (next: string) => void; options: SearchOption[]; label: string; placeholder?: string; disabled?: boolean;
 }) {
+  useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const choices = useMemo(() => uniqueChoiceValues(options), [options]);
@@ -34,7 +37,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
     <Popover.Root open={open && !disabled} onOpenChange={next => { setOpen(next && !disabled); if (!next) setQuery(""); }}>
       <div className="relative min-w-0 flex-1">
         <Popover.Anchor asChild>
-          <button ref={triggerRef} type="button" disabled={disabled} role="combobox" aria-label={label}
+          <button ref={triggerRef} type="button" disabled={disabled} role="combobox" aria-label={tr(label)}
             aria-expanded={open} aria-haspopup="listbox" aria-controls={open ? listId : undefined}
             onKeyDown={event => {
               if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -44,7 +47,7 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
             }}
             onClick={() => { if (open) closePopup(); else openPopup(); }}
             className="aiks-field-select flex w-full items-center justify-between gap-2 text-left">
-            <span className="truncate">{choices.find(option => option.value === value)?.label || placeholder}</span>
+            <span className="truncate">{choices.find(option => option.value === value)?.label || tr(placeholder)}</span>
             <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
           </button>
         </Popover.Anchor>
@@ -54,10 +57,10 @@ export function SearchSelect({ value, onChange, options, label, placeholder = "�
             onCloseAutoFocus={event => { event.preventDefault(); triggerRef.current?.focus(); }}
             onEscapeKeyDown={event => { event.stopPropagation(); closePopup(); }}
             className="z-[110] w-[var(--radix-popover-trigger-width)] min-w-0 max-w-[min(90vw,28rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl outline-none dark:border-slate-700 dark:bg-slate-900">
-            <Command label={label + "选项"} loop className="min-w-0">
+            <Command label={tr(label) + " " + tr("选项")} loop className="min-w-0">
               <div className="aiks-search-popup flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 dark:border-slate-700 dark:bg-slate-800">
                 <Search className="h-4 w-4 text-slate-400" />
-                <Command.Input ref={searchInput} aria-label={label + "搜索"} value={query}
+                <Command.Input ref={searchInput} aria-label={tr(label) + " " + tr("搜索")} value={query}
                   onValueChange={setQuery} placeholder="输入关键词筛选…"
                   className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm shadow-none outline-none focus:border-transparent focus:outline-none focus:ring-0" />
               </div>

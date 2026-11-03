@@ -1,4 +1,8 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "../i18n";
+import { translateUiText } from "../i18n";
 import { DataStorageSettingsSection } from "../components/DataStorage";
+import { LanguageSettings } from "../components/LanguageSettings";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import * as Switch from "@radix-ui/react-switch";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -91,6 +95,7 @@ const MOCK_SETTINGS: Settings = {
 };
 
 export default function SettingsPage() {
+  useTranslation();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -307,6 +312,7 @@ export default function SettingsPage() {
     <div className="aiks-page-shell w-full min-w-0 pb-6">
       <PageHeader title="设置" description="桌面行为立即生效；AI、同步、内容和语义搜索配置需要重启 AIKS。" />
 
+      <LanguageSettings />
       <Section title="常规">
         <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={value => update("startup", value)} />
         <Toggle label="关闭窗口后驻留后台" desc="关闭主窗口时保留托盘与后台同步" value={settings.close_to_tray} onChange={value => update("close_to_tray", value)} />
@@ -322,7 +328,7 @@ export default function SettingsPage() {
           <RadixSelectField label="自动扫描间隔" value={String(settings.scan_interval_seconds / 60)}
             onValueChange={value => update("scan_interval_seconds", Number(value) * 60)}
             className="min-w-[120px] text-sm"
-            options={[1, 5, 10, 15, 30].map(minutes => ({ value: String(minutes), label: `${minutes} 分钟` }))} />
+            options={[1, 5, 10, 15, 30].map(minutes => ({ value: String(minutes), label: tr("{{count}} 分钟", { count: minutes }) }))} />
         </div>
       </Section>
 
@@ -337,7 +343,7 @@ export default function SettingsPage() {
           <RadixSelectField label="提炼并发数" value={String(settings.ai_max_concurrent)}
             onValueChange={value => update("ai_max_concurrent", Number(value))}
             className="min-w-[96px] text-sm"
-            options={[1, 2, 3, 4].map(value => ({ value: String(value), label: `${value} 路` }))} />
+            options={[1, 2, 3, 4].map(value => ({ value: String(value), label: tr("{{count}} 路", { count: value }) }))} />
         </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>
@@ -440,7 +446,7 @@ export default function SettingsPage() {
               <span className="ml-2 text-gray-400">知识 {rebuildProgress.knowledge_total} · 对话 {rebuildProgress.session_total} · 向量块 {rebuildProgress.embedded_chunks}</span>
             </div>
           )}
-          {rebuildMessage && <div className="text-xs text-gray-500 dark:text-gray-400">{rebuildMessage}</div>}
+          {rebuildMessage && <div className="text-xs text-gray-500 dark:text-gray-400">{translateUiText(rebuildMessage)}</div>}
           <div className="text-[11px] leading-5 text-gray-400">
             配置保存并重启后搜索服务才会切换模型；历史数据需执行一次“重建语义索引”。重建期间关键词检索仍可使用。
           </div>
@@ -527,7 +533,7 @@ export default function SettingsPage() {
         AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
       </div>
       {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
-      {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
+      {saveError && <div className="mt-3 text-xs text-red-500">{translateUiText(saveError)}</div>}
 
       <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <UiButton variant="primary" size="md"

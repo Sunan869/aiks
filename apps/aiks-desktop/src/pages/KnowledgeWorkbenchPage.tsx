@@ -1,3 +1,4 @@
+import { getUiLanguage, tr } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
@@ -163,7 +164,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
                   <div className="min-w-0 flex-1">
                     <div className="mb-2 flex flex-wrap items-center gap-1.5">
                       <SourceBadge item={item} />
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300">{CATEGORY_LABELS[item.category] ?? item.category}</span>
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300">{tr(CATEGORY_LABELS[item.category] ?? item.category)}</span>
                       {item.managed_by === "user" && item.source_type === "conversation" && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">已人工编辑</span>}
                       {item.status === "archived" && <span className="inline-flex items-center gap-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500"><Archive className="h-2.5 w-2.5" />已归档</span>}
                     </div>
@@ -187,7 +188,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
                 <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3 text-[10px] text-gray-400 dark:border-gray-700">
                   <span>{item.project_name || "未归属项目"}</span>
-                  <span>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
+                  <span>{new Date(item.updated_at).toLocaleDateString(getUiLanguage())}</span>
                 </div>
               </article>
             );

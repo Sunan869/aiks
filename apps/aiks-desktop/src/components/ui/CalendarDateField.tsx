@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { enUS, zhCN } from "date-fns/locale";
+import { tr } from "../../i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { CalendarDays } from "lucide-react";
@@ -12,6 +15,8 @@ interface Props {
 }
 /** Controlled, accessible calendar popover; dates remain ISO strings. */
 export function CalendarDateField({ value, onChange, label, disabled }: Props) {
+  const { i18n } = useTranslation();
+  const english = i18n.language.startsWith("en");
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => localMonthStart(parse(value) ?? new Date()));
   const trigger = useRef<HTMLButtonElement>(null);
@@ -30,7 +35,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
     setOpen(false);
     trigger.current?.focus();
   };
-  const monthTitle = `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`;
+  const monthTitle = english ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(month) : `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`;
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <div className="relative inline-block min-w-0 w-full sm:w-auto sm:min-w-[180px]">
@@ -38,7 +43,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
         ref={trigger} disabled={disabled} onClick={() => { setMonth(localMonthStart(parse(value) ?? new Date())); setOpen(current => !current); }}
         className="aiks-field-date flex w-full items-center gap-2 px-3 text-left">
         <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
-        <span className="flex-1">{value || "选择日期"}</span>
+        <span className="flex-1">{value || tr("选择日期")}</span>
       </button></Popover.Anchor>
       <Popover.Portal>
         <Popover.Content id={id} data-aiks-popup="true" aria-labelledby={yearMonthLabel} side="bottom" align="start" sideOffset={8} collisionPadding={8}
@@ -49,6 +54,7 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
           <strong id={yearMonthLabel} aria-live="polite" className="mb-2 block text-center text-sm">{monthTitle}</strong>
           <DayPicker
             mode="single"
+            locale={english ? enUS : zhCN}
             autoFocus={open}
             month={month}
             onMonthChange={setMonth}
@@ -78,9 +84,9 @@ export function CalendarDateField({ value, onChange, label, disabled }: Props) {
             }}
           />
           <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 dark:border-slate-800">
-            {value ? <button type="button" aria-label={"清除" + label} className="rounded-lg px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => { onChange(""); setOpen(false); trigger.current?.focus(); }}>清除</button> : <span />}
+            {value ? <button type="button" aria-label={tr("清除") + " " + tr(label)} className="rounded-lg px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => { onChange(""); setOpen(false); trigger.current?.focus(); }}>{tr("清除")}</button> : <span />}
             <button type="button" className="rounded-lg px-3 py-1.5 text-xs text-sky-700 hover:bg-sky-50 focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-sky-300 dark:hover:bg-slate-800"
-              onClick={() => selectDate(new Date())}>今天</button>
+              onClick={() => selectDate(new Date())}>{tr("今天")}</button>
           </div>
         </Popover.Content>
       </Popover.Portal>

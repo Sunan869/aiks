@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr, translateUiText, getUiLanguage } from "../i18n";
 import { PageHeader } from "../components/ui/PageHeader";
 import * as Dialog from "@radix-ui/react-dialog";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -50,6 +52,7 @@ function StageCell({ stage, stageRuns }: { stage: string; stageRuns: { stage: st
 interface Props { onViewDetail?: (runId: string) => void; onViewSession?: (sessionId: number) => void; }
 
 export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
+  useTranslation();
   const formatSourceName = useSourceName();
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
@@ -136,7 +139,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
       if (result.status !== "fulfilled") throw new Error("processing refresh failed");
       const panels = result.value;
       if (!mountedRef.current) return;
-      const refreshedAt = new Date().toLocaleTimeString("zh-CN");
+      const refreshedAt = new Date().toLocaleTimeString(getUiLanguage());
       if (panels.tasks.status === "ok" && paged.status === "fulfilled" &&
           isFreshProcessingRead(startedGeneration, mutationGeneration.current, mutationInFlight.current)) {
         setTasks(paged.value.items);
@@ -231,7 +234,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   return (
     <div className="aiks-page-shell min-w-0">
       <PageHeader title="处理中心" description="会话同步、AI 提炼与知识处理流水线状态" actions={<>
-          {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
+          {backfillMsg && <span className="text-xs text-blue-500">{translateUiText(backfillMsg)}</span>}
           <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
             disabled={backfilling || retryingTask !== null || !taskPanelFresh}
@@ -256,7 +259,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
-        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{translateUiText(retryNotice)}</p>}
         {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}
         {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
         {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
@@ -282,7 +285,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             ["向量索引", stats?.embeddings],
           ] as const).map(([label, value]) => (
             <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/70">
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{tr(label)}</div>
               <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{value ?? "—"}</div>
             </div>
           ))}
@@ -316,7 +319,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 }}
                 className="text-xs text-blue-600 hover:underline">复制当前快照</UiButton>
             </div>
-            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
+            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{translateUiText(diagnosticNotice)}</p>}
           </div>
         )}
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
@@ -334,7 +337,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-500 ${taskFilter === value
                 ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                 : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
-            >{label}</UiButton>
+            >{tr(label)}</UiButton>
           ))}
         </div>
         <p className="mb-2 text-xs text-slate-500" role="status">当前页 {visibleTasks.length} 条，匹配全库 {pageTotal} 条；每页 {PAGE_SIZE} 条，统计按全库计算。</p>
@@ -354,8 +357,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
                     <td className="py-2 pr-3">{task.sync_excluded ? (task.void_phase === "VOIDED" ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : "作废清理中/需处理冲突") : task.sync_status || "未同步"}</td>
-                    <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
-                    <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 pr-3">{tr(task.pipeline_status || "未提炼")}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
+                    <td className="py-2 pr-3">{tr(task.job_status || "—")}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
                       {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
                     </td>
@@ -504,12 +507,12 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               const run = runs.find(item => item.session_id === expandedSession);
               return <div className="border-t p-4 text-xs space-y-3" role="region" aria-label="所选会话处理阶段">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>会话 #{expandedSession} · {run ? (STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
+                  <span>会话 #{expandedSession} · {run ? tr(STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
                   {run && onViewDetail && <UiButton variant="outline" size="sm" onClick={() => onViewDetail(run.run_id)}>查看完整流水线</UiButton>}
                 </div>
                 {run && <div className="flex flex-wrap gap-3">{STAGE_ORDER.map(stage => {
                   const item = run.stage_runs.find(entry => entry.stage === stage);
-                  return <span key={stage}>{STAGE_LABELS[stage] ?? stage}：{item?.status ?? "未开始"}</span>;
+                  return <span key={stage}>{tr(STAGE_LABELS[stage] ?? stage)}: {tr(item?.status ?? "未开始")}</span>;
                 })}</div>}
               </div>;
             })()}

@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr, translateUiText } from "../i18n";
 import * as Tabs from "@radix-ui/react-tabs";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -33,7 +35,7 @@ function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
         <span className="text-xs text-gray-500">{recordedUpdateDay(item.updated_at) || "更新时间未知"} · {item.category} · {item.source}</span>
       </div>
       <p className="my-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">{item.summary}</p>
-      {item.feedback_status && <span className="text-xs text-amber-600">最近用户反馈：{item.feedback_status}</span>}
+      {item.feedback_status && <span className="text-xs text-amber-600">最近用户反馈：{tr(item.feedback_status)}</span>}
       <div className="mt-2 flex gap-3 text-xs">
         <UiButton variant="outline" size="sm" type="button" className="text-blue-600" onClick={() => onOpenKnowledge(item.knowledge_id)}>知识详情</UiButton>
         <UiButton variant="outline" size="sm" type="button" className="text-blue-600" onClick={() => onOpenSession(item.session_id)}>原始 Session</UiButton>
@@ -43,6 +45,7 @@ function ProjectMemoryEvidenceCard({ item, onOpenKnowledge, onOpenSession }: {
 }
 
 export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, initialTab = "knowledge" }: Props) {
+  useTranslation();
   const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<ProjectMemorySnapshot | null>(null);
@@ -173,8 +176,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const reviewEvolution = async (relationId: string, decision: "confirmed" | "rejected") => {
     if (!selected || relationBusy !== null) return;
     const prompt = decision === "confirmed"
-      ? "确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。"
-      : "拒绝此演进关系建议？原始知识和 Session 均会保留。";
+      ? tr("确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。")
+      : tr("拒绝此演进关系建议？原始知识和 Session 均会保留。");
     if (!window.confirm(prompt)) return;
     const requestProject = selected;
     const requestGeneration = projectGeneration.current;
@@ -203,9 +206,11 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
     const session = sessionChoices.find(item => item.id === sessionId);
     const project = projects.find(item => item.id === bindingTarget);
     const message = clear
-      ? `撤销 ${session?.title || session?.session_id || bindingSession} 的本地项目归属修正？原始来源信息不变。`
-      : `将 ${session?.title || session?.session_id || bindingSession} 归入「${project?.title || "未知项目"}」？
-仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。`;
+      ? tr("撤销 {{session}} 的本地项目归属修正？原始来源信息不变。", { session: session?.title || session?.session_id || bindingSession })
+      : tr("将 {{session}} 归入「{{project}}」？\n仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。", {
+          session: session?.title || session?.session_id || bindingSession,
+          project: project?.title || tr("未知项目"),
+        });
     if (!window.confirm(message)) return;
     setBindingBusy(true);
     setBindingError("");
@@ -259,7 +264,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const openSavedReport = async (id: string, revision?: number) => {
     if (!id || !selected || reportBusy) return;
     if (preview.trim() && !window.confirm(
-      "载入历史报告会替换当前尚未保存的预览编辑，是否继续？"
+      tr("载入历史报告会替换当前尚未保存的预览编辑，是否继续？")
     )) return;
     const activeProject = selected;
     const requestId = ++generation.current;
@@ -290,7 +295,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const saveReviewedReport = async () => {
     if (!selected || previewType !== "review" || !preview.trim() || reportBusy) return;
     if (!window.confirm(
-      "保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。"
+      tr("保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。")
     )) return;
     const activeProject = selected;
     const requestId = generation.current;
@@ -414,12 +419,12 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
           <div className="memory-stat"><span>当前项目知识</span><strong>{detail?.project.knowledge_count ?? "—"}</strong></div>
         </div>
       </header>
-      {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{notice}</p>}
-      {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
+      {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{translateUiText(notice)}</p>}
+      {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{translateUiText(error)}</p>}
       <div className="memory-project-picker flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
         <SearchSelect label="项目" value={selected} onChange={setSelected}
-          options={projects.map(item => ({ value: item.id, label: `${item.title} · ${item.session_count} 会话` }))} />
+          options={projects.map(item => ({ value: item.id, label: tr("{{name}} · {{count}} 会话", { name: item.title, count: item.session_count }) }))} />
       </div>
       {projects.length === 0 && <p className="text-gray-500">目前没有可用的项目 Session，先同步本地工作记录。</p>}
       <Tabs.Root value={workspaceTab} onValueChange={value => setWorkspaceTab(value as typeof workspaceTab)}>
@@ -430,7 +435,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
           ["evolution", "知识演进"],
           ["tools", "项目工具"],
         ] as const).map(([key, label]) => (
-          <Tabs.Trigger value={key} key={key} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 data-[state=active]:bg-slate-900 data-[state=active]:text-white dark:text-slate-300 dark:hover:bg-slate-800 dark:data-[state=active]:bg-sky-600 dark:data-[state=active]:text-white">{label}</Tabs.Trigger>
+          <Tabs.Trigger value={key} key={key} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 data-[state=active]:bg-slate-900 data-[state=active]:text-white dark:text-slate-300 dark:hover:bg-slate-800 dark:data-[state=active]:bg-sky-600 dark:data-[state=active]:text-white">{tr(label)}</Tabs.Trigger>
         ))}
       </Tabs.List>
       </Tabs.Root>
@@ -472,8 +477,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
         {bindings.some(item => String(item.session_id) === bindingSession) && (
           <p className="mt-2 text-xs text-amber-700">当前 Session 有用户手动归属记录；可使用「撤销归属修正」恢复。</p>
         )}
-        {bindingError && <p role="alert" className="mt-2 text-xs text-red-600">{bindingError}</p>}
-        {bindingNotice && <p role="status" className="mt-2 text-xs text-green-600">{bindingNotice}</p>}
+        {bindingError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(bindingError)}</p>}
+        {bindingNotice && <p role="status" className="mt-2 text-xs text-green-600">{translateUiText(bindingNotice)}</p>}
       </section>
       {detail && (
         <>
@@ -505,7 +510,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                   <UiButton variant="outline" size="sm" type="button" key={topic.id} aria-pressed={topicFilter === topic.id}
                     className={`rounded border px-2 py-1 text-xs ${topicFilter === topic.id ? "border-blue-500 bg-blue-50 text-blue-900" : "dark:border-gray-700"}`}
                     onClick={() => setTopicFilter(topic.id)}>
-                    {topic.title} · {topicCounts?.[topic.id] ?? 0}
+                    {tr(topic.title)} · {topicCounts?.[topic.id] ?? 0}
                   </UiButton>
                 ))}
               </div>
@@ -579,9 +584,9 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                         <strong>{item.title}</strong>
                         <span className="text-gray-500">记录更新 {item.updatedAt.slice(0, 10)}</span>
                       </div>
-                      <p className="mt-2 text-amber-700">{item.reason}</p>
+                      <p className="mt-2 text-amber-700">{translateUiText(item.reason)}</p>
                       <p className="mt-1 whitespace-pre-wrap break-words text-gray-500">
-                        {item.evidence}
+                        {translateUiText(item.evidence)}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-3">
                         {item.knowledgeIds.map(id => (
@@ -642,14 +647,14 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                           "rounded bg-amber-50 px-2 py-1 text-amber-800"}>
                           {link.status === "confirmed" ? "用户已确认关系" : "待人工审核，不能视为生效结论"}
                         </span>
-                        <span className="text-gray-500">{relationLabel} · 关系更新 {link.updated_at.slice(0, 10)}</span>
+                        <span className="text-gray-500">{tr(relationLabel)} · 关系更新 {link.updated_at.slice(0, 10)}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <UiButton variant="outline" size="sm" type="button" className="text-blue-600 hover:underline"
                           onClick={() => onOpenKnowledge(link.source_id)}>
                           {link.source_title}
                         </UiButton>
-                        <span className="text-gray-400">→ {relationLabel} →</span>
+                        <span className="text-gray-400">→ {tr(relationLabel)} →</span>
                         <UiButton variant="outline" size="sm" type="button" className="text-blue-600 hover:underline"
                           onClick={() => onOpenKnowledge(link.target_id)}>
                           {link.target_title}
@@ -789,7 +794,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                     }))} />
                 )}
               </div>
-              {reportError && <p className="mt-2 text-red-600" role="alert">{reportError}</p>}
+              {reportError && <p className="mt-2 text-red-600" role="alert">{translateUiText(reportError)}</p>}
             </div>
             {previewType && (
               <div className="space-y-2">

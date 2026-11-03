@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "../../i18n";
 import type { ReactNode } from "react";
 
 export type StatusTone = "neutral" | "success" | "warning" | "danger";
@@ -9,13 +11,15 @@ const toneClasses: Record<StatusTone, string> = {
 };
 
 export function UiStatusBadge({ children, tone = "neutral" }: { children: ReactNode; tone?: StatusTone }) {
-  return <span className={`inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses[tone]}`}>{children}</span>;
+  useTranslation();
+  return <span className={`inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-medium ${toneClasses[tone]}`}>{typeof children === "string" ? tr(children) : children}</span>;
 }
 
 export function UiEmptyState({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+  useTranslation();
   return <div className="flex min-h-32 min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 p-6 text-center dark:border-slate-700" role="status">
-    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
-    {description && <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{tr(title)}</p>
+    {description && <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">{typeof description === "string" ? tr(description) : description}</p>}
     {actions && <div className="mt-2 flex flex-wrap justify-center gap-2">{actions}</div>}
   </div>;
 }

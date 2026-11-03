@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr, getUiLanguage, translateUiText } from "../i18n";
 import { UiStatusBadge } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -13,6 +15,7 @@ interface DoctorCheck { name: string; ok: boolean; message: string }
 interface DoctorResult { checks: DoctorCheck[]; all_ok: boolean }
 
 export default function DiagnosticsPage() {
+  useTranslation();
   const api = getApi();
   const [doctor, setDoctor] = useState<DoctorResult | null>(null);
   const [aiOk, setAiOk] = useState<boolean | null>(null);
@@ -48,7 +51,7 @@ export default function DiagnosticsPage() {
         setDiagnosticError("以下检测未完成：" + result.failures.map(failure => names[failure]).join("、")
           + "。为保护敏感配置，不显示原始错误详情。");
       } else {
-        setLastSuccessfulCheck(new Date().toLocaleTimeString("zh-CN"));
+        setLastSuccessfulCheck(new Date().toISOString());
       }
     } catch {
       setDiagnosticError("诊断未完成，请检查本地服务状态；未展示原始错误详情。");
@@ -97,12 +100,12 @@ export default function DiagnosticsPage() {
           重新检测
         </UiButton></>} />
 
-      {diagnosticError && <UiNotice tone="danger" className="mb-4">{diagnosticError}</UiNotice>}
-      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近全部检测请求成功：{lastSuccessfulCheck}</p>}
+      {diagnosticError && <UiNotice tone="danger" className="mb-4">{translateUiText(diagnosticError)}</UiNotice>}
+      {lastSuccessfulCheck && <p className="mb-3 text-xs text-slate-500">最近全部检测请求成功：{new Date(lastSuccessfulCheck).toLocaleTimeString(getUiLanguage())}</p>}
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <UiMetric label="本地环境" value={doctor ? `${doctor.checks.filter(c => c.ok).length} / ${doctor.checks.length}` : "—"} detail="正常组件 / 检测组件" />
-        <UiMetric label="AI 连接" value={aiProbeFailed ? "检测失败" : aiOk === null ? "—" : aiOk ? "正常" : "不可用"} detail="以最新检测为准" />
-        <UiMetric label="知识工作台" value={v41 ? bridgeStatus : "—"} detail="Bridge 连接状态" />
+        <UiMetric label="AI 连接" value={aiProbeFailed ? tr("检测失败") : aiOk === null ? "—" : tr(aiOk ? "正常" : "不可用")} detail="以最新检测为准" />
+        <UiMetric label="知识工作台" value={v41 ? tr(bridgeStatus) : "—"} detail="Bridge 连接状态" />
       </div>
       <UiSection title="本地组件检查" description="各组件最近一次检测状态">
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -114,7 +117,7 @@ export default function DiagnosticsPage() {
               <XCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{DISPLAY_NAMES[check.name] ?? check.name}</div>
+              <div className="text-sm font-medium">{tr(DISPLAY_NAMES[check.name] ?? check.name)}</div>
               {!check.ok && check.message !== "OK" && (
                 <div className="text-xs text-gray-400 truncate">{check.message}</div>
               )}
@@ -161,24 +164,24 @@ export default function DiagnosticsPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">SiYuan Kernel</div>
             <div className={`text-sm font-medium mt-1 ${v41?.siyuan_ready ? "text-green-600" : "text-yellow-500"}`}>
-              {v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : workbenchProbeFailed ? "检测失败" : "检测中"}
+              {tr(v41 ? (v41.siyuan_ready ? "正常" : "未就绪") : workbenchProbeFailed ? "检测失败" : "检测中")}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">Embedded Workbench</div>
             <div className={`text-sm font-medium mt-1 ${workbenchHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? workbenchStatus : workbenchProbeFailed ? "检测失败" : "检测中"}
+              {tr(v41 ? workbenchStatus : workbenchProbeFailed ? "检测失败" : "检测中")}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">AIKS Bridge</div>
             <div className={`text-sm font-medium mt-1 ${bridgeHealthy ? "text-green-600" : v41 ? "text-yellow-500" : "text-gray-400"}`}>
-              {v41 ? `${bridgeStatus}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : workbenchProbeFailed ? "检测失败" : "检测中"}
+              {v41 ? `${tr(bridgeStatus)}${workbenchMounted ? ` · Protocol v${v41.workbench.protocol_version}` : ""}` : tr(workbenchProbeFailed ? "检测失败" : "检测中")}
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
             <div className="text-[11px] text-gray-400">当前工作区</div>
-            <div className="text-sm font-medium mt-1">{v41 ? workspaceMode : workbenchProbeFailed ? "检测失败" : "检测中"}</div>
+            <div className="text-sm font-medium mt-1">{tr(v41 ? workspaceMode : workbenchProbeFailed ? "检测失败" : "检测中")}</div>
           </div>
         </div>
 
@@ -195,7 +198,7 @@ export default function DiagnosticsPage() {
             ].map(([label, value, valueClass]) => (
               <div key={label as string} className="rounded-md bg-gray-50 dark:bg-gray-900/40 px-2 py-2 text-center">
                 <div className={`text-base ${valueClass}`}>{value}</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">{label}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">{tr(String(label))}</div>
               </div>
             ))}
           </div>

@@ -1,3 +1,4 @@
+import { tr, translateUiText, getUiLanguage } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
@@ -130,7 +131,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   ) => {
     if (organizationHistoryBusy !== null) return;
     if (nextStatus === "archived" && !window.confirm(
-      "只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。"
+      tr("只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。")
     )) return;
     setOrganizationHistoryBusy(entry.derived_knowledge_id);
     setOrganizationHistoryError("");
@@ -351,7 +352,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     const id = recoveryKnowledgeId.trim();
     const sourceIds = [data.id, ...selectedSources];
     if (!window.confirm(
-      "只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。"
+      tr("只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。")
     )) return;
     setRecoveryBusy(true);
     setRecoveryError("");
@@ -473,7 +474,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               ) : (
                 <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"><Bot className="h-3.5 w-3.5" />AI 提炼</span>
               )}
-              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{CATEGORY_LABELS[data.category] ?? data.category}</span>
+              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{tr(CATEGORY_LABELS[data.category] ?? data.category)}</span>
               {data.managed_by === "user" && data.source_type === "conversation" && <span className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">用户管理 · AI 不再覆盖</span>}
               {data.status === "archived" && <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">已归档</span>}
             </div>
@@ -520,7 +521,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </div>
 
-      {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{message}</div>}
+      {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{translateUiText(message)}</div>}
 
       <div className="mb-5 aiks-surface">
         <div className="mb-3 flex items-center justify-between">
@@ -547,7 +548,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <UiTextarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <UiButton variant="outline" size="sm" type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</UiButton>
-        {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
+        {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{translateUiText(relationError)}</p>}
         <div className="mt-4 rounded border border-gray-200 p-3 dark:border-gray-700">
           <h3 className="text-xs font-semibold">知识演进时间线</h3>
           <p className="mt-1 text-xs text-gray-500">按关系更新时间排序；仅“已确认”代表人工确认的关联，其他状态不作为确定的演进事实。</p>
@@ -591,7 +592,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   <span className="font-medium">{relation.relation_type}</span>
                   <span className="text-gray-500">{counterpart?.title ?? counterpartId}</span>
                   <span className="text-gray-400">{relation.status === "suggested" ? "待确认" : relation.status === "confirmed" ? "已确认" : "已拒绝"}</span>
-                  <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString("zh-CN")}</span>
+                  <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString(getUiLanguage())}</span>
                   {relation.status !== "confirmed" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "confirmed")} className="text-blue-600">确认</UiButton>}
                   {relation.status !== "rejected" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "rejected")} className="text-red-600">撤销/拒绝</UiButton>}
                 </div>
@@ -607,7 +608,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             记录不会因后来修改项目归属、拒绝建议或归档知识而自动清除。
           </p>
           {relationReviewHistoryError && (
-            <p role="alert" className="mt-2 text-red-600">{relationReviewHistoryError}</p>
+            <p role="alert" className="mt-2 text-red-600">{translateUiText(relationReviewHistoryError)}</p>
           )}
           {relationReviewHistory && relationReviewHistory.reviews.length === 0 && (
             <p className="mt-2 text-gray-400">尚无本知识的关系人工审核记录。</p>
@@ -648,12 +649,12 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <UiInput aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
           <UiButton variant="outline" size="sm" type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</UiButton>
         </div>
-        {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{feedbackError}</p>}
+        {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{translateUiText(feedbackError)}</p>}
         <div className="mt-3 space-y-2">
           {feedback.map(item => (
             <div key={item.id} className="border-t border-gray-100 pt-2 text-xs dark:border-gray-700">
               <span className="font-medium">{({ useful: "有用", incorrect: "错误", duplicate: "重复", outdated: "过时", needs_detail: "需补充" } as Record<KnowledgeFeedbackKind, string>)[item.kind]}</span>
-              <span className="ml-2 text-gray-400">{new Date(item.created_at).toLocaleString("zh-CN")}</span>
+              <span className="ml-2 text-gray-400">{new Date(item.created_at).toLocaleString(getUiLanguage())}</span>
               {item.note && <p className="mt-1 whitespace-pre-wrap text-gray-600 dark:text-gray-300">{item.note}</p>}
             </div>
           ))}
@@ -719,7 +720,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           </UiButton>
         </div>
         {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可先生成草稿；创建新知识需要 SiYuan 可用，并会新增独立 SiYuan 文档，原文不变。</p>}
-        {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
+        {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(organizeError)}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
             {reviewedSources.length > 1 && (
@@ -848,14 +849,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               {recoveryBusy ? "仅修复审核记录中…" : "审核并修复本地来源（不重建文档）"}
             </UiButton>
           </div>
-          {recoveryError && <p role="alert" className="mt-2 text-red-600">{recoveryError}</p>}
+          {recoveryError && <p role="alert" className="mt-2 text-red-600">{translateUiText(recoveryError)}</p>}
         </div>
         <p className="mt-1 text-xs text-gray-500">
           此处读取本地持久审核记录；关闭或重开程序后仍可找到从当前知识衍生的独立文档。
           归档/恢复只改变新建知识的 AIKS 状态，不删除 SiYuan 文档或原 Session。
           最多展示最近 100 条记录。
         </p>
-        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{organizationHistoryError}</p>}
+        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(organizationHistoryError)}</p>}
         {organizationHistory.length === 0 && !organizationHistoryError && (
           <p className="mt-2 text-xs text-gray-400">尚无本地持久的知识整理审核记录。</p>
         )}
@@ -893,8 +894,8 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       </section>
 
       <div className="flex gap-4 text-xs text-gray-400">
-        <span>创建：{new Date(data.created_at).toLocaleString("zh-CN")}</span>
-        <span>更新：{new Date(data.updated_at).toLocaleString("zh-CN")}</span>
+        <span>创建：{new Date(data.created_at).toLocaleString(getUiLanguage())}</span>
+        <span>更新：{new Date(data.updated_at).toLocaleString(getUiLanguage())}</span>
         <span>{data.source_type === "manual" ? "本地手工知识" : `${Math.round(data.confidence * 100)}% AI 置信度`}</span>
       </div>
 

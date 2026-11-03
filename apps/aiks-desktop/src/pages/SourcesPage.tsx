@@ -1,3 +1,5 @@
+import { tr, translateUiText } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -27,6 +29,7 @@ const ISSUE_TONE_CLASS: Record<SourceStatusTone, string> = {
 };
 
 function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDescriptor; count: number; diagnostics: string[]; refresh: () => Promise<void> }) {
+  useTranslation();
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(source.enabled);
   const [paths, setPaths] = useState(source.paths.join("\n"));
@@ -57,8 +60,8 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
   return (
     <section className="aiks-surface group flex h-full min-w-0 flex-col transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{source.display_name}</h2>
-        <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{status.label}</span>
+        <h2 className="text-sm font-semibold">{tr(source.display_name)}</h2>
+        <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{tr(status.label)}</span>
       </div>
       <div className="mt-2 break-all text-xs text-gray-500">
         {source.paths.length
@@ -70,8 +73,8 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
 
       {status.title && (
         <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${ISSUE_TONE_CLASS[status.tone]}`}>
-          <div className="font-medium">{status.title}</div>
-          {status.description && <div className="mt-1 leading-5 opacity-80">{status.description}</div>}
+          <div className="font-medium">{tr(status.title)}</div>
+          {status.description && <div className="mt-1 leading-5 opacity-80">{tr(status.description)}</div>}
         </div>
       )}
 
@@ -99,12 +102,13 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
         <p className="mt-1 text-[11px] text-gray-400">只读取会话和必要元数据。保存只修改当前数据源设置，重启生效；关闭来源不会删除已导入记录。</p>
         <div className="mt-2 flex gap-2"><UiButton variant="primary" size="sm" onClick={() => void save()} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">保存配置</UiButton><UiButton variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={busy} className="px-2 text-xs text-gray-500">取消</UiButton></div>
       </div>}
-      {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300">{message}</p>}
+      {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300">{translateUiText(message)}</p>}
     </section>
   );
 }
 
 export default function SourcesPage({ fullStatus }: Props) {
+  useTranslation();
   const { sources, loading, error, refresh } = useSourceCatalog();
   const [sourceQuery, setSourceQuery] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
@@ -127,9 +131,9 @@ export default function SourcesPage({ fullStatus }: Props) {
         ["已停用", disabledCount, "保留历史会话"],
       ] as const).map(([label, count, description]) => (
         <div key={label} className="aiks-surface min-w-0 p-4">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{tr(label)}</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{count}</p>
-          <p className="mt-1 text-xs text-slate-400">{description}</p>
+          <p className="mt-1 text-xs text-slate-400">{tr(description)}</p>
         </div>
       ))}
     </UiStatGrid></section>

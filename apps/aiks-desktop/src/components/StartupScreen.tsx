@@ -1,4 +1,6 @@
 import { Loader2, AlertCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "../i18n";
 
 interface Props {
   step: string;
@@ -6,6 +8,7 @@ interface Props {
 }
 
 export default function StartupScreen({ step, error }: Props) {
+  useTranslation();
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-900 to-blue-950 text-white">
       <div className="mb-8 text-center">
@@ -18,12 +21,12 @@ export default function StartupScreen({ step, error }: Props) {
       {error ? (
         <div className="flex flex-col items-center gap-3 text-red-400">
           <AlertCircle className="w-8 h-8" />
-          <p className="text-sm text-center max-w-xs">{error}</p>
+          <p className="text-sm text-center max-w-xs">{translateUiText(error)}</p>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-          <p className="text-slate-300 text-sm">{step}</p>
+          <p className="text-slate-300 text-sm">{translateUiText(step)}</p>
         </div>
       )}
     </div>

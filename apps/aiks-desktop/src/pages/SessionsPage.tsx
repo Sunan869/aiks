@@ -1,3 +1,4 @@
+import { tr, getUiLanguage, translateUiText } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
@@ -171,7 +172,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
                     <div className="text-xs text-gray-400 font-mono mt-0.5">{item.session_id}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                    {SOURCE_LABELS[item.source] ?? formatSourceName(item.source)}
+                    {tr(SOURCE_LABELS[item.source] ?? formatSourceName(item.source))}
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400 truncate max-w-[120px]">
                     {item.project_name || "—"}
@@ -179,7 +180,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
                   <td className="px-4 py-3">
                     {item.pipeline_status ? (
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${PIPELINE_STATUS_COLORS[item.pipeline_status] || "text-gray-600 bg-gray-100"}`}>
-                        {PIPELINE_STATUS_LABELS[item.pipeline_status] ?? item.pipeline_status}
+                        {tr(PIPELINE_STATUS_LABELS[item.pipeline_status] ?? item.pipeline_status)}
                         {item.current_stage && item.pipeline_status === "PROCESSING" && (
                           <span className="ml-1 text-[10px] opacity-75">{item.current_stage}</span>
                         )}
@@ -189,7 +190,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
-                    {item.updated_at ? new Date(item.updated_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                    {item.updated_at ? new Date(item.updated_at).toLocaleString(getUiLanguage(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
                   </td>
                 </tr>
               ))}
@@ -240,7 +241,7 @@ export default function SessionsPage({ onViewDetail }: Props) {
               )}
               {importSuccess && (
                 <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-900/60 dark:bg-green-900/20 dark:text-green-300">
-                  {importSuccess}
+                  {translateUiText(importSuccess)}
                 </div>
               )}
             </div>

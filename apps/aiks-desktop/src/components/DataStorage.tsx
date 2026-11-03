@@ -1,4 +1,5 @@
 import { UiButton } from "./ui/fields";
+import { tr } from "../i18n";
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, HardDrive, MoveRight } from "lucide-react";
 import { shouldUseMock } from "../api/client";
@@ -140,7 +141,7 @@ export function DataStorageSettingsSection() {
       const selected = await chooseDirectory();
       if (!selected || selected === settings.current_root) return;
       const confirmed = window.confirm(
-        `将 AIKS 数据从：\n${settings.current_root}\n\n迁移到：\n${selected}\n\nAIKS 会立即重启，并在打开数据库和 SiYuan 之前完成复制与校验。原目录会暂时保留作为安全备份。是否继续？`,
+        tr("将 AIKS 数据从：\n{{from}}\n\n迁移到：\n{{to}}\n\nAIKS 会立即重启，并在打开数据库和 SiYuan 之前完成复制与校验。原目录会暂时保留作为安全备份。是否继续？", { from: settings.current_root, to: selected }),
       );
       if (!confirmed) return;
       setBusy(true);

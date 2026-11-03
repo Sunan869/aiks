@@ -1,3 +1,5 @@
+import { getUiLanguage, tr } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -21,6 +23,8 @@ export function overviewSyncBalance(status: FullStatus) {
 }
 
 export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onRefresh }: Props) {
+  useTranslation();
+  useTranslation();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
@@ -89,7 +93,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
     }
   };
 
-  const format = (n: number) => n.toLocaleString("zh-CN");
+  const format = (n: number) => n.toLocaleString(getUiLanguage());
   const hasStatus = fullStatus !== null;
   const balance = fullStatus ? overviewSyncBalance(fullStatus) : null;
   const sources = Object.entries(fullStatus?.scan_by_source ?? {})
@@ -137,7 +141,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count, color]) => (
               <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-slate-700 dark:bg-slate-800">
                 <div className={`text-xl font-semibold tabular-nums ${color}`}>{count === undefined ? "—" : format(count)}</div>
-                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
               </div>
             ))}
           </div>
@@ -146,7 +150,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
               <div>本地总会话 {format(fullStatus.db_total)} · 已归类同步状态 {format(balance.classified)}</div>
               {balance.unclassified > 0 && <UiNotice tone="warning">另有 {format(balance.unclassified)} 条会话未归入上述四种同步状态，请检查同步目标记录；不代表这些会话已丢失。</UiNotice>}
               {balance.classified > fullStatus.db_total && <UiNotice tone="warning">同步状态合计超过本地总会话，可能存在重复目标记录，需要进一步检查。</UiNotice>}
-              {fullStatus.last_sync_at && <div>最近同步：{new Date(fullStatus.last_sync_at).toLocaleString("zh-CN")} · 本次新入库 {format(fullStatus.last_sync_new)} · 更新 {format(fullStatus.last_sync_updated)} · 失败 {format(fullStatus.last_sync_failed)}</div>}
+              {fullStatus.last_sync_at && <div>{tr("最近同步：{{time}} · 本次新入库 {{added}} · 更新 {{updated}} · 失败 {{failed}}", { time: new Date(fullStatus.last_sync_at).toLocaleString(getUiLanguage()), added: format(fullStatus.last_sync_new), updated: format(fullStatus.last_sync_updated), failed: format(fullStatus.last_sync_failed) })}</div>}
             </div>
           )}
         </UiSection>
@@ -163,13 +167,13 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
                 <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">{label}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
               </div>
             ))}
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Cpu className="h-4 w-4 shrink-0" />
-            <span>AI 服务：{aiStatus ? (aiStatus.healthy ? "正常" : "暂时不可用") : "未知"}{aiStatus?.display_name ? ` · ${aiStatus.display_name}` : ""}</span>
+            <span>{tr("AI 服务：")}{aiStatus ? tr(aiStatus.healthy ? "正常" : "暂时不可用") : tr("未知")}{aiStatus?.display_name ? ` · ${aiStatus.display_name}` : ""}</span>
           </div>
           {taskLoading && <p className="mt-2 text-xs text-slate-500">正在读取全库任务统计…</p>}
           {taskError && <UiNotice tone="warning" className="mt-2">任务统计获取失败，当前显示为未知；请刷新重试。</UiNotice>}
@@ -186,7 +190,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
             </div>
           ))}
         </div>
@@ -210,7 +214,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
             </div>
           ))}
         </div>

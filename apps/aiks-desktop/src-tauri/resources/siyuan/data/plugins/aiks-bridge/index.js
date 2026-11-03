@@ -17,6 +17,31 @@ const ACTIONS = new Set([
 
 const EDIT_KEYS = new Set(["Backspace", "Delete", "Enter", "Tab"]);
 
+const BRIDGE_COPY = {
+  "zh": {
+    ask: "问 AIKS",
+    askTitle: "基于 AIKS 知识库和 AI 对话记录提问",
+    openLocal: "点击打开本地文件",
+    openedLocal: "已使用系统默认应用打开本地文件",
+    failedLocal: "本地文件打开失败",
+  },
+  "en": {
+    ask: "Ask AIKS",
+    askTitle: "Ask questions using AIKS knowledge and AI conversation records",
+    openLocal: "Click to open local file",
+    openedLocal: "Opened local file with the system default application",
+    failedLocal: "Failed to open local file",
+  },
+};
+function bridgeLanguage() {
+  const value = window.siyuan?.config?.lang ||
+    window.siyuan?.config?.appearance?.lang ||
+    document.documentElement.lang || navigator.language || "zh_CN";
+  return /^en(?:[-_]|$)/i.test(value) ? "en" : "zh";
+}
+
+
+
 function safeId(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -253,6 +278,8 @@ class AIKSBridgePlugin extends Plugin {
     this.localPathToast = null;
     this.localPathToastTimer = null;
     this.mountAskAiksLauncher();
+    this.refreshLocalizedUi();
+    this.bridgeLocaleTimer = window.setInterval(() => this.refreshLocalizedUi(), 1500);
     this.mountLocalPathUi();
     this.refreshAskAiksHealth();
     this.askAiksHealthTimer = window.setInterval(() => this.refreshAskAiksHealth(), 10_000);
@@ -325,10 +352,26 @@ class AIKSBridgePlugin extends Plugin {
       window.clearInterval(this.askAiksHealthTimer);
       this.askAiksHealthTimer = null;
     }
+    if (this.bridgeLocaleTimer !== null) {
+      window.clearInterval(this.bridgeLocaleTimer);
+      this.bridgeLocaleTimer = null;
+    }
     this.unmountAskAiksLauncher();
     this.unmountLocalPathUi();
     this.adapter?.clearAiksLayout();
     delete window.__AIKS_BRIDGE__;
+  }
+
+  bridgeText(key) {
+    return BRIDGE_COPY[bridgeLanguage()][key];
+  }
+
+  refreshLocalizedUi() {
+    if (!this.askAiksButton) return;
+    this.askAiksButton.title = this.bridgeText("askTitle");
+    this.askAiksButton.setAttribute("aria-label", this.bridgeText("ask"));
+    const label = this.askAiksButton.querySelector("[data-aiks-label]");
+    if (label) label.textContent = this.bridgeText("ask");
   }
 
   mountAskAiksLauncher() {
@@ -453,8 +496,8 @@ class AIKSBridgePlugin extends Plugin {
     const button = document.createElement("button");
     button.id = "aiks-ask-launcher";
     button.type = "button";
-    button.title = "基于 AIKS 知识库和 AI 对话记录提问";
-    button.setAttribute("aria-label", "问 AIKS");
+    button.title = this.bridgeText("askTitle");
+    button.setAttribute("aria-label", this.bridgeText("ask"));
     button.dataset.aiHealthy = "false";
     button.innerHTML = `
       <span class="aiks-ask-icon" aria-hidden="true">
@@ -466,7 +509,7 @@ class AIKSBridgePlugin extends Plugin {
           <path d="M5 18H3"></path>
         </svg>
       </span>
-      <span>问 AIKS</span>
+      <span data-aiks-label></span>
       <span class="aiks-ask-status" aria-hidden="true"></span>
     `;
     button.addEventListener("click", (event) => {
@@ -595,7 +638,7 @@ class AIKSBridgePlugin extends Plugin {
       this.localPathHint.style.display = "none";
       return;
     }
-    this.localPathHint.textContent = `点击打开本地文件 · ${path}`;
+    this.localPathHint.textContent = `${this.bridgeText("openLocal")} · ${path}`;
     this.localPathHint.style.left = `${Math.min(event.clientX + 12, window.innerWidth - 440)}px`;
     this.localPathHint.style.top = `${Math.min(event.clientY + 18, window.innerHeight - 40)}px`;
     this.localPathHint.style.display = "block";
@@ -636,6 +679,9 @@ class AIKSBridgePlugin extends Plugin {
     if (!message || typeof message !== "object") return;
 
     switch (message.cmd) {
+      case "setAppearance":
+        this.refreshLocalizedUi();
+        break;
       case "create": {
         const docId = createdDocumentId(message.data);
         if (docId) {
@@ -687,10 +733,10 @@ class AIKSBridgePlugin extends Plugin {
         break;
       case "localFileOpenResult":
         if (payload?.ok === true) {
-          this.showLocalPathToast("已使用系统默认应用打开本地文件");
+          this.showLocalPathToast(this.bridgeText("openedLocal"));
         } else {
           this.showLocalPathToast(
-            safeId(payload?.error) || "本地文件打开失败",
+            safeId(payload?.error) || this.bridgeText("failedLocal"),
             false,
           );
         }

@@ -1,4 +1,8 @@
 import { UiButton } from "./ui/fields";
+import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
+import { getUiLanguage, tr } from "../i18n";
+import { synchronizeEmbeddedLanguage } from "../embedded-siyuan-language";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { getApi } from "../api/client";
@@ -51,6 +55,8 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const copy = surfaceCopy(surface);
+  const { i18n } = useTranslation();
+  const currentLanguage = i18n.language.startsWith("en") ? "en-US" : "zh-CN";
 
   const open = useCallback(async () => {
     if (suspended) return;
@@ -62,6 +68,20 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
       setStatus(readyStatus);
       if (!readyStatus.available) throw new Error("SiYuan Workbench 当前不可用");
       if (!readyStatus.ready) throw new Error("SiYuan Bridge 初始化超时");
+
+      try {
+        await synchronizeEmbeddedLanguage(getUiLanguage(), {
+          get: () => invoke<"zh-CN" | "en-US" | null>("get_embedded_siyuan_language"),
+          set: language => invoke<boolean>("set_embedded_siyuan_language", { language }),
+          reload: () => getApi().reloadWorkbench(),
+          waitReady: async () => (await waitForBridgeReady()).ready,
+        });
+      } catch (syncError) {
+        // Keep the workspace usable if SiYuan's appearance API is temporarily
+        // unavailable, but show an actionable error instead of silently
+        // displaying the wrong language.
+        setError(tr("SiYuan 界面语言同步失败：{{error}}", { error: String(syncError) }));
+      }
 
       const boundMode = boundWorkbenchMode(surface, docId);
       if (boundMode && docId) {
@@ -78,7 +98,7 @@ export default function WorkbenchHost({ surface, docId, suspended = false }: Pro
     } finally {
       setLoading(false);
     }
-  }, [docId, surface, suspended]);
+  }, [docId, surface, suspended, currentLanguage]);
 
   useEffect(() => {
     if (suspended) {

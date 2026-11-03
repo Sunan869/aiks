@@ -31,7 +31,6 @@ export default function KnowledgeWorkspacePage({
   const [searchOpen, setSearchOpen] = useState(false);
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [openingSiyuan, setOpeningSiyuan] = useState(false);
-
   useEffect(() => {
     setError(null);
     setMetadataOpen(false);
