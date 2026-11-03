@@ -767,5 +767,20 @@
   "已提炼知识 (": "Extracted knowledge (",
   "查看工作记录：{{v0}}": "View work record: {{v0}}",
   "条，共": "items, total",
-  "例如 http://127.0.0.1:28090/v1": "For example http://127.0.0.1:28090/v1"
+  "例如 http://127.0.0.1:28090/v1": "For example http://127.0.0.1:28090/v1",
+  "已向量化": "Embedded",
+  "条记录": "records",
+  "· 对话": "· Conversations",
+  "· 向量块": "· Vector chunks",
+  "高级设置": "Advanced settings",
+  "SiYuan 3.8.3 (内置)": "SiYuan 3.8.3 (bundled)",
+  "检测目录：": "Detected directory: ",
+  "原始信息：": "Raw information: ",
+  "诊断：": "Diagnostics: ",
+  "显示": "Show",
+  "本次同步：发现": "This sync: discovered",
+  "，新增": ", added",
+  "，更新": ", updated",
+  "，\n          跳过": ",\n          skipped",
+  "，失败": ", failed"
 }
