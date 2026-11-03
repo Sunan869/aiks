@@ -1,7 +1,4 @@
 import { UiButton } from "../components/ui/fields";
-import { RadixSelectField } from "../components/ui/RadixSelectField";
-import { useTranslation } from "react-i18next";
-import { getUiLanguage, tr, type UiLanguage } from "../i18n";
 import { useEffect, useState } from "react";
 import { ExternalLink, Search } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,38 +31,6 @@ export default function KnowledgeWorkspacePage({
   const [searchOpen, setSearchOpen] = useState(false);
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [openingSiyuan, setOpeningSiyuan] = useState(false);
-  useTranslation();
-  const [siyuanLanguage, setSiyuanLanguage] = useState<UiLanguage>(getUiLanguage());
-  const [languageBusy, setLanguageBusy] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void invoke<UiLanguage | null>("get_embedded_siyuan_language")
-      .then(language => {
-        if (active && (language === "zh-CN" || language === "en-US")) setSiyuanLanguage(language);
-      })
-      .catch(() => { /* SiYuan may still be starting; explicit selection remains available. */ });
-    return () => { active = false; };
-  }, []);
-
-  const updateSiyuanLanguage = async (language: UiLanguage) => {
-    if (languageBusy) return;
-    setLanguageBusy(true);
-    setError(null);
-    try {
-      const changed = await invoke<boolean>("set_embedded_siyuan_language", { language });
-      setSiyuanLanguage(language);
-      // Language change was explicitly requested; refresh the embedded UI,
-      // not the user's documents or the provider histories.
-      if (changed) await invoke("reload_workbench");
-    } catch (error) {
-      setError(tr("SiYuan 界面语言更新失败：{{error}}", { error: String(error) }));
-    } finally {
-      setLanguageBusy(false);
-    }
-  };
-
-
   useEffect(() => {
     setError(null);
     setMetadataOpen(false);
@@ -157,12 +122,6 @@ export default function KnowledgeWorkspacePage({
           <Search className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate">搜索知识和 AI 对话记录...</span>
         </UiButton>
-        <div className="flex w-[155px] flex-shrink-0 items-center gap-1">
-          <RadixSelectField label={tr("SiYuan 界面语言")} value={siyuanLanguage}
-            disabled={languageBusy} className="w-full text-xs"
-            onValueChange={value => void updateSiyuanLanguage(value as UiLanguage)}
-            options={[{ value: "zh-CN", label: "简体中文" }, { value: "en-US", label: "English" }]} />
-        </div>
         <UiButton variant="outline" size="sm" type="button"
           onClick={() => void openSiyuanWeb()}
           disabled={openingSiyuan}

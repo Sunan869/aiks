@@ -4,6 +4,7 @@ import zhCN from "./locales/zh-CN.json";
 import enUS from "./locales/en-US.json";
 
 export type UiLanguage = "zh-CN" | "en-US";
+export type UiLanguagePreference = UiLanguage | "system";
 export const LANGUAGE_STORAGE_KEY = "aiks.ui.language";
 
 function resolveLanguage(input: string): UiLanguage {
@@ -11,13 +12,27 @@ function resolveLanguage(input: string): UiLanguage {
 }
 export function resolveUiLanguage(saved: string | null, system: string): UiLanguage {
   if (saved === "zh-CN" || saved === "en-US") return saved;
+  // On a fresh installation, or when "Follow system" is selected, use the
+  // language reported by the desktop WebView. Unsupported locales fall back
+  // to Simplified Chinese until additional translations are available.
   return resolveLanguage(system || "zh-CN");
 }
 
-function initialLanguage(): UiLanguage {
+export function getUiLanguagePreference(): UiLanguagePreference {
   try {
-    return resolveUiLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY), window.navigator.language || "zh-CN");
+    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    return saved === "zh-CN" || saved === "en-US" ? saved : "system";
+  } catch { return "system"; }
+}
+
+function systemLanguage(): string {
+  try {
+    return window.navigator.language || window.navigator.languages?.[0] || "zh-CN";
   } catch { return "zh-CN"; }
+}
+
+function initialLanguage(): UiLanguage {
+  return resolveUiLanguage(getUiLanguagePreference(), systemLanguage());
 }
 
 export const i18n = i18next.createInstance();
@@ -38,10 +53,14 @@ i18n.on("languageChanged", lang => {
 if (typeof document !== "undefined") document.documentElement.lang = i18n.language;
 
 export function getUiLanguage(): UiLanguage { return resolveLanguage(i18n.language); }
+export async function changeUiLanguagePreference(preference: UiLanguagePreference): Promise<void> {
+  if (preference !== "system" && preference !== "zh-CN" && preference !== "en-US") return;
+  const effective = resolveUiLanguage(preference, systemLanguage());
+  await i18n.changeLanguage(effective);
+  try { window.localStorage.setItem(LANGUAGE_STORAGE_KEY, preference); } catch { /* storage unavailable */ }
+}
 export async function changeUiLanguage(lang: UiLanguage): Promise<void> {
-  if (lang !== "zh-CN" && lang !== "en-US") return;
-  await i18n.changeLanguage(lang);
-  try { window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang); } catch { /* storage unavailable */ }
+  await changeUiLanguagePreference(lang);
 }
 // Translate only render-time UI copy, never backend identifiers or persisted data.
 export function tr(key: string, vars?: Record<string, unknown>): string {

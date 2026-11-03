@@ -11,10 +11,9 @@ describe("embedded SiYuan locale boundary", () => {
     expect(bridge).toContain("clearInterval(this.bridgeLocaleTimer)");
     expect(bridge).not.toContain('button.title = "基于 AIKS');
   });
-  it("exposes an explicit language control without altering knowledge content", () => {
-    expect(workspace).toContain("get_embedded_siyuan_language");
-    expect(workspace).toContain("set_embedded_siyuan_language");
-    expect(workspace).toContain('value: "en-US"');
-    expect(workspace).toContain('invoke("reload_workbench")');
+  it("uses the single AIKS language setting instead of an inaccessible child-webview dropdown", () => {
+    expect(workspace).not.toContain("RadixSelectField");
+    expect(workspace).not.toContain("set_embedded_siyuan_language");
+    expect(workspace).toContain("<WorkbenchHost");
   });
 });

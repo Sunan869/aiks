@@ -15,6 +15,9 @@ describe("AIKS UI localization", () => {
     expect(resolveUiLanguage("en-US", "zh-CN")).toBe("en-US");
     expect(resolveUiLanguage(null, "en-GB")).toBe("en-US");
     expect(resolveUiLanguage(null, "ja-JP")).toBe("zh-CN");
+    expect(resolveUiLanguage("system", "en-US")).toBe("en-US");
+    expect(resolveUiLanguage("system", "zh-CN")).toBe("zh-CN");
+    expect(resolveUiLanguage("zh-CN", "en-US")).toBe("zh-CN");
   });
 
   it("switches the actual i18next runtime, not just static navigation", async () => {

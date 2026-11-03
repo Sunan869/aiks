@@ -1032,5 +1032,7 @@
   "以下检测未完成：": "Checks not completed: ",
   "。为保护敏感配置，不显示原始错误详情。": ". Raw error details are hidden to protect sensitive configuration.",
   "诊断未完成，请检查本地服务状态；未展示原始错误详情。": "Diagnostics could not complete. Check local services; raw errors are hidden.",
-  "该条目基于用户明确提交的质量反馈，不代表 AIKS 已独立核实。": "This entry is based on explicitly submitted user feedback; AIKS has not independently verified the claim."
+  "该条目基于用户明确提交的质量反馈，不代表 AIKS 已独立核实。": "This entry is based on explicitly submitted user feedback; AIKS has not independently verified the claim.",
+  "首次启动默认跟随系统语言，知识库中的 SiYuan 也会同步此设置；不影响原始数据。": "On first launch, follow the system language. Embedded SiYuan follows the same preference; your data is unchanged.",
+  "SiYuan 界面语言同步失败：{{error}}": "SiYuan interface language sync failed: {{error}}"
 }
