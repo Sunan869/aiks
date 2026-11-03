@@ -1,13 +1,46 @@
 # AIKS · AI Knowledge Sync
 
-**简体中文** · [English](README.en.md) · [下载最新版本](https://github.com/Sunan869/aiks/releases) · [数据源兼容说明](docs/reference-analysis/multi-provider-support.md) · [第三方致谢](THIRD_PARTY_NOTICES.md)
+<p align="center">
+  <img src="docs/assets/aiks-social-preview.svg" width="100%" alt="AIKS — 把 AI 对话转化为可复用的知识" />
+</p>
 
-> ### 让 AI 对话不再是一次性消耗。
-> **16 种本地 AI 编程工具 + 8 种网页公开分享来源，共 24 类数据来源。** 自动整理 AI 对话，提炼知识、关联项目、全文/语义检索，并可同步到思源笔记。让每一次与 AI 的协作，都成为下次可以复用的经验。
+<p align="center">
+  <a href="https://github.com/Sunan869/aiks/releases/latest"><img src="https://img.shields.io/github/v/release/Sunan869/aiks?style=flat-square&label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Sunan869/aiks?style=flat-square" alt="MIT license" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-438BFA?style=flat-square" alt="Windows, macOS and Linux" />
+  <img src="https://img.shields.io/badge/local--first-read--only%20sources-159DAD?style=flat-square" alt="Local-first, read-only sources" />
+</p>
 
-**24 类数据来源** · **本地优先** · **原始文件只读** · **自动知识提炼** · **全文与可选语义检索** · **SiYuan 集成** · **MIT 开源 / 可商用**
+**让 AI 对话不再是一次性消耗。** AIKS 是面向开发者的**本地优先 AI 知识库**：汇集 Claude Code、Codex CLI、Cursor、OpenCode 等编程助手的本地历史会话，以及 ChatGPT、Claude、DeepSeek 等平台的**公开分享链接**，将有价值的 AI 协作经验整理为可搜索、可追溯、可复用的知识。
 
-[**下载 AIKS**](https://github.com/Sunan869/aiks/releases) · [查看源码](https://github.com/Sunan869/aiks) · [提交问题](https://github.com/Sunan869/aiks/issues)
+**16 类本地 AI 编程 / Agent 来源 + 8 类网页公开分享来源 = 24 类来源。** 本地 Provider 只读、按需启用；AI 提炼和 Embedding 可选，默认不开启。支持全文搜索、可选语义检索、项目关联及 SiYuan 文档同步。
+
+**[⬇️ 下载最新版本](https://github.com/Sunan869/aiks/releases/latest)** · **[快速开始](#快速开始)** · **[English](README.en.md)** · [数据源兼容矩阵](docs/reference-analysis/multi-provider-support.md) · [问题反馈](https://github.com/Sunan869/aiks/issues)
+
+## AIKS 能帮你做什么？
+
+| 汇集 AI 会话 | 提炼知识 | 搜索和复用 |
+| --- | --- | --- |
+| 在一个入口浏览多种 AI 助手的历史工作记录，无需手动复制粘贴 | 对话清洗、无损分块、AI 提炼，形成知识条目并关联项目、标签及来源 | 全文检索、可选语义搜索及「问 AIKS」，也可以按需同步到 SiYuan |
+
+**不是另一个聊天机器人，也不只是聊天记录查看器。** AIKS 的目标是让你下次遇到相似问题时，能找到之前与 AI 协作形成的解决过程和结论。
+
+## 快速开始
+
+1. 从 [Releases](https://github.com/Sunan869/aiks/releases/latest) 下载适合 Windows、macOS 或 Linux 的安装包（以对应 Release 的实际资产为准）。
+2. 打开 **数据源**，仅启用你要导入的本地工具并扫描会话；也可导入支持的**公开分享链接**。
+3. 在 **工作记录**中浏览内容；若希望自动提炼知识，在 **设置**中主动配置并启用 AI 模型，再到 **处理中心 / 知识**查看结果。Embedding 与 SiYuan 同步可按需配置。
+
+> **隐私和功能边界：** AIKS 不会自动访问网页账号中的私密聊天记录；本地 Provider 不修改来源文件。未配置 AI 服务时仍可浏览导入的会话，但不能自动提炼新知识。具体格式兼容性见[支持矩阵](docs/reference-analysis/multi-provider-support.md)。
+
+<!-- REAL PRODUCT SCREENSHOTS: publish this two-column gallery only after capturing and redacting actual AIKS UI screenshots.
+## 产品界面
+<table>
+<tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS 工作记录" /><br/>工作记录</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS 数据源管理" /><br/>数据源管理</td></tr>
+<tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS 知识工作台" /><br/>知识提炼</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS 全文及语义检索" /><br/>检索与问答</td></tr>
+</table>
+See docs/marketing/SCREENSHOTS.md for instructions. Do not use mock UI or private data.
+-->
 
 ## 🌐 支持哪些 AI 数据源？
 

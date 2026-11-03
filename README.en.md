@@ -1,13 +1,46 @@
 # AIKS · AI Knowledge Sync
 
-[简体中文](README.md) · **English** · [Download](https://github.com/Sunan869/aiks/releases) · [Provider compatibility](docs/reference-analysis/multi-provider-support.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+<p align="center">
+  <img src="docs/assets/aiks-social-preview.svg" width="100%" alt="AIKS — from AI conversations to reusable knowledge" />
+</p>
 
-> ### Your AI conversations should not be disposable.
-> **16 local AI coding tools + 8 public web conversation-share sources = 24 source types.** Collect supported AI sessions, extract structured knowledge, connect projects, search with full-text or optional semantic retrieval, and sync with SiYuan. Turn every AI-assisted task into experience you can reuse.
+<p align="center">
+  <a href="https://github.com/Sunan869/aiks/releases/latest"><img src="https://img.shields.io/github/v/release/Sunan869/aiks?style=flat-square&label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Sunan869/aiks?style=flat-square" alt="MIT license" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-438BFA?style=flat-square" alt="Windows, macOS and Linux" />
+  <img src="https://img.shields.io/badge/local--first-read--only%20sources-159DAD?style=flat-square" alt="Local-first, read-only sources" />
+</p>
 
-**24 source types** · **Local-first** · **Read-only local providers** · **AI knowledge extraction** · **Full-text + optional semantic search** · **SiYuan integration** · **MIT-licensed / commercial use allowed**
+**Your AI conversations should not be disposable.** AIKS is a **local-first AI knowledge base for developers**. It brings together local sessions from Claude Code, Codex CLI, Cursor, OpenCode and other coding agents, plus supported **public conversation-share links** from services such as ChatGPT, Claude and DeepSeek. Distill, search, trace and reuse what you learned with AI.
 
-[**Download AIKS**](https://github.com/Sunan869/aiks/releases) · [Source code](https://github.com/Sunan869/aiks) · [Report an issue](https://github.com/Sunan869/aiks/issues)
+**16 local AI coding/agent sources + 8 public web conversation-share sources = 24 source types.** Local providers are opt-in and read-only. AI extraction and embeddings are optional and disabled by default. AIKS offers full-text search, optional semantic retrieval, project organization and SiYuan document synchronization.
+
+**[⬇️ Download latest release](https://github.com/Sunan869/aiks/releases/latest)** · **[Quick start](#quick-start)** · **[简体中文](README.md)** · [Provider compatibility](docs/reference-analysis/multi-provider-support.md) · [Report an issue](https://github.com/Sunan869/aiks/issues)
+
+## What can AIKS do?
+
+| Collect your AI work | Distill useful knowledge | Search and reuse |
+| --- | --- | --- |
+| Browse supported coding-assistant sessions in one place without manually copying chats | Clean, chunk and extract structured knowledge linked to projects, tags and original sessions | Full-text and optional semantic search, Ask AIKS and optional synchronization with SiYuan |
+
+**Not another chatbot, and more than a chat-history viewer.** AIKS helps you recover past investigations, decisions and solutions when similar problems come up again.
+
+## Quick start
+
+1. Get an installer for Windows, macOS or Linux from [Releases](https://github.com/Sunan869/aiks/releases/latest) (check the actual assets for your platform).
+2. In **Data Sources**, enable only the local providers you need and scan their sessions, or import a supported **public share URL**.
+3. Browse **Work Records**. To extract new knowledge, explicitly configure and enable an AI model in **Settings**, then inspect **Processing Center / Knowledge**. Embeddings and SiYuan sync are optional.
+
+> **Privacy and capability boundaries:** AIKS does not automatically access private browser-account chat histories, and local providers do not rewrite source files. Imported sessions can be browsed without a model, but new knowledge extraction requires a configured AI service. See the [compatibility matrix](docs/reference-analysis/multi-provider-support.md).
+
+<!-- REAL PRODUCT SCREENSHOTS: enable this two-column gallery only after capturing real, anonymized AIKS UI screenshots.
+## Product screenshots
+<table>
+<tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS work records" /><br/>Work records</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS data sources" /><br/>Data sources</td></tr>
+<tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS knowledge workspace" /><br/>Knowledge extraction</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS search" /><br/>Search and Q&amp;A</td></tr>
+</table>
+See docs/marketing/SCREENSHOTS.md. Never represent generated UI mockups as product screenshots.
+-->
 
 ## 🌐 Supported AI data sources
 

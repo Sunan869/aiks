@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+<title id="title">AIKS — AI Knowledge Sync</title>
+<desc id="desc">Local-first AI knowledge base: turn coding agent conversations into reusable knowledge</desc>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse"><stop stop-color="#0C1530"/><stop offset=".55" stop-color="#101C3D"/><stop offset="1" stop-color="#101B37"/></linearGradient>
+  <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(1109 326) rotate(170) scale(556 520)" gradientUnits="userSpaceOnUse"><stop stop-color="#3458B6" stop-opacity=".42"/><stop offset="1" stop-color="#3458B6" stop-opacity="0"/></radialGradient>
+  <linearGradient id="accent" x1="835" y1="130" x2="1172" y2="508" gradientUnits="userSpaceOnUse"><stop stop-color="#69F3FF"/><stop offset=".48" stop-color="#559DFF"/><stop offset="1" stop-color="#986BFF"/></linearGradient>
+</defs>
+<rect width="1280" height="640" fill="url(#bg)"/><rect width="1280" height="640" fill="url(#glow)"/>
+<g stroke="#6E92D2" stroke-opacity=".08" stroke-width="1"><path d="M0 108H1280M0 218H1280M0 328H1280M0 438H1280M0 548H1280"/><path d="M110 0V640M220 0V640M330 0V640M440 0V640M550 0V640M660 0V640M770 0V640M880 0V640M990 0V640M1100 0V640M1210 0V640"/></g>
+<rect x="42" y="42" width="1196" height="556" rx="34" fill="none" stroke="#94B2F1" stroke-opacity=".17" stroke-width="1.5"/>
+<g transform="translate(72 77)"><rect width="108" height="108" rx="27" fill="#1B2C56" stroke="#6DE5FF" stroke-opacity=".2" stroke-width="1.5"/>
+<path d="M24 47C28 29 43 22 59 23C71 24 79 31 85 41" fill="none" stroke="#67E5FB" stroke-width="8" stroke-linecap="round"/><path d="M78 32L86 43L72 46" fill="none" stroke="#67E5FB" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M84 61C80 79 65 86 49 85C37 84 29 77 23 67" fill="none" stroke="#9A7BFF" stroke-width="8" stroke-linecap="round"/><path d="M30 76L22 65L36 62" fill="none" stroke="#9A7BFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><rect x="42" y="41" width="25" height="25" rx="7" fill="#F1F9FF"/><path d="M54.5 47.5V59.5M48.5 53.5H60.5" stroke="#377FCA" stroke-width="4" stroke-linecap="round"/></g>
+<text x="203" y="166" fill="#F5FAFF" font-family="Inter,Arial,sans-serif" font-size="83" font-weight="800" letter-spacing="1">AIKS</text>
+<text x="204" y="198" fill="#9AB7E3" font-family="Inter,Arial,sans-serif" font-size="19" font-weight="600" letter-spacing="3.6">AI KNOWLEDGE SYNC</text>
+<text x="79" y="293" fill="#F3F8FF" font-family="Inter,Arial,sans-serif" font-size="43" font-weight="750">AI conversations.</text>
+<text x="79" y="350" fill="#F3F8FF" font-family="Inter,Arial,sans-serif" font-size="43" font-weight="750">Reusable knowledge.</text>
+<text x="81" y="401" fill="#A8C0E5" font-family="Inter,Arial,sans-serif" font-size="22">Collect, distill, search &amp; sync your AI work.</text>
+<g font-family="Inter,Arial,sans-serif" font-size="17" font-weight="600">
+<rect x="78" y="441" width="150" height="43" rx="21.5" fill="#1A2C4B" stroke="#527BBD" stroke-opacity=".47"/><text x="153" y="468" fill="#D6E9FF" text-anchor="middle">Claude Code</text>
+<rect x="240" y="441" width="125" height="43" rx="21.5" fill="#1A2C4B" stroke="#527BBD" stroke-opacity=".47"/><text x="302.5" y="468" fill="#D6E9FF" text-anchor="middle">Codex CLI</text>
+<rect x="377" y="441" width="105" height="43" rx="21.5" fill="#1A2C4B" stroke="#527BBD" stroke-opacity=".47"/><text x="429.5" y="468" fill="#D6E9FF" text-anchor="middle">Cursor</text>
+<rect x="494" y="441" width="147" height="43" rx="21.5" fill="#1A2C4B" stroke="#527BBD" stroke-opacity=".47"/><text x="567.5" y="468" fill="#D6E9FF" text-anchor="middle">+ 21 sources</text></g>
+<text x="80" y="555" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="600" fill="#7EDDF8" letter-spacing="1">LOCAL-FIRST  ·  READ-ONLY IMPORT  ·  OPTIONAL AI &amp; EMBEDDINGS</text>
+<g>
+<circle cx="1014" cy="307" r="195" fill="none" stroke="#6DE5FF" stroke-opacity=".11" stroke-width="2"/><circle cx="1014" cy="307" r="142" fill="none" stroke="#986BFF" stroke-opacity=".2" stroke-width="2" stroke-dasharray="6 11"/>
+<path d="M864 188C923 139 1032 136 1102 200" fill="none" stroke="url(#accent)" stroke-opacity=".54" stroke-width="7" stroke-linecap="round"/>
+<path d="M1183 329C1168 430 1070 482 972 460" fill="none" stroke="url(#accent)" stroke-opacity=".54" stroke-width="7" stroke-linecap="round"/>
+<path d="M913 451C834 397 822 313 849 261" fill="none" stroke="url(#accent)" stroke-opacity=".54" stroke-width="7" stroke-linecap="round"/>
+<circle cx="1014" cy="307" r="99" fill="#1D2F57" stroke="#6AA7FF" stroke-opacity=".4" stroke-width="2"/><circle cx="1014" cy="307" r="86" fill="#152541"/>
+<rect x="966" y="259" width="96" height="96" rx="25" fill="#263D6E" stroke="#69F3FF" stroke-opacity=".38"/>
+<path d="M1014 276L1045 294V329L1014 347L983 329V294Z" fill="none" stroke="url(#accent)" stroke-width="5" stroke-linejoin="round"/>
+<path d="M983 294L1014 313L1045 294M1014 313V347" fill="none" stroke="url(#accent)" stroke-width="4" stroke-linejoin="round"/>
+<rect x="797" y="138" width="116" height="56" rx="15" fill="#1C2E55" stroke="#6BBFF0" stroke-opacity=".36"/>
+<circle cx="820" cy="166" r="7" fill="#6DE5FF"/><path d="M839 157H891M839 167H879M839 177H869" stroke="#82A4D2" stroke-width="5" stroke-linecap="round"/>
+<rect x="1113" y="206" width="115" height="56" rx="15" fill="#1C2E55" stroke="#6BBFF0" stroke-opacity=".36"/><path d="M1130 220H1161M1130 232H1196M1130 244H1180" stroke="#76A7DD" stroke-width="5" stroke-linecap="round"/>
+<rect x="1015" y="455" width="135" height="56" rx="15" fill="#1C2E55" stroke="#6BBFF0" stroke-opacity=".36"/><circle cx="1042" cy="483" r="11" fill="none" stroke="#986BFF" stroke-width="4"/><path d="M1064 474H1132M1064 487H1116" stroke="#89A7D3" stroke-width="5" stroke-linecap="round"/>
+</g></svg>
