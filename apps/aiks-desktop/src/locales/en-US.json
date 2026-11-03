@@ -1008,11 +1008,11 @@
   "用户标记：可能已过时": "User flagged: possibly outdated",
   "用户标记：需要补充上下文": "User flagged: needs more context",
   "用户标记：可能重复": "User flagged: possibly duplicate",
-  "存在修正关系，需复核两份证据与适用范围": "A correction relation exists; verify both sources and applicability",
+  "存在修正关系，需复核两份证据与适用范围": "A correction relation exists; verify both sources and applicable scope",
   "存在替代关系，需复核旧方案是否仍适用": "A replacement relation exists; check whether the old solution still applies",
   "存在解决关系，需复核问题是否实际解决": "A resolution relation exists; verify the issue was actually resolved",
-  "待人工核对：": "Pending manual review: ",
-  "已有人确认关联：": "Relation confirmed by reviewer: ",
+  "待人工核对：": "Needs manual review: ",
+  "已有人确认关联：": "Relation confirmed by a reviewer: ",
   "（不等于事实已被证明）": " (not proof of factual correctness)",
   "替代": "Replaces",
   "通过…解决": "Resolved by",
@@ -1028,5 +1028,9 @@
   "未提炼": "Not extracted",
   "无": "None",
   "SiYuan 界面语言": "SiYuan interface language",
-  "SiYuan 界面语言更新失败：{{error}}": "Could not change SiYuan interface language: {{error}}"
+  "SiYuan 界面语言更新失败：{{error}}": "Could not change SiYuan interface language: {{error}}",
+  "以下检测未完成：": "Checks not completed: ",
+  "。为保护敏感配置，不显示原始错误详情。": ". Raw error details are hidden to protect sensitive configuration.",
+  "诊断未完成，请检查本地服务状态；未展示原始错误详情。": "Diagnostics could not complete. Check local services; raw errors are hidden.",
+  "该条目基于用户明确提交的质量反馈，不代表 AIKS 已独立核实。": "This entry is based on explicitly submitted user feedback; AIKS has not independently verified the claim."
 }

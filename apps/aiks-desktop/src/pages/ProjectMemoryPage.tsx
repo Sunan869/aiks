@@ -586,7 +586,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                       </div>
                       <p className="mt-2 text-amber-700">{translateUiText(item.reason)}</p>
                       <p className="mt-1 whitespace-pre-wrap break-words text-gray-500">
-                        {item.evidence}
+                        {translateUiText(item.evidence)}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-3">
                         {item.knowledgeIds.map(id => (

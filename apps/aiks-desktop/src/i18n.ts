@@ -101,6 +101,25 @@ export function translateUiText(value: string): string {
     names.forEach((name, index) => { vars[name] = match[index + 1]; });
     return tr(key, vars);
   }
+  // These project-review strings are UI-authored compositions; never translate
+  // the underlying knowledge title, evidence or source content.
+  for (const prefix of ["待人工核对：", "已有人确认关联："]) {
+    if (!value.startsWith(prefix)) continue;
+    const suffix = "（不等于事实已被证明）";
+    const hasSuffix = value.endsWith(suffix);
+    const end = hasSuffix ? value.length - suffix.length : value.length;
+    const reason = value.slice(prefix.length, end);
+    return tr(prefix) + tr(reason) + (hasSuffix ? tr(suffix) : "");
+  }
+  const diagnosticsPrefix = "以下检测未完成：";
+  const diagnosticsSuffix = "。为保护敏感配置，不显示原始错误详情。";
+  if (value.startsWith(diagnosticsPrefix) && value.endsWith(diagnosticsSuffix)) {
+    const names = value.slice(diagnosticsPrefix.length, -diagnosticsSuffix.length)
+      .split("、")
+      .map(part => tr(part))
+      .join(", ");
+    return tr(diagnosticsPrefix) + names + tr(diagnosticsSuffix);
+  }
   for (const prefix of feedbackPrefixes) {
     if (value.startsWith(prefix)) return tr(prefix) + value.slice(prefix.length);
   }

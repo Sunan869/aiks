@@ -75,6 +75,17 @@ describe("AIKS UI localization", () => {
     })).toContain("Provider files");
   });
 
+  it("renders composed review and diagnostics notices without translating user evidence", async () => {
+    await i18n.changeLanguage("en-US");
+    expect(translateUiText("待人工核对：存在修正关系，需复核两份证据与适用范围"))
+      .toContain("Needs manual review: A correction relation exists");
+    expect(translateUiText("已有人确认关联：存在修正关系，需复核两份证据与适用范围（不等于事实已被证明）"))
+      .toContain("not proof of factual correctness");
+    expect(translateUiText("以下检测未完成：本地环境、AI 连接。为保护敏感配置，不显示原始错误详情。"))
+      .toContain("Local environment, AI connection");
+    expect(translateUiText("人工写入的原始知识证据，不能翻译")).toBe("人工写入的原始知识证据，不能翻译");
+  });
+
   it("preserves the meaning of safety and manual-review boundaries", async () => {
     await i18n.changeLanguage("en-US");
     const warning = tr("所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。");
