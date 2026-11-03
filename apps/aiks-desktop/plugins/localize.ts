@@ -33,6 +33,23 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
     edits.push({ start, end, replacement });
     keys.push(key);
   };
+  function localizeVisibleBranch(expr: ts.Expression): void {
+    if (ts.isParenthesizedExpression(expr)) { localizeVisibleBranch(expr.expression); return; }
+    if (ts.isConditionalExpression(expr)) {
+      localizeVisibleBranch(expr.whenTrue);
+      localizeVisibleBranch(expr.whenFalse);
+      return;
+    }
+    if ((ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) && hasHan(expr.text)) {
+      add(expr.getStart(source), expr.end, "tr(" + jsString(expr.text) + ")", expr.text);
+      return;
+    }
+    if (ts.isTemplateExpression(expr)) {
+      let key = expr.head.text;
+      expr.templateSpans.forEach((part, i) => { key += "{{v" + i + "}}" + part.literal.text; });
+      if (hasHan(key)) add(expr.getStart(source), expr.end, templateTranslation(expr, source), key);
+    }
+  }
   function walk(node: ts.Node): void {
     if (ts.isJsxText(node)) {
       const raw = node.getFullText(source);
@@ -65,10 +82,11 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
         }
       }
     }
-    if (ts.isJsxExpression(node) && node.expression && ts.isStringLiteral(node.expression) && hasHan(node.expression.text)) {
-      const e = node.expression;
-      add(e.getStart(source), e.end, "tr(" + jsString(e.text) + ")", e.text);
-      return;
+    if (ts.isJsxExpression(node) && node.expression) {
+      const attr = ts.isJsxAttribute(node.parent) ? node.parent : null;
+      if (!attr || visibleAttributes.has(attr.name.getText(source))) {
+        localizeVisibleBranch(node.expression);
+      }
     }
     ts.forEachChild(node, walk);
   }
@@ -81,7 +99,7 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
   const relativeFile = id.replace(/\\/g, "/").split("/src/")[1] || id;
   const depth = Math.max(0, relativeFile.split("/").length - 1);
   const importPath = (depth === 0 ? "./" : "../".repeat(depth)) + "i18n";
-  if (!/import\s+\{\s*tr\s*\}\s+from\s+['"][^'"]+i18n['"]/.test(code)) {
+  if (!/import\s+\{[^}]*\btr\b[^}]*\}\s+from\s+['"][^'"]+i18n['"]/.test(code)) {
     code = 'import { tr } from "' + importPath + '";\n' + code;
   }
   return { code, keys: [...new Set(keys)] };

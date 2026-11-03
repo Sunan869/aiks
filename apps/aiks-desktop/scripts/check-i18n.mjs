@@ -29,6 +29,23 @@ function track(key, file, location) {
 }
 for (const file of walkFiles(src)) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function inspectVisibleBranch(expr) {
+    if (ts.isParenthesizedExpression(expr)) { inspectVisibleBranch(expr.expression); return; }
+    if (ts.isConditionalExpression(expr)) {
+      inspectVisibleBranch(expr.whenTrue);
+      inspectVisibleBranch(expr.whenFalse);
+      return;
+    }
+    if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+      track(expr.text, file, source.getLineAndCharacterOfPosition(expr.getStart(source)).line + 1);
+      return;
+    }
+    if (ts.isTemplateExpression(expr)) {
+      let key = expr.head.text;
+      expr.templateSpans.forEach((part, i) => { key += "{{v" + i + "}}" + part.literal.text; });
+      track(key, file, source.getLineAndCharacterOfPosition(expr.getStart(source)).line + 1);
+    }
+  }
   function visit(node) {
     if (ts.isJsxText(node)) {
       track(node.getFullText(source).trim(), file, source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
@@ -54,9 +71,11 @@ for (const file of walkFiles(src)) {
         }
       }
     }
-    if (ts.isJsxExpression(node) && node.expression && ts.isStringLiteral(node.expression)) {
-      track(node.expression.text, file, source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
-      return;
+    if (ts.isJsxExpression(node) && node.expression) {
+      const attr = ts.isJsxAttribute(node.parent) ? node.parent : null;
+      if (!attr || visibleAttributes.has(attr.name.getText(source))) {
+        inspectVisibleBranch(node.expression);
+      }
     }
     ts.forEachChild(node, visit);
   }

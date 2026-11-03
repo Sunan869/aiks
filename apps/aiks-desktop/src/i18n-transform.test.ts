@@ -29,4 +29,20 @@ describe("i18next JSX bridge", () => {
     expect(result.code).toContain('title={tr("知识库")}');
     expect(result.code).toContain('tr("可检索")');
   });
+  it("translates display-only conditional branches but preserves controlled values", () => {
+    const input = [
+      'export const V = ({ busy }: { busy: boolean }) => <div>',
+      '  {busy ? "处理中" : "完成"}',
+      '  <input value={busy ? "已启用" : "已停用"} />',
+      '  <button aria-label={busy ? "取消" : "保存"}>提交</button>',
+      '</div>;',
+    ].join("\n");
+    const result = transformLocalizedTsx(input, "/repo/apps/aiks-desktop/src/pages/View.tsx");
+    expect(result.code).toContain('busy ? tr("处理中") : tr("完成")');
+    expect(result.code).toContain('value={busy ? "已启用" : "已停用"}');
+    expect(result.code).toContain('aria-label={busy ? tr("取消") : tr("保存")}');
+    const output = ts.transpileModule(result.code, { fileName: "View.tsx", reportDiagnostics: true, compilerOptions: { jsx: ts.JsxEmit.ReactJSX } });
+    expect((output.diagnostics || []).filter(d => d.category === ts.DiagnosticCategory.Error)).toHaveLength(0);
+  });
+
 });
