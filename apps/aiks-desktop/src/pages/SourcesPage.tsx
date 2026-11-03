@@ -100,7 +100,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
         <p className="mt-1 text-[11px] text-gray-400">只读取会话和必要元数据。保存只修改当前数据源设置，重启生效；关闭来源不会删除已导入记录。</p>
         <div className="mt-2 flex gap-2"><UiButton variant="primary" size="sm" onClick={() => void save()} disabled={busy} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">保存配置</UiButton><UiButton variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={busy} className="px-2 text-xs text-gray-500">取消</UiButton></div>
       </div>}
-      {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300"}>{translateUiText(message)}</p>}
+      {message && <p role="status" className="mt-3 text-xs text-gray-600 dark:text-gray-300">{translateUiText(message)}</p>}
     </section>
   );
 }
