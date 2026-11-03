@@ -1,3 +1,4 @@
+import { translateUiText } from "../i18n";
 import { DataStorageSettingsSection } from "../components/DataStorage";
 import { LanguageSettings } from "../components/LanguageSettings";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
@@ -442,7 +443,7 @@ export default function SettingsPage() {
               <span className="ml-2 text-gray-400">知识 {rebuildProgress.knowledge_total} · 对话 {rebuildProgress.session_total} · 向量块 {rebuildProgress.embedded_chunks}</span>
             </div>
           )}
-          {rebuildMessage && <div className="text-xs text-gray-500 dark:text-gray-400">{rebuildMessage}</div>}
+          {rebuildMessage && <div className="text-xs text-gray-500 dark:text-gray-400">{translateUiText(rebuildMessage)}</div>}
           <div className="text-[11px] leading-5 text-gray-400">
             配置保存并重启后搜索服务才会切换模型；历史数据需执行一次“重建语义索引”。重建期间关键词检索仍可使用。
           </div>
@@ -529,7 +530,7 @@ export default function SettingsPage() {
         AI 服务、模型、同步周期、内容规则和语义搜索配置保存后需重启 AIKS 后生效；开机启动和关闭驻留设置立即生效。
       </div>
       {saveWarning && <div className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{saveWarning}</div>}
-      {saveError && <div className="mt-3 text-xs text-red-500">{saveError}</div>}
+      {saveError && <div className="mt-3 text-xs text-red-500">{translateUiText(saveError)}</div>}
 
       <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <UiButton variant="primary" size="md"

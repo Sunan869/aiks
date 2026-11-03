@@ -548,7 +548,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         <p className="my-2 text-xs text-amber-700">候选仅供检索（最多最近 200 条），并不表示具备合法关联范围；提交建议与人工确认时 Rust 后端会独立核验两个知识的当前来源。</p>
         <UiTextarea aria-label="关联证据" value={relationEvidence} onChange={event => setRelationEvidence(event.target.value)} maxLength={4000} rows={2} placeholder="写明来源 Session、消息区间或判断依据（必填）" className="mt-2 w-full rounded border border-gray-200 bg-transparent p-2 text-xs dark:border-gray-600" />
         <UiButton variant="outline" size="sm" type="button" disabled={relationBusy || !relationTarget.trim() || !relationEvidence.trim()} onClick={() => void suggestRelation()} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-50">添加关系建议</UiButton>
-        {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{relationError}</p>}
+        {relationError && <p className="mt-2 text-xs text-red-600" role="alert">{translateUiText(relationError)}</p>}
         <div className="mt-4 rounded border border-gray-200 p-3 dark:border-gray-700">
           <h3 className="text-xs font-semibold">知识演进时间线</h3>
           <p className="mt-1 text-xs text-gray-500">按关系更新时间排序；仅“已确认”代表人工确认的关联，其他状态不作为确定的演进事实。</p>
@@ -608,7 +608,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
             记录不会因后来修改项目归属、拒绝建议或归档知识而自动清除。
           </p>
           {relationReviewHistoryError && (
-            <p role="alert" className="mt-2 text-red-600">{relationReviewHistoryError}</p>
+            <p role="alert" className="mt-2 text-red-600">{translateUiText(relationReviewHistoryError)}</p>
           )}
           {relationReviewHistory && relationReviewHistory.reviews.length === 0 && (
             <p className="mt-2 text-gray-400">尚无本知识的关系人工审核记录。</p>
@@ -649,7 +649,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           <UiInput aria-label="反馈说明" value={feedbackNote} maxLength={4000} onChange={event => setFeedbackNote(event.target.value)} placeholder="说明或修正建议（可选）" className="min-w-0 flex-1 rounded border border-gray-200 bg-transparent p-2 text-sm dark:border-gray-600" />
           <UiButton variant="outline" size="sm" type="button" disabled={feedbackBusy} onClick={() => void submitFeedback()} className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50">{feedbackBusy ? "保存中..." : "提交反馈"}</UiButton>
         </div>
-        {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{feedbackError}</p>}
+        {feedbackError && <p className="mt-2 text-xs text-red-600" role="alert">{translateUiText(feedbackError)}</p>}
         <div className="mt-3 space-y-2">
           {feedback.map(item => (
             <div key={item.id} className="border-t border-gray-100 pt-2 text-xs dark:border-gray-700">
@@ -720,7 +720,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           </UiButton>
         </div>
         {!data.siyuan_doc_id && <p className="mt-2 text-xs text-gray-500">本地知识可先生成草稿；创建新知识需要 SiYuan 可用，并会新增独立 SiYuan 文档，原文不变。</p>}
-        {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{organizeError}</p>}
+        {organizeError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(organizeError)}</p>}
         {organizeDraft && (
           <div className="mt-3 space-y-3">
             {reviewedSources.length > 1 && (
@@ -849,14 +849,14 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               {recoveryBusy ? "仅修复审核记录中…" : "审核并修复本地来源（不重建文档）"}
             </UiButton>
           </div>
-          {recoveryError && <p role="alert" className="mt-2 text-red-600">{recoveryError}</p>}
+          {recoveryError && <p role="alert" className="mt-2 text-red-600">{translateUiText(recoveryError)}</p>}
         </div>
         <p className="mt-1 text-xs text-gray-500">
           此处读取本地持久审核记录；关闭或重开程序后仍可找到从当前知识衍生的独立文档。
           归档/恢复只改变新建知识的 AIKS 状态，不删除 SiYuan 文档或原 Session。
           最多展示最近 100 条记录。
         </p>
-        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{organizationHistoryError}</p>}
+        {organizationHistoryError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(organizationHistoryError)}</p>}
         {organizationHistory.length === 0 && !organizationHistoryError && (
           <p className="mt-2 text-xs text-gray-400">尚无本地持久的知识整理审核记录。</p>
         )}

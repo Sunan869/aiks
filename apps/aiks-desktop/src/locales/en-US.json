@@ -889,5 +889,6 @@
   "✓ 连接正常": "✓ Connected",
   "✕ 连接失败": "✕ Connection failed",
   "需要配置项目根目录；不会自动扫描整个磁盘。": "A project root directory is required. The entire disk is not scanned automatically.",
-  "自动探测该工具的本地会话目录": "Automatically discover this tool's local session directory"
+  "自动探测该工具的本地会话目录": "Automatically discover this tool's local session directory",
+  "选项": "options"
 }
