@@ -21,7 +21,7 @@ export default function StartupScreen({ step, error }: Props) {
       {error ? (
         <div className="flex flex-col items-center gap-3 text-red-400">
           <AlertCircle className="w-8 h-8" />
-          <p className="text-sm text-center max-w-xs">{error}</p>
+          <p className="text-sm text-center max-w-xs">{translateUiText(error)}</p>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">

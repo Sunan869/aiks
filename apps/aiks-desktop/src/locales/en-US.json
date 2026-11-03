@@ -911,5 +911,20 @@
   "帮我从知识库里找一下最近的关键技术结论": "Find recent key technical conclusions in my knowledge base.",
   "{{count}} 个数据源": "{{count}} data sources",
   "最近扫描 {{time}}": "Last scanned {{time}}",
-  "最近同步：{{time}} · 本次新入库 {{added}} · 更新 {{updated}} · 失败 {{failed}}": "Last synced: {{time}} · New sessions: {{added}} · Updated: {{updated}} · Failed: {{failed}}"
+  "最近同步：{{time}} · 本次新入库 {{added}} · 更新 {{updated}} · 失败 {{failed}}": "Last synced: {{time}} · New sessions: {{added}} · Updated: {{updated}} · Failed: {{failed}}",
+  "正在初始化...": "Initializing…",
+  "正在验证知识引擎...": "Validating the knowledge engine…",
+  "知识工作台桥接组件未就绪，将以降级模式继续启动": "The knowledge workspace bridge is unavailable. Startup will continue in degraded mode.",
+  "正在启动知识引擎...": "Starting the knowledge engine…",
+  "知识工作台桥接组件启用失败，将以降级模式继续启动": "Could not enable the knowledge workspace bridge. Startup will continue in degraded mode.",
+  "正在准备知识库...": "Preparing the knowledge base…",
+  "正在初始化采集引擎...": "Initializing the collection engine…",
+  "AIKS 已就绪": "AIKS is ready",
+  "正在迁移 AIKS 数据目录，完成后将继续启动...": "Migrating the AIKS data directory. Startup will resume when complete…",
+  "请选择 AIKS 数据存储位置": "Choose the AIKS data storage location",
+  "知识引擎就绪 (v{{version}})": "Knowledge engine ready (v{{version}})",
+  "SiYuan 运行环境未就绪：": "SiYuan runtime is unavailable: ",
+  "知识引擎文件不完整：": "Knowledge engine files are incomplete: ",
+  "知识引擎启动失败：": "Failed to start knowledge engine: ",
+  "初始化失败：": "Initialization failed: "
 }

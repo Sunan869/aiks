@@ -45,6 +45,14 @@ describe("AIKS UI localization", () => {
     expect(tr("总结一下最近讨论的向量模型部署方案")).toContain("deployment");
   });
 
+  it("localizes native startup progress and keeps detailed diagnostics intact", async () => {
+    await i18n.changeLanguage("en-US");
+    expect(translateUiText("正在验证知识引擎...")).toBe("Validating the knowledge engine…");
+    expect(translateUiText("知识引擎就绪 (v3.8.3)")).toBe("Knowledge engine ready (v3.8.3)");
+    expect(translateUiText("知识引擎启动失败：OS error 2")).toBe("Failed to start knowledge engine: OS error 2");
+    expect(translateUiText("some unknown backend error")).toBe("some unknown backend error");
+  });
+
   it("preserves the meaning of safety and manual-review boundaries", async () => {
     await i18n.changeLanguage("en-US");
     const warning = tr("所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。");

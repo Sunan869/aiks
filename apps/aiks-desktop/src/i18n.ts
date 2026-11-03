@@ -60,8 +60,11 @@ const feedbackPrefixes = [
   "无法关联现有审核记录：","归档生成的知识失败：",
   "恢复生成的知识失败：","操作失败：","SiYuan 发布结果：",
   "发布失败：","同步未完成：","保存失败：",
+  "SiYuan 运行环境未就绪：","知识引擎文件不完整：",
+  "知识引擎启动失败：","初始化失败：",
 ] as const;
 const dynamicFeedbackKeys = [
+  "知识引擎就绪 (v{{version}})",
   "同步提交完成：+{{added}} 新增，{{updated}} 更新",
   "扫描完成：+{{added}} 新增，{{updated}} 更新，{{failed}} 失败",
   "已重新提交 {{count}} 个任务（失败 + 未处理队列）",
