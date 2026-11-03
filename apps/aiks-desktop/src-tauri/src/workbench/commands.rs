@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::time::Duration;
 use serde_json::{json, Value};
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewUrl};
@@ -174,6 +175,95 @@ pub(super) fn dispatch_action(
         return Err("SiYuan fallback workbench is not loaded yet".to_string());
     }
     window.eval(&script).map_err(|e| e.to_string())
+}
+
+
+fn embedded_siyuan_origin(address: &str) -> Result<String, String> {
+    let url = Url::parse(address).map_err(|e| e.to_string())?;
+    if url.scheme() != "http" || !matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1")) {
+        return Err("only the embedded loopback SiYuan can change language".to_string());
+    }
+    let mut base = url.clone();
+    base.set_path("");
+    base.set_query(None);
+    base.set_fragment(None);
+    Ok(base.as_str().trim_end_matches('/').to_string())
+}
+
+fn normalize_siyuan_language(language: &str) -> Result<&'static str, String> {
+    match language {
+        "zh-CN" | "zh_CN" => Ok("zh_CN"),
+        "en-US" | "en_US" => Ok("en_US"),
+        _ => Err("unsupported embedded SiYuan UI language".to_string()),
+    }
+}
+
+fn appearance_with_language(appearance: &Value, language: &str) -> Result<Value, String> {
+    let mut updated = appearance.clone();
+    let object = updated.as_object_mut().ok_or_else(|| "invalid SiYuan appearance settings".to_string())?;
+    object.insert("lang".to_owned(), json!(language));
+    Ok(updated)
+}
+
+async fn read_embedded_appearance(
+    app_state: &AppState,
+    client: &reqwest::Client,
+) -> Result<(String, Value), String> {
+    let address = app_state.siyuan_url.lock().await.clone()
+        .ok_or_else(|| "embedded SiYuan is unavailable".to_string())?;
+    let origin = embedded_siyuan_origin(&address)?;
+    let response: Value = client.post(format!("{origin}/api/system/getConf"))
+        .json(&json!({}))
+        .send().await.map_err(|e| e.to_string())?
+        .error_for_status().map_err(|e| e.to_string())?
+        .json().await.map_err(|e| e.to_string())?;
+    if response["code"].as_i64() != Some(0) {
+        return Err("could not read embedded SiYuan configuration".to_string());
+    }
+    let appearance = response.pointer("/data/conf/appearance")
+        .filter(|value| value.is_object())
+        .ok_or_else(|| "embedded SiYuan appearance settings missing".to_string())?
+        .clone();
+    Ok((origin, appearance))
+}
+
+#[tauri::command]
+pub async fn get_embedded_siyuan_language(app_state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(8))
+        .build().map_err(|e| e.to_string())?;
+    let (_, appearance) = read_embedded_appearance(app_state.inner(), &client).await?;
+    let language = appearance.get("lang").and_then(Value::as_str).unwrap_or_default();
+    Ok(match language {
+        "en_US" | "en-US" => Some("en-US".to_owned()),
+        "zh_CN" | "zh-CN" => Some("zh-CN".to_owned()),
+        _ => None,
+    })
+}
+
+#[tauri::command]
+pub async fn set_embedded_siyuan_language(
+    app_state: State<'_, AppState>,
+    language: String,
+) -> Result<bool, String> {
+    let lang = normalize_siyuan_language(&language)?;
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(8))
+        .build().map_err(|e| e.to_string())?;
+    let (origin, current) = read_embedded_appearance(app_state.inner(), &client).await?;
+    if current.get("lang").and_then(Value::as_str) == Some(lang) {
+        return Ok(false);
+    }
+    // SiYuan v3.8.3 replaces its entire appearance configuration in setAppearance:
+    // never POST only {"lang": "..."} or the user's theme and other settings reset.
+    let appearance = appearance_with_language(&current, lang)?;
+    let response: Value = client.post(format!("{origin}/api/setting/setAppearance"))
+        .json(&appearance)
+        .send().await.map_err(|e| e.to_string())?
+        .error_for_status().map_err(|e| e.to_string())?
+        .json().await.map_err(|e| e.to_string())?;
+    if response["code"].as_i64() != Some(0) {
+        return Err("SiYuan rejected the requested UI language".to_string());
+    }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -412,6 +502,25 @@ pub fn reload_workbench(
 mod tests {
     use super::*;
     use crate::workbench::protocol::{WorkbenchAction, WorkspaceMode};
+
+
+    #[test]
+    fn embedded_siyuan_language_update_preserves_other_appearance_settings() {
+        let old = json!({
+            "lang": "zh_CN", "themeLight": "daylight", "themeDark": "midnight",
+            "fontSize": 17, "mode": 1, "statusBar": {"show": true},
+        });
+        let updated = appearance_with_language(&old, "en_US").unwrap();
+        assert_eq!(updated["lang"], "en_US");
+        assert_eq!(updated["themeLight"], old["themeLight"]);
+        assert_eq!(updated["themeDark"], old["themeDark"]);
+        assert_eq!(updated["fontSize"], old["fontSize"]);
+        assert_eq!(updated["statusBar"], old["statusBar"]);
+        assert_eq!(old["lang"], "zh_CN");
+        assert!(normalize_siyuan_language("fr_FR").is_err());
+        assert!(embedded_siyuan_origin("http://example.com:6806").is_err());
+        assert!(embedded_siyuan_origin("http://127.0.0.1:6806").is_ok());
+    }
 
     #[test]
     fn bridge_envelope_contains_protocol_request_nonce_action_and_payload() {

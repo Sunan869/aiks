@@ -214,6 +214,8 @@ pub fn run() {
             diagnostics::get_v41_diagnostics,
             session_workbench::get_session_workbench_doc_id,
             workbench::commands::get_workbench_status,
+            workbench::commands::get_embedded_siyuan_language,
+            workbench::commands::set_embedded_siyuan_language,
             workbench::commands::mount_workbench,
             workbench::commands::show_workbench,
             workbench::commands::reload_workbench,

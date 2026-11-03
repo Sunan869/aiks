@@ -421,7 +421,7 @@
   "搜索当前页知识卡片": "Search current-page knowledge cards",
   "搜索当前页的知识标题、摘要、标签或项目…": "Search this page by knowledge title, summary, tag or project…",
   "搜索知识和 AI 对话记录...": "Search knowledge and AI conversations…",
-  "打开网页版": "Open web interface",
+  "打开网页版": "Open in browser",
   "这条知识尚未绑定 Canonical SiYuan 文档，将由内容迁移流程处理。": "This item is not yet bound to a canonical SiYuan document; the content migration will handle it.",
   "AIKS 统一搜索": "AIKS unified search",
   "在系统默认浏览器打开当前 SiYuan": "Open the current SiYuan site in the default browser",
@@ -836,7 +836,7 @@
   "正在读取本地知识库...": "Loading local knowledge base…",
   "当前视图暂无知识": "No knowledge in the current view",
   "取消收藏": "Remove from favorites",
-  "返回知识正文": "Back to knowledge content",
+  "返回知识正文": "Back to knowledge",
   "详情 / 反馈 / 演进": "Details / Feedback / Evolution",
   "继续接收": "Resume receiving",
   "暂停接收": "Pause receiving",
@@ -1026,5 +1026,7 @@
   "项目未知": "Project unknown",
   "未同步": "Not synced",
   "未提炼": "Not extracted",
-  "无": "None"
+  "无": "None",
+  "SiYuan 界面语言": "SiYuan interface language",
+  "SiYuan 界面语言更新失败：{{error}}": "Could not change SiYuan interface language: {{error}}"
 }
