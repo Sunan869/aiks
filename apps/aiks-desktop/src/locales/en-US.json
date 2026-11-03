@@ -926,5 +926,16 @@
   "SiYuan 运行环境未就绪：": "SiYuan runtime is unavailable: ",
   "知识引擎文件不完整：": "Knowledge engine files are incomplete: ",
   "知识引擎启动失败：": "Failed to start knowledge engine: ",
-  "初始化失败：": "Initialization failed: "
+  "初始化失败：": "Initialization failed: ",
+  "豆包": "Doubao",
+  "腾讯元宝": "Tencent Yuanbao",
+  "千问": "Qwen",
+  "故障排查": "Troubleshooting",
+  "架构设计": "Architecture",
+  "实现方案": "Implementation",
+  "配置管理": "Configuration management",
+  "技术探索": "Technical research",
+  "决策记录": "Decision record",
+  "通用": "General",
+  "已导入 {{count}} 条消息 · {{source}}": "Imported {{count}} messages · {{source}}"
 }

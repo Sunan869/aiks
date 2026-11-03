@@ -53,6 +53,16 @@ describe("AIKS UI localization", () => {
     expect(translateUiText("some unknown backend error")).toBe("some unknown backend error");
   });
 
+  it("localizes source names, controlled categories and imported-message feedback", async () => {
+    await i18n.changeLanguage("en-US");
+    expect(tr("豆包")).toBe("Doubao");
+    expect(tr("腾讯元宝")).toBe("Tencent Yuanbao");
+    expect(tr("千问")).toBe("Qwen");
+    expect(tr("架构设计")).toBe("Architecture");
+    expect(translateUiText("已导入 21 条消息 · 豆包")).toBe("Imported 21 messages · 豆包");
+    expect(tr("user-project-123")).toBe("user-project-123");
+  });
+
   it("preserves the meaning of safety and manual-review boundaries", async () => {
     await i18n.changeLanguage("en-US");
     const warning = tr("所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。");

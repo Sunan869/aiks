@@ -65,6 +65,7 @@ const feedbackPrefixes = [
 ] as const;
 const dynamicFeedbackKeys = [
   "知识引擎就绪 (v{{version}})",
+  "已导入 {{count}} 条消息 · {{source}}",
   "同步提交完成：+{{added}} 新增，{{updated}} 更新",
   "扫描完成：+{{added}} 新增，{{updated}} 更新，{{failed}} 失败",
   "已重新提交 {{count}} 个任务（失败 + 未处理队列）",

@@ -505,7 +505,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               const run = runs.find(item => item.session_id === expandedSession);
               return <div className="border-t p-4 text-xs space-y-3" role="region" aria-label="所选会话处理阶段">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>会话 #{expandedSession} · {run ? (STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
+                  <span>会话 #{expandedSession} · {run ? tr(STATUS_CONFIG[run.status]?.label ?? run.status) : "暂无流水线记录"}</span>
                   {run && onViewDetail && <UiButton variant="outline" size="sm" onClick={() => onViewDetail(run.run_id)}>查看完整流水线</UiButton>}
                 </div>
                 {run && <div className="flex flex-wrap gap-3">{STAGE_ORDER.map(stage => {

@@ -1,4 +1,4 @@
-import { translateUiText, getUiLanguage } from "../i18n";
+import { tr, translateUiText, getUiLanguage } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
@@ -474,7 +474,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
               ) : (
                 <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"><Bot className="h-3.5 w-3.5" />AI 提炼</span>
               )}
-              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{CATEGORY_LABELS[data.category] ?? data.category}</span>
+              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{tr(CATEGORY_LABELS[data.category] ?? data.category)}</span>
               {data.managed_by === "user" && data.source_type === "conversation" && <span className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">用户管理 · AI 不再覆盖</span>}
               {data.status === "archived" && <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">已归档</span>}
             </div>
