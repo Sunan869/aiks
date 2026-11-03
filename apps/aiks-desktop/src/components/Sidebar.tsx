@@ -1,4 +1,6 @@
 import type { ElementType } from "react";
+import { useTranslation } from "react-i18next";
+import { tr } from "../i18n";
 import { LayoutDashboard, BookOpen, Database, Settings, HeartPulse, FileText, GitBranch, Folder, ClipboardCheck } from "lucide-react";
 import {
   BOTTOM_NAV_ITEMS,
@@ -52,16 +54,17 @@ function NavButton({ item, page, onNavigate }: { item: NavItem; page: Page; onNa
         }`}
     >
       <Icon className="w-4 h-4 flex-shrink-0" />
-      {item.label}
+      {tr(item.label)}
     </button>
   );
 }
 
 export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount, aiHealthy }: Props) {
+  useTranslation();
   return (
-    <aside className="flex w-52 min-w-0 flex-shrink-0 flex-col xl:w-56 border-r border-slate-200/80 bg-white/95 dark:border-slate-800 dark:bg-slate-950" aria-label="主导航">
-      <div className="px-4 pb-3 pt-5"><div className="mt-1 text-[11px] text-slate-500">本地知识工作空间</div></div>
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto py-2" aria-label="功能导航">
+    <aside className="flex w-52 min-w-0 flex-shrink-0 flex-col xl:w-56 border-r border-slate-200/80 bg-white/95 dark:border-slate-800 dark:bg-slate-950" aria-label={tr("主导航")}>
+      <div className="px-4 pb-3 pt-5"><div className="mt-1 text-[11px] text-slate-500">{tr("本地知识工作空间")}</div></div>
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto py-2" aria-label={tr("功能导航")}>
         {mainNavItems.map((item) => (
           <NavButton key={item.id} item={item} page={page} onNavigate={onNavigate} />
         ))}
@@ -75,16 +78,16 @@ export default function Sidebar({ page, onNavigate, sessionCount, knowledgeCount
 
       <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 space-y-1 text-xs text-gray-400">
         <div className="flex justify-between">
-          <span>工作记录</span>
+          <span>{tr("工作记录")}</span>
           <span className="font-medium text-gray-600 dark:text-gray-300">{sessionCount}</span>
         </div>
         <div className="flex justify-between">
-          <span>知识条目</span>
+          <span>{tr("知识条目")}</span>
           <span className="font-medium text-gray-600 dark:text-gray-300">{knowledgeCount}</span>
         </div>
         <div className="flex items-center gap-1 mt-1">
           <span className={`w-1.5 h-1.5 rounded-full ${aiHealthy ? "bg-green-500" : "bg-yellow-400"}`} />
-          <span className="text-xs">{aiHealthy ? "AI 正常" : "AI 不可用"}</span>
+          <span className="text-xs">{aiHealthy ? tr("AI 正常") : tr("AI 不可用")}</span>
         </div>
       </div>
     </aside>

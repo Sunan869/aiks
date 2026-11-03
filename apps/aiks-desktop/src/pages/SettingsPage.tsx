@@ -1,4 +1,5 @@
 import { DataStorageSettingsSection } from "../components/DataStorage";
+import { LanguageSettings } from "../components/LanguageSettings";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import * as Switch from "@radix-ui/react-switch";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -307,6 +308,7 @@ export default function SettingsPage() {
     <div className="aiks-page-shell w-full min-w-0 pb-6">
       <PageHeader title="设置" description="桌面行为立即生效；AI、同步、内容和语义搜索配置需要重启 AIKS。" />
 
+      <LanguageSettings />
       <Section title="常规">
         <Toggle label="开机自动启动" desc="登录后自动在后台运行" value={settings.startup} onChange={value => update("startup", value)} />
         <Toggle label="关闭窗口后驻留后台" desc="关闭主窗口时保留托盘与后台同步" value={settings.close_to_tray} onChange={value => update("close_to_tray", value)} />
