@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { tr } from "../../i18n";
+import { tr, translateUiText } from "../../i18n";
 import type { ReactNode } from "react";
 
 type Tone = "neutral" | "success" | "warning" | "danger";
@@ -13,7 +13,7 @@ const noticeStyles: Record<Tone, string> = {
 
 export function UiNotice({ children, tone = "neutral", className = "" }: { children: ReactNode; tone?: Tone; className?: string }) {
   useTranslation();
-  return <div role={tone === "danger" ? "alert" : "status"} className={`min-w-0 break-words rounded-lg border px-3 py-2 text-xs ${noticeStyles[tone]} ${className}`}>{typeof children === "string" ? tr(children) : children}</div>;
+  return <div role={tone === "danger" ? "alert" : "status"} className={`min-w-0 break-words rounded-lg border px-3 py-2 text-xs ${noticeStyles[tone]} ${className}`}>{typeof children === "string" ? translateUiText(children) : children}</div>;
 }
 
 export function UiSection({ title, description, children, className = "" }: {
