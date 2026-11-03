@@ -198,7 +198,7 @@ export default function DiagnosticsPage() {
             ].map(([label, value, valueClass]) => (
               <div key={label as string} className="rounded-md bg-gray-50 dark:bg-gray-900/40 px-2 py-2 text-center">
                 <div className={`text-base ${valueClass}`}>{value}</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">{tr(label)}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">{tr(String(label))}</div>
               </div>
             ))}
           </div>

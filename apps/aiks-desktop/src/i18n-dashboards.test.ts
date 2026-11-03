@@ -8,9 +8,10 @@ import diagnostics from "./pages/DiagnosticsPage.tsx?raw";
 import en from "./locales/en-US.json";
 describe("Dynamic dashboard and tab translation coverage", () => {
   it("localizes mapped dashboard label values", () => {
-    for(const page of [overview,processing,sources,diagnostics]) expect(page).toContain("tr(label)");
+    for(const page of [overview,processing,sources]) expect(page).toContain("tr(label)");
     expect(sources).toContain("tr(description)");
     expect(diagnostics).toContain("tr(bridgeStatus)");
+    expect(diagnostics).toContain("tr(String(label))");
   });
   it("localizes project memory tabs and topic group labels", () => {
     expect(memory).toContain("tr(label)");
