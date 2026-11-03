@@ -141,7 +141,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count, color]) => (
               <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-slate-700 dark:bg-slate-800">
                 <div className={`text-xl font-semibold tabular-nums ${color}`}>{count === undefined ? "—" : format(count)}</div>
-                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
               </div>
             ))}
           </div>
@@ -167,7 +167,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
                 <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
               </div>
             ))}
           </div>
@@ -190,7 +190,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
             </div>
           ))}
         </div>
@@ -214,7 +214,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr(label)}</div>
             </div>
           ))}
         </div>
