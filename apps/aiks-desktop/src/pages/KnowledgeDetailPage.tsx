@@ -131,7 +131,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
   ) => {
     if (organizationHistoryBusy !== null) return;
     if (nextStatus === "archived" && !window.confirm(
-      "只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。"
+      tr("只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。")
     )) return;
     setOrganizationHistoryBusy(entry.derived_knowledge_id);
     setOrganizationHistoryError("");
@@ -352,7 +352,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
     const id = recoveryKnowledgeId.trim();
     const sourceIds = [data.id, ...selectedSources];
     if (!window.confirm(
-      "只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。"
+      tr("只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。")
     )) return;
     setRecoveryBusy(true);
     setRecoveryError("");

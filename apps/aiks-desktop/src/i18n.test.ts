@@ -63,6 +63,18 @@ describe("AIKS UI localization", () => {
     expect(tr("user-project-123")).toBe("user-project-123");
   });
 
+  it("keeps data migration and human review confirmations accurate in English", async () => {
+    await i18n.changeLanguage("en-US");
+    const migration = tr("将 AIKS 数据从：\n{{from}}\n\n迁移到：\n{{to}}\n\nAIKS 会立即重启，并在打开数据库和 SiYuan 之前完成复制与校验。原目录会暂时保留作为安全备份。是否继续？", { from: "C:\\\\AIKS", to: "D:\\\\AIKS" });
+    expect(migration).toContain("before opening the database or SiYuan");
+    expect(migration).toContain("C:\\\\AIKS");
+    expect(migration).toContain("D:\\\\AIKS");
+    expect(tr("只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。")).toContain("retained");
+    expect(tr("将 {{session}} 归入「{{project}}」？\n仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。", {
+      session: "Session A", project: "Project B",
+    })).toContain("Provider files");
+  });
+
   it("preserves the meaning of safety and manual-review boundaries", async () => {
     await i18n.changeLanguage("en-US");
     const warning = tr("所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。");

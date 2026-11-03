@@ -1,4 +1,4 @@
-import { translateUiText } from "../i18n";
+import { tr, translateUiText } from "../i18n";
 import * as Tabs from "@radix-ui/react-tabs";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -174,8 +174,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const reviewEvolution = async (relationId: string, decision: "confirmed" | "rejected") => {
     if (!selected || relationBusy !== null) return;
     const prompt = decision === "confirmed"
-      ? "确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。"
-      : "拒绝此演进关系建议？原始知识和 Session 均会保留。";
+      ? tr("确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。")
+      : tr("拒绝此演进关系建议？原始知识和 Session 均会保留。");
     if (!window.confirm(prompt)) return;
     const requestProject = selected;
     const requestGeneration = projectGeneration.current;
@@ -204,9 +204,11 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
     const session = sessionChoices.find(item => item.id === sessionId);
     const project = projects.find(item => item.id === bindingTarget);
     const message = clear
-      ? `撤销 ${session?.title || session?.session_id || bindingSession} 的本地项目归属修正？原始来源信息不变。`
-      : `将 ${session?.title || session?.session_id || bindingSession} 归入「${project?.title || "未知项目"}」？
-仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。`;
+      ? tr("撤销 {{session}} 的本地项目归属修正？原始来源信息不变。", { session: session?.title || session?.session_id || bindingSession })
+      : tr("将 {{session}} 归入「{{project}}」？\n仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。", {
+          session: session?.title || session?.session_id || bindingSession,
+          project: project?.title || tr("未知项目"),
+        });
     if (!window.confirm(message)) return;
     setBindingBusy(true);
     setBindingError("");
@@ -260,7 +262,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const openSavedReport = async (id: string, revision?: number) => {
     if (!id || !selected || reportBusy) return;
     if (preview.trim() && !window.confirm(
-      "载入历史报告会替换当前尚未保存的预览编辑，是否继续？"
+      tr("载入历史报告会替换当前尚未保存的预览编辑，是否继续？")
     )) return;
     const activeProject = selected;
     const requestId = ++generation.current;
@@ -291,7 +293,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
   const saveReviewedReport = async () => {
     if (!selected || previewType !== "review" || !preview.trim() || reportBusy) return;
     if (!window.confirm(
-      "保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。"
+      tr("保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。")
     )) return;
     const activeProject = selected;
     const requestId = generation.current;

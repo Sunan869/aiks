@@ -937,5 +937,15 @@
   "技术探索": "Technical research",
   "决策记录": "Decision record",
   "通用": "General",
-  "已导入 {{count}} 条消息 · {{source}}": "Imported {{count}} messages · {{source}}"
+  "已导入 {{count}} 条消息 · {{source}}": "Imported {{count}} messages · {{source}}",
+  "将 AIKS 数据从：\n{{from}}\n\n迁移到：\n{{to}}\n\nAIKS 会立即重启，并在打开数据库和 SiYuan 之前完成复制与校验。原目录会暂时保留作为安全备份。是否继续？": "Move AIKS data from:\n{{from}}\n\nto:\n{{to}}\n\nAIKS will restart immediately, copy and verify the data before opening the database or SiYuan, and temporarily retain the original directory as a safety backup. Continue?",
+  "确认将这两条知识记录建立为已审核的演进关系？请先核对双方原文及关系证据。": "Confirm a reviewed evolution relationship between these two knowledge items? First verify both originals and the supporting evidence.",
+  "拒绝此演进关系建议？原始知识和 Session 均会保留。": "Reject this proposed evolution relationship? The original knowledge items and sessions will be preserved.",
+  "撤销 {{session}} 的本地项目归属修正？原始来源信息不变。": "Undo the local project assignment correction for {{session}}? Original source information will remain unchanged.",
+  "将 {{session}} 归入「{{project}}」？\n仅更改 AIKS 本地记忆归组，不修改 Provider 原始文件、Session 原始路径或 SiYuan 文档。": "Assign {{session}} to project “{{project}}”?\nOnly AIKS's local memory grouping will change. Provider files, original session paths and SiYuan documents will not be modified.",
+  "未知项目": "Unknown project",
+  "载入历史报告会替换当前尚未保存的预览编辑，是否继续？": "Loading a historical report will replace unsaved changes to the current preview. Continue?",
+  "保存此人工审核的回顾为 AIKS 本地草稿版本？不会改动任何 SiYuan 文档或项目文件。": "Save this human-reviewed work report as a local AIKS draft revision? No SiYuan documents or project files will be modified.",
+  "只在 AIKS 本地归档这条审核后创建的独立知识？原知识与 SiYuan 文档均会保留。": "Archive this independently created, reviewed knowledge item in AIKS only? Original knowledge and SiYuan documents will be retained.",
+  "只为已存在的独立知识修复本地审核记录？请先核对目标知识 ID、整理方式及来源列表；此操作不会创建或修改任何 SiYuan 文档。": "Repair the local audit record for an existing independent knowledge item only? First verify the target knowledge ID, organization method and source list. This will not create or modify any SiYuan document."
 }
