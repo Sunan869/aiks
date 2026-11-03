@@ -24,6 +24,8 @@ void i18n.use(initReactI18next).init({
   fallbackLng: "zh-CN",
   supportedLngs: ["zh-CN", "en-US"],
   interpolation: { escapeValue: false },
+  keySeparator: false,
+  nsSeparator: false,
   returnNull: false,
   react: { useSuspense: false },
 });

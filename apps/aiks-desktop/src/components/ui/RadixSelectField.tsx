@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "../../i18n";
 import * as Select from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { emptyOptionSentinel, uniqueChoiceValues } from "./selectionIdentity";
@@ -18,6 +20,7 @@ interface Props {
 
 /** A Radix-backed select for fixed choices; use SearchSelect for very long searchable lists. */
 export function RadixSelectField({ value, onValueChange, options, label, disabled, placeholder = "请选择", className = "", name, required }: Props) {
+  useTranslation();
   // Avoid every real domain key, including keys that resemble old sentinels.
   const choices = uniqueChoiceValues(options);
   const blank = emptyOptionSentinel(choices);
@@ -25,8 +28,8 @@ export function RadixSelectField({ value, onValueChange, options, label, disable
   const fromRadix = (option: string) => option === blank ? "" : option;
   return (
     <Select.Root value={toRadix(value)} onValueChange={next => onValueChange(fromRadix(next))} disabled={disabled} name={name} required={required}>
-      <Select.Trigger aria-label={label} className={`aiks-field-select inline-flex min-w-0 items-center justify-between gap-2 text-left focus-visible:ring-2 focus-visible:ring-sky-500/30 ${className}`}>
-        <Select.Value placeholder={placeholder} />
+      <Select.Trigger aria-label={tr(label)} className={`aiks-field-select inline-flex min-w-0 items-center justify-between gap-2 text-left focus-visible:ring-2 focus-visible:ring-sky-500/30 ${className}`}>
+        <Select.Value placeholder={tr(placeholder)} />
         <Select.Icon><ChevronDown className="h-4 w-4 text-slate-400" /></Select.Icon>
       </Select.Trigger>
       <Select.Portal>
@@ -36,7 +39,7 @@ export function RadixSelectField({ value, onValueChange, options, label, disable
             {choices.map(option => (
               <Select.Item key={option.value} value={toRadix(option.value)} disabled={option.disabled} className="relative flex min-h-9 cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-3 text-sm outline-none focus:bg-sky-50 data-[disabled]:opacity-40 dark:focus:bg-slate-800">
                 <Select.ItemIndicator className="absolute left-2"><Check className="h-4 w-4" /></Select.ItemIndicator>
-                <Select.ItemText>{option.label}</Select.ItemText>
+                <Select.ItemText>{tr(option.label)}</Select.ItemText>
               </Select.Item>
             ))}
           </Select.Viewport>
