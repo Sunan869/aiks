@@ -24,6 +24,7 @@ export function overviewSyncBalance(status: FullStatus) {
 
 export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onRefresh }: Props) {
   useTranslation();
+  useTranslation();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
@@ -140,7 +141,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count, color]) => (
               <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-slate-700 dark:bg-slate-800">
                 <div className={`text-xl font-semibold tabular-nums ${color}`}>{count === undefined ? "—" : format(count)}</div>
-                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
               </div>
             ))}
           </div>
@@ -166,13 +167,13 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
             ] as const).map(([label, count]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
                 <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">{label}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
               </div>
             ))}
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Cpu className="h-4 w-4 shrink-0" />
-            <span>AI 服务：{aiStatus ? (aiStatus.healthy ? "正常" : "暂时不可用") : "未知"}{aiStatus?.display_name ? ` · ${aiStatus.display_name}` : ""}</span>
+            <span>{tr("AI 服务：")}{aiStatus ? tr(aiStatus.healthy ? "正常" : "暂时不可用") : tr("未知")}{aiStatus?.display_name ? ` · ${aiStatus.display_name}` : ""}</span>
           </div>
           {taskLoading && <p className="mt-2 text-xs text-slate-500">正在读取全库任务统计…</p>}
           {taskError && <UiNotice tone="warning" className="mt-2">任务统计获取失败，当前显示为未知；请刷新重试。</UiNotice>}
@@ -189,7 +190,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
             </div>
           ))}
         </div>
@@ -213,7 +214,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
           ] as const).map(([label, count]) => (
             <div key={label} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{count == null ? "—" : format(count)}</div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400"<{tr(label)}</div>
             </div>
           ))}
         </div>

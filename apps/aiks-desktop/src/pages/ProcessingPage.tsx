@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { tr, translateUiText, getUiLanguage } from "../i18n";
 import { PageHeader } from "../components/ui/PageHeader";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -51,6 +52,7 @@ function StageCell({ stage, stageRuns }: { stage: string; stageRuns: { stage: st
 interface Props { onViewDetail?: (runId: string) => void; onViewSession?: (sessionId: number) => void; }
 
 export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
+  useTranslation();
   const formatSourceName = useSourceName();
   const [runs, setRuns] = useState<PipelineSummary[]>([]);
   const [stats, setStats] = useState<PipelineStats | null>(null);
@@ -283,7 +285,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
             ["向量索引", stats?.embeddings],
           ] as const).map(([label, value]) => (
             <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/70">
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{tr(label)}</div>
               <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{value ?? "—"}</div>
             </div>
           ))}
@@ -335,7 +337,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
               className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-sky-500 ${taskFilter === value
                 ? "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                 : "border-gray-200 text-gray-500 dark:border-gray-700"}`}
-            >{label}</UiButton>
+            >{tr(label)}</UiButton>
           ))}
         </div>
         <p className="mb-2 text-xs text-slate-500" role="status">当前页 {visibleTasks.length} 条，匹配全库 {pageTotal} 条；每页 {PAGE_SIZE} 条，统计按全库计算。</p>
@@ -355,8 +357,8 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                     <td className="py-2 pr-3 max-w-48 truncate" title={task.title || task.external_session_id}>{task.title || task.external_session_id}</td>
                     <td className="py-2 pr-3">{formatSourceName(task.source)}</td>
                     <td className="py-2 pr-3">{task.sync_excluded ? (task.void_phase === "VOIDED" ? (task.voided_source_changed ? "已作废 · 来源有更新" : "已作废") : "作废清理中/需处理冲突") : task.sync_status || "未同步"}</td>
-                    <td className="py-2 pr-3">{task.pipeline_status || "未提炼"}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
-                    <td className="py-2 pr-3">{task.job_status || "—"}{task.attempts ? ` (${task.attempts})` : ""}</td>
+                    <td className="py-2 pr-3">{tr(task.pipeline_status || "未提炼")}{task.current_stage ? ` · ${task.current_stage}` : ""}</td>
+                    <td className="py-2 pr-3">{tr(task.job_status || "—")}{task.attempts ? ` (${task.attempts})` : ""}</td>
                     <td className="py-2 pr-3" title={task.last_task_update || ""}>
                       {task.stage_latency_ms !== null ? `${task.stage_latency_ms}ms` : "—"}
                     </td>

@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { tr } from "../i18n";
 import { translateUiText } from "../i18n";
 import { DataStorageSettingsSection } from "../components/DataStorage";
 import { LanguageSettings } from "../components/LanguageSettings";
@@ -93,6 +95,7 @@ const MOCK_SETTINGS: Settings = {
 };
 
 export default function SettingsPage() {
+  useTranslation();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -325,7 +328,7 @@ export default function SettingsPage() {
           <RadixSelectField label="自动扫描间隔" value={String(settings.scan_interval_seconds / 60)}
             onValueChange={value => update("scan_interval_seconds", Number(value) * 60)}
             className="min-w-[120px] text-sm"
-            options={[1, 5, 10, 15, 30].map(minutes => ({ value: String(minutes), label: `${minutes} 分钟` }))} />
+            options={[1, 5, 10, 15, 30].map(minutes => ({ value: String(minutes), label: tr("{{count}} 分钟", { count: minutes }) }))} />
         </div>
       </Section>
 
@@ -340,7 +343,7 @@ export default function SettingsPage() {
           <RadixSelectField label="提炼并发数" value={String(settings.ai_max_concurrent)}
             onValueChange={value => update("ai_max_concurrent", Number(value))}
             className="min-w-[96px] text-sm"
-            options={[1, 2, 3, 4].map(value => ({ value: String(value), label: `${value} 路` }))} />
+            options={[1, 2, 3, 4].map(value => ({ value: String(value), label: tr("{{count}} 路", { count: value }) }))} />
         </div>
         <div className="py-3">
           <div className="text-xs text-gray-400">当前模型</div>

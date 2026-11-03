@@ -60,7 +60,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
   return (
     <section className="aiks-surface group flex h-full min-w-0 flex-col transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{source.display_name}</h2>
+        <h2 className="text-sm font-semibold">{tr(source.display_name)}</h2>
         <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{tr(status.label)}</span>
       </div>
       <div className="mt-2 break-all text-xs text-gray-500">
@@ -108,6 +108,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
 }
 
 export default function SourcesPage({ fullStatus }: Props) {
+  useTranslation();
   const { sources, loading, error, refresh } = useSourceCatalog();
   const [sourceQuery, setSourceQuery] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
@@ -130,9 +131,9 @@ export default function SourcesPage({ fullStatus }: Props) {
         ["已停用", disabledCount, "保留历史会话"],
       ] as const).map(([label, count, description]) => (
         <div key={label} className="aiks-surface min-w-0 p-4">
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{tr(label)}</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{count}</p>
-          <p className="mt-1 text-xs text-slate-400">{description}</p>
+          <p className="mt-1 text-xs text-slate-400">{tr(description)}</p>
         </div>
       ))}
     </UiStatGrid></section>
