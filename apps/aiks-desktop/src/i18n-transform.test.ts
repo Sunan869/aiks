@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
-import path from "node:path";
 import { transformLocalizedTsx } from "../plugins/localize";
 
 describe("i18next JSX bridge", () => {
@@ -13,19 +12,19 @@ describe("i18next JSX bridge", () => {
       '  </section>;',
       '}',
     ].join("\n");
-    const result = transformLocalizedTsx(sample, path.join(process.cwd(), "src/pages/Example.tsx"));
+    const result = transformLocalizedTsx(sample, "/repo/apps/aiks-desktop/src/pages/Example.tsx");
     expect(result.code).toContain('tr("知识库")');
     expect(result.code).toContain('aria-label={tr("详情")}');
     expect(result.code).toContain('data-state="已处理"');
     expect(result.code).toContain('value="raw"');
     expect(result.code).toContain('tr("条数据")');
     expect(result.code).toContain('import { tr } from "../i18n"');
-    const parsed = ts.createSourceFile("Example.tsx", result.code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    expect(parsed.parseDiagnostics).toHaveLength(0);
+    const parsed = ts.transpileModule(result.code, { fileName: "Example.tsx", reportDiagnostics: true, compilerOptions: { jsx: ts.JsxEmit.ReactJSX } });
+    expect((parsed.diagnostics || []).filter(d => d.category === ts.DiagnosticCategory.Error)).toHaveLength(0);
   });
   it("does not rewrite domain constants", () => {
     const input = 'const sourceId = "数据源"; export const View = () => <span title={"知识库"}>可检索</span>;';
-    const result = transformLocalizedTsx(input, path.join(process.cwd(), "src/View.tsx"));
+    const result = transformLocalizedTsx(input, "/repo/apps/aiks-desktop/src/View.tsx");
     expect(result.code).toContain('sourceId = "数据源"');
     expect(result.code).toContain('title={tr("知识库")}');
     expect(result.code).toContain('tr("可检索")');

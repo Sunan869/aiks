@@ -1,5 +1,4 @@
 import ts from "typescript";
-import path from "node:path";
 import type { Plugin } from "vite";
 
 /** Compile-time bridge for existing TSX presentation only.
@@ -79,9 +78,9 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
   let code = input;
   for (const e of edits) code = code.slice(0, e.start) + e.replacement + code.slice(e.end);
 
-  const localeFile = path.join(process.cwd(), "src", "i18n.ts");
-  let importPath = path.relative(path.dirname(id), localeFile).replace(/\\/g, "/").replace(/\.ts$/, "");
-  if (!importPath.startsWith(".")) importPath = "./" + importPath;
+  const relativeFile = id.replace(/\\/g, "/").split("/src/")[1] || id;
+  const depth = Math.max(0, relativeFile.split("/").length - 1);
+  const importPath = (depth === 0 ? "./" : "../".repeat(depth)) + "i18n";
   if (!/import\s+\{\s*tr\s*\}\s+from\s+['"][^'"]+i18n['"]/.test(code)) {
     code = 'import { tr } from "' + importPath + '";\n' + code;
   }
