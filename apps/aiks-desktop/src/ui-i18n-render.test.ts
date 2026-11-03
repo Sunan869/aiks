@@ -15,7 +15,7 @@ describe("localized UI presentation (React SSR smoke checks)", () => {
       createElement("div", {},
         createElement(PageHeader, { title: "处理中心", description: "会话同步与 AI 任务状态" }),
         createElement(UiEmptyState, { title: "暂无数据" }),
-        createElement(UiStatusBadge, {}, "处理中"),
+        createElement(UiStatusBadge, { children: "处理中" }),
       ),
     );
     expect(html).toContain("Processing Center");
@@ -35,10 +35,10 @@ describe("localized UI presentation (React SSR smoke checks)", () => {
 
   it("retranslates authored notices without translating appended error details", async () => {
     await i18n.changeLanguage("en-US");
-    let html = renderToStaticMarkup(createElement(UiNotice, { tone: "danger" }, "反馈加载失败：connection timeout"));
+    let html = renderToStaticMarkup(createElement(UiNotice, { tone: "danger", children: "反馈加载失败：connection timeout" }));
     expect(html).toContain("Failed to load feedback: connection timeout");
     await i18n.changeLanguage("zh-CN");
-    html = renderToStaticMarkup(createElement(UiNotice, { tone: "danger" }, "反馈加载失败：connection timeout"));
+    html = renderToStaticMarkup(createElement(UiNotice, { tone: "danger", children: "反馈加载失败：connection timeout" }));
     expect(html).toContain("反馈加载失败：connection timeout");
   });
 });
