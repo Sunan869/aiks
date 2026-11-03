@@ -33,14 +33,32 @@
 
 > **Privacy and capability boundaries:** AIKS does not automatically access private browser-account chat histories, and local providers do not rewrite source files. Imported sessions can be browsed without a model, but new knowledge extraction requires a configured AI service. See the [compatibility matrix](docs/reference-analysis/multi-provider-support.md).
 
-REAL PRODUCT SCREENSHOTS: enable this two-column gallery only after capturing real, anonymized AIKS UI screenshots.
 ## Product screenshots
-<table>
-<tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS work records" /><br/>Work records</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS data sources" /><br/>Data sources</td></tr>
-<tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS knowledge workspace" /><br/>Knowledge extraction</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS search" /><br/>Search and Q&amp;A</td></tr>
-</table>
-See docs/marketing/SCREENSHOTS.md. Never represent generated UI mockups as product screenshots.
 
+Actual Windows desktop screenshots illustrating AIKS's workflow from source import and processing to knowledge reuse.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/01-data-sources.png"><img src="docs/media/screenshots/01-data-sources.png" alt="AIKS Data Sources: local AI tools, status and sync actions" width="100%" /></a>
+      <strong>Data sources</strong> — Connect supported AI tools
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/02-processing-center.png"><img src="docs/media/screenshots/02-processing-center.png" alt="AIKS Processing Center: sync state, extraction and tasks" width="100%" /></a>
+      <strong>Processing center</strong> — Follow extraction and sync progress
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/03-knowledge-workspace.png"><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS Knowledge Base: structured items linked to their original sessions" width="100%" /></a>
+      <strong>Knowledge base</strong> — Structured, traceable knowledge
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/04-ask-aiks.png"><img src="docs/media/screenshots/04-ask-aiks.png" alt="Ask AIKS: answering questions using your accumulated knowledge" width="100%" /></a>
+      <strong>Ask AIKS</strong> — Reuse what you already learned
+    </td>
+  </tr>
+</table>
 
 ## 🌐 Supported AI data sources
 

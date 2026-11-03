@@ -33,14 +33,32 @@
 
 > **隐私和功能边界：** AIKS 不会自动访问网页账号中的私密聊天记录；本地 Provider 不修改来源文件。未配置 AI 服务时仍可浏览导入的会话，但不能自动提炼新知识。具体格式兼容性见[支持矩阵](docs/reference-analysis/multi-provider-support.md)。
 
-REAL PRODUCT SCREENSHOTS: publish this two-column gallery only after capturing and redacting actual AIKS UI screenshots.
 ## 产品界面
-<table>
-<tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS 工作记录" /><br/>工作记录</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS 数据源管理" /><br/>数据源管理</td></tr>
-<tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS 知识工作台" /><br/>知识提炼</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS 全文及语义检索" /><br/>检索与问答</td></tr>
-</table>
-See docs/marketing/SCREENSHOTS.md for instructions. Do not use mock UI or private data.
 
+下面是 AIKS 的实际 Windows 桌面界面，展示从数据源采集、任务处理到知识复用的主要流程。
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/01-data-sources.png"><img src="docs/media/screenshots/01-data-sources.png" alt="AIKS 数据源管理：查看本地 AI 工具、状态和同步入口" width="100%" /></a>
+      <strong>数据源管理</strong> — 多种 AI 工具统一接入
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/02-processing-center.png"><img src="docs/media/screenshots/02-processing-center.png" alt="AIKS 处理中心：同步状态、AI 提炼进度和任务列表" width="100%" /></a>
+      <strong>处理中心</strong> — 同步、提炼和异常状态可追踪
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/03-knowledge-workspace.png"><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS 知识库：带有原始 Session 链接的结构化知识文档" width="100%" /></a>
+      <strong>知识库</strong> — 结构化知识与原始会话关联
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/media/screenshots/04-ask-aiks.png"><img src="docs/media/screenshots/04-ask-aiks.png" alt="AIKS 知识问答：基于已积累知识回答问题" width="100%" /></a>
+      <strong>问 AIKS</strong> — 从历史经验中找答案
+    </td>
+  </tr>
+</table>
 
 ## 🌐 支持哪些 AI 数据源？
 
