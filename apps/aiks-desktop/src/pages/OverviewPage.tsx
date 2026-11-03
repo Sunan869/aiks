@@ -1,4 +1,5 @@
-import { getUiLanguage } from "../i18n";
+import { getUiLanguage, tr } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -22,6 +23,7 @@ export function overviewSyncBalance(status: FullStatus) {
 }
 
 export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onRefresh }: Props) {
+  useTranslation();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [taskStats, setTaskStats] = useState<TaskCenterStats | null>(null);
@@ -147,7 +149,7 @@ export default function OverviewPage({ fullStatus, aiStatus, syncInProgress, onR
               <div>本地总会话 {format(fullStatus.db_total)} · 已归类同步状态 {format(balance.classified)}</div>
               {balance.unclassified > 0 && <UiNotice tone="warning">另有 {format(balance.unclassified)} 条会话未归入上述四种同步状态，请检查同步目标记录；不代表这些会话已丢失。</UiNotice>}
               {balance.classified > fullStatus.db_total && <UiNotice tone="warning">同步状态合计超过本地总会话，可能存在重复目标记录，需要进一步检查。</UiNotice>}
-              {fullStatus.last_sync_at && <div>最近同步：{new Date(fullStatus.last_sync_at).toLocaleString(getUiLanguage())} · 本次新入库 {format(fullStatus.last_sync_new)} · 更新 {format(fullStatus.last_sync_updated)} · 失败 {format(fullStatus.last_sync_failed)}</div>}
+              {fullStatus.last_sync_at && <div>{tr("最近同步：{{time}} · 本次新入库 {{added}} · 更新 {{updated}} · 失败 {{failed}}", { time: new Date(fullStatus.last_sync_at).toLocaleString(getUiLanguage()), added: format(fullStatus.last_sync_new), updated: format(fullStatus.last_sync_updated), failed: format(fullStatus.last_sync_failed) })}</div>}
             </div>
           )}
         </UiSection>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { tr } from "./i18n";
+import { getUiLanguage, tr } from "./i18n";
 import { listen } from "@tauri-apps/api/event";
 import { Sparkles } from "lucide-react";
 import Sidebar from "./components/Sidebar";
@@ -33,7 +33,7 @@ export default function App() {
   const [fullStatus, setFullStatus] = useState<FullStatus | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [knowledgeCount, setKnowledgeCount] = useState(0);
-  const [startupStep, setStartupStep] = useState<string>(tr("正在初始化 AIKS..."));
+  const [startupStep, setStartupStep] = useState<string>("正在初始化 AIKS...");
   const [isReady, setIsReady] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [syncInProgress, setSyncInProgress] = useState(false);
@@ -209,7 +209,7 @@ export default function App() {
         </div>
 
         <div className="flex h-8 flex-shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-950">
-          {fullStatus && <><span>{Object.values(fullStatus.scan_by_source).filter(v => v > 0).length} 个数据源</span><span>·</span><span>{fullStatus.last_sync_at ? `最近扫描 ${new Date(fullStatus.last_sync_at).toLocaleTimeString("zh-CN")}` : "尚未扫描"}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? "状态正常" : "有待处理项"}</span></>}
+          {fullStatus && <><span>{tr("{{count}} 个数据源", { count: Object.values(fullStatus.scan_by_source).filter(v => v > 0).length })}</span><span>·</span><span>{fullStatus.last_sync_at ? tr("最近扫描 {{time}}", { time: new Date(fullStatus.last_sync_at).toLocaleTimeString(getUiLanguage()) }) : tr("尚未扫描")}</span><span>·</span><span className={isHealthy ? "text-green-500" : "text-yellow-500"}>{isHealthy ? tr("状态正常") : tr("有待处理项")}</span></>}
           {isMock && <span className="text-yellow-500">{tr("Mock 模式 — 仅用于开发")}</span>}
 
         </div>

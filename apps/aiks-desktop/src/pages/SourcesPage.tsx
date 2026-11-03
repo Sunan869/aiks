@@ -1,4 +1,5 @@
-import { translateUiText } from "../i18n";
+import { tr, translateUiText } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { UiStatGrid } from "../components/ui/workspace";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -28,6 +29,7 @@ const ISSUE_TONE_CLASS: Record<SourceStatusTone, string> = {
 };
 
 function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDescriptor; count: number; diagnostics: string[]; refresh: () => Promise<void> }) {
+  useTranslation();
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(source.enabled);
   const [paths, setPaths] = useState(source.paths.join("\n"));
@@ -59,7 +61,7 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
     <section className="aiks-surface group flex h-full min-w-0 flex-col transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">{source.display_name}</h2>
-        <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{status.label}</span>
+        <span className={`text-xs font-medium ${STATUS_TONE_CLASS[status.tone]}`}>{tr(status.label)}</span>
       </div>
       <div className="mt-2 break-all text-xs text-gray-500">
         {source.paths.length
@@ -71,8 +73,8 @@ function SourceCard({ source, count, diagnostics, refresh }: { source: SourceDes
 
       {status.title && (
         <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${ISSUE_TONE_CLASS[status.tone]}`}>
-          <div className="font-medium">{status.title}</div>
-          {status.description && <div className="mt-1 leading-5 opacity-80">{status.description}</div>}
+          <div className="font-medium">{tr(status.title)}</div>
+          {status.description && <div className="mt-1 leading-5 opacity-80">{tr(status.description)}</div>}
         </div>
       )}
 

@@ -36,6 +36,15 @@ describe("AIKS UI localization", () => {
     expect(translateUiText("反馈加载失败：connection timeout")).toBe("反馈加载失败：connection timeout");
   });
 
+  it("renders generated provider states and status bar text in English while retaining source values", async () => {
+    await i18n.changeLanguage("en-US");
+    expect(tr("待重启生效")).toBe("Restart required");
+    expect(tr("未检测到本地会话数据")).toBe("No local session data detected");
+    expect(tr("{{count}} 个数据源", { count: 12 })).toBe("12 data sources");
+    expect(tr("最近扫描 {{time}}", { time: "10:42 AM" })).toBe("Last scanned 10:42 AM");
+    expect(tr("总结一下最近讨论的向量模型部署方案")).toContain("deployment");
+  });
+
   it("preserves the meaning of safety and manual-review boundaries", async () => {
     await i18n.changeLanguage("en-US");
     const warning = tr("所有关系先记录为建议，人工确认后才成为已确认的知识关联；原知识不会被自动删除或覆盖。跨 Provider 关系必须有同一已核实项目路径或显式人工归属，两个不同 Session 仅显示项目同名不能作为证据；缺失的来源不可确认。");
