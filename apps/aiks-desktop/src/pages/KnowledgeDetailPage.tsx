@@ -1,3 +1,4 @@
+import { translateUiText, getUiLanguage } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { UiInput, UiTextarea } from "../components/ui/fields";
 import { UiButton } from "../components/ui/fields";
@@ -520,7 +521,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
         </div>
       </div>
 
-      {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{message}</div>}
+      {message && <div className={`mb-4 rounded-md border px-4 py-2 text-xs ${message.includes("失败") ? "border-red-200 bg-red-50 text-red-700" : message.includes("冲突") ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>{translateUiText(message)}</div>}
 
       <div className="mb-5 aiks-surface">
         <div className="mb-3 flex items-center justify-between">
@@ -591,7 +592,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
                   <span className="font-medium">{relation.relation_type}</span>
                   <span className="text-gray-500">{counterpart?.title ?? counterpartId}</span>
                   <span className="text-gray-400">{relation.status === "suggested" ? "待确认" : relation.status === "confirmed" ? "已确认" : "已拒绝"}</span>
-                  <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString("zh-CN")}</span>
+                  <span className="text-gray-400">{new Date(relation.updated_at).toLocaleString(getUiLanguage())}</span>
                   {relation.status !== "confirmed" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "confirmed")} className="text-blue-600">确认</UiButton>}
                   {relation.status !== "rejected" && <UiButton variant="outline" size="sm" type="button" disabled={relationBusy} onClick={() => void reviewRelation(relation.id, "rejected")} className="text-red-600">撤销/拒绝</UiButton>}
                 </div>
@@ -653,7 +654,7 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
           {feedback.map(item => (
             <div key={item.id} className="border-t border-gray-100 pt-2 text-xs dark:border-gray-700">
               <span className="font-medium">{({ useful: "有用", incorrect: "错误", duplicate: "重复", outdated: "过时", needs_detail: "需补充" } as Record<KnowledgeFeedbackKind, string>)[item.kind]}</span>
-              <span className="ml-2 text-gray-400">{new Date(item.created_at).toLocaleString("zh-CN")}</span>
+              <span className="ml-2 text-gray-400">{new Date(item.created_at).toLocaleString(getUiLanguage())}</span>
               {item.note && <p className="mt-1 whitespace-pre-wrap text-gray-600 dark:text-gray-300">{item.note}</p>}
             </div>
           ))}
@@ -893,8 +894,8 @@ export default function KnowledgeDetailPage({ knowledgeId, onBack, onViewSession
       </section>
 
       <div className="flex gap-4 text-xs text-gray-400">
-        <span>创建：{new Date(data.created_at).toLocaleString("zh-CN")}</span>
-        <span>更新：{new Date(data.updated_at).toLocaleString("zh-CN")}</span>
+        <span>创建：{new Date(data.created_at).toLocaleString(getUiLanguage())}</span>
+        <span>更新：{new Date(data.updated_at).toLocaleString(getUiLanguage())}</span>
         <span>{data.source_type === "manual" ? "本地手工知识" : `${Math.round(data.confidence * 100)}% AI 置信度`}</span>
       </div>
 

@@ -1,3 +1,4 @@
+import { translateUiText } from "../i18n";
 import * as Tabs from "@radix-ui/react-tabs";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -414,8 +415,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
           <div className="memory-stat"><span>当前项目知识</span><strong>{detail?.project.knowledge_count ?? "—"}</strong></div>
         </div>
       </header>
-      {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{notice}</p>}
-      {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
+      {notice && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{translateUiText(notice)}</p>}
+      {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{translateUiText(error)}</p>}
       <div className="memory-project-picker flex items-center gap-3">
         <label htmlFor="project-memory-select">项目</label>
         <SearchSelect label="项目" value={selected} onChange={setSelected}
@@ -472,8 +473,8 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
         {bindings.some(item => String(item.session_id) === bindingSession) && (
           <p className="mt-2 text-xs text-amber-700">当前 Session 有用户手动归属记录；可使用「撤销归属修正」恢复。</p>
         )}
-        {bindingError && <p role="alert" className="mt-2 text-xs text-red-600">{bindingError}</p>}
-        {bindingNotice && <p role="status" className="mt-2 text-xs text-green-600">{bindingNotice}</p>}
+        {bindingError && <p role="alert" className="mt-2 text-xs text-red-600">{translateUiText(bindingError)}</p>}
+        {bindingNotice && <p role="status" className="mt-2 text-xs text-green-600">{translateUiText(bindingNotice)}</p>}
       </section>
       {detail && (
         <>
@@ -789,7 +790,7 @@ export default function ProjectMemoryPage({ onOpenKnowledge, onOpenSession, init
                     }))} />
                 )}
               </div>
-              {reportError && <p className="mt-2 text-red-600" role="alert">{reportError}</p>}
+              {reportError && <p className="mt-2 text-red-600" role="alert">{translateUiText(reportError)}</p>}
             </div>
             {previewType && (
               <div className="space-y-2">

@@ -1,3 +1,4 @@
+import { tr, translateUiText, getUiLanguage } from "../i18n";
 import { PageHeader } from "../components/ui/PageHeader";
 import * as Dialog from "@radix-ui/react-dialog";
 import { UiNotice, UiSection, UiMetric } from "../components/ui/surfaces";
@@ -136,7 +137,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
       if (result.status !== "fulfilled") throw new Error("processing refresh failed");
       const panels = result.value;
       if (!mountedRef.current) return;
-      const refreshedAt = new Date().toLocaleTimeString("zh-CN");
+      const refreshedAt = new Date().toLocaleTimeString(getUiLanguage());
       if (panels.tasks.status === "ok" && paged.status === "fulfilled" &&
           isFreshProcessingRead(startedGeneration, mutationGeneration.current, mutationInFlight.current)) {
         setTasks(paged.value.items);
@@ -231,7 +232,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
   return (
     <div className="aiks-page-shell min-w-0">
       <PageHeader title="处理中心" description="会话同步、AI 提炼与知识处理流水线状态" actions={<>
-          {backfillMsg && <span className="text-xs text-blue-500">{backfillMsg}</span>}
+          {backfillMsg && <span className="text-xs text-blue-500">{translateUiText(backfillMsg)}</span>}
           <UiButton variant="primary" size="sm"
             onClick={handleBackfill}
             disabled={backfilling || retryingTask !== null || !taskPanelFresh}
@@ -256,7 +257,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">会话同步与 AI 任务状态</h2>
         <p className="text-xs text-gray-500 mb-3">下列状态分别来自同步记录与知识提炼流水线；会话同步成功不代表 AI 知识已提炼完成。</p>
         <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">出现文档冲突时仅支持打开会话人工核查，AIKS 不会自动覆盖 SiYuan 中用户修改过的内容。</p>
-        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{retryNotice}</p>}
+        {retryNotice && <p role="status" className="text-xs text-blue-600 mb-2">{translateUiText(retryNotice)}</p>}
         {deletionPreflight && <UiNotice tone="warning">{deletionPreflight}</UiNotice>}
         {taskLoadError && <UiNotice tone="warning" className="mb-2">{taskLoadError}</UiNotice>}
         {pipelineLoadError && <UiNotice tone="warning" className="mb-2">{pipelineLoadError}</UiNotice>}
@@ -316,7 +317,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 }}
                 className="text-xs text-blue-600 hover:underline">复制当前快照</UiButton>
             </div>
-            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{diagnosticNotice}</p>}
+            {diagnosticNotice && <p role="status" className="text-xs text-gray-500 mt-2">{translateUiText(diagnosticNotice)}</p>}
           </div>
         )}
         <div className="flex flex-wrap gap-2 mb-3" aria-label="任务状态筛选">
@@ -509,7 +510,7 @@ export default function ProcessingPage({ onViewDetail, onViewSession }: Props) {
                 </div>
                 {run && <div className="flex flex-wrap gap-3">{STAGE_ORDER.map(stage => {
                   const item = run.stage_runs.find(entry => entry.stage === stage);
-                  return <span key={stage}>{STAGE_LABELS[stage] ?? stage}：{item?.status ?? "未开始"}</span>;
+                  return <span key={stage}>{tr(STAGE_LABELS[stage] ?? stage)}: {tr(item?.status ?? "未开始")}</span>;
                 })}</div>}
               </div>;
             })()}

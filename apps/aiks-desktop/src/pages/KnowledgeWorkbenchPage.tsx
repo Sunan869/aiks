@@ -1,3 +1,4 @@
+import { getUiLanguage } from "../i18n";
 import { RadixSelectField } from "../components/ui/RadixSelectField";
 import { PageHeader } from "../components/ui/PageHeader";
 import { UiButton, UiInput } from "../components/ui/fields";
@@ -187,7 +188,7 @@ export default function KnowledgeWorkbenchPage({ onViewDetail }: Props) {
 
                 <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3 text-[10px] text-gray-400 dark:border-gray-700">
                   <span>{item.project_name || "未归属项目"}</span>
-                  <span>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
+                  <span>{new Date(item.updated_at).toLocaleDateString(getUiLanguage())}</span>
                 </div>
               </article>
             );
