@@ -9,11 +9,14 @@ export const LANGUAGE_STORAGE_KEY = "aiks.ui.language";
 function resolveLanguage(input: string): UiLanguage {
   return input.toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
 }
+export function resolveUiLanguage(saved: string | null, system: string): UiLanguage {
+  if (saved === "zh-CN" || saved === "en-US") return saved;
+  return resolveLanguage(system || "zh-CN");
+}
+
 function initialLanguage(): UiLanguage {
   try {
-    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (saved === "zh-CN" || saved === "en-US") return saved;
-    return resolveLanguage(window.navigator.language || "zh-CN");
+    return resolveUiLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY), window.navigator.language || "zh-CN");
   } catch { return "zh-CN"; }
 }
 
