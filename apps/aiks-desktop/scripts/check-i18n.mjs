@@ -23,6 +23,9 @@ function* walkFiles(dir) {
 }
 const required = new Map();
 function track(key, file, location) {
+  // Normalize Windows CRLF checkouts before looking up LF-based JSON keys.
+  // The Vite JSX bridge uses the same normalization for actual UI rendering.
+  key = key.replace(/\r\n?/g, "\n");
   if (!hasChinese(key)) return;
   if (!required.has(key)) required.set(key, []);
   required.get(key).push(path.relative(project, file) + ":" + location);

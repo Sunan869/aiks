@@ -12,7 +12,10 @@ const visibleAttributes = new Set([
 ]);
 interface Edit { start: number; end: number; replacement: string }
 const hasHan = (value: string) => /[\u3400-\u9fff]/u.test(value);
-const jsString = (value: string) => JSON.stringify(value);
+// Git checkout uses CRLF on Windows and LF on Linux/macOS. Translation keys
+// must not depend on the host checkout's line-ending settings.
+const normalizeI18nKey = (value: string) => value.replace(/\r\n?/g, "\n");
+const jsString = (value: string) => JSON.stringify(normalizeI18nKey(value));
 
 function templateTranslation(expr: ts.TemplateExpression, source: ts.SourceFile): string {
   let key = expr.head.text;
@@ -31,7 +34,7 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
   const keys: string[] = [];
   const add = (start: number, end: number, replacement: string, key: string) => {
     edits.push({ start, end, replacement });
-    keys.push(key);
+    keys.push(normalizeI18nKey(key));
   };
   function localizeVisibleBranch(expr: ts.Expression): void {
     if (ts.isParenthesizedExpression(expr)) { localizeVisibleBranch(expr.expression); return; }
@@ -53,10 +56,14 @@ export function transformLocalizedTsx(input: string, id: string): { code: string
   function walk(node: ts.Node): void {
     if (ts.isJsxText(node)) {
       const raw = node.getFullText(source);
-      const text = raw.trim();
-      if (hasHan(text)) {
-        const ix = raw.indexOf(text);
-        add(node.getFullStart(), node.end, raw.slice(0, ix) + "{tr(" + jsString(text) + ")}" + raw.slice(ix + text.length), text);
+      const sourceText = raw.trim();
+      if (hasHan(sourceText)) {
+        // Match offsets against the original buffer, not the normalized key:
+        // otherwise CRLF input shifts JSX replacement boundaries.
+        const ix = raw.indexOf(sourceText);
+        add(node.getFullStart(), node.end,
+          raw.slice(0, ix) + "{tr(" + jsString(sourceText) + ")}" + raw.slice(ix + sourceText.length),
+          sourceText);
       }
       return;
     }

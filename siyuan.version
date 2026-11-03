@@ -16,3 +16,4 @@ bridge_protocol=1
 # desktop_revision=release-v0.5.5-model-protocol-provider-opt-in-siyuan-web
 # desktop_revision=release-v0.5.6-remove-redundant-review-sidebar
 # desktop_revision=release-v0.5.8-react-i18next-bilingual
+# desktop_revision=release-v0.5.8-windows-crlf-i18n-fix

@@ -22,6 +22,25 @@ describe("i18next JSX bridge", () => {
     const parsed = ts.transpileModule(result.code, { fileName: "Example.tsx", reportDiagnostics: true, compilerOptions: { jsx: ts.JsxEmit.ReactJSX } });
     expect((parsed.diagnostics || []).filter(d => d.category === ts.DiagnosticCategory.Error)).toHaveLength(0);
   });
+  it("uses identical translation keys on Windows CRLF and Unix LF checkouts", () => {
+    const source = [
+      'export const About = () => <section>',
+      '  <p>第一行中文',
+      '    第二行中文</p>',
+      '</section>;',
+    ].join("\n");
+    const inputWindows = source.replace(/\n/g, "\r\n");
+    const lf = transformLocalizedTsx(source, "/repo/apps/aiks-desktop/src/About.tsx");
+    const crlf = transformLocalizedTsx(inputWindows, "C:\\\\repo\\\\apps\\\\aiks-desktop\\\\src\\\\About.tsx");
+    expect(crlf.keys).toEqual(lf.keys);
+    expect(crlf.keys).toContain("第一行中文\n    第二行中文");
+    expect(crlf.code).toContain('tr("第一行中文\\n    第二行中文")');
+    const result = ts.transpileModule(crlf.code, {
+      fileName: "About.tsx", reportDiagnostics: true, compilerOptions: { jsx: ts.JsxEmit.ReactJSX },
+    });
+    expect(result.diagnostics?.filter(d => d.category === ts.DiagnosticCategory.Error)).toHaveLength(0);
+  });
+
   it("does not rewrite domain constants", () => {
     const input = 'const sourceId = "数据源"; export const View = () => <span title={"知识库"}>可检索</span>;';
     const result = transformLocalizedTsx(input, "/repo/apps/aiks-desktop/src/View.tsx");
