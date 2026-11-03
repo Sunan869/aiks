@@ -33,14 +33,14 @@
 
 > **Privacy and capability boundaries:** AIKS does not automatically access private browser-account chat histories, and local providers do not rewrite source files. Imported sessions can be browsed without a model, but new knowledge extraction requires a configured AI service. See the [compatibility matrix](docs/reference-analysis/multi-provider-support.md).
 
-<!-- REAL PRODUCT SCREENSHOTS: enable this two-column gallery only after capturing real, anonymized AIKS UI screenshots.
+REAL PRODUCT SCREENSHOTS: enable this two-column gallery only after capturing real, anonymized AIKS UI screenshots.
 ## Product screenshots
 <table>
 <tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS work records" /><br/>Work records</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS data sources" /><br/>Data sources</td></tr>
 <tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS knowledge workspace" /><br/>Knowledge extraction</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS search" /><br/>Search and Q&amp;A</td></tr>
 </table>
 See docs/marketing/SCREENSHOTS.md. Never represent generated UI mockups as product screenshots.
--->
+
 
 ## 🌐 Supported AI data sources
 

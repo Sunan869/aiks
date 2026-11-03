@@ -33,14 +33,14 @@
 
 > **隐私和功能边界：** AIKS 不会自动访问网页账号中的私密聊天记录；本地 Provider 不修改来源文件。未配置 AI 服务时仍可浏览导入的会话，但不能自动提炼新知识。具体格式兼容性见[支持矩阵](docs/reference-analysis/multi-provider-support.md)。
 
-<!-- REAL PRODUCT SCREENSHOTS: publish this two-column gallery only after capturing and redacting actual AIKS UI screenshots.
+REAL PRODUCT SCREENSHOTS: publish this two-column gallery only after capturing and redacting actual AIKS UI screenshots.
 ## 产品界面
 <table>
 <tr><td><img src="docs/media/screenshots/01-work-records.png" alt="AIKS 工作记录" /><br/>工作记录</td><td><img src="docs/media/screenshots/02-data-sources.png" alt="AIKS 数据源管理" /><br/>数据源管理</td></tr>
 <tr><td><img src="docs/media/screenshots/03-knowledge-workspace.png" alt="AIKS 知识工作台" /><br/>知识提炼</td><td><img src="docs/media/screenshots/04-search.png" alt="AIKS 全文及语义检索" /><br/>检索与问答</td></tr>
 </table>
 See docs/marketing/SCREENSHOTS.md for instructions. Do not use mock UI or private data.
--->
+
 
 ## 🌐 支持哪些 AI 数据源？
 
