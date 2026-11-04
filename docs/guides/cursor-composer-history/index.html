@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cursor Composer 历史记录在哪？本地会话检索与知识整理 | AIKS</title>
+<meta name="description" content="Cursor Composer 旧聊天和 Agent 会话怎么找？了解 state.vscdb 与 Cursor Agent JSONL 的支持边界，使用 AIKS 只读导入并搜索历史记录。">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://sunan869.github.io/aiks/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<meta property="og:type" content="article"><meta property="og:site_name" content="AIKS">
+<meta property="og:title" content="Cursor Composer 历史记录在哪？本地会话检索与知识整理 | AIKS"><meta property="og:description" content="Cursor Composer 旧聊天和 Agent 会话怎么找？了解 state.vscdb 与 Cursor Agent JSONL 的支持边界，使用 AIKS 只读导入并搜索历史记录。">
+<meta property="og:url" content="https://sunan869.github.io/aiks/guides/cursor-composer-history/">
+<meta property="og:image" content="https://repository-images.githubusercontent.com/1370765163/8c96f727-860f-4ba2-a461-52b122bb1904">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Cursor Composer 历史记录在哪？本地会话检索与知识整理 | AIKS","description":"Cursor Composer 旧聊天和 Agent 会话怎么找？了解 state.vscdb 与 Cursor Agent JSONL 的支持边界，使用 AIKS 只读导入并搜索历史记录。","url":"https://sunan869.github.io/aiks/guides/cursor-composer-history/","inLanguage":"zh-CN","isPartOf":{"@type":"WebSite","name":"AIKS","url":"https://sunan869.github.io/aiks/"},"about":{"@type":"SoftwareApplication","name":"AIKS","url":"https://sunan869.github.io/aiks/"}}</script>
+<link rel="stylesheet" href="../../site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"首页","item":"https://sunan869.github.io/aiks/"},{"@type":"ListItem","position":2,"name":"使用指南","item":"https://sunan869.github.io/aiks/guides/"},{"@type":"ListItem","position":3,"name":"Cursor Composer 历史记录：找回项目里的 AI 编程过程","item":"https://sunan869.github.io/aiks/guides/cursor-composer-history/"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<header class="site-head"><div class="container head-inner">
+<a class="brand" href="../../" aria-label="AIKS home"><span class="brand-icon" aria-hidden="true">↺</span>AIKS</a>
+<nav aria-label="主导航">
+<a href="../../#features">功能</a>
+<a href="../../#sources">数据源</a>
+<a href="../" aria-current="page">使用指南</a>
+<a href="../../#start">下载</a>
+<a class="locale" href="../../../en/guides/cursor-composer-history/" lang="en">English</a>
+</nav></div></header>
+<main id="main">
+<section class="guide-hero"><div class="container">
+<nav class="breadcrumb" aria-label="面包屑"><a href="../../">首页</a><span aria-hidden="true">/</span><a href="../">使用指南</a><span aria-hidden="true">/</span><span>Cursor</span></nav>
+<span class="kicker">CURSOR · COMPOSER 历史</span><h1>Cursor Composer 历史记录：找回项目里的 AI 编程过程</h1>
+<p class="intro">Cursor 的聊天记录可能散落在不同工作区、Composer 会话或 Agent 文件中。AIKS 把 Cursor 与 Cursor Agent 作为不同的本地来源处理，避免将不兼容的文件格式误认为已支持。</p>
+<div class="guide-actions"><a class="btn btn-primary" href="https://github.com/Sunan869/aiks/releases/latest">下载 AIKS <span aria-hidden="true">↗</span></a>
+<a class="btn btn-ghost" href="../../#sources">查看支持的数据源</a></div>
+</div></section>
+<div class="container guide-layout">
+<article class="guide-content">
+<section><h2>Cursor 聊天历史保存在哪里？</h2><p>在受支持的 Cursor Composer 布局中，AIKS 读取编辑器 User 目录下 globalStorage/state.vscdb 和 workspaceStorage/&lt;workspace&gt;/state.vscdb 的相关记录。Cursor Agent 是另一类来源，读取 ~/.cursor/projects/&lt;project&gt;/agent-transcripts/ 下的 JSONL。并非所有 Cursor 聊天和任意版本的格式都被支持。</p>
+<pre class="guide-code"><code>globalStorage/state.vscdb
+workspaceStorage/&lt;workspace&gt;/state.vscdb</code></pre></section>
+<section><h2>用 AIKS 查找和复用记录</h2><ol class="guide-steps"><li><strong>区分 Cursor 与 Cursor Agent</strong><p>打开「数据源」，分别查看 Cursor（Composer 数据库）和 Cursor Agent（本地 transcript）是否可用。它们的来源 ID、根目录与可读格式不同。</p></li>
+<li><strong>确认实际 User 数据目录</strong><p>Windows、macOS、Linux 的编辑器 User 路径不同。若使用便携配置、远程配置或不同用户目录，请在数据源设置里明确指定。</p></li>
+<li><strong>只读导入再搜索</strong><p>扫描后使用工作记录的来源筛选和关键词搜索查找项目对话。遇到损坏数据库或尚未完成的写入，查看来源诊断，不要直接修改源数据库。</p></li>
+<li><strong>核对再提炼结论</strong><p>对有价值的架构决定、调试步骤或配置经验，可选择启用 AI 提炼；保留原始 Session 以便回溯。</p></li></ol></section>
+<section class="guide-example"><h2>为什么不能承诺所有 Cursor 聊天都能导入？</h2><p>Cursor 的存储布局和字段会变化。AIKS 对 Composer JSON、关联 bubble 与部分旧 workspace Composer 列表进行了有界格式支持，但对其他未验证的聊天 Schema 不做保证。实际导入是否完整应以当前安装版本与来源检查为准。</p></section>
+<section><h2>支持范围与隐私边界</h2><ul class="guide-bullets"><li>Cursor Composer 的 SQLite 数据库与 Cursor Agent JSONL 属于不同 Provider，不能混为一种格式。</li>
+<li>SQLite 来源只读；不写入编辑器设置，不读取无关账户凭据。</li>
+<li>已导入会话不会因为关闭某个来源就自动删除；遇到未知格式应记录可脱敏样例再完善适配。</li></ul>
+<p class="guide-footnote">实际格式以可复核的兼容矩阵为准，不应假定工具的每个版本都支持。
+<a href="https://github.com/Sunan869/aiks/blob/main/docs/reference-analysis/multi-provider-support.md">多数据源兼容矩阵</a>.</p></section>
+<section><h2>常见问题</h2><div class="guide-faq faq"><details><summary>Cursor 和 Cursor Agent 是同一个数据源吗？</summary><p>不是。一个读取受支持的 Composer 数据库布局，另一个读取 Agent transcript JSONL。</p></details>
+<details><summary>为什么某些 Cursor 对话没有出现？</summary><p>可能属于未覆盖的格式、工作区路径或尚未支持的版本；先检查来源诊断和兼容矩阵。</p></details>
+<details><summary>会影响 Cursor 正在使用的数据库吗？</summary><p>AIKS 按只读方式读取来源，包括受支持的 SQLite/WAL 状态，不主动修改原文件。</p></details></div></section>
+</article>
+<aside class="guide-aside"><div class="guide-aside-card"><span class="kicker">快速了解</span>
+<p>只读采集 → 工作记录搜索 → 按需知识提炼。</p>
+<a href="../">全部 AIKS 使用指南</a></div>
+<figure class="guide-screenshot"><a href="../media/screenshots/01-data-sources.png"><img src="../media/screenshots/01-data-sources.png" loading="lazy" width="1920" height="1032" alt="AIKS 数据源页面：分别配置 Cursor 与 Cursor Agent 本地来源"></a>
+<figcaption>AIKS 桌面端真实截图，具体界面可能随版本更新。</figcaption></figure></aside>
+</div>
+<section class="guide-more"><div class="container"><h2>继续了解其他工具</h2><div class="guide-link-row"><a href="../claude-code-session-history/">Claude Code 对话记录：本地历史会话搜索与知识整理<span aria-hidden="true"> ↗</span></a>
+<a href="../codex-cli-session-history/">Codex CLI 历史会话：查找、搜索与复用 AI 编程记录<span aria-hidden="true"> ↗</span></a></div>
+<p class="guide-footnote">原始会话始终保留来源语言，切换 AIKS 界面语言不会自动翻译用户数据。</p></div></section>
+<section><div class="container"><div class="cta"><h2>让有价值的解决过程更容易找回</h2><p>先从一个已支持的本地来源开始，确认会话正确导入后，再按需配置提炼和语义检索。</p>
+<div class="buttons"><a href="https://github.com/Sunan869/aiks/releases/latest" class="btn btn-primary">获取 AIKS</a><a class="btn btn-ghost" href="../../">产品概览</a></div></div></div></section>
+</main>
+<footer class="footer"><div class="container footer-inner"><div><strong>AIKS · AI Knowledge Sync</strong><div>独立开源项目；提到的第三方工具不代表官方合作或背书。</div></div>
+<nav><a href="../../">首页</a><a href="../">使用指南</a><a href="https://github.com/Sunan869/aiks">GitHub</a><a href="https://github.com/Sunan869/aiks/releases/latest">Releases</a><a href="https://github.com/Sunan869/aiks/issues">Issues</a></nav></div></footer>
+</body></html>

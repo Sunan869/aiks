@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex CLI 对话记录怎么找？历史会话搜索与知识复用 | AIKS</title>
+<meta name="description" content="Codex CLI 旧会话如何查找？说明本地 Session 位置、工作记录筛选、全文搜索与可选 AI 知识提炼，并解释 AIKS 只读采集范围。">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://sunan869.github.io/aiks/guides/codex-cli-session-history/">
+<link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/codex-cli-session-history/">
+<link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/">
+<link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/">
+<meta property="og:type" content="article"><meta property="og:site_name" content="AIKS">
+<meta property="og:title" content="Codex CLI 对话记录怎么找？历史会话搜索与知识复用 | AIKS"><meta property="og:description" content="Codex CLI 旧会话如何查找？说明本地 Session 位置、工作记录筛选、全文搜索与可选 AI 知识提炼，并解释 AIKS 只读采集范围。">
+<meta property="og:url" content="https://sunan869.github.io/aiks/guides/codex-cli-session-history/">
+<meta property="og:image" content="https://repository-images.githubusercontent.com/1370765163/8c96f727-860f-4ba2-a461-52b122bb1904">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Codex CLI 对话记录怎么找？历史会话搜索与知识复用 | AIKS","description":"Codex CLI 旧会话如何查找？说明本地 Session 位置、工作记录筛选、全文搜索与可选 AI 知识提炼，并解释 AIKS 只读采集范围。","url":"https://sunan869.github.io/aiks/guides/codex-cli-session-history/","inLanguage":"zh-CN","isPartOf":{"@type":"WebSite","name":"AIKS","url":"https://sunan869.github.io/aiks/"},"about":{"@type":"SoftwareApplication","name":"AIKS","url":"https://sunan869.github.io/aiks/"}}</script>
+<link rel="stylesheet" href="../../site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"首页","item":"https://sunan869.github.io/aiks/"},{"@type":"ListItem","position":2,"name":"使用指南","item":"https://sunan869.github.io/aiks/guides/"},{"@type":"ListItem","position":3,"name":"Codex CLI 历史会话：查找之前的命令与解决方案","item":"https://sunan869.github.io/aiks/guides/codex-cli-session-history/"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<header class="site-head"><div class="container head-inner">
+<a class="brand" href="../../" aria-label="AIKS home"><span class="brand-icon" aria-hidden="true">↺</span>AIKS</a>
+<nav aria-label="主导航">
+<a href="../../#features">功能</a>
+<a href="../../#sources">数据源</a>
+<a href="../" aria-current="page">使用指南</a>
+<a href="../../#start">下载</a>
+<a class="locale" href="../../../en/guides/codex-cli-session-history/" lang="en">English</a>
+</nav></div></header>
+<main id="main">
+<section class="guide-hero"><div class="container">
+<nav class="breadcrumb" aria-label="面包屑"><a href="../../">首页</a><span aria-hidden="true">/</span><a href="../">使用指南</a><span aria-hidden="true">/</span><span>Codex CLI</span></nav>
+<span class="kicker">CODEX CLI · 历史会话</span><h1>Codex CLI 历史会话：查找之前的命令与解决方案</h1>
+<p class="intro">Codex CLI 的一个 Session 可能包含文件修改思路、Shell 命令、工具输出与问题定位过程。与其逐个回忆会话名，不如把本地历史导入后统一检索，同时保留可追溯的原始来源。</p>
+<div class="guide-actions"><a class="btn btn-primary" href="https://github.com/Sunan869/aiks/releases/latest">下载 AIKS <span aria-hidden="true">↗</span></a>
+<a class="btn btn-ghost" href="../../#sources">查看支持的数据源</a></div>
+</div></section>
+<div class="container guide-layout">
+<article class="guide-content">
+<section><h2>Codex CLI 的历史记录在哪里？</h2><p>典型的 Codex CLI 安装会将历史 Session 保存在用户数据目录（常见为 ~/.codex/sessions/）下。不同版本和自定义 CODEX_HOME 环境可能改变位置。AIKS 依据实际支持的本地格式读取，不会调用你的账号接口下载云端私密历史。</p>
+<pre class="guide-code"><code>~/.codex/sessions/</code></pre></section>
+<section><h2>用 AIKS 查找和复用记录</h2><ol class="guide-steps"><li><strong>检查 Codex CLI 来源</strong><p>在「数据源」确认 Codex CLI 已被发现。对非默认目录使用明确的路径配置，避免误把安装目录作为会话目录。</p></li>
+<li><strong>导入工作记录</strong><p>执行只读扫描后，进入工作记录，选择 Codex CLI 来源。原始对话和任务状态分别查看，不把同步成功等同于知识已提炼完成。</p></li>
+<li><strong>从错误或项目找回会话</strong><p>优先搜索报错原文、函数名、Shell 命令、仓库关键字；再打开匹配的原始 Session 检查上下文。</p></li>
+<li><strong>把结论留在项目知识中</strong><p>根据需要启用 AI 提炼，保存具体修复原因、实施步骤与来源引用。语义搜索可选，不依赖它才能查看旧会话。</p></li></ol></section>
+<section class="guide-example"><h2>跨工具检索为什么有用？</h2><p>同一个项目可能先在 Codex CLI 调试，又在 Claude Code 或 Cursor 中继续。统一项目和来源视图可以帮助定位讨论过的方案，但 AIKS 不会自动断言不同会话描述的是同一个事实。</p></section>
+<section><h2>支持范围与隐私边界</h2><ul class="guide-bullets"><li>本页介绍 Codex CLI 本地会话；不声称支持任何版本的全部事件格式或私有云端历史。</li>
+<li>Provider 只读，导入异常或文件损坏不会因此改写来源。</li>
+<li>知识提炼需要明确配置 AI 服务；使用本地模型还是远程 API 由你选择。</li></ul>
+<p class="guide-footnote">实际格式以可复核的兼容矩阵为准，不应假定工具的每个版本都支持。
+<a href="https://github.com/Sunan869/aiks/blob/main/docs/reference-analysis/multi-provider-support.md">多数据源兼容矩阵</a>.</p></section>
+<section><h2>常见问题</h2><div class="guide-faq faq"><details><summary>为什么我看不到旧的 Codex 会话？</summary><p>先确认安装用户、CODEX_HOME 或其他自定义数据目录，再查看数据源健康状态和格式兼容性。</p></details>
+<details><summary>导入会重新执行历史 Shell 命令吗？</summary><p>不会。采集历史是读取记录，不是重放命令或工具调用。</p></details>
+<details><summary>可以同时搜索 Claude Code 和 Codex 的记录吗？</summary><p>可以在 AIKS 的统一会话/知识视图中按来源和项目查找已导入的记录。</p></details></div></section>
+</article>
+<aside class="guide-aside"><div class="guide-aside-card"><span class="kicker">快速了解</span>
+<p>只读采集 → 工作记录搜索 → 按需知识提炼。</p>
+<a href="../">全部 AIKS 使用指南</a></div>
+<figure class="guide-screenshot"><a href="../media/screenshots/01-data-sources.png"><img src="../media/screenshots/01-data-sources.png" loading="lazy" width="1920" height="1032" alt="AIKS 数据源管理：Codex CLI 等本地 AI 编程工具的只读来源"></a>
+<figcaption>AIKS 桌面端真实截图，具体界面可能随版本更新。</figcaption></figure></aside>
+</div>
+<section class="guide-more"><div class="container"><h2>继续了解其他工具</h2><div class="guide-link-row"><a href="../claude-code-session-history/">Claude Code 对话记录：本地历史会话搜索与知识整理<span aria-hidden="true"> ↗</span></a>
+<a href="../cursor-composer-history/">Cursor Composer 历史记录：本地会话查看与知识检索<span aria-hidden="true"> ↗</span></a></div>
+<p class="guide-footnote">原始会话始终保留来源语言，切换 AIKS 界面语言不会自动翻译用户数据。</p></div></section>
+<section><div class="container"><div class="cta"><h2>让有价值的解决过程更容易找回</h2><p>先从一个已支持的本地来源开始，确认会话正确导入后，再按需配置提炼和语义检索。</p>
+<div class="buttons"><a href="https://github.com/Sunan869/aiks/releases/latest" class="btn btn-primary">获取 AIKS</a><a class="btn btn-ghost" href="../../">产品概览</a></div></div></div></section>
+</main>
+<footer class="footer"><div class="container footer-inner"><div><strong>AIKS · AI Knowledge Sync</strong><div>独立开源项目；提到的第三方工具不代表官方合作或背书。</div></div>
+<nav><a href="../../">首页</a><a href="../">使用指南</a><a href="https://github.com/Sunan869/aiks">GitHub</a><a href="https://github.com/Sunan869/aiks/releases/latest">Releases</a><a href="https://github.com/Sunan869/aiks/issues">Issues</a></nav></div></footer>
+</body></html>

@@ -77,3 +77,30 @@ h2{font-size:clamp(27px,3.2vw,39px);line-height:1.25;letter-spacing:-.8px;margin
 @media (max-width:900px){.hero-grid{grid-template-columns:1fr;gap:40px}.screen-panel{max-width:650px;transform:none}.stats{margin-top:40px}.cards{grid-template-columns:repeat(2,1fr)}nav{gap:12px}}
 @media (max-width:660px){.container{width:min(100% - 28px,1120px)}.head-inner{min-height:66px}nav a:not(.locale){display:none}.hero{padding:48px 0 60px}h1{font-size:40px}.intro{font-size:15px}.stats{grid-template-columns:repeat(2,1fr)}.stat{padding:16px}.cards,.gallery{grid-template-columns:1fr}.flow{grid-template-columns:repeat(2,1fr)}section{padding:64px 0}.screen-note{right:3px;bottom:-20px}.cta{padding:36px 18px}.footer .footer-inner{display:block}.footer nav{margin-top:13px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+
+/* Documentation and keyword-specific landing pages. */
+.guide-hero{padding:64px 0 58px;background:radial-gradient(ellipse 60% 70% at 100% 0%,rgba(48,96,185,.30),transparent 75%),linear-gradient(180deg,#101c33,#0b1323)}
+.guide-hero h1{font-size:clamp(32px,4vw,53px);max-width:920px;margin:20px 0}.guide-hero .intro{max-width:850px;line-height:1.8}
+.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;color:#91a9cd;font-size:13px;margin:0 0 25px}.breadcrumb a:hover{color:var(--cyan)}
+.guide-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:25px}
+.guide-layout{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(250px,.9fr);gap:42px;align-items:start}
+.guide-content section{padding:38px 0;border-bottom:1px solid #273e5e}.guide-content section:first-child{padding-top:44px}.guide-content h2{font-size:27px;margin:0 0 17px}
+.guide-content p,.guide-content li{color:#c6d5eb;font-size:15px;line-height:1.83}.guide-content li p{margin:5px 0 0}
+.guide-steps{margin:0;padding-left:26px}.guide-steps li{padding:0 0 20px 8px}.guide-steps strong{color:#f1f7ff}
+.guide-code{white-space:pre-wrap;overflow-x:auto;background:#0d1a30;border:1px solid #345071;border-radius:12px;color:#8be9fa;padding:18px;line-height:1.7}
+.guide-bullets{padding-left:22px}.guide-bullets li{margin-bottom:12px}
+.guide-example{border:1px solid #34567b;border-radius:15px;background:#13233d;padding:22px!important;margin-top:30px}.guide-example h2{font-size:22px}
+.guide-footnote{color:#aebfda;font-size:13px!important}.guide-footnote a,.guide-trust a,.guide-aside-card a{color:var(--cyan);text-decoration:underline;text-underline-offset:3px}
+.guide-aside{position:sticky;top:100px;display:grid;gap:23px;margin-top:44px}
+.guide-aside-card{background:#14253e;border:1px solid #39567d;border-radius:18px;padding:23px}
+.guide-aside-card p{font-size:14px;color:#cfdef1}.guide-aside-card a{font-size:13px}
+.guide-screenshot{margin:0;border:1px solid #334c6e;overflow:hidden;border-radius:15px;background:#132139}
+.guide-screenshot img{width:100%;height:auto}.guide-screenshot figcaption{padding:13px;color:#aabdd6;font-size:12px}
+.guide-more{padding:50px 0;background:#101b30}.guide-more h2{font-size:26px}.guide-link-row{display:flex;flex-wrap:wrap;gap:14px}
+.guide-link-row a,.guide-read{display:inline-flex;gap:5px;color:var(--cyan);font-size:14px;font-weight:650;line-height:1.5}
+.guide-link-row a{border:1px solid #36557d;border-radius:12px;padding:14px 16px;background:#152b47}
+.guide-topic h3{line-height:1.45}.guide-topic h3 a:hover{color:var(--cyan)}.guide-topic p{margin-bottom:16px}.guide-topic .guide-read{margin-top:16px}
+.guide-trust{border:1px solid #345071;border-radius:16px;padding:30px;margin-top:32px;background:#13233d}.guide-trust h2{font-size:25px}.guide-trust p{color:#bdcfe9}
+.guide-faq details{max-width:100%}
+@media(max-width:900px){.guide-layout{grid-template-columns:1fr}.guide-aside{position:static;grid-template-columns:1fr 1fr;margin-top:0}.guide-content section:first-child{padding-top:28px}}
+@media(max-width:660px){.guide-hero{padding:45px 0}.guide-hero h1{font-size:34px}.guide-aside{grid-template-columns:1fr}.guide-more{padding:35px 0}.guide-link-row{flex-direction:column}}

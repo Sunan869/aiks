@@ -164,6 +164,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate static SEO pages, sitemap and internal links
+        run: node scripts/check-site-seo.mjs
+
       - name: Current-tree hygiene guards
         shell: bash
         run: |

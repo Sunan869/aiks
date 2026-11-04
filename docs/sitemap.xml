@@ -1,7 +1,73 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
- <url><loc>https://sunan869.github.io/aiks/</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq>
- <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/"/><xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/"/></url>
- <url><loc>https://sunan869.github.io/aiks/en/</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq>
- <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/"/><xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/"/></url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/en/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/guides/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/en/guides/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/guides/claude-code-session-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/claude-code-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/en/guides/claude-code-session-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/claude-code-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/guides/codex-cli-session-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/codex-cli-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/codex-cli-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/codex-cli-session-history/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/guides/cursor-composer-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/cursor-composer-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/"/>
+  </url>
+  <url>
+    <loc>https://sunan869.github.io/aiks/en/guides/cursor-composer-history/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/cursor-composer-history/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/"/>
+  </url>
 </urlset>

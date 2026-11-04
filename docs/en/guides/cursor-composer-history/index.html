@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cursor Composer History: Find Local Chats and Sessions | AIKS</title>
+<meta name="description" content="Learn where supported Cursor Composer and Cursor Agent conversations are stored. Search local state.vscdb and agent-transcript records with AIKS without editing the source.">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<meta property="og:type" content="article"><meta property="og:site_name" content="AIKS">
+<meta property="og:title" content="Cursor Composer History: Find Local Chats and Sessions | AIKS"><meta property="og:description" content="Learn where supported Cursor Composer and Cursor Agent conversations are stored. Search local state.vscdb and agent-transcript records with AIKS without editing the source.">
+<meta property="og:url" content="https://sunan869.github.io/aiks/en/guides/cursor-composer-history/">
+<meta property="og:image" content="https://repository-images.githubusercontent.com/1370765163/8c96f727-860f-4ba2-a461-52b122bb1904">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Cursor Composer History: Find Local Chats and Sessions | AIKS","description":"Learn where supported Cursor Composer and Cursor Agent conversations are stored. Search local state.vscdb and agent-transcript records with AIKS without editing the source.","url":"https://sunan869.github.io/aiks/en/guides/cursor-composer-history/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"AIKS","url":"https://sunan869.github.io/aiks/"},"about":{"@type":"SoftwareApplication","name":"AIKS","url":"https://sunan869.github.io/aiks/"}}</script>
+<link rel="stylesheet" href="../../../site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://sunan869.github.io/aiks/en/"},{"@type":"ListItem","position":2,"name":"Guides","item":"https://sunan869.github.io/aiks/en/guides/"},{"@type":"ListItem","position":3,"name":"Find Cursor Composer conversations across local workspaces","item":"https://sunan869.github.io/aiks/en/guides/cursor-composer-history/"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head"><div class="container head-inner">
+<a class="brand" href="../../../" aria-label="AIKS home"><span class="brand-icon" aria-hidden="true">↺</span>AIKS</a>
+<nav aria-label="Primary navigation">
+<a href="../../../#features">Features</a>
+<a href="../../../#sources">Sources</a>
+<a href="../" aria-current="page">Guides</a>
+<a href="../../../#start">Download</a>
+<a class="locale" href="../../../guides/cursor-composer-history/" lang="zh-CN">简体中文</a>
+</nav></div></header>
+<main id="main">
+<section class="guide-hero"><div class="container">
+<nav class="breadcrumb" aria-label="Breadcrumb"><a href="../../../">Home</a><span aria-hidden="true">/</span><a href="../">Guides</a><span aria-hidden="true">/</span><span>Cursor</span></nav>
+<span class="kicker">CURSOR · COMPOSER HISTORY</span><h1>Find Cursor Composer conversations across local workspaces</h1>
+<p class="intro">Cursor history can live in editor workspace databases, Composer records, or separate Agent transcripts. AIKS treats Cursor and Cursor Agent as different provider types so you can inspect supported formats without assuming that every Cursor chat layout works.</p>
+<div class="guide-actions"><a class="btn btn-primary" href="https://github.com/Sunan869/aiks/releases/latest">Download AIKS <span aria-hidden="true">↗</span></a>
+<a class="btn btn-ghost" href="../../../#sources">See supported sources</a></div>
+</div></section>
+<div class="container guide-layout">
+<article class="guide-content">
+<section><h2>Where does Cursor store conversation history?</h2><p>For supported Cursor Composer layouts, AIKS reads relevant records in User/globalStorage/state.vscdb and User/workspaceStorage/&lt;workspace&gt;/state.vscdb. Cursor Agent is a separate provider for JSONL transcripts under ~/.cursor/projects/&lt;project&gt;/agent-transcripts/. Support is format-specific and does not imply that every Cursor version or chat schema is covered.</p>
+<pre class="guide-code"><code>globalStorage/state.vscdb
+workspaceStorage/&lt;workspace&gt;/state.vscdb</code></pre></section>
+<section><h2>How to search and reuse the records</h2><ol class="guide-steps"><li><strong>Choose the correct provider</strong><p>Open Data Sources. Check Cursor for Composer databases and Cursor Agent for agent transcript JSONL files. Their provider identities and formats are distinct.</p></li>
+<li><strong>Verify the editor User directory</strong><p>Windows, macOS, Linux, portable profiles, and remote setups can use different paths. Set a known absolute path when auto-discovery does not match your installation.</p></li>
+<li><strong>Import and search read-only</strong><p>Scan the supported sources and filter Work Records by provider or project. For damaged databases or incomplete writes, inspect diagnostics rather than changing the original SQLite file.</p></li>
+<li><strong>Extract verified findings</strong><p>Optionally enable extraction for useful decisions, implementation details, and debugging steps, while retaining access to the original source session.</p></li></ol></section>
+<section class="guide-example"><h2>Why not promise every Cursor conversation?</h2><p>Cursor changes internal storage layouts. AIKS supports bounded Composer JSON, referenced bubble records, and some older workspace Composer variants. Other schemas are not covered by a blanket compatibility guarantee. Test against the version you actually use.</p></section>
+<section><h2>Compatibility and privacy boundaries</h2><ul class="guide-bullets"><li>Cursor Composer SQLite and Cursor Agent JSONL are separate providers with different storage roots.</li>
+<li>Source databases are read-only; unrelated credentials and editor settings are not collected.</li>
+<li>Disabling a source does not automatically remove already imported work records. Unknown formats need new evidence and parser tests.</li></ul>
+<p class="guide-footnote">Check actual parser coverage rather than assuming every tool version is supported.
+<a href="https://github.com/Sunan869/aiks/blob/main/docs/reference-analysis/multi-provider-support.md">Provider compatibility matrix</a>.</p></section>
+<section><h2>Frequently asked questions</h2><div class="guide-faq faq"><details><summary>Are Cursor and Cursor Agent one provider?</summary><p>No. One handles supported Composer database layouts, while the other handles separate Agent transcript JSONL.</p></details>
+<details><summary>Why is an older Cursor chat missing?</summary><p>It may use another workspace path, an unsupported layout, or an unverified version. Check provider diagnostics and the compatibility matrix.</p></details>
+<details><summary>Will AIKS modify Cursor's database?</summary><p>No. Supported SQLite/WAL source data is read-only and never intentionally rewritten by AIKS.</p></details></div></section>
+</article>
+<aside class="guide-aside"><div class="guide-aside-card"><span class="kicker">AT A GLANCE</span>
+<p>Local source import → work-record search → optional knowledge extraction.</p>
+<a href="../">All AIKS guides</a></div>
+<figure class="guide-screenshot"><a href="../../media/screenshots/01-data-sources.png"><img src="../../media/screenshots/01-data-sources.png" loading="lazy" width="1920" height="1032" alt="AIKS Data Sources showing Cursor and Cursor Agent configuration"></a>
+<figcaption>An actual AIKS desktop screenshot; UI layout may change by version.</figcaption></figure></aside>
+</div>
+<section class="guide-more"><div class="container"><h2>Explore another tool</h2><div class="guide-link-row"><a href="../claude-code-session-history/">Claude Code Session History: Search and Reuse Local Conversations<span aria-hidden="true"> ↗</span></a>
+<a href="../codex-cli-session-history/">Codex CLI Conversation History: Find and Reuse Coding Sessions<span aria-hidden="true"> ↗</span></a></div>
+<p class="guide-footnote">Your original session content stays in its source language. Changing AIKS interface language does not translate user data.</p></div></section>
+<section><div class="container"><div class="cta"><h2>Keep useful solutions searchable</h2><p>Start with one supported source. Keep extraction and semantic search optional until you actually need them.</p>
+<div class="buttons"><a href="https://github.com/Sunan869/aiks/releases/latest" class="btn btn-primary">Get AIKS</a><a class="btn btn-ghost" href="../../../">Product overview</a></div></div></div></section>
+</main>
+<footer class="footer"><div class="container footer-inner"><div><strong>AIKS · AI Knowledge Sync</strong><div>Independent open-source project; no affiliation with third-party tools.</div></div>
+<nav><a href="../../../">Home</a><a href="../">Guides</a><a href="https://github.com/Sunan869/aiks">GitHub</a><a href="https://github.com/Sunan869/aiks/releases/latest">Releases</a><a href="https://github.com/Sunan869/aiks/issues">Issues</a></nav></div></footer>
+</body></html>
