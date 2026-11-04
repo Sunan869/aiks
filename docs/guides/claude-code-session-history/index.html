@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code 对话记录在哪里？本地历史搜索与知识整理 | AIKS</title>
+<meta name="description" content="Claude Code 历史会话如何查看和搜索？了解本地 JSONL 会话来源、只读导入、项目筛选与 AIKS 的可选知识提炼，不覆盖原始聊天记录。">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://sunan869.github.io/aiks/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<meta property="og:type" content="article"><meta property="og:site_name" content="AIKS">
+<meta property="og:title" content="Claude Code 对话记录在哪里？本地历史搜索与知识整理 | AIKS"><meta property="og:description" content="Claude Code 历史会话如何查看和搜索？了解本地 JSONL 会话来源、只读导入、项目筛选与 AIKS 的可选知识提炼，不覆盖原始聊天记录。">
+<meta property="og:url" content="https://sunan869.github.io/aiks/guides/claude-code-session-history/">
+<meta property="og:image" content="https://repository-images.githubusercontent.com/1370765163/8c96f727-860f-4ba2-a461-52b122bb1904">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Claude Code 对话记录在哪里？本地历史搜索与知识整理 | AIKS","description":"Claude Code 历史会话如何查看和搜索？了解本地 JSONL 会话来源、只读导入、项目筛选与 AIKS 的可选知识提炼，不覆盖原始聊天记录。","url":"https://sunan869.github.io/aiks/guides/claude-code-session-history/","inLanguage":"zh-CN","isPartOf":{"@type":"WebSite","name":"AIKS","url":"https://sunan869.github.io/aiks/"},"about":{"@type":"SoftwareApplication","name":"AIKS","url":"https://sunan869.github.io/aiks/"}}</script>
+<link rel="stylesheet" href="../../site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"首页","item":"https://sunan869.github.io/aiks/"},{"@type":"ListItem","position":2,"name":"使用指南","item":"https://sunan869.github.io/aiks/guides/"},{"@type":"ListItem","position":3,"name":"Claude Code 历史对话：从本地记录到可搜索的知识","item":"https://sunan869.github.io/aiks/guides/claude-code-session-history/"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<header class="site-head"><div class="container head-inner">
+<a class="brand" href="../../" aria-label="AIKS home"><span class="brand-icon" aria-hidden="true">↺</span>AIKS</a>
+<nav aria-label="主导航">
+<a href="../../#features">功能</a>
+<a href="../../#sources">数据源</a>
+<a href="../" aria-current="page">使用指南</a>
+<a href="../../#start">下载</a>
+<a class="locale" href="../../en/guides/claude-code-session-history/" lang="en">English</a>
+</nav></div></header>
+<main id="main">
+<section class="guide-hero"><div class="container">
+<nav class="breadcrumb" aria-label="面包屑"><a href="../../">首页</a><span aria-hidden="true">/</span><a href="../">使用指南</a><span aria-hidden="true">/</span><span>Claude Code</span></nav>
+<span class="kicker">CLAUDE CODE · 会话管理</span><h1>Claude Code 历史对话：从本地记录到可搜索的知识</h1>
+<p class="intro">处理过的 bug、架构讨论和命令排错，经常留在 Claude Code 的旧 Session 里。你可以先找到原始会话，再决定是否把它们纳入跨工具知识库。AIKS 的本地 Provider 只读取允许的来源，不会写回 Claude Code 原始文件。</p>
+<div class="guide-actions"><a class="btn btn-primary" href="https://github.com/Sunan869/aiks/releases/latest">下载 AIKS <span aria-hidden="true">↗</span></a>
+<a class="btn btn-ghost" href="../../#sources">查看支持的数据源</a></div>
+</div></section>
+<div class="container guide-layout">
+<article class="guide-content">
+<section><h2>如何找到 Claude Code 的本地历史？</h2><p>Claude Code 的项目会话通常保存在用户目录下的 .claude/projects/ 中，常见格式为 JSONL。具体位置可能随系统、版本与用户自定义配置变化；请以实际目录和 AIKS 数据源检测结果为准。</p>
+<pre class="guide-code"><code>~/.claude/projects/</code></pre></section>
+<section><h2>用 AIKS 查找和复用记录</h2><ol class="guide-steps"><li><strong>确认会话来源</strong><p>打开 AIKS「数据源」，找到 Claude Code。检查检测目录和健康状态；便携安装或非默认目录可手动指定绝对路径。</p></li>
+<li><strong>只读扫描历史 Session</strong><p>启用需要的来源后执行扫描与同步。在「工作记录」中按项目、来源或标题查找旧会话，核对时间和原文。</p></li>
+<li><strong>使用全文检索</strong><p>先用日志关键字、错误信息、框架名或命令检索历史内容。关键词检索不要求配置模型。</p></li>
+<li><strong>按需提炼知识</strong><p>需要把长对话沉淀为结论时，再在设置中配置并启用 AI 服务。语义检索需要额外配置 Embedding；两者默认不必开启。</p></li></ol></section>
+<section class="guide-example"><h2>哪些内容值得保留？</h2><p>例如一次 .NET 编译故障：会话中的报错、尝试过的命令、最终修复和适用范围可以关联为知识，后续搜索时仍能回到原始 Session 核对。AI 总结不应取代原始证据。</p></section>
+<section><h2>支持范围与隐私边界</h2><ul class="guide-bullets"><li>不从 Claude 账号云端批量下载全部私有历史；只处理当前机器上允许读取的本地来源。</li>
+<li>若项目曾迁移、使用不同用户目录或会话格式发生变化，请重新检查来源路径和格式兼容性。</li>
+<li>AIKS 对原始 Provider 文件只读；生成的知识、状态和可选 SiYuan 同步与原始会话分离。</li></ul>
+<p class="guide-footnote">实际格式以可复核的兼容矩阵为准，不应假定工具的每个版本都支持。
+<a href="https://github.com/Sunan869/aiks/blob/main/docs/reference-analysis/multi-provider-support.md">多数据源兼容矩阵</a>.</p></section>
+<section><h2>常见问题</h2><div class="guide-faq faq"><details><summary>没有配置 AI 模型也能搜索 Claude Code 历史吗？</summary><p>可以浏览已导入的会话并使用关键词检索；自动知识提炼和 AI 问答需要配置模型。</p></details>
+<details><summary>会修改 Claude Code 的 JSONL 文件吗？</summary><p>不会。AIKS 的本地 Provider 按只读方式访问来源。</p></details>
+<details><summary>能直接看到所有云端 Claude 对话吗？</summary><p>不能。本地 Claude Code 会话与 Claude 网页端账号中的私密聊天并不是同一种来源。</p></details></div></section>
+</article>
+<aside class="guide-aside"><div class="guide-aside-card"><span class="kicker">快速了解</span>
+<p>只读采集 → 工作记录搜索 → 按需知识提炼。</p>
+<a href="../">全部 AIKS 使用指南</a></div>
+<figure class="guide-screenshot"><a href="../../media/screenshots/02-processing-center.png"><img src="../../media/screenshots/02-processing-center.png" loading="lazy" width="1920" height="1032" alt="AIKS 处理中心示例：查看导入会话、同步和知识提炼任务"></a>
+<figcaption>AIKS 桌面端真实截图，具体界面可能随版本更新。</figcaption></figure></aside>
+</div>
+<section class="guide-more"><div class="container"><h2>继续了解其他工具</h2><div class="guide-link-row"><a href="../codex-cli-session-history/">Codex CLI 历史会话：查找、搜索与复用 AI 编程记录<span aria-hidden="true"> ↗</span></a>
+<a href="../cursor-composer-history/">Cursor Composer 历史记录：本地会话查看与知识检索<span aria-hidden="true"> ↗</span></a></div>
+<p class="guide-footnote">原始会话始终保留来源语言，切换 AIKS 界面语言不会自动翻译用户数据。</p></div></section>
+<section><div class="container"><div class="cta"><h2>让有价值的解决过程更容易找回</h2><p>先从一个已支持的本地来源开始，确认会话正确导入后，再按需配置提炼和语义检索。</p>
+<div class="buttons"><a href="https://github.com/Sunan869/aiks/releases/latest" class="btn btn-primary">获取 AIKS</a><a class="btn btn-ghost" href="../../">产品概览</a></div></div></div></section>
+</main>
+<footer class="footer"><div class="container footer-inner"><div><strong>AIKS · AI Knowledge Sync</strong><div>独立开源项目；提到的第三方工具不代表官方合作或背书。</div></div>
+<nav><a href="../../">首页</a><a href="../">使用指南</a><a href="https://github.com/Sunan869/aiks">GitHub</a><a href="https://github.com/Sunan869/aiks/releases/latest">Releases</a><a href="https://github.com/Sunan869/aiks/issues">Issues</a></nav></div></footer>
+</body></html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code Session History: Search Local Chats and Notes | AIKS</title>
+<meta name="description" content="Find Claude Code local JSONL session history, browse past coding conversations, search project records, and optionally extract knowledge with AIKS without rewriting source files.">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="zh-CN" href="https://sunan869.github.io/aiks/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="en" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<link rel="alternate" hreflang="x-default" href="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<meta property="og:type" content="article"><meta property="og:site_name" content="AIKS">
+<meta property="og:title" content="Claude Code Session History: Search Local Chats and Notes | AIKS"><meta property="og:description" content="Find Claude Code local JSONL session history, browse past coding conversations, search project records, and optionally extract knowledge with AIKS without rewriting source files.">
+<meta property="og:url" content="https://sunan869.github.io/aiks/en/guides/claude-code-session-history/">
+<meta property="og:image" content="https://repository-images.githubusercontent.com/1370765163/8c96f727-860f-4ba2-a461-52b122bb1904">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Claude Code Session History: Search Local Chats and Notes | AIKS","description":"Find Claude Code local JSONL session history, browse past coding conversations, search project records, and optionally extract knowledge with AIKS without rewriting source files.","url":"https://sunan869.github.io/aiks/en/guides/claude-code-session-history/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"AIKS","url":"https://sunan869.github.io/aiks/"},"about":{"@type":"SoftwareApplication","name":"AIKS","url":"https://sunan869.github.io/aiks/"}}</script>
+<link rel="stylesheet" href="../../../site.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://sunan869.github.io/aiks/en/"},{"@type":"ListItem","position":2,"name":"Guides","item":"https://sunan869.github.io/aiks/en/guides/"},{"@type":"ListItem","position":3,"name":"Find and reuse Claude Code conversation history locally","item":"https://sunan869.github.io/aiks/en/guides/claude-code-session-history/"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head"><div class="container head-inner">
+<a class="brand" href="../../" aria-label="AIKS home"><span class="brand-icon" aria-hidden="true">↺</span>AIKS</a>
+<nav aria-label="Primary navigation">
+<a href="../../#features">Features</a>
+<a href="../../#sources">Sources</a>
+<a href="../" aria-current="page">Guides</a>
+<a href="../../#start">Download</a>
+<a class="locale" href="../../../guides/claude-code-session-history/" lang="zh-CN">简体中文</a>
+</nav></div></header>
+<main id="main">
+<section class="guide-hero"><div class="container">
+<nav class="breadcrumb" aria-label="Breadcrumb"><a href="../../">Home</a><span aria-hidden="true">/</span><a href="../">Guides</a><span aria-hidden="true">/</span><span>Claude Code</span></nav>
+<span class="kicker">CLAUDE CODE · SESSION HISTORY</span><h1>Find and reuse Claude Code conversation history locally</h1>
+<p class="intro">A debugging fix or architecture decision often ends up buried inside an old Claude Code session. You can review the original records first, search across your work, and optionally turn verified findings into reusable notes. AIKS reads supported local provider data without modifying it.</p>
+<div class="guide-actions"><a class="btn btn-primary" href="https://github.com/Sunan869/aiks/releases/latest">Download AIKS <span aria-hidden="true">↗</span></a>
+<a class="btn btn-ghost" href="../../#sources">See supported sources</a></div>
+</div></section>
+<div class="container guide-layout">
+<article class="guide-content">
+<section><h2>Where does Claude Code keep its local session history?</h2><p>Claude Code commonly stores project-related session files under .claude/projects/ in the user home directory, often as JSONL. The actual location may vary by platform, version, or custom configuration. Confirm the path from your installed tool and the AIKS Data Sources page.</p>
+<pre class="guide-code"><code>~/.claude/projects/</code></pre></section>
+<section><h2>How to search and reuse the records</h2><ol class="guide-steps"><li><strong>Locate the provider</strong><p>Open AIKS Data Sources and find Claude Code. Check the detected path and provider status; set an absolute directory if your installation uses a custom location.</p></li>
+<li><strong>Scan read-only session records</strong><p>Enable the provider and scan. Open Work Records and filter by project, source, or title to verify that historical sessions were imported correctly.</p></li>
+<li><strong>Search existing content</strong><p>Look up an error message, framework, command, or configuration change. Basic full-text search works without an AI model.</p></li>
+<li><strong>Extract knowledge only if useful</strong><p>Configure an AI endpoint before enabling extraction of reusable findings. Semantic search requires a separate embedding service and remains optional.</p></li></ol></section>
+<section class="guide-example"><h2>Example: recovering a previous fix</h2><p>If you already solved a .NET build failure, search the error text and examine the original messages, attempted commands, final fix, and assumptions. AI-generated summaries are pointers back to evidence, not replacements for it.</p></section>
+<section><h2>Compatibility and privacy boundaries</h2><ul class="guide-bullets"><li>AIKS does not log in to Claude or download all private cloud account history. Local Claude Code files are a separate source.</li>
+<li>Custom profiles, changed storage layouts, and moved project directories may require provider path adjustments.</li>
+<li>Provider files remain read-only. AIKS knowledge records and optional SiYuan documents are stored separately.</li></ul>
+<p class="guide-footnote">Check actual parser coverage rather than assuming every tool version is supported.
+<a href="https://github.com/Sunan869/aiks/blob/main/docs/reference-analysis/multi-provider-support.md">Provider compatibility matrix</a>.</p></section>
+<section><h2>Frequently asked questions</h2><div class="guide-faq faq"><details><summary>Can I search without configuring a model?</summary><p>Yes. Browsing imported sessions and keyword search do not require model inference. Extraction and AI Q&amp;A need a configured AI endpoint.</p></details>
+<details><summary>Does AIKS edit my Claude Code session files?</summary><p>No. It reads supported local source files without writing to them.</p></details>
+<details><summary>Does this import all Claude web account chats?</summary><p>No. Local Claude Code history is not the same as private conversations in a Claude web account.</p></details></div></section>
+</article>
+<aside class="guide-aside"><div class="guide-aside-card"><span class="kicker">AT A GLANCE</span>
+<p>Local source import → work-record search → optional knowledge extraction.</p>
+<a href="../">All AIKS guides</a></div>
+<figure class="guide-screenshot"><a href="../../../media/screenshots/02-processing-center.png"><img src="../../../media/screenshots/02-processing-center.png" loading="lazy" width="1920" height="1032" alt="AIKS Processing Center showing imported sessions and extraction status"></a>
+<figcaption>An actual AIKS desktop screenshot; UI layout may change by version.</figcaption></figure></aside>
+</div>
+<section class="guide-more"><div class="container"><h2>Explore another tool</h2><div class="guide-link-row"><a href="../codex-cli-session-history/">Codex CLI Conversation History: Find and Reuse Coding Sessions<span aria-hidden="true"> ↗</span></a>
+<a href="../cursor-composer-history/">Cursor Composer History: Search Local Sessions and Extract Knowledge<span aria-hidden="true"> ↗</span></a></div>
+<p class="guide-footnote">Your original session content stays in its source language. Changing AIKS interface language does not translate user data.</p></div></section>
+<section><div class="container"><div class="cta"><h2>Keep useful solutions searchable</h2><p>Start with one supported source. Keep extraction and semantic search optional until you actually need them.</p>
+<div class="buttons"><a href="https://github.com/Sunan869/aiks/releases/latest" class="btn btn-primary">Get AIKS</a><a class="btn btn-ghost" href="../../">Product overview</a></div></div></div></section>
+</main>
+<footer class="footer"><div class="container footer-inner"><div><strong>AIKS · AI Knowledge Sync</strong><div>Independent open-source project; no affiliation with third-party tools.</div></div>
+<nav><a href="../../">Home</a><a href="../">Guides</a><a href="https://github.com/Sunan869/aiks">GitHub</a><a href="https://github.com/Sunan869/aiks/releases/latest">Releases</a><a href="https://github.com/Sunan869/aiks/issues">Issues</a></nav></div></footer>
+</body></html>
